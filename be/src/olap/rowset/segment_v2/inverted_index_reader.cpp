@@ -734,8 +734,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
     }
     _file_full_path = index_file;
     _compoundReader = std::make_unique<DorisCompoundReader>(
-            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
-            config::inverted_index_read_buffer_size);
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+            index_file_name.c_str(), config::inverted_index_read_buffer_size);
 }
 
 Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,

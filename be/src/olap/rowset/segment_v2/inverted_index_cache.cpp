@@ -43,9 +43,9 @@ InvertedIndexSearcherCache* InvertedIndexSearcherCache::_s_instance = nullptr;
 IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::FileSystemSPtr& fs,
                                                                   const std::string& index_dir,
                                                                   const std::string& file_name) {
-    DorisCompoundReader* directory =
-            new DorisCompoundReader(DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
-                                    file_name.c_str(), config::inverted_index_read_buffer_size);
+    DorisCompoundReader* directory = new DorisCompoundReader(
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()), file_name.c_str(),
+            config::inverted_index_read_buffer_size);
     auto closeDirectory = true;
     auto index_searcher =
             std::make_shared<lucene::search::IndexSearcher>(directory, closeDirectory);
