@@ -113,6 +113,7 @@ public:
             : Base(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
+              _codec(compression_codec()),
               _serializer(this) {
         _finish_dependency = std::make_shared<FinishDependency>(
                 parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
@@ -151,6 +152,7 @@ public:
 
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
+    BlockCompressionCodec* compression_codec() const;
     std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
@@ -158,6 +160,7 @@ public:
             channel_shared_ptrs;
     int current_channel_idx; // index of current channel to send to if _random == true
     bool only_local_exchange;
+    BlockCompressionCodec* _codec = nullptr;
 
 private:
     friend class ExchangeSinkOperatorX;
@@ -259,6 +262,7 @@ private:
     bool _transfer_large_data_by_brpc = false;
 
     segment_v2::CompressionTypePB _compression_type;
+    BlockCompressionCodec* _codec = nullptr;
 };
 
 } // namespace pipeline

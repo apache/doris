@@ -65,6 +65,8 @@ public:
         return _split_block_distribute_by_channel_timer;
     }
 
+    BlockCompressionCodec* _codec = nullptr;
+
 private:
     friend class ResultFileSinkOperatorX;
 

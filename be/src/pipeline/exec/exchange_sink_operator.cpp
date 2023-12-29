@@ -261,6 +261,10 @@ segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
     return _parent->cast<ExchangeSinkOperatorX>()._compression_type;
 }
 
+BlockCompressionCodec* ExchangeSinkLocalState::compression_codec() const {
+    return _parent->cast<ExchangeSinkOperatorX>()._codec;
+}
+
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
@@ -299,6 +303,7 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
 Status ExchangeSinkOperatorX::open(RuntimeState* state) {
     DCHECK(state != nullptr);
     _compression_type = state->fragement_transmission_compression_type();
+    RETURN_IF_ERROR(get_block_compression_codec(_compression_type, &_codec));
     return Status::OK();
 }
 
