@@ -46,6 +46,7 @@ public:
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
                                         element_count_capacity));
         } else {
+            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
     }
@@ -62,6 +63,7 @@ public:
                                         cache_value_time_extractor, cache_value_check_timestamp,
                                         element_count_capacity));
         } else {
+            CHECK(ExecEnv::GetInstance()->get_dummy_lru_cache());
             _cache = ExecEnv::GetInstance()->get_dummy_lru_cache();
         }
     }
