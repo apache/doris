@@ -2185,7 +2185,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // so no need to filter a column by expr.
     if (_opts.stats->blocks_load == 0) {
         for (auto it = _columns_to_filter.begin(); it != _columns_to_filter.end();) {
-            LOG(INFO) << "_is_common_expr_column 111 " << *it;
             if (*it >= block->columns()) {
                 it = _columns_to_filter.erase(it);
             } else {
