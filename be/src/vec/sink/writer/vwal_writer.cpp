@@ -56,7 +56,7 @@ VWalWriter::~VWalWriter() {}
 
 Status VWalWriter::init() {
     RETURN_IF_ERROR(_wal_manager->create_wal_writer(_wal_id, _wal_writer));
-    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WAL_STATUS::CREATE);
+    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WalStatus::CREATE);
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
         if (slot_desc.col_unique_id < 0) {
