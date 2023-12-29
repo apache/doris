@@ -130,6 +130,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    // delete origin tablet after all transactions before this txn id finished,
+    // then send drop replica tasks in ReportHandler.
+    @SerializedName(value = "watermarkTxnId")
+    private long watermarkTxnId = -1;
+
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
@@ -545,6 +550,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          * we just check whether all new replicas are healthy.
          */
         tbl.writeLockOrAlterCancelException();
+        this.watermarkTxnId = Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
 
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -661,9 +667,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 partition.visualiseShadowIndex(shadowIdxId, originIdxId == partition.getBaseIndex().getId());
 
-                // delete origin replicas
+                TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
                 for (Tablet originTablet : droppedIdx.getTablets()) {
-                    Env.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
+                    invertedIndex.addDecommissionTablet(originTablet.getId(), watermarkTxnId);
                 }
             }
         }
@@ -723,6 +729,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             return false;
         }
 
+        this.watermarkTxnId = Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
         cancelInternal();
 
         pruneMeta();
@@ -756,7 +763,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                             MaterializedIndex shadowIdx = entry.getValue();
                             for (Tablet shadowTablet : shadowIdx.getTablets()) {
-                                invertedIndex.deleteTablet(shadowTablet.getId());
+                                invertedIndex.addDecommissionTablet(shadowTablet.getId(), watermarkTxnId);
                             }
                             partition.deleteRollupIndex(shadowIdx.getId());
                         }
@@ -844,6 +851,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayRunningJob(SchemaChangeJobV2 replayedJob) {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        this.watermarkTxnId = replayedJob.watermarkTxnId;
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
@@ -867,6 +875,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Replay job in CANCELLED state.
      */
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
+        this.watermarkTxnId = replayedJob.watermarkTxnId;
         cancelInternal();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;

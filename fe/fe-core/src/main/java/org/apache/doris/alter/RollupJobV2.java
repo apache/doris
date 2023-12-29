@@ -132,6 +132,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
+    // used for delete decommission tablet
+    @SerializedName(value = "watermarkTxnId")
+    private long watermarkTxnId = -1;
+
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tabletId -> agentTask
@@ -621,6 +625,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return false;
         }
 
+        this.watermarkTxnId = Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
         cancelInternal();
 
         jobState = JobState.CANCELLED;
@@ -645,7 +650,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     for (Long partitionId : partitionIdToRollupIndex.keySet()) {
                         MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
                         for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                            invertedIndex.deleteTablet(rollupTablet.getId());
+                            invertedIndex.addDecommissionTablet(rollupTablet.getId(), watermarkTxnId);
                         }
                         Partition partition = tbl.getPartition(partitionId);
                         partition.deleteRollupIndex(rollupIndexId);
@@ -755,6 +760,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in CANCELLED state.
      */
     private void replayCancelled(RollupJobV2 replayedJob) {
+        this.watermarkTxnId = replayedJob.watermarkTxnId;
         cancelInternal();
         this.jobState = JobState.CANCELLED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;

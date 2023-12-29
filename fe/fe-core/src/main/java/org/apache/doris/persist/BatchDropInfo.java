@@ -43,12 +43,15 @@ public class BatchDropInfo implements Writable {
     private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexIdSet")
     private Set<Long> indexIdSet;
+    @SerializedName(value = "watermarkTxnId")
+    private long watermarkTxnId = -1;  // used for delete decommission tablet
 
-    public BatchDropInfo(long dbId, long tableId, String tableName, Set<Long> indexIdSet) {
+    public BatchDropInfo(long dbId, long tableId, String tableName, Set<Long> indexIdSet, long watermarkTxnId) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.indexIdSet = indexIdSet;
+        this.watermarkTxnId = watermarkTxnId;
     }
 
     @Override
@@ -65,7 +68,8 @@ public class BatchDropInfo implements Writable {
         }
         BatchDropInfo otherBatchDropInfo = (BatchDropInfo) other;
         return this.dbId == otherBatchDropInfo.dbId && this.tableId == otherBatchDropInfo.tableId
-                && this.indexIdSet.equals(otherBatchDropInfo.indexIdSet);
+                && this.indexIdSet.equals(otherBatchDropInfo.indexIdSet)
+                && this.watermarkTxnId == otherBatchDropInfo.watermarkTxnId;
     }
 
     @Override
@@ -92,6 +96,10 @@ public class BatchDropInfo implements Writable {
 
     public String getTableName() {
         return tableName;
+    }
+
+    public long getWatermarkTxnId() {
+        return watermarkTxnId;
     }
 
     public String toJson() {
