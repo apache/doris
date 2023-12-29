@@ -336,15 +336,15 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         }
     }
 
