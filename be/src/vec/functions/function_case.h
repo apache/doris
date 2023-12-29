@@ -253,7 +253,8 @@ public:
     }
 
     template <typename IndexType>
-    void update_result_normal(MutableColumnPtr& result_column_ptr, const IndexType* __restrict then_idx,
+    void update_result_normal(MutableColumnPtr& result_column_ptr,
+                              const IndexType* __restrict then_idx,
                               CaseWhenColumnHolder& column_holder) {
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
