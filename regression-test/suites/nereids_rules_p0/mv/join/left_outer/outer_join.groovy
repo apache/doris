@@ -22,8 +22,6 @@ suite("outer_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -364,7 +362,7 @@ suite("outer_join") {
 
     // self join test
     def mv8_0 = """
-    select 
+    select
     a.o_orderkey,
     count(distinct a.o_orderstatus) num1,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
@@ -381,7 +379,7 @@ suite("outer_join") {
     group by a.o_orderkey;
     """
     def query8_0 = """
-    select 
+    select
     a.o_orderkey,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
