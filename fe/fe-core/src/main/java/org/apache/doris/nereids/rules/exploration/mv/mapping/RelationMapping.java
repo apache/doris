@@ -74,9 +74,9 @@ public class RelationMapping extends Mapping {
         Set<Long> sourceTableKeySet = sourceTableRelationIdMap.keySet();
         List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
-        for (Long sourceTableQualifier : sourceTableKeySet) {
-            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableQualifier);
-            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(sourceTableQualifier);
+        for (Long sourceTableId : sourceTableKeySet) {
+            Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableId);
+            Set<MappedRelation> targetMappedRelations = targetTableRelationIdMap.get(sourceTableId);
             if (targetMappedRelations.isEmpty()) {
                 continue;
             }
@@ -89,12 +89,13 @@ public class RelationMapping extends Mapping {
                 continue;
             }
             // relation appear more than once, should cartesian them and power set to correct combination
-            // if query is a0, a1, view is b0, b1
+            // if query is select * from tableA0, tableA1, materialized view is select * from tableA2, tableA3,
+            // tableA is the same table used by both query and materialized view
             // relationMapping will be
-            // a0 b0
-            // a0 b1
-            // a1 b0
-            // a1 b1
+            // tableA0 tableA2
+            // tableA0 tableA3
+            // tableA1 tableA2
+            // tableA1 tableA3
             ImmutableList<Pair<MappedRelation, MappedRelation>> relationMapping = Sets.cartesianProduct(
                             sourceMappedRelations, targetMappedRelations)
                     .stream()
@@ -103,8 +104,8 @@ public class RelationMapping extends Mapping {
 
             // the mapping in relationMappingPowerList should be bi-direction
             // [
-            //    {a0-b0, a1-b1}
-            //    {a1-b0, a0-b1}
+            //    {tableA0 tableA2, tableA1 tableA3}
+            //    {tableA0 tableA3, tableA1 tableA2}
             // ]
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
             int relationMappingSize = relationMapping.size();
