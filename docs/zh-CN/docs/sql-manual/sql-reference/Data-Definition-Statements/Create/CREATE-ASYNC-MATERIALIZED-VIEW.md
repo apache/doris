@@ -73,7 +73,9 @@ CREATE MATERIALIZED VIEW mv1
 ##### buildMode
 
 用来定义物化视图是否创建完成立即刷新,默认IMMEDIATE
+
 IMMEDIATE：立即刷新
+
 DEFERRED：延迟刷新
 
 ```sql
@@ -92,7 +94,9 @@ BUILD IMMEDIATE
 ##### refreshMethod
 
 用来定义物化视图刷新方式，默认AUTO
+
 COMPLETE：全量刷新
+
 AUTO：尽量增量刷新，如果不能增量刷新，就全量刷新
 
 ```sql
@@ -110,7 +114,9 @@ REFRESH COMPLETE
 ##### refreshTrigger
 
 物化视图刷新数据的触发方式，默认MANUAL
+
 MANUAL：手动刷新
+
 SCHEDULE：定时刷新
 
 ```sql
@@ -163,6 +169,7 @@ KEY(k1,k2)
 物化视图既可以指定table的property，也可以指定物化视图特有的property。
 
 物化视图特有的property包括：
+
 `grace_period`：查询改写时允许物化视图数据的最大延迟时间
 `excluded_trigger_tables`：数据刷新时忽略的表名，逗号分割。例如`table1,table2`
 `refresh_partition_num`：单次insert语句刷新的分区数量，默认为1
@@ -170,6 +177,7 @@ KEY(k1,k2)
 ##### query
 
 创建物化视图的查询语句，其结果即为物化视图中的数据
+
 不支持随机函数，例如:
 ```sql
 SELECT random() as dd,k3 FROM user
