@@ -2573,43 +2573,79 @@ PARTITION `p599` VALUES IN (599)
     sql """drop stats col1100 """
     sql """DROP TABLE IF EXISTS col1100"""
 
-    // Test trigger type.
-    sql """DROP DATABASE IF EXISTS trigger"""
-    sql """CREATE DATABASE IF NOT EXISTS trigger"""
-    sql """USE trigger"""
-    sql """
-      CREATE TABLE if not exists trigger_test(
-       `id`      int NOT NULL,
-       `name`    VARCHAR(152)
-      )ENGINE=OLAP
+   // Test partititon load data for the first time.
+   sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
       DUPLICATE KEY(`id`)
-      COMMENT "OLAP"
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
       DISTRIBUTED BY HASH(`id`) BUCKETS 1
       PROPERTIES (
-       "replication_num" = "1"
-      );
-    """
-    sql """insert into trigger_test values(1,'name1') """
-    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+       "replication_num" = "1");
+     """
 
-    int i = 0;
-    for (0; i < 10; i++) {
-        def result = sql """show column stats trigger_test"""
-        if (result.size() != 2) {
-	    Thread.sleep(1000)
-            continue;
-        }
-        assertEquals(result[0][10], "SYSTEM")
-        assertEquals(result[1][10], "SYSTEM")
-        break
-    }
-    if (i < 10) {
-        sql """analyze table trigger_test with sync"""
-        def result = sql """show column stats trigger_test"""
-        assertEquals(result.size(), 2)
-        assertEquals(result[0][10], "MANUAL")
-        assertEquals(result[1][10], "MANUAL")
-    }
-    sql """DROP DATABASE IF EXISTS trigger"""
+   sql """analyze table partition_test with sync"""
+   sql """insert into partition_test values (1, '1', '1')"""
+   def partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   assertEquals(partition_result[0][0], "1")
+   sql """analyze table partition_test with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (101, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   sql """analyze table partition_test(id) with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (102, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+
+   // Test trigger type.
+   sql """DROP DATABASE IF EXISTS trigger"""
+   sql """CREATE DATABASE IF NOT EXISTS trigger"""
+   sql """USE trigger"""
+   sql """
+     CREATE TABLE if not exists trigger_test(
+      `id`      int NOT NULL,
+      `name`    VARCHAR(152)
+     )ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT "OLAP"
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into trigger_test values(1,'name1') """
+   sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+   int i = 0;
+   for (0; i < 10; i++) {
+       def result = sql """show column stats trigger_test"""
+       if (result.size() != 2) {
+	   Thread.sleep(1000)
+           continue;
+       }
+       assertEquals(result[0][10], "SYSTEM")
+       assertEquals(result[1][10], "SYSTEM")
+       break
+   }
+   if (i < 10) {
+       sql """analyze table trigger_test with sync"""
+       def result = sql """show column stats trigger_test"""
+       assertEquals(result.size(), 2)
+       assertEquals(result[0][10], "MANUAL")
+       assertEquals(result[1][10], "MANUAL")
+   }
+   sql """DROP DATABASE IF EXISTS trigger"""
 
 }

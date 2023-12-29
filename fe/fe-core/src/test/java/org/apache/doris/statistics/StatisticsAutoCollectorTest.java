@@ -301,8 +301,13 @@ public class StatisticsAutoCollectorTest {
         };
         // A very huge table has been updated recently, so we should skip it this time
         stats.updatedTime = System.currentTimeMillis() - 1000;
+        stats.newPartitionLoaded = new AtomicBoolean();
+        stats.newPartitionLoaded.set(true);
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        // Test new partition loaded data for the first time. Not skip.
         Assertions.assertFalse(autoCollector.skip(olapTable));
+        stats.newPartitionLoaded.set(false);
+        // Assertions.assertTrue(autoCollector.skip(olapTable));
         // The update of this huge table is long time ago, so we shouldn't skip it this time
         stats.updatedTime = System.currentTimeMillis()
                 - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
