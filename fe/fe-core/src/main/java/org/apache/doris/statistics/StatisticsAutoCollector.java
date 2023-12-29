@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
@@ -39,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -138,8 +140,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             return false;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        // means it never get analyzed yet
-        if (tableStats == null) {
+
+        // means it's never got analyzed or new partition loaded data.
+        if (tableStats == null || tableStats.newPartitionLoaded.get()) {
             return false;
         }
         return System.currentTimeMillis()
@@ -177,8 +180,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
-        TableIf table = StatisticsUtil
-                .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         // Skip tables that are too width.
         if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
             return null;
@@ -186,16 +188,27 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-        if (!table.needReAnalyzeTable(tblStats)) {
-            return null;
+
+        Map<String, Set<String>> needRunPartitions = null;
+        String colNames = jobInfo.colName;
+        if (table.needReAnalyzeTable(tblStats)) {
+            needRunPartitions = table.findReAnalyzeNeededPartitions();
+        } else if (table instanceof OlapTable && tblStats.newPartitionLoaded.get()) {
+            OlapTable olapTable = (OlapTable) table;
+            needRunPartitions = new HashMap<>();
+            Set<String> partitionColumnNames = olapTable.getPartitionInfo().getPartitionColumns().stream()
+                    .map(Column::getName).collect(Collectors.toSet());
+            colNames = partitionColumnNames.stream().collect(Collectors.joining(","));
+            Set<String> partitionNames = olapTable.getAllPartitions().stream()
+                    .map(Partition::getName).collect(Collectors.toSet());
+            for (String column : partitionColumnNames) {
+                needRunPartitions.put(column, partitionNames);
+            }
         }
 
-        Map<String, Set<String>> needRunPartitions = table.findReAnalyzeNeededPartitions();
-
-        if (needRunPartitions.isEmpty()) {
+        if (needRunPartitions == null || needRunPartitions.isEmpty()) {
             return null;
         }
-
-        return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
+        return new AnalysisInfoBuilder(jobInfo).setColName(colNames).setColToPartitions(needRunPartitions).build();
     }
 }
