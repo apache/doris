@@ -102,7 +102,7 @@ CREATE MATERIALIZED VIEW mv1
             l_suppkey;
 ```
 
-具体的语法可查看[CREATE ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
+具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ### 查看已创建的物化视图
 
@@ -145,7 +145,7 @@ select * from jobs("type"="mv") order by CreateTime;
 
 具体的语法可查看[jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
 
-### 暂停物化视图job调度
+### 暂停物化视图job定时调度
 
 ```
 PAUSE MATERIALIZED VIEW JOB ON mv1;
@@ -155,7 +155,7 @@ PAUSE MATERIALIZED VIEW JOB ON mv1;
 
 具体的语法可查看[PAUSE MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
 
-### 恢复物化视图job调度
+### 恢复物化视图job定时调度
 
 ```
 RESUME MATERIALIZED VIEW JOB ON mv1;
@@ -178,7 +178,7 @@ select * from tasks("type"="mv");
 ### 取消物化视图刷新数据的task
 
 ```
-CANCEL MATERIALIZED VIEW TASK 1 on mv1;
+CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ```
 
 具体的语法可查看[CANCEL MATERIALIZED VIEW TASK](../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
@@ -202,6 +202,6 @@ DROP MATERIALIZED VIEW mv1;
 
 物化视图有专门的删除语法，不能通过drop table来删除，
 
-具体的语法可查看[DROP ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
+具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
 
 ## 物化视图的使用
