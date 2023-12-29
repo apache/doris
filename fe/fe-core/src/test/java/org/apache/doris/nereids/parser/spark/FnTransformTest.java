@@ -21,6 +21,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -30,26 +31,59 @@ import org.junit.jupiter.api.Test;
 public class FnTransformTest extends ParserTestBase {
 
     @Test
-    public void testCommonFnTransform() {
-        NereidsParser nereidsParser = new NereidsParser();
+    public void testCommonFnTransformers() {
+        // test json functions
+        testFunction("SELECT json_extract('{\"c1\": 1}', '$.c1') as b FROM t",
+                    "SELECT get_json_object('{\"c1\": 1}', '$.c1') as b FROM t",
+                    "json_extract('{\"c1\": 1}', '$.c1')");
 
-        String sql1 = "SELECT json_extract('{\"a\": 1}', '$.a') as b FROM t";
-        String dialectSql1 = "SELECT get_json_object('{\"a\": 1}', '$.a') as b FROM t";
-        LogicalPlan logicalPlan1 = nereidsParser.parseSingle(sql1);
-        LogicalPlan dialectLogicalPlan1 = nereidsParser.parseSingle(dialectSql1,
-                    new SparkSql3LogicalPlanBuilder());
-        Assertions.assertEquals(dialectLogicalPlan1, logicalPlan1);
-        Assertions.assertTrue(dialectLogicalPlan1.child(0).toString().toLowerCase()
-                    .contains("json_extract('{\"a\": 1}', '$.a')"));
+        testFunction("SELECT json_extract(c1, '$.c1') as b FROM t",
+                    "SELECT get_json_object(c1, '$.c1') as b FROM t",
+                    "json_extract('c1, '$.c1')");
 
-        String sql2 = "SELECT json_extract(a, '$.a') as b FROM t";
-        String dialectSql2 = "SELECT get_json_object(a, '$.a') as b FROM t";
-        LogicalPlan logicalPlan2 = nereidsParser.parseSingle(sql2);
-        LogicalPlan dialectLogicalPlan2 = nereidsParser.parseSingle(dialectSql2,
-                new SparkSql3LogicalPlanBuilder());
-        Assertions.assertEquals(dialectLogicalPlan2, logicalPlan2);
-        Assertions.assertTrue(dialectLogicalPlan2.child(0).toString().toLowerCase()
-                    .contains("json_extract('a, '$.a')"));
+        // test string functions
+        testFunction("SELECT str_to_date('2023-12-16', 'yyyy-MM-dd') as b FROM t",
+                    "SELECT to_date('2023-12-16', 'yyyy-MM-dd') as b FROM t",
+                    "str_to_date('2023-12-16', 'yyyy-MM-dd')");
+        testFunction("SELECT str_to_date(c1, 'yyyy-MM-dd') as b FROM t",
+                "SELECT to_date(c1, 'yyyy-MM-dd') as b FROM t",
+                "str_to_date('c1, 'yyyy-MM-dd')");
+
+        testFunction("SELECT date_trunc('2023-12-16', 'YEAR') as a FROM t",
+                    "SELECT trunc('2023-12-16', 'YEAR') as a FROM t",
+                    "date_trunc('2023-12-16', 'YEAR')");
+        testFunction("SELECT date_trunc(c1, 'YEAR') as a FROM t",
+                "SELECT trunc(c1, 'YEAR') as a FROM t",
+                "date_trunc('c1, 'YEAR')");
+
+        testFunction("SELECT date_trunc('2023-12-16', 'YEAR') as a FROM t",
+                    "SELECT trunc('2023-12-16', 'YY') as a FROM t",
+                    "date_trunc('2023-12-16', 'YEAR')");
+        testFunction("SELECT date_trunc(c1, 'YEAR') as a FROM t",
+                "SELECT trunc(c1, 'YY') as a FROM t",
+                "date_trunc('c1, 'YEAR')");
+
+        testFunction("SELECT date_trunc('2023-12-16', 'MONTH') as a FROM t",
+                    "SELECT trunc('2023-12-16', 'MON') as a FROM t",
+                    "date_trunc('2023-12-16', 'MONTH')");
+        testFunction("SELECT date_trunc(c1, 'MONTH') as a FROM t",
+                "SELECT trunc(c1, 'MON') as a FROM t",
+                "date_trunc('c1, 'MONTH')");
+
+        // test numeric functions
+        testFunction("SELECT avg(c1) as a from t",
+                    "SELECT mean(c1) as a from t",
+                    "avg('c1)");
     }
 
+    private void testFunction(String sql, String dialectSql, String expectLogicalPlanStr) {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        LogicalPlan dialectLogicalPlan = nereidsParser.parseSingle(dialectSql,
+                new SparkSql3LogicalPlanBuilder());
+        Assertions.assertEquals(dialectLogicalPlan, logicalPlan);
+        String dialectLogicalPlanStr = dialectLogicalPlan.child(0).toString().toLowerCase();
+        System.out.println("dialectLogicalPlanStr: " + dialectLogicalPlanStr);
+        Assertions.assertTrue(StringUtils.containsIgnoreCase(dialectLogicalPlanStr, expectLogicalPlanStr));
+    }
 }
