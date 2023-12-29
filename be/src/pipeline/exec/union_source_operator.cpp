@@ -120,7 +120,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_source_dependency(_dependency);
+    ss->data_queue.set_source_dependency(info.dependency);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
