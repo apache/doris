@@ -107,7 +107,7 @@ CREATE MATERIALIZED VIEW mv1
 ### 查看已创建的物化视图
 
 ```
-select * from mv_infos("database"="tpch") where Name="mv1"
+select * from mv_infos("database"="tpch") where Name="mv1";
 ```
 
 物化视图独有的特性可以通过[mv_infos()](../sql-manual/sql-functions/table-functions/mv_infos.md)查看
@@ -129,6 +129,11 @@ refresh MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 物化视图有多种刷新方式，无论哪种方式，都可以随时进行手动刷新，
 
 具体的语法可查看[REFRESH MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
+
+### 查看物化视图的数据
+```
+select * FROM mv1;
+```
 
 ### 查看物化视图刷新数据的job
 
@@ -182,7 +187,7 @@ CANCEL MATERIALIZED VIEW TASK 1 on mv1;
 
 修改物化视图的属性
 ```
-alter Materialized View mv1 set("grace_period"="3333");
+ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 ```
 
 修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
