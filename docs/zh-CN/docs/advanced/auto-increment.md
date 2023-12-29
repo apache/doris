@@ -413,7 +413,47 @@ from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' gro
 
 ### 高效分页
 
-在页面展示数据时，往往需要做分页展示，传统的分页使用 SQL 重的 limit offset 语法实现，查询涉及的数据量很大时，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > xx limit 100 的方法来实现分页。
+在页面展示数据时，往往需要做分页展示。传统的分页使用 SQL 中的 limit offset 语法实现，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，但该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > xx limit 100 的方式提下推谓词提前过滤大量数据，从而更高效地实现分页。
 
+例如有如下业务表需要进行分页展示，通过在表中添加一个自增列从而赋予每一行一个唯一标识：
+
+```sql
+CREATE TABLE `tbl` (
+    `key` int(11) NOT NULL COMMENT "",
+    `name` varchar(26) NOT NULL COMMENT "",
+    `address` varchar(41) NOT NULL COMMENT "",
+    `city` varchar(11) NOT NULL COMMENT "",
+    `nation` varchar(16) NOT NULL COMMENT "",
+    `region` varchar(13) NOT NULL COMMENT "",
+    `phone` varchar(16) NOT NULL COMMENT "",
+    `mktsegment` varchar(11) NOT NULL COMMENT "",
+    `unique_value` BIGINT NOT NULL AUTO_INCREMENT
+) DUPLICATE KEY (`key`, `name`)
+DISTRIBUTED BY HASH(`key`) BUCKETS 10
+PROPERTIES (
+    "replication_num" = "1",
+);
+```
+
+假设在分页展示中，每页展示100条数据，使用如下方获取第一页的数据：
+
+```sql
+select * from tbl order by unique_value limit 100;
+```
+
+记录下返回结果中`unique_value`中的最大值，假设为99，则可用如下方式查询第2页的数据：
+
+```sql
+select * from tbl where unique_value > 99 order by unique_value limit 100;
+```
+
+如果要直接获取第101页的内容，可以使用如下方式
+
+```sql
+select key, name, address, city, nation, region, phone, mktsegment
+from tbl, (select uniuqe_value as max_value from tbl order by uniuqe_value limit 1 offset 9999) as previous_data
+where tbl.uniuqe_value > previous_data.max_value
+order by unique_value limit 100;
+```
 
 
