@@ -62,16 +62,16 @@ mysql> desc function mv_infos("database"="tpch100");
 12 rows in set (0.01 sec)
 ```
 
-* Id：物化视图id.
-* Name：物化视图Name.
-* JobName：物化视图对应的job名称.
-* State：物化视图状态.
-* SchemaChangeDetail：物化视图State变为SchemaChange的原因.
-* RefreshState：物化视图刷新状态.
-* RefreshInfo：物化视图定义的刷新策略信息.
-* QuerySql：物化视图定义的查询语句.
-* EnvInfo：物化视图创建时的环境信息.
-* MvProperties：物化视属性.
+* Id：物化视图id
+* Name：物化视图Name
+* JobName：物化视图对应的job名称
+* State：物化视图状态
+* SchemaChangeDetail：物化视图State变为SchemaChange的原因
+* RefreshState：物化视图刷新状态
+* RefreshInfo：物化视图定义的刷新策略信息
+* QuerySql：物化视图定义的查询语句
+* EnvInfo：物化视图创建时的环境信息
+* MvProperties：物化视属性
 * MvPartitionInfo：物化视图的分区信息
 * SyncWithBaseTables：是否和base表数据同步，如需查看哪个分区不同步，请使用[SHOW PARTITIONS](../sql-reference/Show-Statements/SHOW-PARTITIONS.md)
 

@@ -68,18 +68,18 @@ mysql> desc function tasks("type"="mv");
 18 rows in set (0.00 sec)
 ```
 
-* TaskId：task id.
-* JobId：job id.
-* JobName：job名称.
+* TaskId：task id
+* JobId：job id
+* JobName：job名称
 * MvId：物化视图id
 * MvName：物化视图名称
 * MvDatabaseId：物化视图所属db id
 * MvDatabaseName：物化视图所属db名称
-* Status：task状态.
-* ErrorMsg：task失败信息.
-* CreateTime：task创建时间.
-* StartTime：task开始运行时间.
-* FinishTime：task结束运行时间.
+* Status：task状态
+* ErrorMsg：task失败信息
+* CreateTime：task创建时间
+* StartTime：task开始运行时间
+* FinishTime：task结束运行时间
 * DurationMs：task运行时间
 * TaskContext：task运行参数
 * RefreshMode：刷新模式

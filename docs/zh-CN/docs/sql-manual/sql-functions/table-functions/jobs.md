@@ -67,9 +67,9 @@ mysql> desc function jobs("type"="mv");
 * MvDatabaseId：物化视图所属db id
 * MvDatabaseName：物化视图所属db名称
 * ExecuteType：执行类型
-* RecurringStrategy：循环策略.
-* Status：job状态.
-* CreateTime：task创建时间.
+* RecurringStrategy：循环策略
+* Status：job状态
+* CreateTime：task创建时间
 
 ### example
 
