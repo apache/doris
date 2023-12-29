@@ -114,8 +114,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(
-                _add_blocks(state, true));
+        RETURN_IF_ERROR(_add_blocks(state, true));
     }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
@@ -221,8 +220,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(
-                    _add_blocks(state, false));
+            RETURN_IF_ERROR(_add_blocks(state, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
                 state, output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
@@ -230,7 +228,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data) {
+Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
+                                         bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
