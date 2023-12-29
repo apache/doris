@@ -43,6 +43,10 @@ WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
 }
 WalTable::~WalTable() {}
 
+#ifdef BE_TEST
+Status k_stream_load_exec_status;
+#endif
+
 void WalTable::add_wal(int64_t wal_id, std::string wal) {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     LOG(INFO) << "add replay wal " << wal;
@@ -293,12 +297,14 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
 
 Status WalTable::_replay_one_txn_with_stremaload(int64_t wal_id, const std::string& wal,
                                                  const std::string& label) {
-    bool success;
+    bool success = false;
 #ifndef BE_TEST
     auto st = _handle_stream_load(wal_id, wal, label);
     auto msg = st.msg();
     success = st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() ||
               msg.find("LabelAlreadyUsedException") != msg.npos;
+#else
+    success = k_stream_load_exec_status.ok();
 #endif
     if (success) {
         LOG(INFO) << "success to replay wal =" << wal;
