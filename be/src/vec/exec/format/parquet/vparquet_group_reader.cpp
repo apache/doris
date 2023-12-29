@@ -412,7 +412,6 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
                     column_ptr, column_type, select_vector, batch_size - col_read_rows, &loop_rows,
                     &col_eof, is_dict_filter, col_skip_nums, &skipped_nums));
-            //fprintf(stderr, "batch_size: %ld, col_read_rows: %ld, loop_rows: %ld\n", batch_size, col_read_rows, loop_rows);
             col_skip_nums -= skipped_nums;
             col_read_rows += loop_rows;
         }
@@ -446,12 +445,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         pre_read_rows = 0;
         pre_eof = false;
         ColumnSelectVector run_length_vector;
-        //fprintf(stderr, "pre column batch_size: %ld, pre_read_rows: %ld\n", batch_size,
-        //        pre_read_rows);
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns.first, batch_size,
                                           &pre_read_rows, &pre_eof, run_length_vector, 0));
-        //fprintf(stderr, "pre column batch_size: %ld, pre_read_rows %ld finished\n", batch_size,
-        //        pre_read_rows);
         if (pre_read_rows == 0) {
             DCHECK_EQ(pre_eof, true);
             break;
@@ -526,41 +521,31 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     }
 
     ColumnSelectVector& select_vector = *select_vector_ptr;
-    /*std::unique_ptr<uint8_t[]> rebuild_filter_map = nullptr;
-    if (_cached_filtered_rows != 0) {
-        _rebuild_select_vector(select_vector, rebuild_filter_map, pre_read_rows);
-        pre_read_rows += _cached_filtered_rows;
-        _cached_filtered_rows = 0;
-    }*/
 
     // lazy read columns
     size_t lazy_read_rows;
     bool lazy_eof;
-    //fprintf(stderr, "lazy column pre_read_rows: %ld\n", pre_read_rows);
     RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.lazy_read_columns, pre_read_rows,
                                       &lazy_read_rows, &lazy_eof, select_vector,
                                       _cached_filtered_rows));
-    //fprintf(stderr, "lazy column pre_read_rows: %ld finished\n", pre_read_rows);
     if (pre_read_rows != lazy_read_rows) {
         return Status::Corruption("Can't read the same number of rows when doing lazy read");
     }
     if (_cached_filtered_rows != 0) {
         _cached_filtered_rows = 0;
     }
+
+    RETURN_IF_ERROR(
+            _fill_partition_columns(block, lazy_read_rows, _lazy_read_ctx.partition_columns));
+    RETURN_IF_ERROR(_fill_missing_columns(block, lazy_read_rows, _lazy_read_ctx.missing_columns));
     // pre_eof ^ lazy_eof
     // we set pre_read_rows as batch_size for lazy read columns, so pre_eof != lazy_eof
 
     // filter data in predicate columns, and remove filter column
     if (select_vector.has_filter()) {
-        //if (block->columns() == origin_column_num) {
-        // the whole row group has been filtered by _lazy_read_ctx.vconjunct_ctx, and batch_eof is
-        // generated from next batch, so the filter column is removed ahead.
-        //    DCHECK_EQ(block->rows(), 0);
-        //} else {
         RETURN_IF_CATCH_EXCEPTION(
                 Block::filter_block_internal(block, columns_to_filter, result_filter));
         Block::erase_useless_column(block, origin_column_num);
-        //}
     } else {
         Block::erase_useless_column(block, origin_column_num);
     }
@@ -582,8 +567,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *read_rows = column_size;
 
     *batch_eof = pre_eof;
-    RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
-    RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
     if (!_not_single_slot_filter_conjuncts.empty()) {
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                 _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,

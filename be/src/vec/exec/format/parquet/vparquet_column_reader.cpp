@@ -477,7 +477,6 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter,
                                             size_t skip_nums, size_t* skipped_nums) {
-    //fprintf(stderr, "batch_size: %ld, skip_nums: %ld\n", batch_size, skip_nums);
     *skipped_nums = 0;
     if (_chunk_reader->remaining_num_values() == 0) {
         if (!_chunk_reader->has_next_page()) {
@@ -503,35 +502,6 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         RETURN_IF_ERROR(_chunk_reader->skip_page());
         *read_rows = 0;
     } else {
-        //bool skip_whole_batch = false;
-        // Determining whether to skip page or batch will increase the calculation time.
-        // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
-        /*if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
-            // lazy read
-            size_t remaining_num_values = 0;
-            for (auto& range : read_ranges) {
-                remaining_num_values += range.last_row - range.first_row;
-            }
-            if (batch_size >= remaining_num_values &&
-                select_vector.can_filter_all(remaining_num_values)) {
-                // We can skip the whole page if the remaining values is filtered by predicate columns
-                select_vector.skip(remaining_num_values);
-		fprintf(stderr, "select_vector.skip1(%ld)\n", remaining_num_values);
-                _current_row_index += _chunk_reader->remaining_num_values();
-                RETURN_IF_ERROR(_chunk_reader->skip_page());
-                *read_rows = remaining_num_values;
-                if (!_chunk_reader->has_next_page()) {
-                    *eof = true;
-                }
-                return Status::OK();
-            }
-            skip_whole_batch =
-                    batch_size <= remaining_num_values && select_vector.can_filter_all(batch_size);
-            if (skip_whole_batch) {
-                select_vector.skip(batch_size);
-		fprintf(stderr, "select_vector.skip2(%ld)\n", batch_size);
-            }
-        }*/
         // load page data to decode or skip values
         RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
 
@@ -557,15 +527,6 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             // generate the read values
             size_t read_values =
                     std::min((size_t)(range.last_row - _current_row_index), batch_size - has_read);
-            /*if (skip_whole_batch) {
-                RETURN_IF_ERROR(_skip_values(read_values));
-		fprintf(stderr, "_skip_values(%ld)\n", read_values);
-            } else {
-                RETURN_IF_ERROR(_read_values(read_values, doris_column, type, select_vector,
-                                             is_dict_filter));
-		fprintf(stderr, "_read_values(%ld)\n", read_values);
-            }*/
-            //fprintf(stderr, "read_values: %ld\n", read_values);
             RETURN_IF_ERROR(
                     _read_values(read_values, doris_column, type, select_vector, is_dict_filter));
             has_read += read_values;
@@ -581,7 +542,6 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     if (_chunk_reader->remaining_num_values() == 0 && !_chunk_reader->has_next_page()) {
         *eof = true;
     }
-    //fprintf(stderr, "*read_rows: %ld\n", *read_rows);
     return Status::OK();
 }
 

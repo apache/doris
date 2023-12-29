@@ -233,11 +233,6 @@ Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            /*for (size_t i = 0; i < run_length; ++i) {
-                char* buf_start = _data->data + _offset;
-                column_data[data_index++] = *(PhysicalType*)buf_start;
-                _offset += _type_length;
-            }*/
             memcpy(column_data.data() + data_index, _data->data + _offset,
                    run_length * _type_length);
             data_index += run_length;
