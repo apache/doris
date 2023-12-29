@@ -52,7 +52,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 public class PropertyConverter {
@@ -267,10 +266,6 @@ public class PropertyConverter {
         String credentialsProviders = s3Properties
                 .getOrDefault(S3Properties.CREDENTIALS_PROVIDER, defaultProviderList);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
-        if (properties.get(S3Properties.Env.ENDPOINT) != null
-                && properties.get(S3Properties.Env.ENDPOINT).toLowerCase(Locale.ROOT).startsWith("obs")) {
-            s3Properties.put("fs.s3a.connection.ssl.enabled", "false");
-        }
         if (credential.isWhole()) {
             s3Properties.put(Constants.ACCESS_KEY, credential.getAccessKey());
             s3Properties.put(Constants.SECRET_KEY, credential.getSecretKey());
