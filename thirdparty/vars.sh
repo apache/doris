@@ -484,6 +484,12 @@ LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
 LIBDEFLATE_SOURCE=libdeflate-1.19
 LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
 
+# streamvbyte
+STREAMVBYTE_DOWNLOAD="https://github.com/lemire/streamvbyte/archive/refs/tags/v1.0.0.tar.gz"
+STREAMVBYTE_NAME=streamvbyte-1.0.0.tar.gz
+STREAMVBYTE_SOURCE=streamvbyte-1.0.0
+STREAMVBYTE_MD5SUM="f334219db5a832b6dae3589a56a29563"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -555,6 +561,7 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
+    'STREAMVBYTE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
