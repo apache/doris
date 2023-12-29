@@ -279,7 +279,7 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
+            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
             int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
             target[i].from_olap_decimal(int_value, frac_value);
         }
