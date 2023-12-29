@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.iot;
+package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -23,7 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.iot.InsertOverwriteLog.InsertOverwriteOpType;
+import org.apache.doris.insertoverwrite.InsertOverwriteLog.InsertOverwriteOpType;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;

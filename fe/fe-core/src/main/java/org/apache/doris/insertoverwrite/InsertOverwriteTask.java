@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.iot;
+package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;

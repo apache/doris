@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.iot;
+package org.apache.doris.insertoverwrite;
 
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.DropPartitionClause;
