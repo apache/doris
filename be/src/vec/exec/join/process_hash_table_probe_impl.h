@@ -294,8 +294,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (is_mark_join) {
                         ++current_offset;
                         bool null_result =
-                                (need_null_map_for_probe && (*null_map)[probe_index] &&
-                                 !accept_null_value) ||
+                                (ignore_null && need_null_map_for_probe &&
+                                 (*null_map)[probe_index] && !accept_null_value) ||
                                 (find_result.is_found() && _join_node->_has_null_in_build_side);
                         if (null_result) {
                             mark_column->insert_null();
@@ -312,7 +312,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (is_mark_join) {
                         ++current_offset;
                         bool null_result =
-                                (need_null_map_for_probe && (*null_map)[probe_index]) ||
+                                (ignore_null && need_null_map_for_probe &&
+                                 (*null_map)[probe_index]) ||
                                 (!find_result.is_found() && _join_node->_has_null_in_build_side);
                         if (null_result) {
                             mark_column->insert_null();
