@@ -836,6 +836,8 @@ DECLARE_Int32(load_stream_messages_in_batch);
 DECLARE_Int32(load_stream_eagain_wait_seconds);
 // max tasks per flush token in load stream
 DECLARE_Int32(load_stream_flush_token_max_tasks);
+// max wait flush token time in load stream
+DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
