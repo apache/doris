@@ -46,7 +46,7 @@ private:
 };
 
 // Now local exchange is not supported since VDataStreamRecvr is considered as a pipeline broker.
-class ExchangeSinkOperator final : public DataSinkOperator<ExchangeSinkOperatorBuilder> {
+class ExchangeSinkOperator final : public DataSinkOperator<vectorized::VDataStreamSender> {
 public:
     ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink, int mult_cast_id);
     Status init(const TDataSink& tsink) override;

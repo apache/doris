@@ -33,7 +33,7 @@ public:
 };
 
 class MultiCastDataStreamSinkOperator final
-        : public DataSinkOperator<MultiCastDataStreamSinkOperatorBuilder> {
+        : public DataSinkOperator<vectorized::MultiCastDataStreamSink> {
 public:
     MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
