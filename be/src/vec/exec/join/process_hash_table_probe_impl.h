@@ -941,11 +941,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     // And then, we set matched_map to the join result to do the mark join's filtering.
                     for (size_t i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
-                            helper.insert_value(filter_map[i - 1]);
+                            helper.insert_value(!filter_map[i - 1]);
                             filter_map[i - 1] = true;
                         }
                     }
-                    helper.insert_value(filter_map[row_count - 1]);
+                    helper.insert_value(!filter_map[row_count - 1]);
                     filter_map[row_count - 1] = true;
                 } else {
                     int end_row_idx;
