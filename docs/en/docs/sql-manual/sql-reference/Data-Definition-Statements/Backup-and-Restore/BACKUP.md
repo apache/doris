@@ -56,6 +56,7 @@ illustrate:
 - PROPERTIES currently supports the following properties:
   - "type" = "full": indicates that this is a full update (default)
   - "timeout" = "3600": The task timeout period, the default is one day. in seconds.
+  - "backup_tables_error_ignore_ratio" = "0.1": When the backup table is wrong, the ratio ignored by default is 0.0, that is, the error is not ignored. Users can configure the ratio to be ignored as needed, for example, 0.1 means to ignore 10% of the error tables.
 
 ### Example
 
@@ -86,6 +87,23 @@ ON
 BACKUP SNAPSHOT example_db.snapshot_label3
 TO example_repo
 EXCLUDE (example_tbl);
+```
+
+4. Full backup of some tables under example_db, and ignore 10% of the error tables:
+
+```sql
+BACKUP SNAPSHOT example_db.snapshot_label1
+TO example_repo
+ON 
+(
+    example_tbl1, example_tbl2, example_tbl3, example_tbl4, example_tbl5, 
+    example_tbl6, example_tbl7, example_tbl8, example_tbl9, example_tbl10
+)
+PROPERTIES 
+(
+    "type" = "full", 
+    "backup_tables_error_ignore_ratio" = "0.1"
+);
 ```
 
 ### Keywords

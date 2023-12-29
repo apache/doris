@@ -56,7 +56,10 @@ illustrate:
                 UPLOAD_INFO: Upload job meta information
                 FINISHED: The job was successful
                 CANCELLED: Job failed
+                PARTIAL_FINISHED: Partial tables of job succeeded
             BackupObjs: Backed up tables and partitions
+            BackupTablesErrorIgnoreRatio: The ratio of error tables ignored by the backup task
+            BackupTablesError: Error tables encountered by the backup task
             CreateTime: task submission time
             SnapshotFinishedTime: Snapshot completion time
             UploadFinishedTime: Snapshot upload completion time
