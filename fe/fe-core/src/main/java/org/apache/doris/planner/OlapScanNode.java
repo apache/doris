@@ -837,7 +837,8 @@ public class OlapScanNode extends ScanNode {
                 if (backend == null || !backend.isAlive()) {
                     LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
                             replica.getId());
-                    errs.add(replica.getId() + "'s backend " + replica.getBackendId() + " does not exist or not alive");
+                    errs.add("replica " + replica.getId() + "'s backend " + replica.getBackendId()
+                            + " does not exist or not alive");
                     continue;
                 }
                 if (!backend.isMixNode()) {
@@ -875,7 +876,7 @@ public class OlapScanNode extends ScanNode {
                 }
             }
             if (tabletIsNull) {
-                throw new UserException(tabletId + " have no queryable replicas. err: "
+                throw new UserException("tablet " + tabletId + " has no queryable replicas. err: "
                         + Joiner.on(", ").join(errs));
             }
             TScanRange scanRange = new TScanRange();
@@ -1297,7 +1298,7 @@ public class OlapScanNode extends ScanNode {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
-                && ConnectContext.get().getSessionVariable().isIgnoreScanDistribution()) {
+                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();

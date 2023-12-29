@@ -24,20 +24,12 @@ suite("query51") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_51 '''
-    explain shape plan
-
-
-
-
-WITH web_v1 as (
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """WITH web_v1 as (
 select
   ws_item_sk item_sk, d_date,
   sum(sum(ws_sales_price))
@@ -78,7 +70,9 @@ from (select item_sk
 where web_cumulative > store_cumulative
 order by item_sk
         ,d_date
-limit 100;
-
-    '''
+limit 100"""
+    qt_ds_shape_51 """
+    explain shape plan
+    ${ds}
+    """
 }

@@ -774,8 +774,9 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         }
         RETURN_IF_ERROR(_append_error_msg(objectValue,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], lease check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1345,8 +1346,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1660,8 +1662,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }

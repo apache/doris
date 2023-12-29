@@ -396,11 +396,12 @@ public class OneRangePartitionEvaluator
         if (inPredicate.getCompareExpr() instanceof Slot
                 && inPredicate.getOptions().stream().allMatch(Literal.class::isInstance)) {
             Slot slot = (Slot) inPredicate.getCompareExpr();
-            ColumnRange unionLiteralRange = inPredicate.getOptions()
-                    .stream()
-                    .map(Literal.class::cast)
-                    .map(ColumnRange::singleton)
-                    .reduce(ColumnRange.empty(), ColumnRange::union);
+            ColumnRange unionLiteralRange = ColumnRange.empty();
+            ColumnRange slotRange = result.childrenResult.get(0).columnRanges.get(slot);
+            for (Expression expr : inPredicate.getOptions()) {
+                unionLiteralRange = unionLiteralRange.union(
+                        slotRange.intersect(ColumnRange.singleton((Literal) expr)));
+            }
             Map<Slot, ColumnRange> slotRanges = result.childrenResult.get(0).columnRanges;
             result = intersectSlotRange(result, slotRanges, slot, unionLiteralRange);
         }

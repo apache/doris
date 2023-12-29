@@ -225,11 +225,11 @@ private:
                                                   // already been segment compacted
     std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
 
-    std::unique_ptr<SegcompactionWorker> _segcompaction_worker;
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction {false};
-    // enforce compare-and-swap on _is_doing_segcompaction
+    // enforce condition variable on _is_doing_segcompaction
     std::mutex _is_doing_segcompaction_lock;
     std::condition_variable _segcompacting_cond;
 

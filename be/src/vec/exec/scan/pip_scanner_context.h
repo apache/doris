@@ -21,35 +21,23 @@
 #include "runtime/descriptors.h"
 #include "scanner_context.h"
 
-namespace doris {
+namespace doris::pipeline {
 
-namespace pipeline {
-
-class PipScannerContext : public vectorized::ScannerContext {
+class PipScannerContext final : public vectorized::ScannerContext {
     ENABLE_FACTORY_CREATOR(PipScannerContext);
 
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* output_tuple_desc,
+                      const RowDescriptor* output_row_descriptor,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit_,
-                                         max_bytes_in_blocks_queue, num_parallel_instances),
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, output_row_descriptor,
+                                         scanners, limit_, max_bytes_in_blocks_queue,
+                                         num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
-
-    PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                      const TupleDescriptor* output_tuple_desc,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
-                      int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
-                      const int num_parallel_instances,
-                      std::shared_ptr<pipeline::ScanDependency> dependency,
-                      std::shared_ptr<pipeline::Dependency> finish_dependency)
-            : vectorized::ScannerContext(state, output_tuple_desc, scanners, limit_,
-                                         max_bytes_in_blocks_queue, num_parallel_instances,
-                                         local_state, dependency, finish_dependency),
-              _need_colocate_distribute(false) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -68,7 +56,7 @@ public:
         {
             std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
             if (_blocks_queues[id].empty()) {
-                *eos = _is_finished || _should_stop;
+                *eos = done();
                 return Status::OK();
             }
             if (_process_status.is<ErrorCode::CANCELLED>()) {
@@ -92,9 +80,6 @@ public:
 
             if (_blocks_queues[id].empty()) {
                 this->reschedule_scanner_ctx();
-                if (_dependency) {
-                    _dependency->block();
-                }
             }
         }
 
@@ -106,6 +91,7 @@ public:
                 static_cast<void>(m.merge(*merge_block));
                 return_free_block(std::move(merge_block));
             }
+            (*block)->set_columns(std::move(m.mutable_columns()));
         }
 
         return Status::OK();
@@ -176,9 +162,6 @@ public:
                     for (int j = i; j < block_size; j += queue_size) {
                         _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                     }
-                    if (_dependency) {
-                        _dependency->set_ready();
-                    }
                 }
                 _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
             }
@@ -228,9 +211,6 @@ public:
                     _blocks_queues[i].emplace_back(std::move(_colocate_blocks[i]));
                     _colocate_mutable_blocks[i]->clear();
                 }
-                if (_dependency) {
-                    _dependency->set_ready();
-                }
             }
         }
     }
@@ -244,7 +224,7 @@ public:
         return res;
     }
 
-private:
+protected:
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
@@ -282,9 +262,6 @@ private:
                     std::lock_guard<std::mutex> queue_l(*_queue_mutexs[loc]);
                     _blocks_queues[loc].emplace_back(std::move(_colocate_blocks[loc]));
                 }
-                if (_dependency) {
-                    _dependency->set_ready();
-                }
                 _colocate_blocks[loc] = get_free_block();
                 _colocate_mutable_blocks[loc]->set_mutable_columns(
                         _colocate_blocks[loc]->mutate_columns());
@@ -293,5 +270,86 @@ private:
     }
 };
 
-} // namespace pipeline
-} // namespace doris
+class PipXScannerContext final : public vectorized::ScannerContext {
+    ENABLE_FACTORY_CREATOR(PipXScannerContext);
+
+public:
+    PipXScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
+                       const TupleDescriptor* output_tuple_desc,
+                       const RowDescriptor* output_row_descriptor,
+                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
+                       int64_t max_bytes_in_blocks_queue,
+                       std::shared_ptr<pipeline::ScanDependency> dependency,
+                       std::shared_ptr<pipeline::Dependency> finish_dependency)
+            : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
+                                         limit_, max_bytes_in_blocks_queue, 1, local_state,
+                                         dependency, finish_dependency) {}
+    Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
+                                int id, bool wait = false) override {
+        std::unique_lock l(_transfer_lock);
+        if (state->is_cancelled()) {
+            set_status_on_error(Status::Cancelled("cancelled"), false);
+        }
+
+        if (!status().ok()) {
+            return _process_status;
+        }
+
+        std::vector<vectorized::BlockUPtr> merge_blocks;
+        if (_blocks_queue.empty()) {
+            *eos = done();
+            return Status::OK();
+        }
+        if (_process_status.is<ErrorCode::CANCELLED>()) {
+            *eos = true;
+            return Status::OK();
+        }
+        *block = std::move(_blocks_queue.front());
+        _blocks_queue.pop_front();
+
+        auto rows = (*block)->rows();
+        while (!_blocks_queue.empty()) {
+            const auto add_rows = (*_blocks_queue.front()).rows();
+            if (rows + add_rows < state->batch_size()) {
+                rows += add_rows;
+                merge_blocks.emplace_back(std::move(_blocks_queue.front()));
+                _blocks_queue.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        if (_blocks_queue.empty()) {
+            this->reschedule_scanner_ctx();
+            _dependency->block();
+        }
+
+        _cur_bytes_in_queue -= (*block)->allocated_bytes();
+        if (!merge_blocks.empty()) {
+            vectorized::MutableBlock m(block->get());
+            for (auto& merge_block : merge_blocks) {
+                _cur_bytes_in_queue -= merge_block->allocated_bytes();
+                static_cast<void>(m.merge(*merge_block));
+                return_free_block(std::move(merge_block));
+            }
+            (*block)->set_columns(std::move(m.mutable_columns()));
+        }
+
+        return Status::OK();
+    }
+
+    void reschedule_scanner_ctx() override {
+        if (done()) {
+            return;
+        }
+        auto state = _scanner_scheduler->submit(shared_from_this());
+        //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
+        if (state.ok()) {
+            _num_scheduling_ctx++;
+        } else {
+            set_status_on_error(state, false);
+        }
+    }
+};
+
+} // namespace doris::pipeline

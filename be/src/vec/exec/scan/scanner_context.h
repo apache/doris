@@ -70,6 +70,7 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext> {
 
 public:
     ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
+                   const RowDescriptor* output_row_descriptor,
                    const std::list<VScannerSPtr>& scanners, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
@@ -167,10 +168,9 @@ public:
         return blocks_num;
     }
 
-    taskgroup::TaskGroup* get_task_group() const;
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
-    void reschedule_scanner_ctx();
+    virtual void reschedule_scanner_ctx();
 
     // the unique id of this context
     std::string ctx_id;
@@ -188,6 +188,7 @@ private:
 
 protected:
     ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
+                   const RowDescriptor* output_row_descriptor,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
                    pipeline::ScanLocalStateBase* local_state,
@@ -204,6 +205,7 @@ protected:
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc = nullptr;
+    const RowDescriptor* _output_row_descriptor = nullptr;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.

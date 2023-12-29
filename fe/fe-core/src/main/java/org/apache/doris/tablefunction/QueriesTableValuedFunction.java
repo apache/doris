@@ -37,11 +37,11 @@ public class QueriesTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
         new Column("QueryId", ScalarType.createStringType()),
         new Column("StartTime", PrimitiveType.BIGINT),
-        new Column("EndTime", PrimitiveType.BIGINT, true),
-        new Column("EventTime", PrimitiveType.BIGINT, true),
+        new Column("EndTime", PrimitiveType.BIGINT),
+        new Column("EventTime", PrimitiveType.BIGINT),
         new Column("Latency", PrimitiveType.BIGINT),
         new Column("State", ScalarType.createStringType()),
-        new Column("Database", ScalarType.createStringType(), true),
+        new Column("Database", ScalarType.createStringType()),
         new Column("Sql", ScalarType.createStringType()),
         new Column("FrontendInstance", ScalarType.createStringType()));
 

@@ -853,7 +853,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status from tasks('type'='mv') where JobName = '${jobName}'"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -862,7 +862,7 @@ class Suite implements GroovyInterceptable {
             result = sql(showTasks)
             logger.info("result: " + result.toString())
             if (!result.isEmpty()) {
-                status = result.last().get(0)
+                status = result.last().get(4)
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -882,6 +882,29 @@ class Suite implements GroovyInterceptable {
             Assert.fail();
         }
         return result.last().get(0);
+    }
+
+    String getFeConfig(String key) {
+        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+    }
+
+    void setFeConfig(String key, Object value) {
+        sql "ADMIN SET FRONTEND CONFIG ('${key}' = '${value}')"
+    }
+
+    void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        def oldConfig = tempConfig.keySet().collectEntries { [it, getFeConfig(it)] }
+
+        def updateConfig = { conf ->
+            conf.each { key, value -> setFeConfig(key, value) }
+        }
+
+        try {
+            updateConfig tempConfig
+            actionSupplier()
+        } finally {
+            updateConfig oldConfig
+        }
     }
 
     void waiteCreateTableFinished(String tableName) {

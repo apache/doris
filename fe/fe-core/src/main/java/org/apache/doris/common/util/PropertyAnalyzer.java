@@ -159,6 +159,7 @@ public class PropertyAnalyzer {
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+    public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -1068,6 +1069,7 @@ public class PropertyAnalyzer {
         allocationVal = allocationVal.replaceAll(" ", "");
         String[] locations = allocationVal.split(",");
         int totalReplicaNum = 0;
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (String location : locations) {
             String[] parts = location.split(":");
             if (parts.length != 2) {
@@ -1091,7 +1093,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, null, false, true);
+                            replicaAlloc, nextIndexs, null, false, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }
@@ -1173,7 +1175,7 @@ public class PropertyAnalyzer {
             try {
                 groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
             } catch (Exception e) {
-                throw new AnalysisException("schema version format error");
+                throw new AnalysisException("parse group_commit_interval_ms format error");
             }
 
             properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);

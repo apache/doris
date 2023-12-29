@@ -219,7 +219,7 @@ alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
 +-----------+-------+-------------+------+------+---------+-------+
 ```
 
-因为Schema Chanage 作业是异步操作，同一个表同时只能进行一个Schema chanage 作业，查看作业运行情况，可以通过下面这个命令
+因为Schema Change 作业是异步操作，同一个表同时只能进行一个Schema change 作业，查看作业运行情况，可以通过下面这个命令
 
 ```sql
 SHOW ALTER TABLE COLUMN\G;

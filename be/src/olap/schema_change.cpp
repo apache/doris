@@ -1181,11 +1181,6 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map =
             sc_params.materialized_params_map;
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
-
-    if (sc_params.alter_tablet_type == ROLLUP) {
-        *sc_directly = true;
-    }
-
     TabletSchemaSPtr new_tablet_schema = sc_params.new_tablet_schema;
 
     // set column mapping
@@ -1246,15 +1241,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         changer->set_where_expr(materialized_function_map.find(WHERE_SIGN_LOWER)->second.expr);
     }
 
-    // Check if re-aggregation is needed.
-    *sc_sorting = false;
     // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->expr == nullptr) {
+        if (!column_mapping->has_reference()) {
             num_default_value++;
             continue;
         }
@@ -1288,6 +1281,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    if (sc_params.alter_tablet_type == ROLLUP) {
+        *sc_directly = true;
+        return Status::OK();
+    }
+
     if (new_tablet->enable_unique_key_merge_on_write() &&
         new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
         *sc_directly = true;
@@ -1300,25 +1298,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
-        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->expr == nullptr) {
-            continue;
-        } else {
-            *sc_directly = true;
-            return Status::OK();
-        }
-    }
-
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
+        return Status::OK();
     }
 
-    if (base_tablet->tablet_meta()->preferred_rowset_type() !=
-        new_tablet->tablet_meta()->preferred_rowset_type()) {
-        // If the base_tablet and new_tablet rowset types are different, just use directly type
-        *sc_directly = true;
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
+        if (column_mapping->expr != nullptr) {
+            *sc_directly = true;
+            return Status::OK();
+        }
     }
 
     // if rs_reader has remote files, link schema change is not supported,
@@ -1339,10 +1330,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
                                                  const TabletColumn& column_schema,
                                                  const std::string& value) {
-    column_mapping->default_value = WrapperField::create(column_schema);
-
-    if (column_mapping->default_value == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("column_mapping->default_value is nullptr");
+    if (auto field = WrapperField::create(column_schema); field.has_value()) {
+        column_mapping->default_value = field.value();
+    } else {
+        return field.error();
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {

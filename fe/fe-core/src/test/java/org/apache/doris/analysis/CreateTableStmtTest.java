@@ -456,4 +456,66 @@ public class CreateTableStmtTest {
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
     }
+
+    @Test
+    public void testToSqlWithComment() {
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        String engineName = "olap";
+        ArrayList<String> aggKeys = Lists.newArrayList("a");
+        KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        TableName tableName = new TableName("internal", "demo", "testToSqlWithComment1");
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "xxx", null);
+        String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testToSqlWithComment1` (\n"
+                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
+                + "  `b` INT NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "AGGREGATE KEY(`a`)\n"
+                + "COMMENT \"xxx\"\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
+
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        aggKeys = Lists.newArrayList("a", "d", "f");
+        keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
+        properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(10,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        tableName = new TableName("internal", "demo", "testToSqlWithComment2");
+        createTableStmt = new CreateTableStmt(false, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "xxx", null);
+        createTableSql = "CREATE TABLE `demo`.`testToSqlWithComment2` (\n"
+                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
+                + "  `b` INT NOT NULL COMMENT \"\",\n"
+                + "  `c` TEXT NULL COMMENT \"\",\n"
+                + "  `d` DOUBLE NULL COMMENT \"\",\n"
+                + "  `e` DECIMALV3(38, 0) NOT NULL COMMENT \"\",\n"
+                + "  `f` DATE NOT NULL COMMENT \"\",\n"
+                + "  `g` SMALLINT NOT NULL COMMENT \"\",\n"
+                + "  `h` BOOLEAN NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "DUPLICATE KEY(`a`, `d`, `f`)\n"
+                + "COMMENT \"xxx\"\n"
+                + "PROPERTIES (\"replication_num\"  =  \"10\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+    }
 }

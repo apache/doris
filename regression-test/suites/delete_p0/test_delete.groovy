@@ -255,7 +255,7 @@ suite("test_delete") {
     sql """
     CREATE TABLE `dwd_pay` (
     `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
-    `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
+    `pay_time` datetime DEFAULT NULL COMMENT '付款时间'
     )  ENGINE=OLAP
     DUPLICATE KEY(`tenant_id`)
     COMMENT "付款明细"
@@ -308,7 +308,7 @@ suite("test_delete") {
             col_10 datetime,
             col_11 boolean,
             col_12 decimalv2(10,3),
-            col_8 string,
+            col_8 string
         ) ENGINE=OLAP
         duplicate KEY(`col_1`, col_2, col_3, col_4, col_5, col_6, col_7,  col_9, col_10, col_11, col_12)
         COMMENT 'OLAP'

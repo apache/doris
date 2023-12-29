@@ -98,24 +98,18 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
                 .analyze(plan)
-                .rewrite()
                 .matches(
-                        logicalOlapTableSink(
-                                logicalProject(
+                        logicalFilter(
+                                logicalJoin(
+                                        logicalSubQueryAlias(
+                                                logicalFilter(
+                                                        logicalOlapScan()
+                                                )
+                                        ),
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
-                                                                )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalOlapScan())
-                                                ),
-                                                logicalProject(
-                                                        logicalFilter(
-                                                                logicalOlapScan()
-                                                        )
+                                                logicalOlapScan(),
+                                                logicalFilter(
+                                                        logicalOlapScan()
                                                 )
                                         )
                                 )

@@ -132,6 +132,7 @@ public:
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
+    // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
@@ -392,9 +393,13 @@ public:
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
+            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+                return segment_v2::CompressionTypePB::SNAPPY;
+            } else {
+                return segment_v2::CompressionTypePB::NO_COMPRESSION;
             }
         }
-        return segment_v2::CompressionTypePB::SNAPPY;
+        return segment_v2::CompressionTypePB::NO_COMPRESSION;
     }
 
     bool skip_storage_engine_merge() const {
@@ -481,6 +486,22 @@ public:
     bool enable_hash_join_early_start_probe() const {
         return _query_options.__isset.enable_hash_join_early_start_probe &&
                _query_options.enable_hash_join_early_start_probe;
+    }
+
+    bool enable_parallel_scan() const {
+        return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    int parallel_scan_max_scanners_count() const {
+        return _query_options.__isset.parallel_scan_max_scanners_count
+                       ? _query_options.parallel_scan_max_scanners_count
+                       : 0;
+    }
+
+    int64_t parallel_scan_min_rows_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_rows_per_scanner
+                       ? _query_options.parallel_scan_min_rows_per_scanner
+                       : 0;
     }
 
     int repeat_max_num() const {
@@ -660,24 +681,6 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
-};
-
-// from runtime state
-struct RuntimeFilterParamsContext {
-    RuntimeFilterParamsContext() = default;
-    static RuntimeFilterParamsContext* create(RuntimeState* state);
-
-    bool runtime_filter_wait_infinitely;
-    int32_t runtime_filter_wait_time_ms;
-    bool enable_pipeline_exec;
-    int32_t execution_timeout;
-    RuntimeFilterMgr* runtime_filter_mgr;
-    ExecEnv* exec_env;
-    PUniqueId query_id;
-    PUniqueId fragment_instance_id;
-    int be_exec_version;
-    QueryContext* query_ctx;
-    QueryContext* get_query_ctx() const { return query_ctx; }
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

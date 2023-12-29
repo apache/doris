@@ -134,6 +134,8 @@ import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSCachedClientFactory;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -515,6 +517,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                                             + " please use \"DROP table FORCE\".");
                                 }
                             }
+                        }
+                    }
+                    for (Table table : tableList) {
+                        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                            Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                         }
                     }
                     unprotectDropDb(db, stmt.isForceDrop(), false, 0);
@@ -1707,7 +1714,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
+        if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST
+                && !isTempPartition) {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
@@ -2590,7 +2598,20 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
         if (olapTable instanceof MTMV) {
-            Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
+            try {
+                Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
+            } catch (Throwable t) {
+                LOG.warn("create mv failed, start rollback, error msg: " + t.getMessage());
+                try {
+                    DropMTMVInfo dropMTMVInfo = new DropMTMVInfo(
+                            new TableNameInfo(olapTable.getDatabase().getFullName(), olapTable.getName()), true);
+                    Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
+                } catch (Throwable throwable) {
+                    LOG.warn("rollback mv failed, please drop mv by manual, error msg: " + t.getMessage());
+                }
+                throw t;
+            }
+
         }
     }
 
@@ -2722,6 +2743,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
         GroupId groupId = null;
         if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
@@ -2741,16 +2763,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             backendsPerBucketSeq = Maps.newHashMap();
         }
 
+        TStorageMedium storageMedium = Config.disable_storage_medium_check ? null : tabletMeta.getStorageMedium();
         Map<Tag, Integer> nextIndexs = new HashMap<>();
-
         if (Config.enable_round_robin_create_tablet) {
-            for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
-                int startPos = Env.getCurrentSystemInfo().getStartPosOfRoundRobin(entry.getKey(),
-                        tabletMeta.getStorageMedium());
-                if (startPos == -1) {
-                    throw new DdlException("The number of BEs that match the policy is insufficient");
+            for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+                int startPos = -1;
+                if (Config.create_tablet_round_robin_from_start) {
+                    startPos = 0;
+                } else {
+                    startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
+                            isStorageMediumSpecified);
                 }
-                nextIndexs.put(entry.getKey(), startPos);
+                nextIndexs.put(tag, startPos);
             }
         }
 
@@ -2767,27 +2791,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (chooseBackendsArbitrary) {
                 // This is the first colocate table in the group, or just a normal table,
                 // choose backends
-                if (Config.enable_round_robin_create_tablet) {
-                    if (!Config.disable_storage_medium_check) {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        nextIndexs);
-                    } else {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .getBeIdRoundRobinForReplicaCreation(replicaAlloc, null,
-                                        nextIndexs);
-                    }
-                } else {
-                    if (!Config.disable_storage_medium_check) {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        isStorageMediumSpecified, false);
-                    } else {
-                        chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, null,
-                                        isStorageMediumSpecified, false);
-                    }
-                }
+                chosenBackendIds = systemInfoService.selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs,
+                        storageMedium, isStorageMediumSpecified, false);
 
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
                     backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());

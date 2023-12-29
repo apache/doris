@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -172,7 +173,7 @@ public class MTMVUtil {
         return ids;
     }
 
-    public static List<String> getPartitionNamesByIds(MTMV mtmv, Set<Long> ids) throws AnalysisException {
+    public static List<String> getPartitionNamesByIds(MTMV mtmv, Collection<Long> ids) throws AnalysisException {
         List<String> res = Lists.newArrayList();
         for (Long partitionId : ids) {
             res.add(mtmv.getPartitionOrAnalysisException(partitionId).getName());
@@ -180,8 +181,8 @@ public class MTMVUtil {
         return res;
     }
 
-    public static Set<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
-        Set<Long> res = Sets.newHashSet();
+    public static List<Long> getPartitionsIdsByNames(MTMV mtmv, List<String> partitions) throws AnalysisException {
+        List<Long> res = Lists.newArrayList();
         for (String partitionName : partitions) {
             Partition partition = mtmv.getPartitionOrAnalysisException(partitionName);
             res.add(partition.getId());
@@ -253,7 +254,11 @@ public class MTMVUtil {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
         // check session variable if enable rewrite
-        if (!ctx.getSessionVariable().isEnableMvRewrite()) {
+        if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            return res;
+        }
+        if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
+                .isMaterializedViewRewriteEnableContainForeignTable()) {
             return res;
         }
         MTMVRelation mtmvRelation = mtmv.getRelation();
@@ -286,9 +291,9 @@ public class MTMVUtil {
         return res;
     }
 
-    public static Set<Long> getMTMVNeedRefreshPartitions(MTMV mtmv) {
+    public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv) {
         Collection<Partition> allPartitions = mtmv.getPartitions();
-        Set<Long> res = Sets.newHashSet();
+        List<Long> res = Lists.newArrayList();
         for (Partition partition : allPartitions) {
             try {
                 if (!isMTMVPartitionSync(mtmv, partition.getId(), mtmv.getRelation().getBaseTables(),
@@ -438,7 +443,7 @@ public class MTMVUtil {
      * @param relatedTable
      * @return mv.partitionId ==> relatedTable.partitionId
      */
-    private static Map<Long, Set<Long>> getMvToBasePartitions(MTMV mtmv, OlapTable relatedTable)
+    public static Map<Long, Set<Long>> getMvToBasePartitions(MTMV mtmv, OlapTable relatedTable)
             throws AnalysisException {
         HashMap<Long, Set<Long>> res = Maps.newHashMap();
         Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionInfo().getIdToItem(false);
@@ -470,7 +475,7 @@ public class MTMVUtil {
             try {
                 table = getTable(baseTableInfo);
             } catch (AnalysisException e) {
-                e.printStackTrace();
+                LOG.warn("get table failed, {}", baseTableInfo, e);
                 return false;
             }
             if (excludedTriggerTables.contains(table.getName())) {
@@ -485,5 +490,15 @@ public class MTMVUtil {
             }
         }
         return true;
+    }
+
+    private static boolean mtmvContainsExternalTable(MTMV mtmv) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+                return true;
+            }
+        }
+        return false;
     }
 }

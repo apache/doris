@@ -104,7 +104,7 @@ public class ConnectContext {
     protected volatile long backendId;
     protected volatile LoadTaskInfo streamLoadInfo;
 
-    protected volatile TUniqueId queryId;
+    protected volatile TUniqueId queryId = null;
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
@@ -327,7 +327,7 @@ public class ConnectContext {
         connectType = ConnectType.MYSQL;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
+            mysqlChannel = new MysqlChannel(connection, this);
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -1032,6 +1032,14 @@ public class ConnectContext {
 
     public void setSkipAuth(boolean skipAuth) {
         this.skipAuth = skipAuth;
+    }
+
+    public int getNetReadTimeout() {
+        return this.sessionVariable.getNetReadTimeout();
+    }
+
+    public int getNetWriteTimeout() {
+        return this.sessionVariable.getNetWriteTimeout();
     }
 }
 

@@ -101,7 +101,7 @@ public class OlapAnalysisTaskTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
         };
 

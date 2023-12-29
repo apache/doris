@@ -67,7 +67,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
     block->swap(dst_block);
     *read_rows = block->rows();
-    LOG(INFO) << "read block rows:" << *read_rows;
+    VLOG_DEBUG << "read block rows:" << *read_rows;
     return Status::OK();
 }
 

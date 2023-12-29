@@ -1,0 +1,41 @@
+-- TABLES: SUPPLIER,lineitem,orders,customer,NATION
+-- ERROR: not stable
+-- SELECT
+--   SUPP_NATION,
+--   CUST_NATION,
+--   L_YEAR,
+--   SUM(VOLUME) AS REVENUE
+-- FROM (
+--        SELECT
+--          CAST(N1.var["N_NAME"] AS TEXT)                          AS SUPP_NATION,
+--          CAST(N2.var["N_NAME"] AS TEXT)                          AS CUST_NATION,
+--          EXTRACT(YEAR FROM CAST(L.var["L_SHIPDATE"] AS DATE))      AS L_YEAR,
+--          CAST(L.var["L_EXTENDEDPRICE"] AS DOUBLE) * (1 - CAST(L.var["L_DISCOUNT"] AS DOUBLE)) AS VOLUME
+--        FROM
+--          supplier S,
+--          lineitem L,
+--          orders O,
+--          customer C,
+--          nation N1,
+--          nation N2
+--        WHERE
+--          CAST(S.var["S_SUPPKEY"] AS INT) = CAST(L.var["L_SUPPKEY"] AS INT)
+--          AND CAST(O.var["O_ORDERKEY"] AS INT) = CAST(L.var["L_ORDERKEY"] AS INT)
+--          AND CAST(C.var["C_CUSTKEY"] AS INT) = CAST(O.var["O_CUSTKEY"] AS INT)
+--          AND CAST(S.var["S_NATIONKEY"] AS INT) = CAST(N1.var["N_NATIONKEY"] AS INT)
+--          AND CAST(C.var["C_NATIONKEY"] AS INT) = CAST(N2.var["N_NATIONKEY"] AS INT)
+--          AND (
+--            (CAST(N1.var["N_NAME"] AS TEXT) = 'FRANCE' AND CAST(N2.var["N_NAME"] AS TEXT) = 'GERMANY')
+--            OR (CAST(N1.var["N_NAME"] AS TEXT) = 'GERMANY' AND CAST(N2.var["N_NAME"] AS TEXT) = 'FRANCE')
+--          )
+--          AND CAST(L.var["L_SHIPDATE"] AS DATE) BETWEEN DATE '1995-01-01' AND DATE '1996-12-31'
+--      ) AS SHIPPING
+-- GROUP BY
+--   SUPP_NATION,
+--   CUST_NATION,
+--   L_YEAR
+-- ORDER BY
+--   SUPP_NATION,
+--   CUST_NATION,
+--   L_YEAR
+-- 

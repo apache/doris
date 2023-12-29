@@ -23,9 +23,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
@@ -108,7 +111,7 @@ public class MTMVService {
         }
     }
 
-    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         Objects.requireNonNull(info);
         LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
@@ -138,6 +141,22 @@ public class MTMVService {
         LOG.info("refreshComplete: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshComplete(mtmv, cache, task);
+        }
+    }
+
+    public void pauseMTMV(PauseMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("pauseMTMV, PauseMTMVInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.pauseMTMV(info);
+        }
+    }
+
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("resumeMTMV, ResumeMTMVInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.resumeMTMV(info);
         }
     }
 }

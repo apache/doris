@@ -40,7 +40,14 @@ import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSem
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -222,9 +229,16 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
+            .add(MaterializedViewOnlyJoinRule.INSTANCE)
             .add(MaterializedViewProjectJoinRule.INSTANCE)
+            .add(MaterializedViewFilterJoinRule.INSTANCE)
+            .add(MaterializedViewFilterProjectJoinRule.INSTANCE)
+            .add(MaterializedViewProjectFilterJoinRule.INSTANCE)
             .add(MaterializedViewAggregateRule.INSTANCE)
             .add(MaterializedViewProjectAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
             .build();
 
     public List<Rule> getDPHypReorderRules() {

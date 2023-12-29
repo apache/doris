@@ -60,6 +60,17 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
                     throw new org.apache.doris.nereids.exceptions.AnalysisException(
                             "valid grace_period: " + properties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
                 }
+            } else if (PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM.equals(key)) {
+                String refreshPartitionNum = properties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
+                try {
+                    Integer.parseInt(refreshPartitionNum);
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException(
+                            "valid refresh_partition_num: " + properties
+                                    .get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+                }
+            } else if (PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES.equals(key)) {
+                // nothing
             } else {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException("illegal key:" + key);
             }

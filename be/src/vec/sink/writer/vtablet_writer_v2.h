@@ -214,7 +214,7 @@ private:
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
 
-    std::unordered_set<int64_t> _opened_partitions;
+    std::unordered_set<int64_t> _missing_tablets;
 
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
