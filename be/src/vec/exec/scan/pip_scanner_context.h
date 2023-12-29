@@ -279,11 +279,10 @@ public:
                        const RowDescriptor* output_row_descriptor,
                        const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
                        int64_t max_bytes_in_blocks_queue,
-                       std::shared_ptr<pipeline::ScanDependency> dependency,
-                       std::shared_ptr<pipeline::Dependency> finish_dependency)
+                       std::shared_ptr<pipeline::ScanDependency> dependency)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
                                          limit_, max_bytes_in_blocks_queue, 1, local_state,
-                                         dependency, finish_dependency) {}
+                                         dependency) {}
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
         std::unique_lock l(_transfer_lock);
