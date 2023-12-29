@@ -148,7 +148,7 @@ public:
     }
     void refresh_next_report_time();
 
-    virtual std::string debug_string() { return ""; }
+    virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
 

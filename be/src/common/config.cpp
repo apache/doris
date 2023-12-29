@@ -432,7 +432,7 @@ DEFINE_mBool(disable_compaction_trace_log, "true");
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
-DEFINE_mBool(enable_compaction_priority_scheduling, "false");
+DEFINE_mBool(enable_compaction_priority_scheduling, "true");
 DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
 DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
 
@@ -1006,13 +1006,18 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
+// index by RAM directory
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1098,16 +1103,20 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
-// group commit insert config
+// group commit config
 DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
-
-// the count of thread to group commit insert
+// This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
@@ -1125,13 +1134,6 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
-// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
-DEFINE_Int32(group_commit_max_queue_size, "67108864");
-
-// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
-// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
-DEFINE_String(group_commit_wal_max_disk_limit, "10%");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1144,6 +1146,7 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
+DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 

@@ -1565,7 +1565,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean enable_pipeline_load = false;
 
     /*---------------------- JOB CONFIG START------------------------*/
@@ -1678,12 +1678,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_decimal_conversion = true;
-
-    /**
-     * List of S3 API compatible object storage systems.
-     */
-    @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
 
     /**
      * Support complex data type ARRAY.

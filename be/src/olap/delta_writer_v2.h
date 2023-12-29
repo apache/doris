@@ -86,16 +86,6 @@ public:
     Status cancel();
     Status cancel_with_status(const Status& st);
 
-    int64_t partition_id() const;
-
-    int64_t mem_consumption(MemType mem);
-
-    int64_t tablet_id() { return _req.tablet_id; }
-
-    int32_t schema_hash() { return _req.schema_hash; }
-
-    int64_t total_received_rows() const { return _total_received_rows; }
-
 private:
     DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
                   StorageEngine* storage_engine);
@@ -114,9 +104,6 @@ private:
     bool _delta_written_success = false;
 
     std::mutex _lock;
-
-    // total rows num written by DeltaWriterV2
-    int64_t _total_received_rows = 0;
 
     int64_t _write_memtable_time = 0;
     int64_t _wait_flush_limit_time = 0;

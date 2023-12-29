@@ -209,14 +209,6 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     return Status::OK();
 }
 
-int64_t DeltaWriterV2::mem_consumption(MemType mem) {
-    return _memtable_writer->mem_consumption(mem);
-}
-
-int64_t DeltaWriterV2::partition_id() const {
-    return _req.partition_id;
-}
-
 void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
                                                  const OlapTableSchemaParam* table_schema_param,
                                                  const TabletSchema& ori_tablet_schema) {

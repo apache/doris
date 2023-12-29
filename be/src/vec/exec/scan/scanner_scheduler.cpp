@@ -351,7 +351,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
 
         BlockUPtr block = ctx->get_free_block();
 
-        status = scanner->get_block(state, block.get(), &eos);
+        status = scanner->get_block_after_projects(state, block.get(), &eos);
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
         // So, NOT_FOUND for VFileScanner is not a fail case.
