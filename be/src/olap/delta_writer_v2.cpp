@@ -53,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -102,6 +103,7 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
+    DBUG_EXECUTE_IF("DeltaWriterV2.init.stream_size", { _streams.clear(); });
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
