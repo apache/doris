@@ -143,11 +143,22 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return pushdownCountOnIndex(agg, project, filter, olapScan, ctx.cascadesContext);
                     })
             ),
-            RuleType.MINMAX_ON_UNIQUE_TABLE_WITHOUT_PROJECT.build(
+            RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE_WITHOUT_PROJECT.build(
                 logicalAggregate(
                         logicalFilter(
                                 logicalOlapScan().when(this::isUniqueKeyTable))
-                                .when(filter -> filter.getConjuncts().size() == 1))
+                                .when(filter -> {
+                                    if (filter.getConjuncts().size() != 1) {
+                                        return false;
+                                    }
+                                    Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
+                                    if (childExpr instanceof SlotReference) {
+                                        String exprName = ((SlotReference) childExpr).getName();
+                                        return "__DORIS_DELETE_SIGN__".equalsIgnoreCase(exprName);
+                                    }
+                                    return false;
+                                })
+                        )
                         .when(agg -> enablePushDownMinMaxOnUnique())
                         .when(agg -> agg.getGroupByExpressions().size() == 0)
                         .when(agg -> {
@@ -163,12 +174,24 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     ctx.cascadesContext);
                         })
             ),
-            RuleType.MINMAX_ON_UNIQUE_TABLE.build(
-                logicalAggregate(
-                        logicalProject(
-                                logicalFilter(
-                                        logicalOlapScan().when(this::isUniqueKeyTable))
-                                        .when(filter -> filter.getConjuncts().size() == 1)))
+            RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE.build(
+                    logicalAggregate(
+                            logicalProject(
+                                    logicalFilter(
+                                            logicalOlapScan().when(this::isUniqueKeyTable))
+                                            .when(filter -> {
+                                                if (filter.getConjuncts().size() != 1) {
+                                                    return false;
+                                                }
+                                                Expression childExpr = filter.getConjuncts().iterator().next()
+                                                        .children().get(0);
+                                                if (childExpr instanceof SlotReference) {
+                                                    String exprName = ((SlotReference) childExpr).getName();
+                                                    return "__DORIS_DELETE_SIGN__".equalsIgnoreCase(exprName);
+                                                }
+                                                return false;
+                                            }))
+                        )
                         .when(agg -> enablePushDownMinMaxOnUnique())
                         .when(agg -> agg.getGroupByExpressions().size() == 0)
                         .when(agg -> {
@@ -448,14 +471,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getColumn().get();
-            // The zone map max length of CharFamily is 512, do not
-            // over the length: https://github.com/apache/doris/pull/6293
             PrimitiveType colType = column.getType().getPrimitiveType();
-            if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
-                    || colType == PrimitiveType.STRING) {
-                return false;
-            }
-            if (colType.isCharFamily() && column.getType().getLength() > 512) {
+            if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
             }
         }
