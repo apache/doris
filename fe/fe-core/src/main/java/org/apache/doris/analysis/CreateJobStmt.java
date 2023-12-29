@@ -85,7 +85,7 @@ public class CreateJobStmt extends DdlStmt {
     private JobExecuteType executeType;
 
     // exclude job name prefix, which is used by inner job
-    private final String excludeJobNamePrefix = "inner_";
+    private static final String excludeJobNamePrefix = "inner_";
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
@@ -117,10 +117,8 @@ public class CreateJobStmt extends DdlStmt {
         analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
         //todo when support other stmt,need to check stmt type and generate jobInstance
-        InsertJob job = new InsertJob();
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
-        job.setCreateTimeMs(System.currentTimeMillis());
         TimerDefinition timerDefinition = new TimerDefinition();
 
         if (null != onceJobStartTimestamp) {
@@ -148,17 +146,19 @@ public class CreateJobStmt extends DdlStmt {
         }
         checkJobName(labelName.getLabelName());
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        job.setJobConfig(jobExecutionConfiguration);
-
-        job.setComment(comment);
-        job.setCurrentDbName(labelName.getDbName());
-        job.setJobName(labelName.getLabelName());
-        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
-        job.setJobStatus(JobStatus.RUNNING);
-        job.setJobId(Env.getCurrentEnv().getNextId());
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
-        job.setExecuteSql(executeSql);
+        // create job use label name as its job name
+        String jobName = labelName.getLabelName();
+        InsertJob job = new InsertJob(jobName,
+                JobStatus.RUNNING,
+                labelName.getDbName(),
+                comment,
+                ConnectContext.get().getCurrentUserIdentity(),
+                jobExecutionConfiguration,
+                System.currentTimeMillis(),
+                executeSql);
+        //job.checkJobParams();
         jobInstance = job;
     }
 
@@ -207,5 +207,9 @@ public class CreateJobStmt extends DdlStmt {
             throw new AnalysisException("execute sql has invalid format");
         }
         return executeSql;
+    }
+
+    protected static boolean isInnerJob(String jobName) {
+        return jobName.startsWith(excludeJobNamePrefix);
     }
 }

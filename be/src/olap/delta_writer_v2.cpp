@@ -81,8 +81,10 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
 void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
     auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
     auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto wait_flush_limit_timer = ADD_TIMER(child, "WaitFlushLimitTime");
     auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
     COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(wait_flush_limit_timer, _wait_flush_limit_time);
     COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
@@ -152,8 +154,12 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    while (_memtable_writer->flush_running_count() >= config::memtable_flush_running_count_limit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    {
+        SCOPED_RAW_TIMER(&_wait_flush_limit_time);
+        while (_memtable_writer->flush_running_count() >=
+               config::memtable_flush_running_count_limit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
@@ -201,14 +207,6 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
     _is_cancelled = true;
     return Status::OK();
-}
-
-int64_t DeltaWriterV2::mem_consumption(MemType mem) {
-    return _memtable_writer->mem_consumption(mem);
-}
-
-int64_t DeltaWriterV2::partition_id() const {
-    return _req.partition_id;
 }
 
 void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,

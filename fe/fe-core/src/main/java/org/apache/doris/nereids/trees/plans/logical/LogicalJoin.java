@@ -181,6 +181,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this.markJoinSlotReference = markJoinSlotReference;
     }
 
+    public LogicalJoin<? extends Plan, ? extends Plan> swap() {
+        return withTypeChildren(getJoinType().swap(),
+                right(), left());
+    }
+
     public List<Expression> getOtherJoinConjuncts() {
         return otherJoinConjuncts;
     }

@@ -78,6 +78,8 @@ suite("test_index_match_phrase_prefix", "p0"){
     try {
         load_httplogs_data.call(indexTbName1, 'test_index_match_phrase_prefix', 'true', 'json', 'documents-1000.json')
 
+        sql "sync"
+
         qt_sql """ select count() from test_index_match_phrase_prefix where request match_phrase_prefix 'ima'; """
         qt_sql """ select count() from test_index_match_phrase_prefix where request like '%ima%'; """
 

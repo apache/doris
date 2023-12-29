@@ -359,6 +359,10 @@ class DownCommand(Command):
             utils.exec_docker_compose_command(cluster.get_compose_file(),
                                               "down",
                                               ["-v", "--remove-orphans"])
+            try:
+                utils.remove_docker_network(cluster.name)
+            except Exception as e:
+                LOG.warn("prune network has exception: " + str(e))
             if args.clean:
                 utils.enable_dir_with_rw_perm(cluster.get_path())
                 shutil.rmtree(cluster.get_path())
@@ -544,8 +548,8 @@ class ListCommand(Command):
         search_names = []
         if args.NAME:
             search_names = args.NAME
-        elif os.path.exists(CLUSTER.LOCAL_DORIS_PATH):
-            search_names = os.listdir(CLUSTER.LOCAL_DORIS_PATH)
+        else:
+            search_names = CLUSTER.get_all_cluster_names()
 
         for cluster_name in search_names:
             status, services = parse_cluster_compose_file(cluster_name)

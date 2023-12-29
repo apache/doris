@@ -182,6 +182,8 @@ public:
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
+    FieldType get_meta_type() { return _meta_type; }
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);

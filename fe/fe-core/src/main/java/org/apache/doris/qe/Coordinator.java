@@ -1099,6 +1099,10 @@ public class Coordinator implements CoordInterface {
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code == null) {
+                    code = TStatusCode.INTERNAL_ERROR;
+                }
+
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
                         errMsg = result.getStatus().getErrorMsgsList().get(0);
@@ -2021,16 +2025,18 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
-                        // disable shared scan optimization if one of conditions below is met:
-                        // 1. Use non-pipeline or pipelineX engine
-                        // 2. This fragment has a colocated scan node
-                        // 3. This fragment has a FileScanNode
-                        // 4. Disable shared scan optimization by session variable
+                        /**
+                         * Ignore storage data distribution iff:
+                         * 1. Current fragment is not forced to use data distribution.
+                         * 2. `parallelExecInstanceNum` is larger than scan ranges.
+                         * 3. Use Nereids planner.
+                         */
                         boolean sharedScan = true;
+                        int expectedInstanceNum = Math.min(parallelExecInstanceNum,
+                                leftMostNode.getNumInstances());
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
-                                || (node.get().ignoreStorageDataDistribution(context) && useNereids))) {
-                            int expectedInstanceNum = Math.min(parallelExecInstanceNum,
-                                    leftMostNode.getNumInstances());
+                                || (node.get().ignoreStorageDataDistribution(context)
+                                && expectedInstanceNum > perNodeScanRanges.size() && useNereids))) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and conjunts, only need 1 instance to save cpu and
                             // mem resource
@@ -2040,7 +2046,7 @@ public class Coordinator implements CoordInterface {
 
                             perInstanceScanRanges = Collections.nCopies(expectedInstanceNum, perNodeScanRanges);
                         } else {
-                            int expectedInstanceNum = 1;
+                            expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
                                 expectedInstanceNum = Math.min(perNodeScanRanges.size(), parallelExecInstanceNum);
@@ -2859,10 +2865,6 @@ public class Coordinator implements CoordInterface {
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
 
-        boolean ignoreStorageDataDistribution = scanNodes.stream().filter(scanNode -> {
-            return scanNodeIds.contains(scanNode.getId().asInt());
-        }).allMatch(node -> node.ignoreStorageDataDistribution(context)) && useNereids;
-
         // 1. count each node in one fragment should scan how many tablet, gather them in one list
         Map<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressToScanRanges
                 = Maps.newHashMap();
@@ -2885,6 +2887,20 @@ public class Coordinator implements CoordInterface {
             }
             addressToScanRanges.get(address).add(filteredScanRanges);
         }
+
+        /**
+         * Ignore storage data distribution iff:
+         * 1. Current fragment is not forced to use data distribution.
+         * 2. `parallelExecInstanceNum` is larger than scan ranges.
+         * 3. Use Nereids planner.
+         */
+        boolean ignoreStorageDataDistribution = scanNodes.stream().filter(scanNode -> {
+            return scanNodeIds.contains(scanNode.getId().asInt());
+        }).allMatch(node -> node.ignoreStorageDataDistribution(context))
+                && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
+                    return addressScanRange.getValue().size() < parallelExecInstanceNum;
+                }) && useNereids;
+
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange
                 : addressToScanRanges.entrySet()) {

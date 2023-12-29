@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -95,6 +96,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.allowAutoPartition = true;
     }
 
+    public Optional<String> getLabelName() {
+        return labelName;
+    }
+
     public void setLabelName(Optional<String> labelName) {
         this.labelName = labelName;
     }
@@ -109,6 +114,16 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        runInternal(ctx, executor);
+    }
+
+    public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
+                                  LoadStatistic loadStatistic) throws Exception {
+        // TODO: add coordinator statistic
+        runInternal(ctx, executor);
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -234,7 +249,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         return ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ConnectContext.get().isTxnModel()
                 && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
-                .isEmpty();
+                .isEmpty() && physicalOlapTableSink.getTargetTable().getTableProperty().getUseSchemaLightChange();
     }
 
     @Override

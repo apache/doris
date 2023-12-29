@@ -322,8 +322,10 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
+                // the result is rounded when doing cast, so it may still overflow after rounding
+                // if destination integer digit count is the same as source integer digit count.
                 bool narrow_integral = context->check_overflow_for_decimal() &&
-                                       (to_precision - to_scale) < (from_precision - from_scale);
+                                       (to_precision - to_scale) <= (from_precision - from_scale);
 
                 bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
@@ -927,8 +929,8 @@ struct NameToDecimal64 {
 struct NameToDecimal128 {
     static constexpr auto name = "toDecimal128";
 };
-struct NameToDecimal128I {
-    static constexpr auto name = "toDecimal128I";
+struct NameToDecimal128V3 {
+    static constexpr auto name = "toDecimal128V3";
 };
 struct NameToDecimal256 {
     static constexpr auto name = "toDecimal256";
@@ -1055,7 +1057,7 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
     }
 
-    if constexpr (IsDataTypeDecimal128I<DataType>) {
+    if constexpr (IsDataTypeDecimal128V3<DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, precision, scale);
@@ -1331,9 +1333,9 @@ using FunctionToDecimal32 =
 using FunctionToDecimal64 =
         FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
 using FunctionToDecimal128 =
-        FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
-using FunctionToDecimal128I =
-        FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
+        FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128, UnknownMonotonicity>;
+using FunctionToDecimal128V3 =
+        FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3, UnknownMonotonicity>;
 using FunctionToDecimal256 =
         FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
 using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
@@ -1400,12 +1402,12 @@ struct FunctionTo<DataTypeDecimal<Decimal64>> {
     using Type = FunctionToDecimal64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128>> {
+struct FunctionTo<DataTypeDecimal<Decimal128V2>> {
     using Type = FunctionToDecimal128;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128I>> {
-    using Type = FunctionToDecimal128I;
+struct FunctionTo<DataTypeDecimal<Decimal128V3>> {
+    using Type = FunctionToDecimal128V3;
 };
 template <>
 struct FunctionTo<DataTypeDecimal<Decimal256>> {
@@ -1571,11 +1573,11 @@ template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal64>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V2>, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128I>, Name>
-        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128I>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
+        : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal128V3>, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
         : ConvertThroughParsing<DataTypeString, DataTypeDecimal<Decimal256>, Name> {};
@@ -2412,8 +2414,8 @@ private:
 
             if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128I>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V2>> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V3>> ||
                           std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));

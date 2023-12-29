@@ -1297,12 +1297,12 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     case TypeIndex::Decimal64:
         return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
                                                             num_values);
-    case TypeIndex::Decimal128:
-        return _decode_decimal_column<Decimal128, is_filter>(col_name, data_column, data_type, cvb,
-                                                             num_values);
-    case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Decimal128I, is_filter>(col_name, data_column, data_type, cvb,
-                                                              num_values);
+    case TypeIndex::Decimal128V2:
+        return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
+    case TypeIndex::Decimal128V3:
+        return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
                 col_name, data_column, cvb, num_values);
