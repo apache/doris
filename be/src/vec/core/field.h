@@ -71,22 +71,22 @@ struct AvgNearestFieldTypeTrait {
 
 template <>
 struct AvgNearestFieldTypeTrait<Decimal32> {
-    using Type = Decimal128I;
+    using Type = Decimal128V3;
 };
 
 template <>
 struct AvgNearestFieldTypeTrait<Decimal64> {
-    using Type = Decimal128I;
+    using Type = Decimal128V3;
 };
 
 template <>
-struct AvgNearestFieldTypeTrait<Decimal128> {
-    using Type = Decimal128;
+struct AvgNearestFieldTypeTrait<Decimal128V2> {
+    using Type = Decimal128V2;
 };
 
 template <>
-struct AvgNearestFieldTypeTrait<Decimal128I> {
-    using Type = Decimal128I;
+struct AvgNearestFieldTypeTrait<Decimal128V3> {
+    using Type = Decimal128V3;
 };
 
 template <>
@@ -115,12 +115,12 @@ struct AvgNearestFieldTypeTrait256<Decimal64> {
 };
 
 template <>
-struct AvgNearestFieldTypeTrait256<Decimal128> {
-    using Type = Decimal128;
+struct AvgNearestFieldTypeTrait256<Decimal128V2> {
+    using Type = Decimal128V2;
 };
 
 template <>
-struct AvgNearestFieldTypeTrait256<Decimal128I> {
+struct AvgNearestFieldTypeTrait256<Decimal128V3> {
     using Type = Decimal256;
 };
 
@@ -349,10 +349,10 @@ public:
             Tuple = 18,
             Decimal32 = 19,
             Decimal64 = 20,
-            Decimal128 = 21,
+            Decimal128V2 = 21,
             AggregateFunctionState = 22,
             JSONB = 23,
-            Decimal128I = 24,
+            Decimal128V3 = 24,
             Map = 25,
             VariantMap = 26,
             Bitmap = 27,
@@ -392,10 +392,10 @@ public:
                 return "Decimal32";
             case Decimal64:
                 return "Decimal64";
-            case Decimal128:
-                return "Decimal128";
-            case Decimal128I:
-                return "Decimal128I";
+            case Decimal128V2:
+                return "Decimal128V2";
+            case Decimal128V3:
+                return "Decimal128V3";
             case Decimal256:
                 return "Decimal256";
             case FixedLengthObject:
@@ -422,8 +422,8 @@ public:
     struct EnumToType;
 
     static bool is_decimal(Types::Which which) {
-        return (which >= Types::Decimal32 && which <= Types::Decimal128) ||
-               which == Types::Decimal128I || which == Types::Decimal256;
+        return (which >= Types::Decimal32 && which <= Types::Decimal128V2) ||
+               which == Types::Decimal128V3 || which == Types::Decimal256;
     }
 
     Field() : which(Types::Null) {}
@@ -590,10 +590,10 @@ public:
             return get<Decimal32>() <=> rhs.get<Decimal32>();
         case Types::Decimal64:
             return get<Decimal64>() <=> rhs.get<Decimal64>();
-        case Types::Decimal128:
-            return get<Decimal128>() <=> rhs.get<Decimal128>();
-        case Types::Decimal128I:
-            return get<Decimal128I>() <=> rhs.get<Decimal128I>();
+        case Types::Decimal128V2:
+            return get<Decimal128V2>() <=> rhs.get<Decimal128V2>();
+        case Types::Decimal128V3:
+            return get<Decimal128V3>() <=> rhs.get<Decimal128V3>();
         case Types::Decimal256:
             return get<Decimal256>() <=> rhs.get<Decimal256>();
         default:
@@ -646,11 +646,11 @@ public:
         case Types::Decimal64:
             f(field.template get<DecimalField<Decimal64>>());
             return;
-        case Types::Decimal128:
-            f(field.template get<DecimalField<Decimal128>>());
+        case Types::Decimal128V2:
+            f(field.template get<DecimalField<Decimal128V2>>());
             return;
-        case Types::Decimal128I:
-            f(field.template get<DecimalField<Decimal128I>>());
+        case Types::Decimal128V3:
+            f(field.template get<DecimalField<Decimal128V3>>());
             return;
         case Types::Decimal256:
             f(field.template get<DecimalField<Decimal256>>());
@@ -676,9 +676,9 @@ public:
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
                          Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, DecimalField<Decimal256>, BitmapValue,
-                         HyperLogLog, QuantileState>
+                         DecimalField<Decimal32>, DecimalField<Decimal64>,
+                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
             storage;
 
     Types::Which which;
@@ -795,12 +795,12 @@ struct TypeId<DecimalField<Decimal64>> {
     static constexpr const TypeIndex value = TypeIndex::Decimal64;
 };
 template <>
-struct TypeId<DecimalField<Decimal128>> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128;
+struct TypeId<DecimalField<Decimal128V2>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128V2;
 };
 template <>
-struct TypeId<DecimalField<Decimal128I>> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+struct TypeId<DecimalField<Decimal128V3>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128V3;
 };
 template <>
 struct TypeId<DecimalField<Decimal256>> {
@@ -863,12 +863,12 @@ struct Field::TypeToEnum<DecimalField<Decimal64>> {
     static constexpr Types::Which value = Types::Decimal64;
 };
 template <>
-struct Field::TypeToEnum<DecimalField<Decimal128>> {
-    static constexpr Types::Which value = Types::Decimal128;
+struct Field::TypeToEnum<DecimalField<Decimal128V2>> {
+    static constexpr Types::Which value = Types::Decimal128V2;
 };
 template <>
-struct Field::TypeToEnum<DecimalField<Decimal128I>> {
-    static constexpr Types::Which value = Types::Decimal128I;
+struct Field::TypeToEnum<DecimalField<Decimal128V3>> {
+    static constexpr Types::Which value = Types::Decimal128V3;
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal256>> {
@@ -947,12 +947,12 @@ struct Field::EnumToType<Field::Types::Decimal64> {
     using Type = DecimalField<Decimal64>;
 };
 template <>
-struct Field::EnumToType<Field::Types::Decimal128> {
-    using Type = DecimalField<Decimal128>;
+struct Field::EnumToType<Field::Types::Decimal128V2> {
+    using Type = DecimalField<Decimal128V2>;
 };
 template <>
-struct Field::EnumToType<Field::Types::Decimal128I> {
-    using Type = DecimalField<Decimal128I>;
+struct Field::EnumToType<Field::Types::Decimal128V3> {
+    using Type = DecimalField<Decimal128V3>;
 };
 template <>
 struct Field::EnumToType<Field::Types::Decimal256> {
@@ -1051,12 +1051,12 @@ struct NearestFieldTypeImpl<Decimal64> {
     using Type = DecimalField<Decimal64>;
 };
 template <>
-struct NearestFieldTypeImpl<Decimal128> {
-    using Type = DecimalField<Decimal128>;
+struct NearestFieldTypeImpl<Decimal128V2> {
+    using Type = DecimalField<Decimal128V2>;
 };
 template <>
-struct NearestFieldTypeImpl<Decimal128I> {
-    using Type = DecimalField<Decimal128I>;
+struct NearestFieldTypeImpl<Decimal128V3> {
+    using Type = DecimalField<Decimal128V3>;
 };
 template <>
 struct NearestFieldTypeImpl<Decimal256> {
@@ -1071,12 +1071,12 @@ struct NearestFieldTypeImpl<DecimalField<Decimal64>> {
     using Type = DecimalField<Decimal64>;
 };
 template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal128>> {
-    using Type = DecimalField<Decimal128>;
+struct NearestFieldTypeImpl<DecimalField<Decimal128V2>> {
+    using Type = DecimalField<Decimal128V2>;
 };
 template <>
-struct NearestFieldTypeImpl<DecimalField<Decimal128I>> {
-    using Type = DecimalField<Decimal128I>;
+struct NearestFieldTypeImpl<DecimalField<Decimal128V3>> {
+    using Type = DecimalField<Decimal128V3>;
 };
 template <>
 struct NearestFieldTypeImpl<DecimalField<Decimal256>> {
