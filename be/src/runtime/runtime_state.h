@@ -257,6 +257,10 @@ public:
 
     int64_t wal_id() { return _wal_id; }
 
+    void set_txn_id(int64_t txn_id) { _txn_id = txn_id; }
+
+    int64_t txn_id() { return _txn_id; }
+
     const std::string& import_label() { return _import_label; }
 
     const std::string& load_dir() const { return _load_dir; }
@@ -659,6 +663,7 @@ private:
     std::string _load_dir;
     int64_t _load_job_id;
     int64_t _wal_id = -1;
+    int64_t _txn_id = -1;
 
     // mini load
     int64_t _normal_row_number;

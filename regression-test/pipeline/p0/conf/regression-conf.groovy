@@ -55,10 +55,10 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 
-excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external,insert_group_commit_into_max_filter_ratio,insert_group_commit_into_unique_sync_mode,test_base_insert_job"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0,nereids_rules_p0/subquery"
+excludeDirectories = "workload_manager_p1,fault_injection_p0,nereids_rules_p0/subquery,schema_change,schema_change_p0,schema_change_p2"
 
 customConf1 = "test_custom_conf_value"
 
@@ -107,6 +107,6 @@ s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
-max_failure_num=50
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"

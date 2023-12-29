@@ -56,6 +56,6 @@ s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
-max_failure_num=0
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"

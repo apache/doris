@@ -1662,6 +1662,15 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
                     block.get(), filter_col, block->columns()));
         }
     }
+#ifndef BE_TEST
+    if (config::wait_relay_wal_finish &&
+        _state->exec_env()->wal_mgr()->find_wal_path(_t_sink.olap_table_sink.txn_id)) {
+        LOG(INFO) << "skip write txn " << _t_sink.olap_table_sink.txn_id;
+        g_sink_write_bytes << 0;
+        g_sink_write_rows << 0;
+        return Status::OK();
+    }
+#endif
 
     // Add block to node channel
     for (size_t i = 0; i < _channels.size(); i++) {

@@ -80,6 +80,14 @@ public:
     void add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
+    Status add_wal_cv_map(int64_t wal_id, std::shared_ptr<std::mutex> lock,
+                          std::shared_ptr<std::condition_variable> cv);
+    Status erase_wal_cv_map(int64_t wal_id);
+    Status get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& lock,
+                           std::shared_ptr<std::condition_variable>& cv);
+    Status wait_relay_wal_finish(int64_t wal_id);
+    bool find_wal_path(int64_t wal_id);
+    Status notify(int64_t wal_id);
 
     // used for limit
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
@@ -120,6 +128,10 @@ private:
     std::atomic<bool> _stop;
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
+    std::shared_mutex _wal_cv_lock;
+    std::unordered_map<int64_t, std::shared_ptr<std::mutex>> _wal_lock_map;
+    std::unordered_map<int64_t, std::shared_ptr<std::condition_variable>> _wal_cv_map;
+    std::shared_ptr<std::condition_variable> _cv;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // used for limit
     scoped_refptr<Thread> _update_wal_dirs_info_thread;

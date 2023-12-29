@@ -83,7 +83,7 @@ namespace vectorized {
 
 class VWalWriter {
 public:
-    VWalWriter(int64_t tb_id, int64_t wal_id, const std::string& import_label,
+    VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id, const std::string& import_label,
                WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                int be_exe_version);
     ~VWalWriter();
@@ -92,6 +92,7 @@ public:
     Status close();
 
 private:
+    int64_t _db_id;
     int64_t _tb_id;
     int64_t _wal_id;
     uint32_t _version = 0;

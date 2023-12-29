@@ -68,6 +68,12 @@ void WalTable::pick_relay_wals() {
                              << ",st:" << st.to_string();
             }
             need_erase_wals.push_back(it->first);
+            if (config::wait_relay_wal_finish) {
+                auto notify_st = _exec_env->wal_mgr()->notify(it->second->get_wal_id());
+                if (!notify_st.ok()) {
+                    LOG(WARNING) << "notify wal " << it->second->get_wal_id() << " fail";
+                }
+            }
             continue;
         }
         if (_need_replay(wal_info)) {
@@ -171,6 +177,9 @@ Status WalTable::_rename_to_tmp_path(const std::string wal) {
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
+    if (config::wait_relay_wal_finish) {
+        return true;
+    }
 #ifndef BE_TEST
     auto replay_interval = pow(2, wal_info->get_retry_num()) *
                            config::group_commit_replay_wal_retry_interval_seconds * 1000;
@@ -207,9 +216,11 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     auto wal_id = pair->first;
     auto label = pair->second;
 #ifndef BE_TEST
-    auto st = _try_abort_txn(_db_id, wal_id);
-    if (!st.ok()) {
-        LOG(WARNING) << "abort txn " << wal_id << " fail";
+    if (!config::wait_relay_wal_finish) {
+        auto st = _try_abort_txn(_db_id, wal_id);
+        if (!st.ok()) {
+            LOG(WARNING) << "abort txn " << wal_id << " fail";
+        }
     }
     RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
 #endif
@@ -276,6 +287,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->wal_id = wal_id;
     ctx->auth.auth_code = wal_id;
     ctx->label = label;
+    ctx->group_commit = false;
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish
@@ -289,6 +301,9 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
             _exec_env->stream_load_executor()->rollback_txn(ctx.get());
             st = ctx->status;
         }
+    }
+    if (config::wait_relay_wal_finish) {
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->notify(wal_id));
     }
     _exec_env->wal_mgr()->erase_wal_column_index(wal_id);
     LOG(INFO) << "relay wal id=" << wal_id << ",st=" << st.to_string();
