@@ -153,14 +153,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     }
                                     Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
                                     if (childExpr instanceof SlotReference) {
-                                        String exprName = ((SlotReference) childExpr).getName();
-                                        return "__DORIS_DELETE_SIGN__".equalsIgnoreCase(exprName);
+                                        return ((SlotReference) childExpr).getColumn().get().isDeleteSignColumn();
                                     }
                                     return false;
                                 })
                         )
                         .when(agg -> enablePushDownMinMaxOnUnique())
-                        .when(agg -> agg.getGroupByExpressions().size() == 0)
+                        .when(agg -> agg.getGroupByExpressions().isEmpty())
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
@@ -185,15 +184,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                                 }
                                                 Expression childExpr = filter.getConjuncts().iterator().next()
                                                         .children().get(0);
-                                                if (childExpr instanceof SlotReference) {
-                                                    String exprName = ((SlotReference) childExpr).getName();
-                                                    return "__DORIS_DELETE_SIGN__".equalsIgnoreCase(exprName);
-                                                }
-                                                return false;
+                                                    if (childExpr instanceof SlotReference) {
+                                                        return ((SlotReference) childExpr).getColumn().get()
+                                                                .isDeleteSignColumn();
+                                                    }
+                                                    return false;
                                             }))
                         )
                         .when(agg -> enablePushDownMinMaxOnUnique())
-                        .when(agg -> agg.getGroupByExpressions().size() == 0)
+                        .when(agg -> agg.getGroupByExpressions().isEmpty())
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty()
