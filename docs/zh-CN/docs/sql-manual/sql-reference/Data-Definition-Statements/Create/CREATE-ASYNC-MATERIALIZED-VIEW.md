@@ -171,7 +171,9 @@ KEY(k1,k2)
 物化视图特有的property包括：
 
 `grace_period`：查询改写时允许物化视图数据的最大延迟时间
+
 `excluded_trigger_tables`：数据刷新时忽略的表名，逗号分割。例如`table1,table2`
+
 `refresh_partition_num`：单次insert语句刷新的分区数量，默认为1
 
 ##### query
