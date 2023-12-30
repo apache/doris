@@ -2074,7 +2074,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
-    if (!status.ok()) {
+    // if rows read by batch is 0, will return end of file, we should not remove segment cache in this situation.
+    if (!status.ok() && !status.is<END_OF_FILE>()) {
         _segment->remove_from_segment_cache();
     }
     return status;
