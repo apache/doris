@@ -110,6 +110,7 @@ suite("test_too_many_segments", "nonConcurrent") { // the epic -238 case
                     assertTrue(1 == 2, "load Timeout: $uuid")
                 }
             }
+            logger.info(result[0][7].toString())
             assertTrue(result[0][7].contains("-238")) // EPIC!
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
