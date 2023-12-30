@@ -314,15 +314,16 @@ void TaskScheduler::_do_work(size_t index) {
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     fragment_ctx->is_canceled());
-            _try_close_task(task,
-                            fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
-                                                        : PipelineTaskState::FINISHED,
-                            status);
+
             VLOG_DEBUG << fmt::format(
                     "Task {} is eos, status {}.",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     get_state_name(task->get_state()));
+            _try_close_task(task,
+                            fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
+                                                        : PipelineTaskState::FINISHED,
+                            status);
             continue;
         }
 
