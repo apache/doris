@@ -60,6 +60,7 @@ private:
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
     Status _finish_clone(const string& clone_dir, const Version& version);
+    std::string _mask_token(const std::string& str);
     CompactionType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);
