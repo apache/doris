@@ -120,5 +120,9 @@ suite("test_too_many_segments", "nonConcurrent") { // the epic -238 case
             GetDebugPoint().disableDebugPointForAllBEs("BetaRowsetWriter._check_segment_number_limit_too_many_segments")
         }
     }
+    
+    sql """ set enable_memtable_on_sink_node=true """
+    runLoadWithTooManySegments()
+    sql """ set enable_memtable_on_sink_node=false """
     runLoadWithTooManySegments()
 }
