@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
@@ -161,6 +162,9 @@ public abstract class ConnectProcessor {
 
     protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
             Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        if (Config.enable_bdbje_debug_mode) {
+            return;
+        }
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
