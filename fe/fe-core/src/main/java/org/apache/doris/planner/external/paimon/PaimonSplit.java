@@ -23,6 +23,8 @@ import org.apache.doris.planner.external.TableFormatType;
 import org.apache.hadoop.fs.Path;
 import org.apache.paimon.table.source.Split;
 
+import java.util.List;
+
 public class PaimonSplit extends FileSplit {
     private Split split;
     private TableFormatType tableFormatType;
@@ -30,6 +32,12 @@ public class PaimonSplit extends FileSplit {
     public PaimonSplit(Split split) {
         super(new Path("dummyPath"), 0, 0, 0, null, null);
         this.split = split;
+        this.tableFormatType = TableFormatType.PAIMON;
+    }
+
+    public PaimonSplit(Path file, long start, long length, long fileLength, String[] hosts,
+                       List<String> partitionList) {
+        super(file, start, length, fileLength, hosts, partitionList);
         this.tableFormatType = TableFormatType.PAIMON;
     }
 

@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -41,8 +42,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
+import org.apache.hadoop.fs.Path;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.utils.InstantiationUtil;
 
@@ -50,6 +54,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -102,7 +107,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
-        fileDesc.setPaimonSplit(encodeObjectToString(paimonSplit.getSplit()));
+        org.apache.paimon.table.source.Split split = paimonSplit.getSplit();
+        if (split != null) {
+            fileDesc.setPaimonSplit(encodeObjectToString(split));
+        }
+        fileDesc.setFileFormat(source.getFileFormat());
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
                 .collect(Collectors.joining(",")));
@@ -129,7 +138,28 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .newScan().plan().splits();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             PaimonSplit paimonSplit = new PaimonSplit(split);
-            splits.add(paimonSplit);
+            if (split instanceof DataSplit) {
+                DataSplit dataSplit = (DataSplit) split;
+                Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
+                if (optRowFiles.isPresent()) {
+                    List<RawFile> rawFiles = optRowFiles.get();
+                    rawFiles.forEach(file -> {
+                        LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
+                        Path finalDataFilePath = locationPath.toScanRangeLocation();
+                        splits.add(new PaimonSplit(
+                                finalDataFilePath,
+                                file.offset(),
+                                file.length(),
+                                file.length(),
+                                new String[0],
+                                null));
+                    });
+                } else {
+                    splits.add(paimonSplit);
+                }
+            } else {
+                splits.add(paimonSplit);
+            }
         }
         return splits;
     }
@@ -158,7 +188,8 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
         //todo: no use
-        return TFileType.FILE_S3;
+        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
+            new DdlException("Unknown file location " + location + " for paimon table "));
     }
 
     @Override
