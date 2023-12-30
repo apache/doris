@@ -742,7 +742,7 @@ Status VFileScanner::_get_next_reader() {
                 // fall back to native reader if there is no log file
                 format_type = TFileFormatType::FORMAT_PARQUET;
             } else if (range.table_format_params.table_format_type == "paimon" &&
-                !range.table_format_params.paimon_params.__isset.paimon_split) {
+                       !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
                 if (range.table_format_params.paimon_params.file_format == "orc") {
                     format_type = TFileFormatType::FORMAT_ORC;
