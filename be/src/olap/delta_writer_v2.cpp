@@ -65,16 +65,18 @@ namespace doris {
 using namespace ErrorCode;
 
 std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+        RuntimeState* state) {
     std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance()));
+            new DeltaWriterV2(req, streams, StorageEngine::instance(), state));
     return writer;
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine)
-        : _req(*req),
+                             StorageEngine* storage_engine, RuntimeState* state)
+        : _state(state),
+          _req(*req),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -158,8 +160,13 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     }
     {
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);
-        while (_memtable_writer->flush_running_count() >=
-               config::memtable_flush_running_count_limit) {
+        auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
+        DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
+                        { memtable_flush_running_count_limit = 0; });
+        while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
+            if (_state->is_cancelled()) {
+                return Status::Cancelled(_state->cancel_reason());
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
