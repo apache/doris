@@ -2013,10 +2013,10 @@ visible_functions = {
         [['ipv6_string_to_num_or_null'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['ipv6_string_to_num_or_null'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],  
         [['ipv6numtostring','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['isipv4string'], 'TINYINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['isipv4string'], 'TINYINT', ['STRING'], 'ALWAYS_NULLABLE'],
-        [['isipv6string'], 'TINYINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['isipv6string'], 'TINYINT', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['isipv4string'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['isipv4string'], 'BOOLEAN', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['isipv6string'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['isipv6string'], 'BOOLEAN', ['STRING'], 'ALWAYS_NULLABLE'],
     ],
 
     "NonNullalbe": [

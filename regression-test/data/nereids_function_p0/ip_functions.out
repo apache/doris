@@ -90,6 +90,7 @@ aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
 ::ffff:127.0.0.1
 
 -- !ip31 --
+<<<<<<< HEAD
 00000000000000000000FFFFC0A80001
 
 -- !ip32 --
@@ -154,12 +155,15 @@ AAAAAAAAFFFFFFFFFFFFFFFFAAAAAAAA
 
 -- !ip31 --
 1
+=======
+true
+>>>>>>> change isipv4string and isipv6string return type, tinyint -> boolean
 
 -- !ip32 --
-0
+false
 
 -- !ip33 --
-1
+true
 
 -- !ip34 --
-0
+false

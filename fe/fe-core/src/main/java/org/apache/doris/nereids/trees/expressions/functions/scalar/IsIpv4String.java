@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -39,8 +39,8 @@ public class IsIpv4String extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
     public IsIpv4String(Expression arg0) {
         super("isipv4string", arg0);
