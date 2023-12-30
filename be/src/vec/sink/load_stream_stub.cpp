@@ -90,19 +90,22 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
 void LoadStreamStub::LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
     LOG(INFO) << "on_closed, load_id=" << _load_id << ", stream_id=" << id;
     std::lock_guard<bthread::Mutex> lock(_mutex);
+    DBUG_EXECUTE_IF("LoadStreamStub::LoadStreamReplyHandler::on_closed.close_wait", { return; });
     _is_closed.store(true);
     _close_cv.notify_all();
 }
 
-LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use)
-        : _use_cnt(num_use),
+LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use, RuntimeState* state)
+        : _state(state),
+          _use_cnt(num_use),
           _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(std::make_shared<IndexToTabletSchema>()),
           _enable_unique_mow_for_index(std::make_shared<IndexToEnableMoW>()) {};
 
-LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
-        : _use_cnt(stub._use_cnt.load()),
+LoadStreamStub::LoadStreamStub(LoadStreamStub& stub, RuntimeState* state)
+        : _state(state),
+          _use_cnt(stub._use_cnt.load()),
           _load_id(stub._load_id),
           _src_id(stub._src_id),
           _tablet_schema_for_index(stub._tablet_schema_for_index),
