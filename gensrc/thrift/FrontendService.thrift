@@ -688,16 +688,6 @@ struct TStreamLoadWithLoadStatusResult {
     6: optional i64 unselected_rows
 }
 
-struct TCheckWalRequest {
-    1: optional i64 wal_id
-    2: optional i64 db_id
-}
-
-struct TCheckWalResult {
-    1: optional Status.TStatus status
-    2: optional bool need_recovery
-}
-
 struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
@@ -1303,8 +1293,8 @@ struct TGetBackendMetaResult {
 }
 
 struct TColumnInfo {
-  1: optional string columnName
-  2: optional i64 columnId
+  1: optional string column_name
+  2: optional i64 column_id
 }
 
 struct TGetColumnInfoRequest {

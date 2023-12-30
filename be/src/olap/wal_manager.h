@@ -47,7 +47,7 @@ class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
 
 public:
-    enum WAL_STATUS {
+    enum WalStatus {
         PREPARE = 0,
         REPLAY,
         CREATE,
@@ -56,6 +56,7 @@ public:
 public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
     ~WalManager();
+    // used for wal
     Status delete_wal(int64_t wal_id, size_t block_queue_pre_allocated = 0);
     Status init();
     Status scan_wals(const std::string& wal_path);
@@ -64,13 +65,13 @@ public:
     Status create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer);
     Status scan();
     size_t get_wal_table_size(int64_t table_id);
-    Status add_recover_wal(int64_t db_id, int64_t table_id, std::vector<std::string> wals);
+    Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
     Status add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id, const std::string& label,
                         std::string& base_path);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
     Status get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
                                      PGetWalQueueSizeResponse* response);
-    void add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status);
+    void add_wal_status_queue(int64_t table_id, int64_t wal_id, WalStatus wal_status);
     Status erase_wal_status_queue(int64_t table_id, int64_t wal_id);
     void print_wal_status_queue();
     void stop();
@@ -80,6 +81,7 @@ public:
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
+    // used for limit
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
     Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
@@ -88,6 +90,7 @@ public:
     size_t get_max_available_size();
 
 private:
+    // used for limit
     Status _init_wal_dirs_conf();
     Status _init_wal_dirs();
     Status _init_wal_dirs_info();
@@ -99,11 +102,13 @@ public:
     // used for be ut
     size_t wal_limit_test_bytes;
 
+    const std::string tmp = "tmp";
+
 private:
+    //used for wal
     ExecEnv* _exec_env = nullptr;
     std::shared_mutex _lock;
     scoped_refptr<Thread> _replay_thread;
-    scoped_refptr<Thread> _update_wal_dirs_info_thread;
     CountDownLatch _stop_background_threads_latch;
     std::map<int64_t, std::shared_ptr<WalTable>> _table_map;
     std::vector<std::string> _wal_dirs;
@@ -111,11 +116,13 @@ private:
     std::shared_mutex _wal_status_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
     std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
-    std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
+    std::unordered_map<int64_t, std::unordered_map<int64_t, WalStatus>> _wal_status_queues;
     std::atomic<bool> _stop;
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
+    // used for limit
+    scoped_refptr<Thread> _update_wal_dirs_info_thread;
     std::unique_ptr<WalDirsInfo> _wal_dirs_info;
 };
 } // namespace doris
