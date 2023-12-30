@@ -54,7 +54,7 @@ suite("test_workload_sched_policy") {
             "conditions(query_time > 10) " +
             "actions(cancel_query) " +
             "properties( " +
-            "'enabled' = 'true', " +
+            "'enabled' = 'false', " +
             "'priority'='10' " +
             ");"
 
