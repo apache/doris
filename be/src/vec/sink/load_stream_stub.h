@@ -159,9 +159,19 @@ public:
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub, RuntimeState* state);
 
-    bool is_cancelled() const { return _state->is_cancelled(); }
+    bool is_cancelled() const {
+        if (_state == nullptr) {
+            return false;
+        }
+        return _state->is_cancelled();
+    }
 
-    std::string cancel_reason() const { return _state->cancel_reason(); }
+    std::string cancel_reason() const {
+        if (_state == nullptr) {
+            return "";
+        }
+        return _state->cancel_reason();
+    }
 
 // for mock this class in UT
 #ifdef BE_TEST
