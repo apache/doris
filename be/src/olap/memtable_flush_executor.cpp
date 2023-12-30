@@ -81,7 +81,7 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
-            _flush_status = Status::IOError("dbug_be_memtable_submit_flush_error");
+            _flush_status = Status::IOError<false>("dbug_be_memtable_submit_flush_error");
         });
         if (!_flush_status.ok()) {
             return _flush_status;

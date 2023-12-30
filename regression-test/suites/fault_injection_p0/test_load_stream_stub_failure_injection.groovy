@@ -18,8 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
-suite("mem_gc_when_load", "nonConcurrent") {
-    // init query case data
+suite("test_stream_stub_fault_injection", "nonConcurrent") {
+    sql """ set enable_memtable_on_sink_node=true """
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
@@ -67,24 +69,34 @@ suite("mem_gc_when_load", "nonConcurrent") {
         file "baseall.txt"
     }
 
-    try {
-        // let the gc cancel the load
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
+    def load_with_injection = { injection, error_msg->
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(injection)
+            sql "insert into test select * from baseall where k1 <= 3"
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains(error_msg))
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(injection)
+        }
     }
 
-    try {
-        // let the gc cancel the load when load is close_wait
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-    }
+    // StreamSinkFileWriter appendv write segment failed one replica
+    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "")
+    // StreamSinkFileWriter appendv write segment failed two replica
+    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "")
+    // StreamSinkFileWriter appendv write segment failed all replica
+    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "stream sink file writer append data failed")
+    // LoadStreams stream wait failed
+    load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed", "StreamWrite failed, err=32")
+    // LoadStreams keeping stream when release
+    load_with_injection("LoadStreams.release.keeping_streams", "")
+    // LoadStreams close stream failed
+    load_with_injection("LoadStreams.release.close_stream_failed", "")
+    // LoadStreams close wait failed
+    load_with_injection("LoadStreams.release.close_wait_failed", "")
+
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
+    sql """ set enable_memtable_on_sink_node=false """
 }
-

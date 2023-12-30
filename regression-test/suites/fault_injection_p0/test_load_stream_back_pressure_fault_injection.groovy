@@ -18,8 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
-suite("mem_gc_when_load", "nonConcurrent") {
-    // init query case data
+suite("test_load_stream_back_pressure_fault_injection", "nonConcurrent") {
+    sql """ set enable_memtable_on_sink_node=true """
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
@@ -68,23 +70,68 @@ suite("mem_gc_when_load", "nonConcurrent") {
     }
 
     try {
-        // let the gc cancel the load
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
+        GetDebugPoint().enableDebugPointForAllBEs("TabletStream.append_data.long_wait")
+        def thread1 = new Thread({
+            try {
+                def res = sql "insert into test select * from baseall where k1 <= 3"
+                logger.info(res.toString())
+            } catch(Exception e) {
+                logger.info(e.getMessage())
+                assertTrue(e.getMessage().contains("Communications link failure"))
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("TabletStream.append_data.long_wait")
+            }
+        })
+        thread1.start()
+
+        sleep(1000)
+
+        def processList = sql "show processlist"
+        logger.info(processList.toString())
+        processList.each { item ->
+            logger.info(item[1].toString())
+            logger.info(item[11].toString())
+            if (item[11].toString() == "insert into test select * from baseall where k1 <= 3".toString()){
+                def res = sql "kill ${item[1]}"
+                logger.info(res.toString())
+            }
+        }
     } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
+        logger.info(e.getMessage())
     }
 
     try {
-        // let the gc cancel the load when load is close_wait
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-    }
-}
+        GetDebugPoint().enableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
+        def thread1 = new Thread({
+            try {
+                def res = sql "insert into test select * from baseall where k1 <= 3"
+                logger.info(res.toString())
+            } catch(Exception e) {
+                logger.info(e.getMessage())
+                assertTrue(e.getMessage().contains("Communications link failure"))
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs("TabletStream.add_segment.long_wait")
+            }
+        })
+        thread1.start()
 
+        sleep(1000)
+
+        def processList = sql "show processlist"
+        logger.info(processList.toString())
+        processList.each { item ->
+            logger.info(item[1].toString())
+            logger.info(item[11].toString())
+            if (item[11].toString() == "insert into test select * from baseall where k1 <= 3".toString()){
+                def res = sql "kill ${item[1]}"
+                logger.info(res.toString())
+            }
+        }
+    } catch(Exception e) {
+        logger.info(e.getMessage())
+    }
+
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
+    sql """ set enable_memtable_on_sink_node=false """
+}
