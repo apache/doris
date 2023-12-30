@@ -95,7 +95,7 @@ public:
 
     void set_wg_id(uint64_t wg_id) { this->_wg_id = wg_id; }
 
-    uint64_t get_wg_id() { return _wg_id; }
+    uint64_t get_wg_id() const { return _wg_id; }
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
