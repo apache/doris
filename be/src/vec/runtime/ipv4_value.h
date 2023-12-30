@@ -93,7 +93,7 @@ public:
             --end;
         }
         return vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
-                                        reinterpret_cast<unsigned char*>(&parse_value));
+                                          reinterpret_cast<unsigned char*>(&parse_value));
     }
 
 private:
