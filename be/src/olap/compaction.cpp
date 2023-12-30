@@ -633,7 +633,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 std::string dir_str = p.parent_path().string();
                                 std::string file_str = p.filename().string();
                                 lucene::store::Directory* dir =
-                                        DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                                        DorisCompoundDirectoryFactory::getDirectory(
+                                                fs, dir_str.c_str());
                                 DorisCompoundReader reader(dir, file_str.c_str());
                                 std::vector<std::string> files;
                                 reader.list(&files);
