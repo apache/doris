@@ -48,8 +48,12 @@ public:
         }
         size_t begin = 0;
         size_t end = len - 1;
-        while (begin < len && std::isspace(ipv6_str[begin])) { ++begin; }
-        while (end > begin && std::isspace(ipv6_str[end])) { --end; }
+        while (begin < len && std::isspace(ipv6_str[begin])) {
+            ++begin;
+        }
+        while (end > begin && std::isspace(ipv6_str[end])) {
+            --end;
+        }
         return vectorized::parseIPv6whole(ipv6_str + begin, ipv6_str + end + 1,
                                           reinterpret_cast<unsigned char*>(&value));
     }
@@ -77,8 +81,12 @@ public:
         vectorized::IPv6 value;
         size_t begin = 0;
         size_t end = len - 1;
-        while (begin < len && std::isspace(ipv6_str[begin])) { ++begin; }
-        while (end > begin && std::isspace(ipv6_str[end])) { --end; }
+        while (begin < len && std::isspace(ipv6_str[begin])) {
+            ++begin;
+        }
+        while (end > begin && std::isspace(ipv6_str[end])) {
+            --end;
+        }
         return vectorized::parseIPv6whole(ipv6_str + begin, ipv6_str + end + 1,
                                           reinterpret_cast<unsigned char*>(&value));
     }

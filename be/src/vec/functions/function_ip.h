@@ -646,7 +646,7 @@ private:
             return Status::OK();
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                    argument.column->get_name(), get_name());
+                                        argument.column->get_name(), get_name());
         }
     }
 
