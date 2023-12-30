@@ -147,9 +147,22 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
+    auto load_stream_max_wait_flush_token_time_ms =
+            config::load_stream_max_wait_flush_token_time_ms;
+    DBUG_EXECUTE_IF("TabletStream.append_data.long_wait", {
+        load_stream_flush_token_max_tasks = 0;
+        load_stream_max_wait_flush_token_time_ms = 1000;
+    });
     MonotonicStopWatch timer;
     timer.start();
-    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+    while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
+        if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
+            return Status::Error<true>(
+                    "wait flush token back pressure time is more than "
+                    "load_stream_max_wait_flush_token_time {}",
+                    load_stream_max_wait_flush_token_time_ms);
+        }
         bthread_usleep(2 * 1000); // 2ms
     }
     timer.stop();

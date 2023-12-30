@@ -196,10 +196,17 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._output_tuple_desc_null",
+                    { _output_tuple_desc = nullptr; });
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("unknown destination tuple descriptor, id = {}",
                                      _tuple_desc_id);
     }
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", {
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size() + 1, _vec_output_expr_ctxs.size());
+    });
     if (_vec_output_expr_ctxs.size() > 0 &&
         _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
@@ -264,6 +271,8 @@ Status VTabletWriterV2::_open_streams(int64_t src_id) {
 Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
                                                  ::doris::stream_load::LoadStreams& streams) {
     const auto* node_info = _nodes_info->find_node(dst_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.node_info_null",
+                    { node_info = nullptr; });
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
@@ -289,6 +298,8 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
                 auto tablet_location = _location->find_tablet(tablet_id);
+                DBUG_EXECUTE_IF("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null",
+                                { tablet_location = nullptr; });
                 if (tablet_location == nullptr) {
                     return Status::InternalError("unknown tablet location, tablet id = {}",
                                                  tablet_id);
@@ -338,6 +349,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         Streams& streams) {
     const auto* location = _location->find_tablet(tablet_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
@@ -426,7 +438,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 break;
             }
         }
-        return DeltaWriterV2::open(&req, streams);
+        return DeltaWriterV2::open(&req, streams, _state);
     });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
@@ -484,6 +496,8 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
+                    { status = Status::InternalError("load cancel"); });
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null

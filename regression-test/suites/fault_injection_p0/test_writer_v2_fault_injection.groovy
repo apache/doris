@@ -18,8 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
-suite("mem_gc_when_load", "nonConcurrent") {
-    // init query case data
+suite("test_writer_v2_fault_injection", "nonConcurrent") {
+     sql """ set enable_memtable_on_sink_node=true """
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
@@ -67,24 +67,32 @@ suite("mem_gc_when_load", "nonConcurrent") {
         file "baseall.txt"
     }
 
-    try {
-        // let the gc cancel the load
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.try_send_and_fetch_status_full_gc")
+    def load_with_injection = { injection, error_msg->
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(injection)
+            sql "insert into test select * from baseall where k1 <= 3"
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains(error_msg))
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(injection)
+        }
     }
 
-    try {
-        // let the gc cancel the load when load is close_wait
-        GetDebugPoint().enableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-        sql "insert into test select * from baseall where k1 <= 3"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("Process has no memory available"))  // the msg should contain the root cause
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.close_wait_full_gc")
-    }
+    // VTabletWriterV2 _output_tuple_desc is null
+    load_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "unknown destination tuple descriptor")
+    // VTabletWriterV2 _vec_output_expr_ctxs not equal _output_tuple_slot
+    load_with_injection("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", "should be equal to output_expr_num")
+    // VTabletWriterV2 node_info is null
+    load_with_injection("VTabletWriterV2._open_streams_to_backend.node_info_null", "Unknown node")
+    // VTabletWriterV2 tablet_location is null
+    load_with_injection("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null", "unknown tablet location")
+    // VTabletWriterV2 location is null
+    load_with_injection("VTabletWriterV2._select_streams.location_null", "unknown tablet location")
+    // VTabletWriterV2 cancel
+    load_with_injection("VTabletWriterV2.close.cancel", "load cancel")
+    // DeltaWriterV2 stream_size is 0
+    load_with_injection("DeltaWriterV2.init.stream_size", "failed to find tablet schema")
+
+    sql """ set enable_memtable_on_sink_node=false """
 }
-
