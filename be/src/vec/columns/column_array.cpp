@@ -95,11 +95,11 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && nested_column) {
+    if (!offsets_concrete->empty() && data) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
-        if (nested_column->size() != last_offset) {
+        if (data->size() != last_offset) {
             LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
         }
     }
