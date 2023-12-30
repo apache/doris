@@ -82,6 +82,9 @@ Status WalManager::init() {
     RETURN_IF_ERROR(_init_wal_dirs_conf());
     RETURN_IF_ERROR(_init_wal_dirs());
     RETURN_IF_ERROR(_init_wal_dirs_info());
+    for (auto wal_dir : _wal_dirs) {
+        RETURN_IF_ERROR(scan_wals(wal_dir));
+    }
     return Thread::create(
             "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
             &_replay_thread);
@@ -112,7 +115,7 @@ Status WalManager::_init_wal_dirs_conf() {
 Status WalManager::_init_wal_dirs() {
     bool exists = false;
     for (auto wal_dir : _wal_dirs) {
-        std::string tmp_dir = wal_dir + "/tmp";
+        std::string tmp_dir = wal_dir + "/" + tmp;
         LOG(INFO) << "wal_dir:" << wal_dir << ",tmp_dir:" << tmp_dir;
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_dir, &exists));
         if (!exists) {
@@ -122,7 +125,6 @@ Status WalManager::_init_wal_dirs() {
         if (!exists) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(tmp_dir));
         }
-        RETURN_IF_ERROR(scan_wals(wal_dir));
     }
     return Status::OK();
 }
@@ -164,15 +166,15 @@ Status WalManager::_init_wal_dirs_info() {
             &_update_wal_dirs_info_thread);
 }
 
-void WalManager::add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status) {
+void WalManager::add_wal_status_queue(int64_t table_id, int64_t wal_id, WalStatus wal_status) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_status_lock);
     LOG(INFO) << "add wal queue "
               << ",table_id:" << table_id << ",wal_id:" << wal_id << ",status:" << wal_status;
     auto it = _wal_status_queues.find(table_id);
     if (it == _wal_status_queues.end()) {
-        std::unordered_map<int64_t, WAL_STATUS> tmp;
-        tmp.emplace(wal_id, wal_status);
-        _wal_status_queues.emplace(table_id, tmp);
+        std::unordered_map<int64_t, WalStatus> tmp_map;
+        tmp_map.emplace(wal_id, wal_status);
+        _wal_status_queues.emplace(table_id, tmp_map);
     } else {
         it->second.emplace(wal_id, wal_status);
     }
@@ -305,12 +307,12 @@ Status WalManager::scan_wals(const std::string& wal_path) {
         LOG(WARNING) << "Failed list files for dir=" << wal_path << ", st=" << st.to_string();
         return st;
     }
-    for (const auto& db_id : dbs) {
-        if (db_id.is_file) {
+    for (const auto& database_id : dbs) {
+        if (database_id.is_file || database_id.file_name == tmp) {
             continue;
         }
         std::vector<io::FileInfo> tables;
-        auto db_path = wal_path + "/" + db_id.file_name;
+        auto db_path = wal_path + "/" + database_id.file_name;
         st = io::global_local_filesystem()->list(db_path, false, &tables, &exists);
         if (!st.ok()) {
             LOG(WARNING) << "Failed list files for dir=" << db_path << ", st=" << st.to_string();
@@ -342,20 +344,16 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                         int64_t wal_id =
                                 std::strtoll(wal.file_name.substr(0, pos).c_str(), NULL, 10);
                         _wal_path_map.emplace(wal_id, wal_file);
+                        int64_t db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
                         int64_t tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
-                        add_wal_status_queue(tb_id, wal_id, WalManager::WAL_STATUS::REPLAY);
+                        add_wal_status_queue(tb_id, wal_id, WalManager::WalStatus::REPLAY);
+                        RETURN_IF_ERROR(add_recover_wal(db_id, tb_id, wal_id, wal_file));
                     } catch (const std::invalid_argument& e) {
                         return Status::InvalidArgument("Invalid format, {}", e.what());
                     }
                 }
             }
-            st = add_recover_wal(std::stoll(db_id.file_name), std::stoll(table_id.file_name), res);
             count += res.size();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed add replay wal, db=" << db_id.file_name
-                             << ", table=" << table_id.file_name << ", st=" << st.to_string();
-                return st;
-            }
         }
     }
     LOG(INFO) << "Finish list all wals, size:" << count;
@@ -396,7 +394,8 @@ Status WalManager::replay() {
     return Status::OK();
 }
 
-Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<std::string> wals) {
+Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id,
+                                   std::string wal) {
     std::lock_guard<std::shared_mutex> wrlock(_lock);
     std::shared_ptr<WalTable> table_ptr;
     auto it = _table_map.find(table_id);
@@ -406,12 +405,10 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<
     } else {
         table_ptr = it->second;
     }
-    table_ptr->add_wals(wals);
+    table_ptr->add_wal(wal_id, wal);
 #ifndef BE_TEST
-    for (auto wal : wals) {
-        RETURN_IF_ERROR(update_wal_dir_limit(_get_base_wal_path(wal)));
-        RETURN_IF_ERROR(update_wal_dir_used(_get_base_wal_path(wal)));
-    }
+    RETURN_IF_ERROR(update_wal_dir_limit(_get_base_wal_path(wal)));
+    RETURN_IF_ERROR(update_wal_dir_used(_get_base_wal_path(wal)));
 #endif
     return Status::OK();
 }

@@ -88,8 +88,6 @@ void WalReader::string_split(const std::string& str, const std::string& splits,
 Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     RETURN_IF_ERROR(_wal_reader->read_header(_version, _col_ids));
-    std::vector<std::string> col_element;
-    string_split(_col_ids, ",", col_element);
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_column_index(_wal_id, _column_index));
     return Status::OK();
 }
