@@ -110,7 +110,10 @@ private:
                     return Status::OK();
                 }
                 if (_stub->is_cancelled()) {
-                    return Status::Cancelled(_stub->cancel_reason());
+                    return _stub->cancelled_state();
+                }
+                if (_stub->runtime_state()->is_cancelled()) {
+                    return Status::Cancelled(_stub->runtime_state()->cancel_reason());
                 }
                 // wait 1s once time.
                 ret = _close_cv.wait_for(lock, 1);
@@ -159,12 +162,16 @@ public:
     // copy constructor, shared_ptr members are shared
     LoadStreamStub(LoadStreamStub& stub, RuntimeState* state);
 
-    bool is_cancelled() const {
-        if (_state == nullptr) {
-            return false;
-        }
-        return _state->is_cancelled();
+    void cancel(Status status) {
+        _cancel = true;
+        _cancel_status = status;
     }
+
+    RuntimeState* runtime_state() const { return _state; }
+
+    bool is_cancelled() const { return _cancel; }
+
+    Status cancelled_state() const { return _cancel_status; }
 
     std::string cancel_reason() const {
         if (_state == nullptr) {
@@ -262,6 +269,9 @@ private:
 
 protected:
     RuntimeState* _state = nullptr;
+
+    bool _cancel = false;
+    Status _cancel_status;
 
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;

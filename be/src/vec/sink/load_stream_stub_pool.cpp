@@ -54,6 +54,12 @@ void LoadStreams::release() {
     }
 }
 
+void LoadStreams::cancel(Status status) {
+    for (auto& stream : _streams) {
+        stream->cancel(status);
+    }
+}
+
 LoadStreamStubPool::LoadStreamStubPool() = default;
 
 LoadStreamStubPool::~LoadStreamStubPool() = default;

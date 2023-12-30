@@ -78,6 +78,8 @@ public:
 
     void release();
 
+    void cancel(Status status);
+
     Streams& streams() { return _streams; }
 
 private:

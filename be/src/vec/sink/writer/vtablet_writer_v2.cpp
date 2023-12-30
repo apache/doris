@@ -457,6 +457,7 @@ Status VTabletWriterV2::_cancel(Status status) {
     }
     for (const auto& [_, streams] : _streams_for_node) {
         streams->release();
+        streams->cancel(status);
     }
     return Status::OK();
 }
