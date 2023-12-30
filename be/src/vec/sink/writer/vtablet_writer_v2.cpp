@@ -438,7 +438,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 break;
             }
         }
-        return DeltaWriterV2::open(&req, streams);
+        return DeltaWriterV2::open(&req, streams, _state);
     });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
