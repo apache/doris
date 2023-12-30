@@ -61,7 +61,7 @@ std::string FileScanLocalState::name_suffix() const {
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
     int max_scanners =
-            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+            config::doris_max_remote_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
     max_scanners = max_scanners == 0 ? 1 : max_scanners;
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {
