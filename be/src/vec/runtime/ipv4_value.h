@@ -92,11 +92,8 @@ public:
         while (end > begin && std::isspace(ipv4_str[end])) {
             --end;
         }
-        if (!vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
-                                        reinterpret_cast<unsigned char*>(&parse_value))) {
-            return false;
-        }
-        return true;
+        return vectorized::parseIPv4whole(ipv4_str + begin, ipv4_str + end + 1,
+                                        reinterpret_cast<unsigned char*>(&parse_value));
     }
 
 private:
