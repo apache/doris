@@ -744,10 +744,13 @@ Status VFileScanner::_get_next_reader() {
             } else if (range.table_format_params.table_format_type == "paimon" &&
                        !range.table_format_params.paimon_params.__isset.paimon_split) {
                 // use native reader
-                if (range.table_format_params.paimon_params.file_format == "orc") {
+                auto format = range.table_format_params.paimon_params.file_format;
+                if (format == "orc") {
                     format_type = TFileFormatType::FORMAT_ORC;
-                } else if (range.table_format_params.paimon_params.file_format == "parquet") {
+                } else if (format == "parquet") {
                     format_type = TFileFormatType::FORMAT_PARQUET;
+                } else {
+                    return Status::InternalError("Not supported paimon file format: {}", format);
                 }
             }
         }

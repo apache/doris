@@ -136,9 +136,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
+        boolean supportNative = supportNativeReader();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
-            PaimonSplit paimonSplit = new PaimonSplit(split);
-            if (split instanceof DataSplit) {
+            if (supportNative && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
                 Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
                 if (optRowFiles.isPresent()) {
@@ -149,19 +149,30 @@ public class PaimonScanNode extends FileQueryScanNode {
                         splits.add(new PaimonSplit(
                                 finalDataFilePath,
                                 file.offset(),
-                                file.length(),
+                                file.length() - file.offset(),
                                 file.length(),
                                 new String[0],
                                 null));
                     });
                 } else {
-                    splits.add(paimonSplit);
+                    splits.add(new PaimonSplit(split));
                 }
             } else {
-                splits.add(paimonSplit);
+                splits.add(new PaimonSplit(split));
             }
         }
         return splits;
+    }
+
+    private boolean supportNativeReader() {
+        String fileFormat = source.getFileFormat().toLowerCase();
+        switch (fileFormat) {
+            case "orc":
+            case "parquet":
+                return true;
+            default:
+                return false;
+        }
     }
 
     //When calling 'setPaimonParams' and 'getSplits', the column trimming has not been performed yet,
