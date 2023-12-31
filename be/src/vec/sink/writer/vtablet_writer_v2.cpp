@@ -113,7 +113,7 @@ Status VTabletWriterV2::_incremental_open_streams(
     }
     for (int64_t node_id : new_backends) {
         auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink, _state);
         RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
         _streams_for_node[node_id] = load_streams;
     }
@@ -261,7 +261,7 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 Status VTabletWriterV2::_open_streams(int64_t src_id) {
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink);
+                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink, _state);
         RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
         _streams_for_node[dst_id] = streams;
     }
@@ -457,6 +457,7 @@ Status VTabletWriterV2::_cancel(Status status) {
     }
     for (const auto& [_, streams] : _streams_for_node) {
         streams->release();
+        streams->cancel(status);
     }
     return Status::OK();
 }
