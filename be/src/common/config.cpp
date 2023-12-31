@@ -208,6 +208,8 @@ DEFINE_Int32(sys_log_roll_num, "10");
 DEFINE_Strings(sys_log_verbose_modules, "");
 // verbose log level
 DEFINE_Int32(sys_log_verbose_level, "10");
+// verbose log FLAGS_v
+DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
 
@@ -784,6 +786,8 @@ DEFINE_Int32(load_stream_messages_in_batch, "128");
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 // max tasks per flush token in load stream
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
+// max wait flush token time in load stream
+DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
