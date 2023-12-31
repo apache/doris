@@ -90,7 +90,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
   For example, if you use the LDAP user node uid attribute as the username to log into Doris, you can configure it as:    
   ldap_user_filter = (&(uid={login}))；  
   This item can be configured using the LDAP user mailbox prefix as the user name:   
-  ldap_user_filter = (&(mail={login}@baidu.com))。
+  ldap_user_filter = (&(mail={login}@baidu.com)).
 
 * ldap_group_basedn = ou=group,dc=domain,dc=com
   base dn when Doris searches for group information in LDAP. if this item is not configured, LDAP group authorization will not be enabled. Same as ldap_ User_ Similar to basedn, it limits the scope of Doris searching for groups.
