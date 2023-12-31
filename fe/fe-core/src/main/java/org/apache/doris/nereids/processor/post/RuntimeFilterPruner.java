@@ -93,7 +93,11 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                     == RuntimeFilterContext.EffectiveSrcType.REF) {
                 RuntimeFilterContext.ExpandRF expand = rfContext.getExpandRfByJoin(join);
                 if (expand != null) {
+                    Set<ExprId> outputExprIdOfExpandTargets = Sets.newHashSet();
+                    outputExprIdOfExpandTargets.addAll(expand.target1.getOutputExprIds());
+                    outputExprIdOfExpandTargets.addAll(expand.target2.getOutputExprIds());
                     rfContext.getTargetExprIdByFilterJoin(join)
+                            .stream().filter(exprId -> outputExprIdOfExpandTargets.contains(exprId))
                             .forEach(exprId -> rfContext.removeFilter(exprId, join));
                 }
             }
