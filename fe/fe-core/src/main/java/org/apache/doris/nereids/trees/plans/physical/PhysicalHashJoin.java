@@ -229,7 +229,7 @@ public class PhysicalHashJoin<
                         target2 = (pair == null) ? null : pair.first;
                     }
                     if (target2 != null) {
-                        ctx.expandedRF.add(
+                        ctx.getExpandedRF().add(
                             new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
                     }
                 }

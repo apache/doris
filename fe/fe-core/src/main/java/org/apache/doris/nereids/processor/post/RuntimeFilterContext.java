@@ -369,4 +369,8 @@ public class RuntimeFilterContext {
         }
         return null;
     }
+
+    public List<ExpandRF> getExpandedRF() {
+        return expandedRF;
+    }
 }
