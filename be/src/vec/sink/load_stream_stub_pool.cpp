@@ -54,13 +54,19 @@ void LoadStreams::release() {
     }
 }
 
+void LoadStreams::cancel(Status status) {
+    for (auto& stream : _streams) {
+        stream->cancel(status);
+    }
+}
+
 LoadStreamStubPool::LoadStreamStubPool() = default;
 
 LoadStreamStubPool::~LoadStreamStubPool() = default;
 
 std::shared_ptr<LoadStreams> LoadStreamStubPool::get_or_create(PUniqueId load_id, int64_t src_id,
                                                                int64_t dst_id, int num_streams,
-                                                               int num_sink) {
+                                                               int num_sink, RuntimeState* state) {
     auto key = std::make_pair(UniqueId(load_id), dst_id);
     std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<LoadStreams> streams = _pool[key];
@@ -69,11 +75,12 @@ std::shared_ptr<LoadStreams> LoadStreamStubPool::get_or_create(PUniqueId load_id
     }
     DCHECK(num_streams > 0) << "stream num should be greater than 0";
     DCHECK(num_sink > 0) << "sink num should be greater than 0";
-    auto [it, _] = _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id, num_sink});
+    auto [it, _] =
+            _template_stubs.emplace(load_id, new LoadStreamStub {load_id, src_id, num_sink, state});
     streams = std::make_shared<LoadStreams>(load_id, dst_id, num_sink, this);
     for (int32_t i = 0; i < num_streams; i++) {
         // copy construct, internal tablet schema map will be shared among all stubs
-        streams->streams().emplace_back(new LoadStreamStub {*it->second});
+        streams->streams().emplace_back(new LoadStreamStub {*it->second, state});
     }
     _pool[key] = streams;
     return streams;
