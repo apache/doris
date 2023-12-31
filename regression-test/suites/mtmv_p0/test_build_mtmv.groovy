@@ -90,7 +90,7 @@ suite("test_build_mtmv") {
 
     def descTableAllResult = sql """desc ${mvName} all"""
     logger.info("descTableAllResult: " + descTableAllResult.toString())
-    assertTrue(descTableAllResult.toString().contains(${mvName}))
+    assertTrue(descTableAllResult.toString().contains("${mvName}"))
 
     // if not exist
     try {
