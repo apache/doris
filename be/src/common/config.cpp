@@ -774,7 +774,7 @@ DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
 DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
 // idle timeout for load stream in ms
-DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+DEFINE_mInt64(load_stream_idle_timeout_ms, "600000");
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
