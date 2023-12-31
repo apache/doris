@@ -33,7 +33,7 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
                                                                  size_t size) {
     for (size_t i = 0; i < size; i++) {
         butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
-        PWriteStreamSinkResponse response;
+        PLoadStreamResponse response;
         response.ParseFromZeroCopyStream(&wrapper);
 
         Status st = Status::create(response.status());
@@ -50,14 +50,16 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
                 _success_tablets.push_back(tablet_id);
             }
         }
-        if (response.failed_tablet_ids_size() > 0) {
+        if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
-            for (auto tablet_id : response.failed_tablet_ids()) {
-                ss << " " << tablet_id;
+            for (auto pb : response.failed_tablets()) {
+                Status st = Status::create(pb.status());
+                ss << " " << pb.id() << ":" << st;
             }
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
-            for (auto tablet_id : response.failed_tablet_ids()) {
-                _failed_tablets.push_back(tablet_id);
+            for (auto pb : response.failed_tablets()) {
+                Status st = Status::create(pb.status());
+                _failed_tablets.emplace(pb.id(), st);
             }
         }
         ss << ", status: " << st;

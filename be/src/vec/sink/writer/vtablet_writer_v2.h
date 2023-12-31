@@ -140,6 +140,8 @@ private:
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
 
+    Status _failed_reason(int64_t tablet_id);
+
     Status _close_load(const Streams& streams);
 
     Status _cancel(Status status);

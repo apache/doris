@@ -324,7 +324,7 @@ public:
         int on_received_messages(StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override {
             for (size_t i = 0; i < size; i++) {
-                PWriteStreamSinkResponse response;
+                PLoadStreamResponse response;
                 butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
                 response.ParseFromZeroCopyStream(&wrapper);
                 LOG(INFO) << "response " << response.DebugString();
@@ -332,8 +332,8 @@ public:
                 for (auto& id : response.success_tablet_ids()) {
                     g_response_stat.success_tablet_ids.push_back(id);
                 }
-                for (auto& id : response.failed_tablet_ids()) {
-                    g_response_stat.failed_tablet_ids.push_back(id);
+                for (auto& tablet : response.failed_tablets()) {
+                    g_response_stat.failed_tablet_ids.push_back(tablet.id());
                 }
                 g_response_stat.num++;
             }
