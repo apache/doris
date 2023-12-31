@@ -968,14 +968,15 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         if (target_size > 1) {
             int prepare_done = {0};
-            Status prepare_status[target_size];
+            std::vector<Status> prepare_status(target_size);
             std::mutex m;
             std::condition_variable cv;
 
             for (size_t i = 0; i < target_size; i++) {
-                static_cast<void>(_thread_pool->submit_func([&, i]() {
-                    prepare_status[i] = pre_and_submit(i);
+                RETURN_IF_ERROR(_thread_pool->submit_func([&, i]() {
+                    auto st = pre_and_submit(i);
                     std::unique_lock<std::mutex> lock(m);
+                    prepare_status[i] = st;
                     prepare_done++;
                     if (prepare_done == target_size) {
                         cv.notify_one();
@@ -984,15 +985,16 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             }
 
             std::unique_lock<std::mutex> lock(m);
-            if (prepare_done != target_size) {
+            while (prepare_done != target_size) {
                 cv.wait(lock);
+            }
 
-                for (size_t i = 0; i < target_size; i++) {
-                    if (!prepare_status[i].ok()) {
-                        return prepare_status[i];
-                    }
+            for (size_t i = 0; i < target_size; i++) {
+                if (!prepare_status[i].ok()) {
+                    return prepare_status[i];
                 }
             }
+
             return Status::OK();
         } else {
             return pre_and_submit(0);
