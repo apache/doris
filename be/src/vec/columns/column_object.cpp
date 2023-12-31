@@ -1079,6 +1079,14 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.data.empty() || subcolumn->data.get_finalized_column_ptr() == nullptr) {
+            // TODO this is a tmp defensive code to prevent from crash and
+            // print more info about crash info
+            LOG(WARNING) << "Dump crash debug info"
+                         << ", structure:" << JsonFunctions::print_json_value(*doc_structure)
+                         << ", num_rows: " << num_rows << ", row_position: " << row;
+            return false;
+        }
         find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
                                  subcolumn->data.get_least_common_type_serde(), root,
                                  doc_structure->GetAllocator(), row);
