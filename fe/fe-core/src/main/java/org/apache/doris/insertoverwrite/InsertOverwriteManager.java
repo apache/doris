@@ -93,10 +93,10 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     }
 
     /**
-     * for transterToMaster,try drop all temp partitions
+     * for transferToMaster, try drop all temp partitions
      */
     public void allTaskFail() {
-        LOG.info("try drop all temp partitions when transterToMaster");
+        LOG.info("try drop all temp partitions when transferToMaster");
         HashMap<Long, InsertOverwriteTask> copyTasks = Maps.newHashMap(tasks);
         for (Entry<Long, InsertOverwriteTask> entry : copyTasks.entrySet()) {
             taskFail(entry.getKey());
