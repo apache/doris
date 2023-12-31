@@ -36,6 +36,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.Sets;
+
 import java.util.List;
 import java.util.Set;
 
