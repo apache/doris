@@ -187,7 +187,7 @@ public class DescribeStmt extends ShowStmt {
                 // show base table schema only
                 String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
                         + TableProcDir.INDEX_SCHEMA + "/";
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
                     if (partitionNames != null) {
@@ -212,7 +212,7 @@ public class DescribeStmt extends ShowStmt {
                 }
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
