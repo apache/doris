@@ -553,9 +553,9 @@ Status VTabletWriterV2::close(Status exec_status) {
                 }
             }
         }
-        if (!_missing_tablets.empty()) {
-            std::stringstream ss("pre-commit check failed, ");
-            ss << "missing " << _missing_tablets.size() << " tablets:";
+        if (!tablet_commit_infos.empty() && !_missing_tablets.empty()) {
+            std::stringstream ss;
+            ss << "pre-commit check failed, missing " << _missing_tablets.size() << " tablets:";
             int print_limit = 3;
             for (auto tablet_id : _missing_tablets | std::ranges::views::take(print_limit)) {
                 ss << " (tablet_id=" << tablet_id;
