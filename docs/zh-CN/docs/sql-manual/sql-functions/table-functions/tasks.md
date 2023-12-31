@@ -41,7 +41,7 @@ tasks
 `tasks("type"="")`
 
 tasks("type"="mv")表结构：
-```
+```sql
 mysql> desc function tasks("type"="mv");
 +-----------------------+------+------+-------+---------+-------+
 | Field                 | Type | Null | Key   | Default | Extra |
@@ -91,13 +91,13 @@ mysql> desc function tasks("type"="mv");
 
 1. 查看所有物化视图的task
 
-```
+```sql
 mysql> select * from tasks("type"="mv");
 ```
 
 2. 查看jobName为`inner_mtmv_75043`的所有task
 
-```
+```sql
 mysql> select * from tasks("type"="mv") where JobName="inner_mtmv_75043";
 ```
 

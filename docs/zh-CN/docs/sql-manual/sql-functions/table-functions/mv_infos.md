@@ -41,7 +41,7 @@ mv_infos
 `mv_infos("database"="")`
 
 mv_infos()表结构：
-```
+```sql
 mysql> desc function mv_infos("database"="tpch100");
 +--------------------+---------+------+-------+---------+-------+
 | Field              | Type    | Null | Key   | Default | Extra |
@@ -79,19 +79,19 @@ mysql> desc function mv_infos("database"="tpch100");
 
 1. 查看db1下的所有物化视图
 
-```
+```sql
 mysql> select * from mv_infos("database"="db1");
 ```
 
 2. 查看db1下的物化视图名称为mv1的物化视图
 
-```
+```sql
 mysql> select * from mv_infos("database"="db1") where Name = "mv1";
 ```
 
 3. 查看db1下的物化视图名称为mv1的状态
 
-```
+```sql
 mysql> select State from mv_infos("database"="db1") where Name = "mv1";
 ```
 

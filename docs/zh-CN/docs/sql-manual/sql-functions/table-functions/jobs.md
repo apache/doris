@@ -41,7 +41,7 @@ jobs
 `jobs("type"="")`
 
 jobs("type"="mv")表结构：
-```
+```sql
 mysql> desc function jobs("type"="mv");
 +-------------------+------+------+-------+---------+-------+
 | Field             | Type | Null | Key   | Default | Extra |
@@ -75,13 +75,13 @@ mysql> desc function jobs("type"="mv");
 
 1. 查看所有物化视图的job
 
-```
+```sql
 mysql> select * from jobs("type"="mv");
 ```
 
 2. 查看name为`inner_mtmv_75043`的job
 
-```
+```sql
 mysql> select * from jobs("type"="mv") where Name="inner_mtmv_75043";
 ```
 

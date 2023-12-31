@@ -79,13 +79,14 @@ CREATE TABLE IF NOT EXISTS lineitem (
     (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
+
 insert into lineitem values
  (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
  (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
  (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
 ```
 创建物化视图
-```
+```sql
 CREATE MATERIALIZED VIEW mv1 
         BUILD DEFERRED REFRESH AUTO ON MANUAL
         partition by(l_shipdate)
@@ -104,9 +105,9 @@ CREATE MATERIALIZED VIEW mv1
 
 具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
-### 查看物化视图
+### 查看物化视图元信息
 
-```
+```sql
 select * from mv_infos("database"="tpch") where Name="mv1";
 ```
 
@@ -116,15 +117,15 @@ select * from mv_infos("database"="tpch") where Name="mv1";
 
 ### 刷新物化视图
 
-物化视图既可以定时刷新，也可以手动刷新，这里我们手动刷新物化视图的部分分区
+物化视图支持不同刷新策略，如定时刷新和手动刷新。也支持不同的刷新粒度，如全量刷新，分区粒度的增量刷新等。这里我们以手动刷新物化视图的部分分区为例。
 
 首先查看物化视图分区列表
-```
+```sql
 SHOW PARTITIONS FROM mv1;
 ```
 
 刷新名字为`p_20231017_20231018`的分区
-```
+```sql
 REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 ```
 
@@ -137,7 +138,7 @@ task用来描述具体的一次刷新信息，例如刷新用的时间，刷新�
 
 #### 查看物化视图的job
 
-```
+```sql
 select * from jobs("type"="mv") order by CreateTime;
 ```
 
@@ -145,7 +146,7 @@ select * from jobs("type"="mv") order by CreateTime;
 
 #### 暂停物化视图job定时调度
 
-```
+```sql
 PAUSE MATERIALIZED VIEW JOB ON mv1;
 ```
 
@@ -155,7 +156,7 @@ PAUSE MATERIALIZED VIEW JOB ON mv1;
 
 #### 恢复物化视图job定时调度
 
-```
+```sql
 RESUME MATERIALIZED VIEW JOB ON mv1;
 ```
 
@@ -165,7 +166,7 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 
 #### 查看物化视图的task
 
-```
+```sql
 select * from tasks("type"="mv");
 ```
 
@@ -173,7 +174,7 @@ select * from tasks("type"="mv");
 
 #### 取消物化视图的task
 
-```
+```sql
 CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ```
 
@@ -184,7 +185,7 @@ CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ### 修改物化视图
 
 修改物化视图的属性
-```
+```sql
 ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 ```
 
@@ -194,7 +195,7 @@ ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 
 ### 删除物化视图
 
-```
+```sql
 DROP MATERIALIZED VIEW mv1;
 ```
 
@@ -208,7 +209,7 @@ DROP MATERIALIZED VIEW mv1;
 
 物化视图本身也是一个 Table，所以可以直接查询
 
-```
+```sql
 select * FROM mv1;
 ```
 
