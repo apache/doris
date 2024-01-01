@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -871,5 +872,42 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(greaterThan, stats);
         Assertions.assertEquals(result.getRowCount(), 10, 0.1);
+    }
+
+    @Test
+    public void testIsNull() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(10)
+                .setMaxValue(100)
+                .setMinValue(0)
+                .setCount(100);
+        IsNull isNull = new IsNull(a);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(isNull, stats);
+        Assertions.assertEquals(result.getRowCount(), 10);
+    }
+
+    @Test
+    public void testIsNotNull() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(10)
+                .setMaxValue(100)
+                .setMinValue(0)
+                .setCount(100);
+        IsNull isNull = new IsNull(a);
+        Not not = new Not(isNull);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(not, stats);
+        Assertions.assertEquals(result.getRowCount(), 90);
     }
 }

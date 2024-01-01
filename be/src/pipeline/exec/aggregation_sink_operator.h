@@ -39,7 +39,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AggSinkOperator final : public StreamingOperator<AggSinkOperatorBuilder> {
+class AggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; }

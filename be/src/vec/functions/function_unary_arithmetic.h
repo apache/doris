@@ -72,7 +72,7 @@ class FunctionUnaryArithmetic : public IFunction {
                                    DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
                                    DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>,
+                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
                                    DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
     }
 

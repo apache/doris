@@ -88,6 +88,7 @@ header:
     - "conf/mysql_ssl_default_certificate/client_certificate/client-cert.pem"
     - "conf/mysql_ssl_default_certificate/client_certificate/client-key.pem"
     - "regression-test/ssl_default_certificate/*"
+    - "regression-test/pipeline/performance/conf/session_variables"
     - "extension/beats/go.mod"
     - "extension/beats/go.sum"
     - "pytest/hdfs"

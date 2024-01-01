@@ -701,7 +701,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 ```
 
 :::tip
-When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
+When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#mysql) and [Oracle](#oracle)
 :::
 
 ## JDBC Drivers

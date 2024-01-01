@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder> {
+class SortSinkOperator final : public StreamingOperator<vectorized::VSortNode> {
 public:
     SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 

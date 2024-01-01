@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class HashJoinProbeOperator final : public StatefulOperator<HashJoinProbeOperatorBuilder> {
+class HashJoinProbeOperator final : public StatefulOperator<vectorized::HashJoinNode> {
 public:
     HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator

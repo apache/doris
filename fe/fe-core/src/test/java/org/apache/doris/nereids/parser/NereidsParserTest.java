@@ -207,6 +207,20 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testParseSingleStmtWithTrinoDialect() {
+        String sql = "select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlDialect("trino");
+        // test fall back to doris parser
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql, sessionVariable);
+        Assertions.assertEquals(1, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan0 = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan0 instanceof UnboundResultSink);
+    }
+
+    @Test
     public void testParseSQLWithSparkSqlDialect() {
         // doris parser will throw a ParseException when derived table does not have alias
         String sql1 = "select * from (select * from t1);";

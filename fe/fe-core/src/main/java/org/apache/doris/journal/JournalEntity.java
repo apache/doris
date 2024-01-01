@@ -44,6 +44,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -885,6 +886,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_MTMV: {
                 data = AlterMTMV.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INSERT_OVERWRITE: {
+                data = InsertOverwriteLog.read(in);
                 isRead = true;
                 break;
             }

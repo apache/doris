@@ -37,11 +37,17 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 
+#define UNKNOWN_ID_FOR_TEST 0x7c00
+
 namespace doris {
+
+bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
+bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
 TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
                            LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
@@ -130,6 +136,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     butil::IOBuf buf = data->movable();
     auto flush_func = [this, new_segid, eos, buf, header]() {
         signal::set_signal_task_id(_load_id);
+        g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
@@ -140,9 +147,28 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
-    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
-        bthread_usleep(10 * 1000); // 10ms
+    auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
+    auto load_stream_max_wait_flush_token_time_ms =
+            config::load_stream_max_wait_flush_token_time_ms;
+    DBUG_EXECUTE_IF("TabletStream.append_data.long_wait", {
+        load_stream_flush_token_max_tasks = 0;
+        load_stream_max_wait_flush_token_time_ms = 1000;
+    });
+    MonotonicStopWatch timer;
+    timer.start();
+    while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
+        if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
+            return Status::Error<true>(
+                    "wait flush token back pressure time is more than "
+                    "load_stream_max_wait_flush_token_time {}",
+                    load_stream_max_wait_flush_token_time_ms);
+        }
+        bthread_usleep(2 * 1000); // 2ms
     }
+    timer.stop();
+    int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
+    g_load_stream_flush_wait_ms << time_ms;
+    g_load_stream_flush_running_threads << 1;
     return flush_token->submit_func(flush_func);
 }
 
@@ -159,6 +185,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
     uint32_t new_segid;
+    DBUG_EXECUTE_IF("TabletStream.add_segment.unknown_segid", { segid = UNKNOWN_ID_FOR_TEST; });
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
@@ -179,9 +206,6 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
-    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
-        bthread_usleep(10 * 1000); // 10ms
-    }
     return flush_token->submit_func(add_segment_func);
 }
 
@@ -430,6 +454,8 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
     IndexStreamSharedPtr index_stream;
 
     int64_t index_id = header.index_id();
+    DBUG_EXECUTE_IF("TabletStream.add_segment.unknown_indexid",
+                    { index_id = UNKNOWN_ID_FOR_TEST; });
     auto it = _index_streams_map.find(index_id);
     if (it == _index_streams_map.end()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("unknown index_id {}", index_id);
@@ -469,6 +495,15 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
+        PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
+        load_id.set_hi(UNKNOWN_ID_FOR_TEST);
+        load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+    });
+    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
+        PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+        t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
+    });
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
         Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));

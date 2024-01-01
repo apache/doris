@@ -76,6 +76,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_management/workload_sched_policy_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
@@ -194,6 +195,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(1)
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
+
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -214,9 +216,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
-    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
 
@@ -269,6 +270,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
+
+    _workload_sched_mgr = new WorkloadSchedPolicyMgr();
+    _workload_sched_mgr->start(this);
 
     _s_ready = true;
 
@@ -366,13 +370,13 @@ Status ExecEnv::_init_mem_env() {
     init_hook();
 #endif
 
-    // 2. init buffer pool
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
         return Status::InternalError(ss.str());
     }
 
-    // 3. init storage page cache
+    _dummy_lru_cache = std::make_shared<DummyLRUCache>();
+
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -390,6 +394,12 @@ Status ExecEnv::_init_mem_env() {
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
                         "conf file to be a power of two for better performance.";
+    }
+    if (storage_cache_limit < num_shards * 2) {
+        LOG(WARNING) << "storage_cache_limit(" << storage_cache_limit << ") less than num_shards("
+                     << num_shards
+                     << ") * 2, cache capacity will be 0, continuing to use "
+                        "cache will only have negative effects, will be disabled.";
     }
     int64_t pk_storage_page_cache_limit =
             ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
@@ -437,6 +447,8 @@ Status ExecEnv::_init_mem_env() {
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
+    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+
     _lookup_connection_cache = LookupConnectionCache::create_global_instance(
             config::lookup_connection_cache_bytes_limit);
 
@@ -468,7 +480,6 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
     return Status::OK();
 }
@@ -519,6 +530,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    // stop workload scheduler
+    SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
     SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
@@ -593,6 +606,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
     SAFE_DELETE(_with_group_task_scheduler);
     SAFE_DELETE(_without_group_task_scheduler);

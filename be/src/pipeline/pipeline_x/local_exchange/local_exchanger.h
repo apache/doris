@@ -183,14 +183,10 @@ private:
 // a copy of ShuffleExchanger and PassthroughExchanger.
 class AdaptivePassthroughExchanger : public Exchanger {
 public:
-    using PartitionedBlock =
-            std::pair<std::shared_ptr<ShuffleBlockWrapper>,
-                      std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
     ENABLE_FACTORY_CREATOR(AdaptivePassthroughExchanger);
     AdaptivePassthroughExchanger(int running_sink_operators, int num_partitions)
             : Exchanger(running_sink_operators, num_partitions) {
-        _passthrough_data_queue.resize(num_partitions);
-        _shuffle_data_queue.resize(num_partitions);
+        _data_queue.resize(num_partitions);
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
                 LocalExchangeSinkLocalState& local_state) override;
@@ -204,17 +200,10 @@ private:
                              SourceState source_state, LocalExchangeSinkLocalState& local_state);
     Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
                          LocalExchangeSinkLocalState& local_state);
-
-    bool _passthrough_get_block(RuntimeState* state, vectorized::Block* block,
-                                SourceState& source_state,
-                                LocalExchangeSourceLocalState& local_state);
-    bool _shuffle_get_block(RuntimeState* state, vectorized::Block* block,
-                            SourceState& source_state, LocalExchangeSourceLocalState& local_state);
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, SourceState source_state,
                        LocalExchangeSinkLocalState& local_state);
-    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _passthrough_data_queue;
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _shuffle_data_queue;
+    std::vector<moodycamel::ConcurrentQueue<vectorized::Block>> _data_queue;
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

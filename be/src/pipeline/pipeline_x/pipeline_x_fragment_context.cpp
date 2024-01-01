@@ -718,27 +718,15 @@ void PipelineXFragmentContext::_inherit_pipeline_properties(
     pipe_with_source->set_data_distribution(data_distribution);
 }
 
-Status PipelineXFragmentContext::_add_local_exchange(
-        int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
+Status PipelineXFragmentContext::_add_local_exchange_impl(
+        int idx, ObjectPool* pool, PipelinePtr cur_pipe, PipelinePtr new_pip,
         DataDistribution data_distribution, bool* do_local_exchange, int num_buckets,
         const std::map<int, int>& bucket_seq_to_instance_idx,
         const bool ignore_data_hash_distribution) {
-    DCHECK(_enable_local_shuffle());
-    if (_num_instances <= 1) {
-        return Status::OK();
-    }
-
-    if (!cur_pipe->need_to_local_exchange(data_distribution)) {
-        return Status::OK();
-    }
-    *do_local_exchange = true;
-
     auto& operator_xs = cur_pipe->operator_xs();
-    auto total_op_num = operator_xs.size();
     const auto downstream_pipeline_id = cur_pipe->id();
     auto local_exchange_id = next_operator_id();
     // 1. Create a new pipeline with local exchange sink.
-    auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
     DataSinkOperatorXPtr sink;
     auto sink_id = next_sink_operator_id();
     sink.reset(new LocalExchangeSinkOperatorX(sink_id, local_exchange_id, _num_instances,
@@ -751,12 +739,13 @@ Status PipelineXFragmentContext::_add_local_exchange(
     auto shared_state = LocalExchangeSharedState::create_shared();
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
-        shared_state->exchanger =
-                ShuffleExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
+        shared_state->exchanger = ShuffleExchanger::create_unique(
+                std::max(cur_pipe->num_tasks(), _num_instances), _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
-                cur_pipe->num_tasks(), _num_instances, num_buckets, ignore_data_hash_distribution);
+                std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
+                ignore_data_hash_distribution);
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger =
@@ -840,11 +829,43 @@ Status PipelineXFragmentContext::_add_local_exchange(
 
     // 7. Inherit properties from current pipeline.
     _inherit_pipeline_properties(data_distribution, cur_pipe, new_pip);
+    return Status::OK();
+}
+
+Status PipelineXFragmentContext::_add_local_exchange(
+        int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
+        DataDistribution data_distribution, bool* do_local_exchange, int num_buckets,
+        const std::map<int, int>& bucket_seq_to_instance_idx, const bool ignore_data_distribution) {
+    DCHECK(_enable_local_shuffle());
+    if (_num_instances <= 1) {
+        return Status::OK();
+    }
+
+    if (!cur_pipe->need_to_local_exchange(data_distribution)) {
+        return Status::OK();
+    }
+    *do_local_exchange = true;
+
+    auto& operator_xs = cur_pipe->operator_xs();
+    auto total_op_num = operator_xs.size();
+    auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
+    RETURN_IF_ERROR(_add_local_exchange_impl(idx, pool, cur_pipe, new_pip, data_distribution,
+                                             do_local_exchange, num_buckets,
+                                             bucket_seq_to_instance_idx, ignore_data_distribution));
 
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
             << "total_op_num: " << total_op_num
             << " cur_pipe->operator_xs().size(): " << cur_pipe->operator_xs().size()
             << " new_pip->operator_xs().size(): " << new_pip->operator_xs().size();
+
+    // Add passthrough local exchanger if necessary
+    if (cur_pipe->num_tasks() > 1 && new_pip->num_tasks() == 1 &&
+        Pipeline::is_hash_exchange(data_distribution.distribution_type)) {
+        RETURN_IF_ERROR(_add_local_exchange_impl(
+                new_pip->operator_xs().size(), pool, new_pip, add_pipeline(new_pip, pip_idx + 2),
+                DataDistribution(ExchangeType::PASSTHROUGH), do_local_exchange, num_buckets,
+                bucket_seq_to_instance_idx, ignore_data_distribution));
+    }
     return Status::OK();
 }
 
@@ -1310,6 +1331,7 @@ bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableS
 
 std::string PipelineXFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineXFragmentContext Info:\n");
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {

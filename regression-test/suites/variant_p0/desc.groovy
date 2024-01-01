@@ -107,7 +107,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
         sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_3 """desc ${table_name}"""

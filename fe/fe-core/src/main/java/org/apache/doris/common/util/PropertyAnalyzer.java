@@ -144,6 +144,10 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
             "time_series_compaction_time_threshold_seconds";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD =
+            "time_series_compaction_empty_rowsets_threshold";
+
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
@@ -182,6 +186,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
+    public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
 
     /**
@@ -711,27 +716,28 @@ public class PropertyAnalyzer {
         return compactionPolicy;
     }
 
-    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+    public static long analyzeTimeSeriesCompactionEmptyRowsetsThreshold(Map<String, String> properties)
             throws AnalysisException {
-        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+        long emptyRowsetsThreshold = TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
-            return goalSizeMbytes;
+            return emptyRowsetsThreshold;
         }
-        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
-            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
-            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
+            String emptyRowsetsThresholdStr = properties
+                                    .get(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
             try {
-                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
-                if (goalSizeMbytes < 10) {
-                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
-                            + " less than 10: " + goalSizeMbytesStr);
+                emptyRowsetsThreshold = Long.parseLong(emptyRowsetsThresholdStr);
+                if (emptyRowsetsThreshold < 2) {
+                    throw new AnalysisException("time_series_compaction_empty_rowsets_threshold can not"
+                            + " be less than 2: " + emptyRowsetsThresholdStr);
                 }
             } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
-                        + goalSizeMbytesStr);
+                throw new AnalysisException("Invalid time_series_compaction_empty_rowsets_threshold: "
+                        + emptyRowsetsThresholdStr);
             }
         }
-        return goalSizeMbytes;
+        return emptyRowsetsThreshold;
     }
 
     public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
@@ -779,6 +785,29 @@ public class PropertyAnalyzer {
             }
         }
         return timeThresholdSeconds;
+    }
+
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+            throws AnalysisException {
+        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return goalSizeMbytes;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
+                            + " less than 10: " + goalSizeMbytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+        }
+        return goalSizeMbytes;
     }
 
     // analyzeCompressionType will parse the compression type from properties
@@ -1069,6 +1098,7 @@ public class PropertyAnalyzer {
         allocationVal = allocationVal.replaceAll(" ", "");
         String[] locations = allocationVal.split(",");
         int totalReplicaNum = 0;
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (String location : locations) {
             String[] parts = location.split(":");
             if (parts.length != 2) {
@@ -1092,7 +1122,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, null, false, true);
+                            replicaAlloc, nextIndexs, null, false, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }

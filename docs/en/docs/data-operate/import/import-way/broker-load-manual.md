@@ -26,11 +26,11 @@ under the License.
 
 # Broker Load
 
-Broker load is an asynchronous import method, and the supported data sources depend on the data sources supported by the [Broker](../../../advanced/broker.md) process.
+Broker load is an asynchronous import method, and the supported data sources depend on the data sources supported by the [Broker](../../../advanced/broker) process.
 
-Because the data in the Doris table is ordered, Broker load uses the doris cluster resources to sort the data when importing data. Complete massive historical data migration relative to Spark load, the Doris cluster resource usage is relatively large. , this method is used when the user does not have Spark computing resources. If there are Spark computing resources, it is recommended to use [Spark load](../../../data-operate/import/import-way/spark-load-manual.md).
+Because the data in the Doris table is ordered, Broker load uses the doris cluster resources to sort the data when importing data. Complete massive historical data migration relative to Spark load, the Doris cluster resource usage is relatively large. , this method is used when the user does not have Spark computing resources. If there are Spark computing resources, it is recommended to use [Spark load](../../../data-operate/import/import-way/spark-load-manual).
 
-Users need to create [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) import through MySQL protocol and import by viewing command to check the import result.
+Users need to create [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) import through MySQL protocol and import by viewing command to check the import result.
 
 ## Applicable scene
 
@@ -78,7 +78,7 @@ BE pulls data from the broker during execution, and imports the data into the sy
 
 ## start import
 
-Let's look at [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) through several actual scenario examples. use
+Let's look at [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) through several actual scenario examples. use
 
 ### Data import of Hive partition table
 
@@ -111,7 +111,7 @@ Then use Hive's Load command to import your data into the Hive table
 load data local inpath '/opt/custorm' into table ods_demo_detail;
 ````
 
-2. Create a Doris table, refer to the specific table syntax: [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+2. Create a Doris table, refer to the specific table syntax: [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)
 
 ````
 CREATE TABLE `doris_ods_test_detail` (
@@ -149,7 +149,7 @@ PROPERTIES (
 
 3. Start importing data
 
-   Specific syntax reference: [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md)
+   Specific syntax reference: [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD)
 
 ```sql
 LOAD LABEL broker_load_2022_03_23
@@ -256,13 +256,13 @@ LOAD LABEL demo.label_20220402
         );
 ````
 
-The specific parameters here can refer to: [Broker](../../../advanced/broker.md) and [Broker Load](../../../sql-manual/sql-reference-v2 /Data-Manipulation-Statements/Load/BROKER-LOAD.md) documentation
+The specific parameters here can refer to: [Broker](../../../advanced/broker.md) and [Broker Load](../../../sql-manual/sql-reference-v2 /Data-Manipulation-Statements/Load/BROKER-LOAD) documentation
 
 ## View import status
 
 We can view the status information of the above import task through the following command,
 
-The specific syntax reference for viewing the import status [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.md)
+The specific syntax reference for viewing the import status [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD)
 
 ```sql
 mysql> show load order by createtime desc limit 1\G;
@@ -287,7 +287,7 @@ LoadFinishTime: 2022-04-01 18:59:11
 
 ## Cancel import
 
-When the broker load job status is not CANCELLED or FINISHED, it can be manually canceled by the user. When canceling, you need to specify the Label of the import task to be canceled. Cancel the import command syntax to execute [CANCEL LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD.md) view.
+When the broker load job status is not CANCELLED or FINISHED, it can be manually canceled by the user. When canceling, you need to specify the Label of the import task to be canceled. Cancel the import command syntax to execute [CANCEL LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD) view.
 
 For example: cancel the import job with the label broker_load_2022_03_23 on the database demo
 
@@ -298,7 +298,7 @@ CANCEL LOAD FROM demo WHERE LABEL = "broker_load_2022_03_23";
 
 ### Broker parameters
 
-Broker Load needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../../advanced/broker.md).
+Broker Load needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../../advanced/broker).
 
 ### FE configuration
 
@@ -399,7 +399,7 @@ The configuration parameter `async_loading_load_task_pool_size` of FE is used to
 
 Session variables can be enabled by executing `set enable_profile=true` before submitting the LOAD job. Then submit the import job. After the import job is completed, you can view the profile of the import job in the `Queris` tab of the FE web page.
 
-You can check the [SHOW LOAD PROFILE](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE.md) help document for more usage help information.
+You can check the [SHOW LOAD PROFILE](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE) help document for more usage help information.
 
 This Profile can help analyze the running status of import jobs.
 
@@ -442,4 +442,4 @@ Currently the Profile can only be viewed after the job has been successfully exe
 
 ## more help
 
-For more detailed syntax and best practices used by Broker Load, see [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Broker Load, see [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.

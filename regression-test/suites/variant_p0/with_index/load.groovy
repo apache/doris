@@ -43,7 +43,7 @@ suite("regression_test_variant_with_index", "nonConcurrent"){
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
     set_be_config.call("variant_threshold_rows_to_estimate_sparse_column", "0")
     def table_name = "var_with_index"
     sql "DROP TABLE IF EXISTS var_with_index"

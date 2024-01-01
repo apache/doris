@@ -501,6 +501,10 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
+        if (tablet_meta->partition_id() <= 0) {
+            LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                         << tablet_meta->tablet_id();
+        }
         TabletSharedPtr new_tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
@@ -826,6 +830,10 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
+    if (tablet_meta->partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                     << tablet_meta->tablet_id();
+    }
     TabletSharedPtr tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
@@ -1414,9 +1422,11 @@ void TabletManager::get_tablets_distribution_on_different_disks(
 }
 
 struct SortCtx {
-    SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
+    SortCtx(TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t cooldown_timestamp,
+            int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
+    RowsetSharedPtr rowset;
     // to ensure the tablet with -1 would always be greater than other
     uint64_t cooldown_timestamp;
     int64_t file_size;
@@ -1429,6 +1439,7 @@ struct SortCtx {
 };
 
 void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
+                                         std::vector<RowsetSharedPtr>* rowsets,
                                          std::function<bool(const TabletSharedPtr&)> skip_tablet) {
     std::vector<SortCtx> sort_ctx_vec;
     std::vector<std::weak_ptr<Tablet>> candidates;
@@ -1436,14 +1447,16 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
                     filter_all_tablets);
     auto get_cooldown_tablet = [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
         const TabletSharedPtr& tablet = t.lock();
+        RowsetSharedPtr rowset = nullptr;
         if (UNLIKELY(nullptr == tablet)) {
             return;
         }
         std::shared_lock rdlock(tablet->get_header_lock());
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        if (!skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+        if (!skip_tablet(tablet) &&
+            (rowset = tablet->need_cooldown(&cooldown_timestamp, &file_size))) {
+            sort_ctx_vec.emplace_back(tablet, rowset, cooldown_timestamp, file_size);
         }
     };
     std::for_each(candidates.begin(), candidates.end(), get_cooldown_tablet);
@@ -1453,6 +1466,7 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
     for (SortCtx& ctx : sort_ctx_vec) {
         VLOG_DEBUG << "get cooldown tablet: " << ctx.tablet->tablet_id();
         tablets->push_back(std::move(ctx.tablet));
+        rowsets->push_back(std::move(ctx.rowset));
     }
 }
 

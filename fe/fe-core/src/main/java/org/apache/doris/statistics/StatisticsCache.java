@@ -39,9 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -201,7 +199,6 @@ public class StatisticsCache {
         if (CollectionUtils.isEmpty(recentStatsUpdatedCols)) {
             return;
         }
-        Map<StatisticsCacheKey, ColumnStatistic> keyToColStats = new HashMap<>();
         for (ResultRow r : recentStatsUpdatedCols) {
             try {
                 StatsId statsId = new StatsId(r);
@@ -211,7 +208,6 @@ public class StatisticsCache {
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(tblId, idxId, colId);
                 final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                keyToColStats.put(k, c);
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);

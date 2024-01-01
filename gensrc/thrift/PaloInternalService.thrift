@@ -263,6 +263,12 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parallel_scan = false;
+
+  96: optional i32 parallel_scan_max_scanners_count = 0;
+
+  97: optional i64 parallel_scan_min_rows_per_scanner = 0;
 }
 
 
