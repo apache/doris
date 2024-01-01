@@ -342,7 +342,15 @@ For internal tables in the materialized view, you can control the maximum delay 
 the transparent rewriting by setting the grace_period property. 
 Refer to [CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
+**Viewing and Debugging Transparent Rewrite Hit Information**
 
+You can use the following statements to view the hit information of transparent rewriting for a materialized view. It will display a concise overview of the transparent rewriting process.
+
+`explain <query_sql>`
+
+If you want to know the detailed information about materialized view candidates, rewriting, and the final selection process, you can execute the following statement. It will provide a detailed breakdown of the transparent rewriting process.
+
+`explain memo plan <query_sql>`
 
 ## Relevant Environment Variables
 
@@ -354,12 +362,10 @@ Refer to [CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-De
 | SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN';                       | Currently, outer join elimination has an impact on transparent  |
 
 
-
 ## Limitations
 - The materialized view definition statement only allows SELECT, FROM, WHERE, JOIN, and GROUP BY statements, and the input to JOIN cannot contain GROUP BY. Only INNER and LEFT OUTER JOIN types are currently supported; other types of JOIN operations will be supported gradually.
 - Materialized views based on External Tables do not guarantee strong consistency of query results.
 - No support for rewriting non-deterministic functions, including rand, now, current_time, current_date, random, uuid, etc.
 - No support for rewriting window functions.
 - The definition of materialized views currently cannot use views and other materialized views.
-- Currently, WHERE condition compensation supports cases where the materialized view has no WHERE clause, and the query has a WHERE clause; or the materialized view has a WHERE clause, and 
-- the query's WHERE condition is a superset of the materialized view's. Currently, range condition compensation is not yet supported, such as the materialized view definition being a > 5, and the query being a > 10.
+- Currently, WHERE condition compensation supports cases where the materialized view has no WHERE clause, and the query has a WHERE clause; or the materialized view has a WHERE clause, and the query's WHERE condition is a superset of the materialized view's. Currently, range condition compensation is not yet supported, such as the materialized view definition being a > 5, and the query being a > 10.
