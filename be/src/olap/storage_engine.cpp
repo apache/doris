@@ -470,11 +470,12 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     size_t eighty_five_percent_index = stores.size() - 1;
     for (size_t index = 0; index < stores.size(); index++) {
         // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->get_usage(0) > 0.7) {
+        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size() - 1) {
             seventy_percent_index = index;
         }
-        if (stores[index]->get_usage(0) > 0.85) {
+        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size() - 1) {
             eighty_five_percent_index = index;
+            break;
         }
     }
 
@@ -483,6 +484,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
     std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index,
                  g);
+    std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
 
     return stores;
 }
