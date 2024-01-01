@@ -455,28 +455,35 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
-                if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
+                if ((_available_storage_medium_type_count == 1 ||
+                    it.second->storage_medium() == storage_medium) &&
+                    !it.second->reach_capacity_limit(0)) {
                     stores.push_back(it.second);
                 }
             }
         }
     }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.end(), g);
-    // Two random choices
-    for (int i = 0; i < stores.size(); i++) {
-        int j = i + 1;
-        if (j < stores.size()) {
-            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
-                std::swap(stores[i], stores[j]);
-            }
-            std::shuffle(stores.begin() + j, stores.end(), g);
-        } else {
-            break;
+    std::sort(stores.begin(), stores.end(), [](DataDir* a, DataDir* b) {
+        return a->get_usage(0) < b->get_usage(0);
+    });
+
+    size_t seventy_percent_index = stores.size() - 1;
+    size_t eighty_five_percent_index = stores.size() - 1;
+    for (size_t index = 0; index < stores.size(); index++) {
+        // If the usage of the store is less than 70%, we choose disk randomly.
+        if (stores[index]->get_usage(0) > 0.7) {
+            seventy_percent_index = index;
+        }
+        if (stores[index]->get_usage(0) > 0.85) {
+            eighty_five_percent_index = index;
         }
     }
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
+    std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index, g);
+
     return stores;
 }
 
