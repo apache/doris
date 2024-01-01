@@ -456,16 +456,15 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
                 if ((_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) &&
+                     it.second->storage_medium() == storage_medium) &&
                     !it.second->reach_capacity_limit(0)) {
                     stores.push_back(it.second);
                 }
             }
         }
     }
-    std::sort(stores.begin(), stores.end(), [](DataDir* a, DataDir* b) {
-        return a->get_usage(0) < b->get_usage(0);
-    });
+    std::sort(stores.begin(), stores.end(),
+              [](DataDir* a, DataDir* b) { return a->get_usage(0) < b->get_usage(0); });
 
     size_t seventy_percent_index = stores.size() - 1;
     size_t eighty_five_percent_index = stores.size() - 1;
@@ -482,7 +481,8 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     std::random_device rd;
     std::mt19937 g(rd());
     std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
-    std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index, g);
+    std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index,
+                 g);
 
     return stores;
 }
