@@ -113,7 +113,7 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
         join.right().setMutableState(MutableState.KEY_PARENT, join);
         // nested loop join is slow, so jump add 2
         join.setMutableState(MutableState.KEY_RF_JUMP,
-            (Integer) join.right().getMutableState(MutableState.KEY_RF_JUMP).get() + 1);
+            (Integer) join.right().getMutableState(MutableState.KEY_RF_JUMP).get() + 2);
         join.left().accept(this, context);
         join.left().setMutableState(MutableState.KEY_PARENT, join);
         return join;
