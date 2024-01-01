@@ -247,7 +247,8 @@ private:
     Status _init_read_columns();
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                         std::vector<std::string>& orc_cols_lower_case,
-                        std::unordered_map<std::string, const orc::Type*>& type_map);
+                        std::unordered_map<std::string, const orc::Type*>& type_map,
+                        bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
     TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
@@ -483,6 +484,19 @@ private:
     int64_t get_remaining_rows() { return _remaining_rows; }
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
+    // check if the given name is like _col0, _col1, ...
+    bool inline _is_hive1_col_name(const std::string& name) {
+        if (name.substr(0, 4) != "_col") {
+            return false;
+        }
+        for (size_t i = 4; i < name.size(); ++i) {
+            if (!isdigit(name[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -509,8 +523,9 @@ private:
     // This is used for Hive 1.x which use internal column name in Orc file.
     // _col0, _col1...
     std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
-    // Flag for hive engine. True if the external table engine is Hive.
-    bool _is_hive = false;
+    // Flag for hive engine. True if the external table engine is Hive1.x with orc col name
+    // as _col1, col2, ...
+    bool _is_hive1_orc = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;

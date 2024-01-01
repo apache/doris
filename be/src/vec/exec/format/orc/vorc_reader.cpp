@@ -146,7 +146,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
-          _is_hive(params.__isset.slot_name_to_schema_pos),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
           _is_dict_cols_converted(false) {
@@ -165,7 +164,6 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _scan_params(params),
           _scan_range(range),
           _ctz(ctz),
-          _is_hive(params.__isset.slot_name_to_schema_pos),
           _file_system(nullptr),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
@@ -307,11 +305,15 @@ Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
     std::vector<std::string> orc_cols;
     std::vector<std::string> orc_cols_lower_case;
-    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map);
+    bool is_hive1_orc = false;
+    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc);
 
+    // In old version slot_name_to_schema_pos may not be set in _scan_params
+    // TODO, should be removed in 2.2 or later
+    _is_hive1_orc = is_hive1_orc && _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         auto& col_name = (*_column_names)[i];
-        if (_is_hive) {
+        if (_is_hive1_orc) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
                 int pos = iter->second;
@@ -346,7 +348,7 @@ Status OrcReader::_init_read_columns() {
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
-            if (_is_hive) {
+            if (_is_hive1_orc) {
                 _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
             }
             _col_name_to_file_col_name[col_name] = read_col;
@@ -357,20 +359,26 @@ Status OrcReader::_init_read_columns() {
 
 void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
                                std::vector<std::string>& orc_cols_lower_case,
-                               std::unordered_map<std::string, const orc::Type*>& type_map) {
+                               std::unordered_map<std::string, const orc::Type*>& type_map,
+                               bool* is_hive1_orc) {
+    bool hive1_orc = false;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
         auto filed_name_lower_case = _get_field_name_lower_case(&type, i);
+        if (!hive1_orc) {
+            hive1_orc = _is_hive1_col_name(filed_name_lower_case);
+        }
         auto filed_name_lower_case_copy = filed_name_lower_case;
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
         type_map.emplace(std::move(filed_name_lower_case_copy), type.getSubtype(i));
         if (_is_acid) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map);
+                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc);
             }
         }
     }
+    *is_hive1_orc = hive1_orc;
 }
 
 bool OrcReader::_check_acid_schema(const orc::Type& type) {
@@ -845,7 +853,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
-        if (_is_hive) {
+        if (_is_hive1_orc) {
             name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
             name = _get_field_name_lower_case(&type, i);
