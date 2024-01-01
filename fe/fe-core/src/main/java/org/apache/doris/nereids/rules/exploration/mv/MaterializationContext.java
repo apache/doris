@@ -159,7 +159,7 @@ public class MaterializationContext {
             failReasonBuilder
                     .append("ObjectId : ").append(reason.getKey()).append(".\n")
                     .append("Summary : ").append(reason.getValue().key()).append(".\n")
-                    .append("Reason : ").append(reason.getValue().value()).append(".\n\n");
+                    .append("Reason : ").append(reason.getValue().value()).append(".\n");
         }
         failReasonBuilder.append("\n").append("]");
         return Utils.toSqlString("MaterializationContext[" + mtmv.getName() + "]",
@@ -174,7 +174,7 @@ public class MaterializationContext {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n\n").append(ctx).append("\n\n");
+            builder.append("\n").append(ctx).append("\n");
         }
         return builder.toString();
     }
@@ -187,7 +187,7 @@ public class MaterializationContext {
         for (Map.Entry<ObjectId, Pair<String, String>> reason : this.failReason.entrySet()) {
             failReasonBuilder
                     .append("ObjectId : ").append(reason.getKey()).append(".\n")
-                    .append("Summary : ").append(reason.getValue().key()).append(".\n\n");
+                    .append("Summary : ").append(reason.getValue().key()).append(".\n");
         }
         failReasonBuilder.append("\n").append("]");
         return Utils.toSqlString("MaterializationContext[" + mtmv.getName() + "]",
@@ -202,7 +202,7 @@ public class MaterializationContext {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n\n").append(ctx.toSummaryString()).append("\n");
+            builder.append("\n").append(ctx.toSummaryString()).append("\n");
         }
         return builder.toString();
     }
