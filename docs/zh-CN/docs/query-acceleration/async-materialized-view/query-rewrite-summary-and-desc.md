@@ -1,3 +1,29 @@
+---
+{
+    "title": "查询透明改写能力概述和介绍",
+    "language": "zh-CN"
+}
+---
+
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 ## 概述
 Doris 的异步物化视图采用了基于 SPJG（SELECT-PROJECT-JOIN-GROUP-BY）模式的结构信息来进行透明改写算法。
 Doris 可以分析查询 SQL 的结构信息，自动寻找满足要求的物化视图，并尝试进行透明改写，使用物化视图来表达查询SQL。通过使用预计算的物化视图
@@ -5,7 +31,7 @@ Doris 可以分析查询 SQL 的结构信息，自动寻找满足要求的物化
 
 
 ## 透明改写能力
-以 TPC-H 的两张 lineitem， orders 和 partsupp 表来描述透明改写的能力。
+以 TPC-H 的三张 lineitem， orders 和 partsupp 表来描述透明改写的能力。
 表的定义如下：
 ```sql
 CREATE TABLE IF NOT EXISTS lineitem (
@@ -68,6 +94,7 @@ CREATE TABLE IF NOT EXISTS orders  (
 
 ### JOIN 改写
 JOIN 改写指的是查询和物化使用的表相同，可以在物化视图和查询 JOIN 的内部输入或者 JOIN 的外部写 WHERE，可以进行透明改写。
+当查询和物化视图的 Join 的类型不同时，满足一定条件时，也可以进行改写。
 
 **用例1:**
 以下用例可进行透明改写，条件 `l_linenumber > 1`可以上拉，从而进行透明改写，使用物化视图的预计算结果来表达查询。
@@ -249,6 +276,7 @@ mv 定义:
 ## Union 改写（TODO）
 当物化视图不足以提供查询的所有数据时，可以通过 Union 的方式，将查询原表和物化视图 Union 起来返回数据，如下可以进行透明改写，待支持。
 
+**用例1**
 mv 定义:
 ```sql
 SELECT
@@ -257,7 +285,7 @@ SELECT
     o_orderstatus,
     o_totalprice
 FROM orders
-WHERE o_orderkey > 10
+WHERE o_orderkey > 10;
 ```
 
 查询语句：
@@ -268,7 +296,7 @@ SELECT
     o_orderstatus,
     o_totalprice
 FROM orders
-WHERE o_orderkey > 5
+WHERE o_orderkey > 5;
 ```
 
 改写结果：
@@ -286,7 +314,10 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 ```
 
 ## 辅助功能
-### 透明改写后数据保证一致性问题，可以通过设定
+**透明改写后数据一致性问题**
+
+对于物化视图中的内表，可以通过设定 `grace_period`属性来控制透明改写使用的物化视图所允许数据最大的延迟时间。
+可查看 [CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 
 ## 相关环境变量
@@ -297,7 +328,6 @@ WHERE o_orderkey > 5 AND o_orderkey <= 10;
 | SET enable_materialized_view_rewrite = true;                           | 开启或者关闭查询透明改写，默认关闭                      |
 | SET materialized_view_rewrite_enable_contain_external_table = true;    | 参与透明改写的物化视图是否允许包含外表，默认不允许              |
 | SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN';                    | 目前 outer join 消除会对透明改写有影响，暂时需要关闭，后面会优化 |
-
 
 
 ## 限制
