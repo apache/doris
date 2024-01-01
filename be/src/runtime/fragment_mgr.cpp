@@ -576,7 +576,7 @@ void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
     std::lock_guard<std::mutex> lock(_lock);
     auto query_id = f_context->get_query_id();
-    auto* q_context = f_context->get_query_context();
+    auto* q_context = f_context->get_query_ctx();
     std::vector<TUniqueId> ins_ids;
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
@@ -1413,7 +1413,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-            pool = &pip_context->get_query_context()->obj_pool;
+            pool = &pip_context->get_query_ctx()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _fragment_instance_map.find(tfragment_instance_id);
