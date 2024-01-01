@@ -463,17 +463,18 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             }
         }
     }
+
     std::sort(stores.begin(), stores.end(),
               [](DataDir* a, DataDir* b) { return a->get_usage(0) < b->get_usage(0); });
 
-    size_t seventy_percent_index = stores.size() - 1;
-    size_t eighty_five_percent_index = stores.size() - 1;
+    size_t seventy_percent_index = stores.size();
+    size_t eighty_five_percent_index = stores.size();
     for (size_t index = 0; index < stores.size(); index++) {
         // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size() - 1) {
+        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
             seventy_percent_index = index;
         }
-        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size() - 1) {
+        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size()) {
             eighty_five_percent_index = index;
             break;
         }
