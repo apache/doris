@@ -518,7 +518,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         case TYPE_OBJECT:
         case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
-        case TYPE_STRING: {
+        case TYPE_STRING:
+        case TYPE_JSONB: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
