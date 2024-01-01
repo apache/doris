@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MutableState;
@@ -99,6 +100,20 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
         join.right().setMutableState(MutableState.KEY_PARENT, join);
         join.setMutableState(MutableState.KEY_RF_JUMP,
                 join.right().getMutableState(MutableState.KEY_RF_JUMP).get());
+        join.left().accept(this, context);
+        join.left().setMutableState(MutableState.KEY_PARENT, join);
+        return join;
+    }
+
+    @Override
+    public PhysicalNestedLoopJoin visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
+            CascadesContext context) {
+        join.right().accept(this, context);
+        join.right().setMutableState(MutableState.KEY_PARENT, join);
+        // nested loop join is slow, so jump add 2
+        join.setMutableState(MutableState.KEY_RF_JUMP,
+            (Integer) join.right().getMutableState(MutableState.KEY_RF_JUMP).get() + 1);
         join.left().accept(this, context);
         join.left().setMutableState(MutableState.KEY_PARENT, join);
         return join;
