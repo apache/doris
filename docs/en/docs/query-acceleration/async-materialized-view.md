@@ -214,4 +214,4 @@ select * FROM mv1;
 ```
 
 ### Query rewriting by materialized view
-can be viewed [Query rewriting by materialized view](../)
+can be viewed [Query rewriting by materialized view](async-materialized-view/query-rewrite-summary-and-desc.md)
