@@ -127,11 +127,7 @@ public:
 
     void update_remote_data_size(int64_t size);
 
-    size_t disk_capacity() const;
-
-    size_t disk_available() const;
-
-    size_t tablet_num() const;
+    size_t tablet_size() const;
 
     void disks_compaction_score_increment(int64_t delta);
 

@@ -356,6 +356,10 @@ public class StmtExecutor {
             return false;
         }
 
+        if (Config.enable_bdbje_debug_mode) {
+            return false;
+        }
+
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
                 && !Env.getCurrentEnv().canRead()) {

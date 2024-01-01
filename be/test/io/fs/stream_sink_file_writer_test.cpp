@@ -51,7 +51,8 @@ static std::atomic<int64_t> g_num_request;
 class StreamSinkFileWriterTest : public testing::Test {
     class MockStreamStub : public LoadStreamStub {
     public:
-        MockStreamStub(PUniqueId load_id, int64_t src_id) : LoadStreamStub(load_id, src_id, 1) {};
+        MockStreamStub(PUniqueId load_id, int64_t src_id, RuntimeState* state)
+                : LoadStreamStub(load_id, src_id, 1, state) {};
 
         virtual ~MockStreamStub() = default;
 
@@ -85,8 +86,9 @@ protected:
     virtual void SetUp() {
         _load_id.set_hi(LOAD_ID_HI);
         _load_id.set_lo(LOAD_ID_LO);
+        RuntimeState state;
         for (int src_id = 0; src_id < NUM_STREAM; src_id++) {
-            _streams.emplace_back(new MockStreamStub(_load_id, src_id));
+            _streams.emplace_back(new MockStreamStub(_load_id, src_id, &state));
         }
     }
 

@@ -113,7 +113,7 @@ Status VTabletWriterV2::_incremental_open_streams(
     }
     for (int64_t node_id : new_backends) {
         auto load_streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink);
+                _load_id, _backend_id, node_id, _stream_per_node, _num_local_sink, _state);
         RETURN_IF_ERROR(_open_streams_to_backend(node_id, *load_streams));
         _streams_for_node[node_id] = load_streams;
     }
@@ -261,15 +261,14 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
 Status VTabletWriterV2::_open_streams(int64_t src_id) {
     for (auto& [dst_id, _] : _tablets_for_node) {
         auto streams = ExecEnv::GetInstance()->load_stream_stub_pool()->get_or_create(
-                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink);
+                _load_id, src_id, dst_id, _stream_per_node, _num_local_sink, _state);
         RETURN_IF_ERROR(_open_streams_to_backend(dst_id, *streams));
         _streams_for_node[dst_id] = streams;
     }
     return Status::OK();
 }
 
-Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
-                                                 ::doris::stream_load::LoadStreams& streams) {
+Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& streams) {
     const auto* node_info = _nodes_info->find_node(dst_id);
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.node_info_null",
                     { node_info = nullptr; });
@@ -458,6 +457,7 @@ Status VTabletWriterV2::_cancel(Status status) {
     }
     for (const auto& [_, streams] : _streams_for_node) {
         streams->release();
+        streams->cancel(status);
     }
     return Status::OK();
 }
@@ -549,31 +549,9 @@ Status VTabletWriterV2::close(Status exec_status) {
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet_id;
                     commit_info.backendId = node_id;
-                    _missing_tablets.erase(tablet_id);
                     tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
             }
-        }
-        if (!_missing_tablets.empty()) {
-            std::stringstream ss("pre-commit check failed, ");
-            ss << "missing " << _missing_tablets.size() << " tablets:";
-            int print_limit = 3;
-            for (auto tablet_id : _missing_tablets | std::ranges::views::take(print_limit)) {
-                ss << " (tablet_id=" << tablet_id;
-                auto backends = _location->find_tablet(tablet_id)->node_ids;
-                ss << ", backend_id=[";
-                bool first = true;
-                for (auto& backend_id : backends) {
-                    (first ? ss : ss << ',') << backend_id;
-                    first = false;
-                }
-                ss << "])";
-            }
-            if (_missing_tablets.size() > print_limit) {
-                ss << ", ...";
-            }
-            LOG(INFO) << ss.str() << ", load_id=" << print_id(_load_id);
-            return Status::InternalError(ss.str());
         }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
@@ -605,7 +583,6 @@ Status VTabletWriterV2::_close_load(const Streams& streams) {
     for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
             tablets_to_commit.push_back(tablet);
-            _missing_tablets.insert(tablet_id);
         }
     }
     for (const auto& stream : streams) {
