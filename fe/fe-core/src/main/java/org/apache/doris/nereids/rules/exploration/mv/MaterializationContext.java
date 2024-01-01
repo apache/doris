@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
@@ -61,7 +62,7 @@ public class MaterializationContext {
     private boolean success = false;
     // if rewrite by mv fail, record the reason, if success the failReason should be empty.
     // The key is the query belonged group expression objectId, the value is the fail reason
-    private final Map<ObjectId, String> failReason = new HashMap<>();
+    private final Map<ObjectId, Pair<String, String>> failReason = new HashMap<>();
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -142,21 +143,23 @@ public class MaterializationContext {
     }
 
     /**recordFailReason*/
-    public void recordFailReason(ObjectId objectId, String reason) {
+    public void recordFailReason(ObjectId objectId, Pair<String, String> summaryAndReason) {
         // once success, do not record the fail reason
         if (this.success) {
             return;
         }
         this.success = false;
-        this.failReason.put(objectId, reason);
+        this.failReason.put(objectId, summaryAndReason);
     }
 
     @Override
     public String toString() {
         StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
-        for (Map.Entry<ObjectId, String> reason : this.failReason.entrySet()) {
-            failReasonBuilder.append(reason.getKey()).append(" : \n")
-                    .append(reason.getValue()).append("\n");
+        for (Map.Entry<ObjectId, Pair<String, String>> reason : this.failReason.entrySet()) {
+            failReasonBuilder
+                    .append("ObjectId : ").append(reason.getKey()).append(".\n")
+                    .append("Summary : ").append(reason.getValue().key()).append(".\n")
+                    .append("Reason : ").append(reason.getValue().value()).append(".\n\n");
         }
         failReasonBuilder.append("\n").append("]");
         return Utils.toSqlString("MaterializationContext[" + mtmv.getName() + "]",
@@ -164,12 +167,42 @@ public class MaterializationContext {
                 "failReason", failReasonBuilder.toString());
     }
 
-    /**toString*/
+    /**
+     * toString, this contains summary and detail info.
+     */
     public static String toString(List<MaterializationContext> materializationContexts) {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n\n").append(ctx).append("\n");
+            builder.append("\n\n").append(ctx).append("\n\n");
+        }
+        return builder.toString();
+    }
+
+    /**
+     * toSummaryString, this contains only summary info.
+     */
+    public String toSummaryString() {
+        StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
+        for (Map.Entry<ObjectId, Pair<String, String>> reason : this.failReason.entrySet()) {
+            failReasonBuilder
+                    .append("ObjectId : ").append(reason.getKey()).append(".\n")
+                    .append("Summary : ").append(reason.getValue().key()).append(".\n\n");
+        }
+        failReasonBuilder.append("\n").append("]");
+        return Utils.toSqlString("MaterializationContext[" + mtmv.getName() + "]",
+                "rewriteSuccess", this.success,
+                "failReason", failReasonBuilder.toString());
+    }
+
+    /**
+     * toSummaryString, this contains only summary info.
+     */
+    public static String toSummaryString(List<MaterializationContext> materializationContexts) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("materializationContexts:").append("\n");
+        for (MaterializationContext ctx : materializationContexts) {
+            builder.append("\n\n").append(ctx.toSummaryString()).append("\n");
         }
         return builder.toString();
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
@@ -61,10 +62,12 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         if (expressionsRewritten.isEmpty()
                 || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                    String.format("join rewrite query by view fail, expressionToRewritten is %s,\n"
-                                    + "mvExprToMvScanExprMapping is %s,\n queryToViewSlotMapping = %s",
-                            queryStructInfo.getExpressions(), materializationContext.getMvExprToMvScanExprMapping(),
-                            queryToViewSlotMapping));
+                    Pair.of("Rewrite expressions by view in join fail",
+                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                            + "queryToViewSlotMapping = %s",
+                                    queryStructInfo.getExpressions(),
+                                    materializationContext.getMvExprToMvScanExprMapping(),
+                                    queryToViewSlotMapping)));
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in

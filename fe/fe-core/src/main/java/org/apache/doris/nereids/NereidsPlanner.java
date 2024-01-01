@@ -415,7 +415,9 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
-                plan = super.getExplainString(explainOptions);
+                plan = super.getExplainString(explainOptions)
+                        + "\n\n========== MATERIALIZATIONS ==========\n"
+                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts());
         }
         if (statementContext != null && !statementContext.getHints().isEmpty()) {
             String hint = getHintExplainString(statementContext.getHints());
