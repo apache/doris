@@ -235,6 +235,8 @@ Status GroupCommitTable::_create_group_commit_load(
     request.__set_token("group_commit"); // this is a fake, fe not check it now
     request.__set_max_filter_ratio(1.0);
     request.__set_strictMode(false);
+    // this is an internal interface, use admin to pass the auth check
+    request.__set_user("admin");
     if (_exec_env->master_info()->__isset.backend_id) {
         request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {
