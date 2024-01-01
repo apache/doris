@@ -1033,7 +1033,6 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
