@@ -588,9 +588,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
-    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
-    SAFE_DELETE(_cache_manager);
 
     SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
@@ -628,6 +625,10 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+
+    // cache_manager must be destoried after _inverted_index_query_cache
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    SAFE_DELETE(_cache_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
