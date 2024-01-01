@@ -485,7 +485,10 @@ private:
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
     // check if the given name is like _col0, _col1, ...
-    bool inline _is_hive1_col_name(const std::string& name) {
+    static bool inline _is_hive1_col_name(const std::string& name) {
+        if (name.size() <= 4) {
+            return false;
+        }
         if (name.substr(0, 4) != "_col") {
             return false;
         }

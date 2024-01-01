@@ -361,11 +361,11 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
                                std::vector<std::string>& orc_cols_lower_case,
                                std::unordered_map<std::string, const orc::Type*>& type_map,
                                bool* is_hive1_orc) {
-    bool hive1_orc = false;
+    bool hive1_orc = true;
     for (int i = 0; i < type.getSubtypeCount(); ++i) {
         orc_cols.emplace_back(type.getFieldName(i));
         auto filed_name_lower_case = _get_field_name_lower_case(&type, i);
-        if (!hive1_orc) {
+        if (hive1_orc) {
             hive1_orc = _is_hive1_col_name(filed_name_lower_case);
         }
         auto filed_name_lower_case_copy = filed_name_lower_case;
