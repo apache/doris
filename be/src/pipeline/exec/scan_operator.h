@@ -43,7 +43,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ScanOperator : public SourceOperator<ScanOperatorBuilder> {
+class ScanOperator : public SourceOperator<vectorized::VScanNode> {
 public:
     ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 
@@ -427,6 +427,10 @@ public:
     Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
+    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                    SourceState& source_state) override {
+        return get_block(state, block, source_state);
+    }
     [[nodiscard]] bool is_source() const override { return true; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {

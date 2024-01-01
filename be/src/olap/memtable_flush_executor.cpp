@@ -81,7 +81,7 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
-            _flush_status = Status::IOError("dbug_be_memtable_submit_flush_error");
+            _flush_status = Status::IOError<false>("dbug_be_memtable_submit_flush_error");
         });
         if (!_flush_status.ok()) {
             return _flush_status;
@@ -161,7 +161,8 @@ void FlushToken::_flush_memtable(MemTable* mem_table, int32_t segment_id,
     }
     if (!s.ok()) {
         std::lock_guard wrlk(_flush_status_lock);
-        LOG(WARNING) << "Flush memtable failed with res = " << s;
+        LOG(WARNING) << "Flush memtable failed with res = " << s
+                     << ", load_id: " << print_id(_rowset_writer->load_id());
         _flush_status = s;
         return;
     }

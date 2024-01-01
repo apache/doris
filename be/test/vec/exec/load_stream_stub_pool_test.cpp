@@ -22,8 +22,6 @@
 
 namespace doris {
 
-namespace stream_load {
-
 class LoadStreamStubPoolTest : public testing::Test {
 public:
     LoadStreamStubPoolTest() = default;
@@ -32,13 +30,14 @@ public:
 
 TEST_F(LoadStreamStubPoolTest, test) {
     LoadStreamStubPool pool;
+    RuntimeState state;
     int64_t src_id = 100;
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_hi(2);
-    auto streams1 = pool.get_or_create(load_id, src_id, 101, 5, 1);
-    auto streams2 = pool.get_or_create(load_id, src_id, 102, 5, 1);
-    auto streams3 = pool.get_or_create(load_id, src_id, 101, 5, 1);
+    auto streams1 = pool.get_or_create(load_id, src_id, 101, 5, 1, &state);
+    auto streams2 = pool.get_or_create(load_id, src_id, 102, 5, 1, &state);
+    auto streams3 = pool.get_or_create(load_id, src_id, 101, 5, 1, &state);
     EXPECT_EQ(2, pool.size());
     EXPECT_EQ(1, pool.templates_size());
     EXPECT_EQ(streams1, streams3);
@@ -50,5 +49,4 @@ TEST_F(LoadStreamStubPoolTest, test) {
     EXPECT_EQ(0, pool.templates_size());
 }
 
-} // namespace stream_load
 } // namespace doris

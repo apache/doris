@@ -54,6 +54,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("updated_time")
                     .add("columns")
                     .add("trigger")
+                    .add("new_partition")
                     .build();
 
     private final TableName tableName;
@@ -149,6 +150,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(formattedDateTime);
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
+        row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

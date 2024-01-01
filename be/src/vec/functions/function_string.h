@@ -2411,12 +2411,12 @@ struct MoneyFormatInt128Impl {
 
 struct MoneyFormatDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
+        return {std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9)};
     }
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
 
@@ -2467,12 +2467,12 @@ struct MoneyFormatDecimalImpl {
                 result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
+                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             const auto multiplier =
                     scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
             for (size_t i = 0; i < input_rows_count; i++) {
-                Decimal128I frac_part = decimal128_column->get_fractional_part(i);
+                Decimal128V3 frac_part = decimal128_column->get_fractional_part(i);
                 if (scale > 2) {
                     int delta = ((frac_part % multiplier) << 1) > multiplier;
                     frac_part = frac_part / multiplier + delta;

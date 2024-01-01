@@ -63,8 +63,6 @@ public:
 
     Status open(RuntimeState* state);
 
-    void close(RuntimeState* state);
-
     // create/destroy AGG Data
     void create(AggregateDataPtr place);
     void destroy(AggregateDataPtr place);

@@ -38,7 +38,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
+class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 

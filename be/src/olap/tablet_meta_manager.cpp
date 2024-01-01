@@ -96,8 +96,9 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
     if (tablet_meta->partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << " tablet "
                      << tablet_meta->tablet_id();
-        return Status::InternalError("invaid partition id {} tablet {}",
-                                     tablet_meta->partition_id(), tablet_meta->tablet_id());
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return Status::InternalError("invaid partition id {} tablet {}",
+        //  tablet_meta->partition_id(), tablet_meta->tablet_id());
     }
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta"

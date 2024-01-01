@@ -118,7 +118,6 @@ void ConfigAction::handle_update_config(HttpRequest* req) {
             std::string status(s.ok() ? "OK" : "BAD");
             rapidjson::Value result;
             result.SetObject();
-            rapidjson::Value(key.c_str(), key.size(), results.GetAllocator());
             result.AddMember("config_name",
                              rapidjson::Value(key.c_str(), key.size(), results.GetAllocator()),
                              results.GetAllocator());
