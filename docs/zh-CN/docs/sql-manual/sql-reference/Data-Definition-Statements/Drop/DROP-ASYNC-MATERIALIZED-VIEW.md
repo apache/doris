@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
+    "title": "DROP-ASYNC-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-MATERIALIZED-VIEW
+## DROP-ASYNC-MATERIALIZED-VIEW
 
 ### Name
 
