@@ -247,7 +247,7 @@ void TaskScheduler::_do_work(size_t index) {
         if (state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(task->is_pipelineX() || !task->is_pending_finish())
                     << "must not pending close " << task->debug_string();
-            Status exec_status = fragment_ctx->get_query_context()->exec_status();
+            Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
@@ -264,7 +264,7 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            Status cancel_status = fragment_ctx->get_query_context()->exec_status();
+            Status cancel_status = fragment_ctx->get_query_ctx()->exec_status();
             _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
             continue;
         }
