@@ -933,6 +933,15 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    // Set to true means new partition loaded data
+    public void setNewPartitionLoaded(long tblId) {
+        TableStatsMeta statsStatus = idToTblStats.get(tblId);
+        if (statsStatus != null && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
+            statsStatus.newPartitionLoaded.set(true);
+            logCreateTableStats(statsStatus);
+        }
+    }
+
     public void updateTableStatsStatus(TableStatsMeta tableStats) {
         replayUpdateTableStatsStatus(tableStats);
         logCreateTableStats(tableStats);
