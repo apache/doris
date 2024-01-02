@@ -724,7 +724,6 @@ public abstract class ScanNode extends PlanNode {
         return !isKeySearch() && context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
-                && !fragment.isHasColocateFinalizeAggNode()
                 && !fragment.isHasNullAwareLeftAntiJoin();
     }
 

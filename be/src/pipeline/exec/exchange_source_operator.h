@@ -43,7 +43,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ExchangeSourceOperator final : public SourceOperator<ExchangeSourceOperatorBuilder> {
+class ExchangeSourceOperator final : public SourceOperator<vectorized::VExchangeNode> {
 public:
     ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
     bool can_read() override;

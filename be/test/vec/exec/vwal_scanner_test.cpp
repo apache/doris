@@ -57,7 +57,7 @@ private:
     void init_desc_table();
 
     ExecEnv* _env = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
     int64_t db_id = 1;
     int64_t tb_id = 2;
     int64_t txn_id = 789;
@@ -195,6 +195,7 @@ void VWalScannerTest::init_desc_table() {
 }
 
 void VWalScannerTest::init() {
+    config::group_commit_wal_max_disk_limit = "100M";
     init_desc_table();
     static_cast<void>(io::global_local_filesystem()->create_directory(
             wal_dir + "/" + std::to_string(db_id) + "/" + std::to_string(tb_id)));
@@ -215,7 +216,9 @@ void VWalScannerTest::init() {
 
     _env = ExecEnv::GetInstance();
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
-    auto st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label);
+    std::string base_path;
+    auto st = _env->_wal_manager->_init_wal_dirs_info();
+    st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label, base_path);
 }
 
 TEST_F(VWalScannerTest, normal) {

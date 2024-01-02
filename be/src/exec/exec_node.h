@@ -103,7 +103,7 @@ public:
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     [[nodiscard]] virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    [[nodiscard]] Status get_next_after_projects(
+    [[nodiscard]] virtual Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
             const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
             bool clear_data = true);

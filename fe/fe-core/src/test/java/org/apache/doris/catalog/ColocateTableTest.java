@@ -252,7 +252,8 @@ public class ColocateTableTest {
                 + ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
+        expectedEx.expectMessage("Colocate tables must have same replication allocation: { tag.location.default: 2 }"
+                + " should be { tag.location.default: 1 }");
         createTable("create table " + dbName + "." + tableName2 + " (\n"
                 + " `k1` int NULL COMMENT \"\",\n"
                 + " `k2` varchar(10) NULL COMMENT \"\"\n"

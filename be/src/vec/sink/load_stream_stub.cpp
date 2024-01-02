@@ -21,6 +21,7 @@
 
 #include "olap/rowset/rowset_writer.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -44,9 +45,6 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             for (auto tablet_id : response.success_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            if (response.success_tablet_ids_size() == 0) {
-                ss << " none";
-            }
             std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
             for (auto tablet_id : response.success_tablet_ids()) {
                 _success_tablets.push_back(tablet_id);
@@ -56,9 +54,6 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             ss << ", failed tablet ids:";
             for (auto tablet_id : response.failed_tablet_ids()) {
                 ss << " " << tablet_id;
-            }
-            if (response.failed_tablet_ids_size() == 0) {
-                ss << " none";
             }
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             for (auto tablet_id : response.failed_tablet_ids()) {
@@ -336,6 +331,7 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             ret = brpc::StreamWrite(_stream_id, buf);
         }
+        DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
         switch (ret) {
         case 0:
             return Status::OK();

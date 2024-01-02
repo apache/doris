@@ -421,6 +421,9 @@ public class LoadManager implements Writable {
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
                     }
+                    if (job instanceof BulkLoadJob) {
+                        ((BulkLoadJob) job).recycleProgress();
+                    }
                     if (list.isEmpty()) {
                         map.remove(job.getLabel());
                     }
@@ -745,6 +748,9 @@ public class LoadManager implements Writable {
                             if (!job.isCompleted()) {
                                 continue;
                             }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
                             innerIter.remove();
                             idToLoadJob.remove(job.getId());
                             ++counter;
@@ -765,6 +771,9 @@ public class LoadManager implements Writable {
                         if (!job.isCompleted()) {
                             continue;
                         }
+                        if (job instanceof BulkLoadJob) {
+                            ((BulkLoadJob) job).recycleProgress();
+                        }
                         iter.remove();
                         idToLoadJob.remove(job.getId());
                         ++counter;
@@ -777,22 +786,16 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("clean {} labels on db {} with label '{}' in load mgr.", counter, dbId, label);
-
         // 2. Remove from DatabaseTransactionMgr
         try {
-            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label);
+            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label, isReplay);
         } catch (AnalysisException e) {
             // just ignore, because we don't want to throw any exception here.
             LOG.warn("Exception:", e);
         }
 
-        // 3. Log
-        if (!isReplay) {
-            CleanLabelOperationLog log = new CleanLabelOperationLog(dbId, label);
-            Env.getCurrentEnv().getEditLog().logCleanLabel(log);
-        }
-        LOG.info("finished to clean label on db {} with label {}. is replay: {}", dbId, label, isReplay);
+        LOG.info("finished to clean {} labels on db {} with label '{}' in load mgr. is replay: {}",
+                counter, dbId, label, isReplay);
     }
 
     private void readLock() {

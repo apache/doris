@@ -50,6 +50,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Data
@@ -89,7 +91,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "sql")
     String executeSql;
 
-    public AbstractJob() {}
+    public AbstractJob() {
+    }
 
     public AbstractJob(Long id) {
         jobId = id;
@@ -99,12 +102,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
      * executeSql and runningTasks is not required for load.
      */
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
-                            String currentDbName,
-                            String comment,
-                            UserIdentity createUser,
-                            JobExecutionConfiguration jobConfig) {
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig) {
         this(jobId, jobName, jobStatus, currentDbName, comment,
-                createUser, jobConfig, System.currentTimeMillis(), null, null);
+                createUser, jobConfig, System.currentTimeMillis(), null);
     }
 
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
@@ -113,8 +116,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                        UserIdentity createUser,
                        JobExecutionConfiguration jobConfig,
                        Long createTimeMs,
-                       String executeSql,
-                       List<T> runningTasks) {
+                       String executeSql) {
         this.jobId = jobId;
         this.jobName = jobName;
         this.jobStatus = jobStatus;
@@ -124,10 +126,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         this.jobConfig = jobConfig;
         this.createTimeMs = createTimeMs;
         this.executeSql = executeSql;
-        this.runningTasks = runningTasks;
     }
 
     private List<T> runningTasks = new ArrayList<>();
+
+    private Lock createTaskLock = new ReentrantLock();
 
     @Override
     public void cancelAllTasks() throws JobException {
@@ -137,6 +140,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         for (T task : runningTasks) {
             task.cancel();
         }
+        runningTasks = new ArrayList<>();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -163,6 +167,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
                 .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+        runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
         }
@@ -198,13 +203,22 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             log.info("job is not ready for scheduling, job id is {}", jobId);
             return new ArrayList<>();
         }
-        return createTasks(taskType, taskContext);
+        try {
+            //it's better to use tryLock and add timeout limit
+            createTaskLock.lock();
+            if (!isReadyForScheduling(taskContext)) {
+                log.info("job is not ready for scheduling, job id is {}", jobId);
+                return new ArrayList<>();
+            }
+            List<T> tasks = createTasks(taskType, taskContext);
+            tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
+            return tasks;
+        } finally {
+            createTaskLock.unlock();
+        }
     }
 
     public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
-        if (CollectionUtils.isEmpty(getRunningTasks())) {
-            runningTasks = new ArrayList<>();
-        }
         tasks.forEach(task -> {
             task.setTaskType(taskType);
             task.setJobId(getJobId());
@@ -257,6 +271,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.runningTasks = new ArrayList<>();
+        job.createTaskLock = new ReentrantLock();
         return job;
     }
 
@@ -364,10 +379,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     @Override
-    public void onRegister() throws JobException {}
+    public void onRegister() throws JobException {
+    }
 
     @Override
-    public void onUnRegister() throws JobException {}
+    public void onUnRegister() throws JobException {
+    }
 
     @Override
     public void onReplayCreate() throws JobException {

@@ -14,15 +14,25 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#pragma once
+#include "runtime/exec_env.h"
 
-package org.apache.doris.nereids.parser.trino;
+namespace doris {
+class WalInfo {
+public:
+    WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms);
+    ~WalInfo();
+    int64_t get_wal_id();
+    int64_t get_retry_num();
+    int64_t get_start_time_ms();
+    std::string get_wal_path();
+    void add_retry_num();
 
-import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
+private:
+    int64_t _wal_id;
+    std::string _wal_path;
+    int64_t _retry_num;
+    int64_t _start_time_ms;
+};
 
-/**
- * Trino complex function transformer
- */
-public abstract class ComplexTrinoFnCallTransformer extends AbstractFnCallTransformer {
-
-    protected abstract String getSourceFnName();
-}
+} // namespace doris

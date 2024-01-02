@@ -55,6 +55,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
@@ -222,6 +223,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // but top-down traverse can not cover this case in one iteration, so bottom-up is more
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    //after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
+                    topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
                             new ReorderJoin(),
@@ -272,6 +275,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new PushProjectIntoUnion()),
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
+            ),
+
+            topic("Eliminate GroupBy",
+                    topDown(new EliminateGroupBy())
             ),
 
             topic("Eager aggregation",

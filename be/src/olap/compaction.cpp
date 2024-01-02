@@ -400,6 +400,34 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
         OlapStopWatch inverted_watch;
+
+        // check rowid_conversion correctness
+        Version version = _tablet->max_version();
+        DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        std::set<RowLocation> missed_rows;
+        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+        // Convert the delete bitmap of the input rowsets to output rowset.
+        std::size_t missed_rows_size = 0;
+        _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                &output_rowset_delete_bitmap);
+        if (!allow_delete_in_cumu_compaction()) {
+            missed_rows_size = missed_rows.size();
+            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                stats.merged_rows != missed_rows_size) {
+                std::string err_msg = fmt::format(
+                        "cumulative compaction: the merged rows({}) is not equal to missed "
+                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
+                        _tablet->table_id());
+                DCHECK(false) << err_msg;
+                LOG(WARNING) << err_msg;
+            }
+        }
+
+        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+
         // translation vec
         // <<dest_idx_num, dest_docId>>
         // the first level vector: index indicates src segment.
@@ -425,7 +453,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             // src index files
             // format: rowsetId_segmentId
             std::vector<std::string> src_index_files(src_segment_num);
-            for (auto m : src_seg_to_id_map) {
+            for (const auto& m : src_seg_to_id_map) {
                 std::pair<RowsetId, uint32_t> p = m.first;
                 src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
             }
@@ -603,7 +631,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 std::string dir_str = p.parent_path().string();
                                 std::string file_str = p.filename().string();
                                 lucene::store::Directory* dir =
-                                        DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+                                        DorisCompoundDirectoryFactory::getDirectory(
+                                                fs, dir_str.c_str());
                                 DorisCompoundReader reader(dir, file_str.c_str());
                                 std::vector<std::string> files;
                                 reader.list(&files);
@@ -675,11 +704,11 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
+        _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                &output_rowset_delete_bitmap);
         if (!allow_delete_in_cumu_compaction()) {
-            _tablet->calc_compaction_output_rowset_delete_bitmap(
-                    _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
-                    &output_rowset_delete_bitmap);
             missed_rows_size = missed_rows.size();
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION && stats != nullptr &&
                 stats->merged_rows != missed_rows_size) {

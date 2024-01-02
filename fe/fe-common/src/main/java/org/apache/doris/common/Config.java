@@ -1565,7 +1565,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean enable_pipeline_load = false;
 
     /*---------------------- JOB CONFIG START------------------------*/
@@ -1678,12 +1678,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_decimal_conversion = true;
-
-    /**
-     * List of S3 API compatible object storage systems.
-     */
-    @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
 
     /**
      * Support complex data type ARRAY.
@@ -2323,6 +2317,18 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int workload_action_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_policy_num = 25;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_condition_num_in_policy = 5;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_action_num_in_policy = 5; // mainly used to limit set session var action
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_max_num = 15;
 
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})

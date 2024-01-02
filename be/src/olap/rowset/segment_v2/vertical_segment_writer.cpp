@@ -405,9 +405,18 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             }
 
             if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                return Status::InternalError(
-                        "the unmentioned columns should have default value or be nullable for "
-                        "newly inserted rows in non-strict mode partial update");
+                std::string error_column;
+                for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
+                    const TabletColumn& col = _tablet_schema->column(cid);
+                    if (!col.has_default_value() && !col.is_nullable()) {
+                        error_column = col.name();
+                        break;
+                    }
+                }
+                return Status::Error<INVALID_SCHEMA, false>(
+                        "the unmentioned column `{}` should have default value or be nullable for "
+                        "newly inserted rows in non-strict mode partial update",
+                        error_column);
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
