@@ -63,14 +63,14 @@ public:
     // wal back pressure
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
-    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
-                                        bool is_add_pre_allocated);
+    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
+                                        size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
 
     // replay wal
-    Status add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id, const std::string& label,
-                        std::string& base_path);
+    Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
+                           const std::string& label, std::string& base_path);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
     Status delete_wal(int64_t wal_id, size_t block_queue_pre_allocated = 0);
     Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
@@ -130,13 +130,11 @@ private:
 
     std::shared_mutex _wal_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
-    // TODO no use? need remove it. And the map dose not clear
-    std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
 
     // TODO Now only used for debug wal status, consider remove it
     std::shared_mutex _wal_status_lock;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WalStatus>> _wal_status_queues;
-
+    
     // TODO should remove
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;

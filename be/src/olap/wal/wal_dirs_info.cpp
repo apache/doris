@@ -43,13 +43,10 @@ void WalDirInfo::set_used(size_t used) {
     _used = used;
 }
 
-void WalDirInfo::set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
+void WalDirInfo::set_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated) {
     std::unique_lock wlock(_lock);
-    if (is_add_pre_allocated) {
-        _pre_allocated += pre_allocated;
-    } else {
-        _pre_allocated -= pre_allocated;
-    }
+    _pre_allocated += increase_pre_allocated;
+    _pre_allocated -= decrease_pre_allocated;
 }
 
 size_t WalDirInfo::available() {
@@ -74,7 +71,7 @@ Status WalDirInfo::update_wal_dir_limit(size_t limit) {
         }
         size_t wal_dir_size = 0;
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
-        // TODO should be wal_disk_limit + wal_dir_size
+        // If here we set wal_disk_limit + wal_dir_size, then wal dir size will be larger and larger.
         set_limit(wal_disk_limit);
     }
     return Status::OK();
@@ -91,9 +88,9 @@ Status WalDirInfo::update_wal_dir_used(size_t used) {
     return Status::OK();
 }
 
-Status WalDirInfo::update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
-    set_pre_allocated(pre_allocated, is_add_pre_allocated);
-    return Status::OK();
+void WalDirInfo::update_wal_dir_pre_allocated(size_t increase_pre_allocated,
+                                              size_t decrease_pre_allocated) {
+    set_pre_allocated(increase_pre_allocated, decrease_pre_allocated);
 }
 
 Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
@@ -178,11 +175,13 @@ Status WalDirsInfo::update_all_wal_dir_used() {
     return Status::OK();
 }
 
-Status WalDirsInfo::update_wal_dir_pre_allocated(std::string wal_dir, size_t pre_allocated,
-                                                 bool is_add_pre_allocated) {
+Status WalDirsInfo::update_wal_dir_pre_allocated(std::string wal_dir, size_t increase_pre_allocated,
+                                                 size_t decrease_pre_allocated) {
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {
-            return wal_dir_info->update_wal_dir_pre_allocated(pre_allocated, is_add_pre_allocated);
+            wal_dir_info->update_wal_dir_pre_allocated(increase_pre_allocated,
+                                                       decrease_pre_allocated);
+            return Status::OK();
         }
     }
     return Status::InternalError("Can not find wal dir in wal disks info.");

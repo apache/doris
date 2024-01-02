@@ -186,7 +186,7 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
                 try {
                     *dir_size += std::filesystem::file_size(entry);
                 } catch (const std::exception& e) {
-                    LOG(INFO) << "{}", e.what();
+                    LOG(INFO) << "failed to get file size, err: {}", e.what();
                 }
             }
         }
