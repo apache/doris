@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external.paimon;
 
 import org.apache.doris.planner.external.FileSplit;
+import org.apache.doris.planner.external.SplitCreator;
 import org.apache.doris.planner.external.TableFormatType;
 
 import org.apache.hadoop.fs.Path;
@@ -30,7 +31,7 @@ public class PaimonSplit extends FileSplit {
     private TableFormatType tableFormatType;
 
     public PaimonSplit(Split split) {
-        super(new Path("dummyPath"), 0, 0, 0, null, null);
+        super(new Path("hdfs://dummyPath"), 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
     }
@@ -57,4 +58,19 @@ public class PaimonSplit extends FileSplit {
         this.tableFormatType = tableFormatType;
     }
 
+    public static class PaimonSplitCreator implements SplitCreator {
+
+        static final PaimonSplitCreator DEFAULT = new PaimonSplitCreator();
+
+        @Override
+        public org.apache.doris.spi.Split create(Path path,
+                                                 long start,
+                                                 long length,
+                                                 long fileLength,
+                                                 long modificationTime,
+                                                 String[] hosts,
+                                                 List<String> partitionValues) {
+            return new PaimonSplit(path, start, length, fileLength, hosts, partitionValues);
+        }
+    }
 }

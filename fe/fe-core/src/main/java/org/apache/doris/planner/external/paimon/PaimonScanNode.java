@@ -50,6 +50,7 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.utils.InstantiationUtil;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -143,17 +144,24 @@ public class PaimonScanNode extends FileQueryScanNode {
                 Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
                 if (optRowFiles.isPresent()) {
                     List<RawFile> rawFiles = optRowFiles.get();
-                    rawFiles.forEach(file -> {
+                    for (RawFile file : rawFiles) {
                         LocationPath locationPath = new LocationPath(file.path(), source.getCatalog().getProperties());
                         Path finalDataFilePath = locationPath.toScanRangeLocation();
-                        splits.add(new PaimonSplit(
-                                finalDataFilePath,
-                                file.offset(),
-                                file.length() - file.offset(),
-                                file.length(),
-                                new String[0],
-                                null));
-                    });
+                        try {
+                            splits.addAll(
+                                    splitFile(
+                                        finalDataFilePath,
+                                        0,
+                                        null,
+                                        file.length(),
+                                        -1,
+                                        true,
+                                        null,
+                                        PaimonSplit.PaimonSplitCreator.DEFAULT));
+                        } catch (IOException e) {
+                            throw new UserException("Paimon error to split file: " + e.getMessage(), e);
+                        }
+                    }
                 } else {
                     splits.add(new PaimonSplit(split));
                 }
@@ -198,7 +206,6 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        //todo: no use
         return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for paimon table "));
     }
