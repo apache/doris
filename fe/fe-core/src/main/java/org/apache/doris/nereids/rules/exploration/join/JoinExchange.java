@@ -23,8 +23,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -53,7 +53,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
     public Rule build() {
         return innerLogicalJoin(innerLogicalJoin(), innerLogicalJoin())
                 .when(JoinExchange::checkReorder)
-                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint() || join.right().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint()
+                        || join.left().hasDistributeHint() || join.right().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().isMarkJoin() || join.right().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left();
@@ -87,13 +88,13 @@ public class JoinExchange extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            new DistributeHint("Distribute", JoinHint.NONE), a, c);
+                            new DistributeHint(DistributeType.NONE), a, c);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            new DistributeHint("Distribute", JoinHint.NONE), b, d);
+                            new DistributeHint(DistributeType.NONE), b, d);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
-                            new DistributeHint("Distribute", JoinHint.NONE),
+                            new DistributeHint(DistributeType.NONE),
                             newLeftJoin, newRightJoin);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 

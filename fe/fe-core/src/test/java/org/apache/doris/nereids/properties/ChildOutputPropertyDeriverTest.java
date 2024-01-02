@@ -31,8 +31,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -100,7 +100,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testInnerJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -139,7 +139,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testCrossJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.CROSS_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -178,7 +178,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -218,7 +218,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_SEMI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -258,7 +258,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.LEFT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -298,7 +298,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testNullAwareLeftAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -338,7 +338,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightSemiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_SEMI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -379,7 +379,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightAntiJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_ANTI_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -420,7 +420,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testRightOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.RIGHT_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -461,7 +461,7 @@ class ChildOutputPropertyDeriverTest {
     @Test
     void testFullOuterJoin() {
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.FULL_OUTER_JOIN,
-                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties,
+                ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties,
                 groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
@@ -508,7 +508,7 @@ class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
@@ -555,7 +555,7 @@ class ChildOutputPropertyDeriverTest {
                         new SlotReference(new ExprId(0), "left", IntegerType.INSTANCE, false, Collections.emptyList()),
                         new SlotReference(new ExprId(2), "right", IntegerType.INSTANCE, false,
                                 Collections.emptyList()))),
-                ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE), Optional.empty(), logicalProperties, groupPlan, groupPlan);
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 

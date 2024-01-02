@@ -33,8 +33,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -232,7 +232,7 @@ public class HyperGraph {
                 .entrySet()) {
             LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
                     entry.getValue().second,
-                    new DistributeHint("Distribute", JoinHint.NONE), join.getMarkJoinSlotReference(),
+                    new DistributeHint(DistributeType.NONE), join.getMarkJoinSlotReference(),
                     Lists.newArrayList(join.left(), join.right()));
             Pair<Long, Long> ends = entry.getKey();
             JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,

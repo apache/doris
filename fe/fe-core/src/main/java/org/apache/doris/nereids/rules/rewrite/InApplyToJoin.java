@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -89,7 +89,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 }
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
-                        new DistributeHint("Distribute", JoinHint.NONE),
+                        new DistributeHint(DistributeType.NONE),
                         apply.left(), agg);
             }
 
@@ -119,12 +119,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         predicate.nullable() && !apply.isCorrelated()
                                 ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                                 : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(), conjuncts, new DistributeHint("Distribute", JoinHint.NONE),
+                        Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
                         apply.getMarkJoinSlotReference(), apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
-                        new DistributeHint("Distribute", JoinHint.NONE), apply.getMarkJoinSlotReference(),
+                        new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

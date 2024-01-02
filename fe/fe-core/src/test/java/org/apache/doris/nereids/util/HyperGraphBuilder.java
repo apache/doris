@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -285,12 +285,12 @@ public class HyperGraphBuilder {
                 .collect(Collectors.toSet());
         assert outputs.containsAll(requireSlots);
         if (withJoinHint) {
-            JoinHint[] values = JoinHint.values();
+            DistributeType[] values = DistributeType.values();
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
-            JoinHint hint = values[randomIndex];
+            DistributeType hint = values[randomIndex];
             Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
-            ((LogicalJoin) hintJoin).setHint(new DistributeHint("Distribute", hint));
+            ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
             return hintJoin;
         }
         return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);

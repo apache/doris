@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -97,7 +97,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     predicate != null
                         ? ExpressionUtils.extractConjunction(predicate)
                         : ExpressionUtils.EMPTY_CONDITION,
-                    new DistributeHint("Distribute", JoinHint.NONE),
+                    new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
                     apply.children());
         } else {
@@ -105,7 +105,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     predicate != null
                         ? ExpressionUtils.extractConjunction(predicate)
                         : ExpressionUtils.EMPTY_CONDITION,
-                    new DistributeHint("Distribute", JoinHint.NONE),
+                    new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
                     apply.children());
         }
@@ -126,7 +126,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                 ImmutableList.of(alias), newLimit);
         LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint("Distribute", JoinHint.NONE), unapply.getMarkJoinSlotReference(),
+                new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
@@ -136,7 +136,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
             ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint("Distribute", JoinHint.NONE), unapply.getMarkJoinSlotReference(),
+                new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newLimit);
     }
 }

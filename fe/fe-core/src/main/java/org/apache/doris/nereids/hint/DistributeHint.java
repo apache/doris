@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.hint;
 
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 
 /**
  * Hints for join.
@@ -26,13 +26,13 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
  * Left input and right input of join could have different hints for further extension.
  */
 public class DistributeHint extends Hint {
-    public JoinHint joinHint;
+    public DistributeType distributeType;
 
     private boolean isSuccessInLeading = false;
 
-    public DistributeHint(String hintName, JoinHint joinHint) {
-        super(hintName);
-        this.joinHint = joinHint;
+    public DistributeHint(DistributeType distributeType) {
+        super("Distribute");
+        this.distributeType = distributeType;
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
@@ -48,7 +48,7 @@ public class DistributeHint extends Hint {
             return "";
         }
         StringBuilder out = new StringBuilder();
-        switch (this.joinHint) {
+        switch (this.distributeType) {
             case NONE:
                 break;
             case SHUFFLE_RIGHT:
@@ -71,6 +71,6 @@ public class DistributeHint extends Hint {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        return this.joinHint == ((DistributeHint) o).joinHint;
+        return this.distributeType == ((DistributeHint) o).distributeType;
     }
 }

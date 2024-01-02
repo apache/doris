@@ -24,7 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -63,7 +63,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint("Distribute", JoinHint.NONE),
+                new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
     }
@@ -86,7 +86,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
-                new DistributeHint("Distribute", JoinHint.NONE),
+                new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
                 apply.children());
     }

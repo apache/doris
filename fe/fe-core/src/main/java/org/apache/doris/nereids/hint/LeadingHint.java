@@ -22,7 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -108,13 +108,13 @@ public class LeadingHint extends Hint {
                     level--;
                 }
             } else if (parameter.equals("shuffle")) {
-                DistributeHint distributeHint = new DistributeHint("Distribute", JoinHint.SHUFFLE_RIGHT);
+                DistributeHint distributeHint = new DistributeHint(DistributeType.SHUFFLE_RIGHT);
                 distributeHints.put(tablelist.size(), distributeHint);
                 if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
                     ConnectContext.get().getStatementContext().addHint(distributeHint);
                 }
             } else if (parameter.equals("broadcast")) {
-                DistributeHint distributeHint = new DistributeHint("Distribute", JoinHint.BROADCAST_RIGHT);
+                DistributeHint distributeHint = new DistributeHint(DistributeType.BROADCAST_RIGHT);
                 distributeHints.put(tablelist.size(), distributeHint);
                 if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
                     ConnectContext.get().getStatementContext().addHint(distributeHint);
@@ -544,7 +544,7 @@ public class LeadingHint extends Hint {
 
     private DistributeHint getJoinHint(Integer index) {
         if (distributeHints.get(index) == null) {
-            return new DistributeHint("Distribute", JoinHint.NONE);
+            return new DistributeHint(DistributeType.NONE);
         }
         distributeHints.get(index).setSuccessInLeading(true);
         return distributeHints.get(index);

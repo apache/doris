@@ -32,7 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -522,7 +522,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                 JoinType.INNER_JOIN,
                 newHashJoinConjuncts,
                 ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint("Distribute", JoinHint.NONE),
+                new DistributeHint(DistributeType.NONE),
                 Optional.empty(),
                 newUnionNode,
                 pullUpTable);
@@ -635,7 +635,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                 return new LogicalJoin(JoinType.INNER_JOIN,
                         join.getHashJoinConjuncts(),
                         join.getOtherJoinConjuncts(),
-                        new DistributeHint("Distribute", JoinHint.NONE),
+                        new DistributeHint(DistributeType.NONE),
                         Optional.empty(),
                         leftChild, rightChild);
             }

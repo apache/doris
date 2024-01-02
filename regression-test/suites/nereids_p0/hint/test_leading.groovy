@@ -941,13 +941,13 @@ suite("test_leading") {
     qt_select90_5 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     qt_select90_6 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
 
-// leading + distribute hint outside leading + single hint (若leading生效则外面的distributeHint全部不生效，若leading不生效则外面的distributeHint照常)
+// leading + distribute hint outside leading + single hint
     qt_select91_1 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     qt_select91_2 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 right outer join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     qt_select91_3 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     qt_select91_4 """explain shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
 
-// leading + distribute hint inside leading + single hint (若leading生效则外面的distributeHint全部不生效，若leading不生效则外面的distributeHint照常)
+// leading + distribute hint inside leading + single hint
     // inner join
     qt_select92_1 """explain shape plan select /*+ leading(t1 shuffle t2 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select92_2 """explain shape plan select /*+ leading(t1 shuffle {t2 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
@@ -1015,14 +1015,14 @@ suite("test_leading") {
     qt_select100_5 """select count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     qt_select100_6 """select count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
 
-// leading + distribute hint outside leading + single hint (若leading生效则外面的distributeHint全部不生效，若leading不生效则外面的distributeHint照常)
+// leading + distribute hint outside leading + single hint
     qt_select101_0 """select count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select101_1 """select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     qt_select101_2 """select /*+ leading(t1 t2 t3) */ count(*) from t1 right outer join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     qt_select101_3 """select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     qt_select101_4 """select /*+ leading(t1 t2 t3) */ count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
 
-// leading + distribute hint inside leading + single hint (若leading生效则外面的distributeHint全部不生效，若leading不生效则外面的distributeHint照常)
+// leading + distribute hint inside leading + single hint
     // inner join
     qt_select102_0 """select count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select102_1 """select /*+ leading(t1 shuffle t2 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""

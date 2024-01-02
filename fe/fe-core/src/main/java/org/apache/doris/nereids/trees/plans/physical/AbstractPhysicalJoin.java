@@ -24,7 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -175,7 +175,7 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
-    public DistributeHint getHint() {
+    public DistributeHint getDistributeHint() {
         return hint;
     }
 
@@ -240,7 +240,7 @@ public abstract class AbstractPhysicalJoin<
             args.add("MarkJoinSlotReference");
             args.add(markJoinSlotReference.get());
         }
-        if (hint.joinHint != JoinHint.NONE) {
+        if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
             args.add(hint.getExplainString());
         }

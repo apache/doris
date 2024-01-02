@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -162,13 +162,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        DistributeHint hint = hashJoin.getHint();
-        if (hint.joinHint == JoinHint.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
+        DistributeHint hint = hashJoin.getDistributeHint();
+        if (hint.distributeType == DistributeType.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
             addBroadcastJoinRequestProperty();
             hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
-        if (hint.joinHint == JoinHint.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
+        if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
             hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;

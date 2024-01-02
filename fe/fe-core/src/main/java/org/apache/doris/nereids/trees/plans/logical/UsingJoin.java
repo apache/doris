@@ -155,7 +155,7 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
         return hashJoinConjuncts;
     }
 
-    public DistributeHint getHint() {
+    public DistributeHint getDistributeHint() {
         return hint;
     }
 
@@ -173,7 +173,7 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     }
 
     @Override
-    public boolean hasJoinHint() {
+    public boolean hasDistributeHint() {
         return hint != null;
     }
 
