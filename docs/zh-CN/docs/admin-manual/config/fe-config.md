@@ -1154,7 +1154,7 @@ broker scanner 程序可以在一个 broker 加载作业中处理的最大字节
 
 #### `default_load_parallelism`
 
-默认值：1
+默认值：8
 
 是否可以动态配置：true
 

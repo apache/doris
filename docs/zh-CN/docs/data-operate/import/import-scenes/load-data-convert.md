@@ -28,7 +28,7 @@ under the License.
 
 ## 支持的导入方式
 
-- [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md)
+- [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD)
 
   ```sql
   LOAD LABEL example_db.label1

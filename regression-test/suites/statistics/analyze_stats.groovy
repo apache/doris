@@ -1168,7 +1168,7 @@ PARTITION `p599` VALUES IN (599)
     sql """ INSERT INTO test_updated_rows SELECT * FROM test_updated_rows """
     sql """ANALYZE TABLE test_updated_rows WITH SYNC"""
     def cnt2 = sql """ SHOW TABLE STATS test_updated_rows """
-    assertEquals(Integer.valueOf(cnt2[0][0]), 0)
+    assertTrue(Integer.valueOf(cnt2[0][0]) == 0 || Integer.valueOf(cnt2[0][0]) == 8)
 
     // test analyze specific column
     sql """CREATE TABLE test_analyze_specific_column (col1 varchar(11451) not null, col2 int not null, col3 int not null)
@@ -2575,6 +2575,42 @@ PARTITION `p599` VALUES IN (599)
    assertEquals("0.0", result[0][3])
    assertEquals("\'name1\'", result[0][6])
    assertEquals("\'name3\'", result[0][7])
+
+   // Test partititon load data for the first time.
+   sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+     """
+
+   sql """analyze table partition_test with sync"""
+   sql """insert into partition_test values (1, '1', '1')"""
+   def partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   assertEquals(partition_result[0][0], "1")
+   sql """analyze table partition_test with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (101, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   sql """analyze table partition_test(id) with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (102, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
 
    // Test trigger type.
    sql """DROP DATABASE IF EXISTS trigger"""

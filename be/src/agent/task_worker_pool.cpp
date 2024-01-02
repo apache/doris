@@ -590,7 +590,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
     };
 
     auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
-    CHECK(st.ok()) << name << ": " << st;
+    CHECK(st.ok()) << _name << ": " << st;
 }
 
 ReportWorker::~ReportWorker() {
@@ -729,6 +729,16 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             }
             tablet->tablet_meta()->set_time_series_compaction_time_threshold_seconds(
                     tablet_meta_info.time_series_compaction_time_threshold_seconds);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
+            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                status = Status::InvalidArgument(
+                        "only time series compaction policy support time series config");
+                continue;
+            }
+            tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
+                    tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {

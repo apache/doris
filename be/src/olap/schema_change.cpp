@@ -470,6 +470,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSharedPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
                                              TabletSchemaSPtr new_tablet_schema) {
+    bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
@@ -477,14 +478,15 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
@@ -547,14 +549,16 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
 
+    bool eof = false;
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -578,7 +582,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         // move unique ptr
         blocks.push_back(vectorized::Block::create_unique(new_tablet_schema->create_block()));
         swap(blocks.back(), new_block);
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(create_rowset());
 
@@ -1181,11 +1185,6 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     const std::unordered_map<std::string, AlterMaterializedViewParam>& materialized_function_map =
             sc_params.materialized_params_map;
     DescriptorTbl desc_tbl = *sc_params.desc_tbl;
-
-    if (sc_params.alter_tablet_type == ROLLUP) {
-        *sc_directly = true;
-    }
-
     TabletSchemaSPtr new_tablet_schema = sc_params.new_tablet_schema;
 
     // set column mapping
@@ -1246,15 +1245,13 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         changer->set_where_expr(materialized_function_map.find(WHERE_SIGN_LOWER)->second.expr);
     }
 
-    // Check if re-aggregation is needed.
-    *sc_sorting = false;
     // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->expr == nullptr) {
+        if (!column_mapping->has_reference()) {
             num_default_value++;
             continue;
         }
@@ -1288,6 +1285,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    if (sc_params.alter_tablet_type == ROLLUP) {
+        *sc_directly = true;
+        return Status::OK();
+    }
+
     if (new_tablet->enable_unique_key_merge_on_write() &&
         new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
         *sc_directly = true;
@@ -1300,25 +1302,18 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
-        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->expr == nullptr) {
-            continue;
-        } else {
-            *sc_directly = true;
-            return Status::OK();
-        }
-    }
-
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
+        return Status::OK();
     }
 
-    if (base_tablet->tablet_meta()->preferred_rowset_type() !=
-        new_tablet->tablet_meta()->preferred_rowset_type()) {
-        // If the base_tablet and new_tablet rowset types are different, just use directly type
-        *sc_directly = true;
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
+        if (column_mapping->expr != nullptr) {
+            *sc_directly = true;
+            return Status::OK();
+        }
     }
 
     // if rs_reader has remote files, link schema change is not supported,

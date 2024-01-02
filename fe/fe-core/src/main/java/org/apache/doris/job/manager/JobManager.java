@@ -220,6 +220,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void triggerJob(long jobId, C context) throws JobException {
+        log.info("trigger job, job id is {}", jobId);
         checkJobExist(jobId);
         jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL, context);
     }

@@ -73,6 +73,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -575,7 +576,7 @@ void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
     std::lock_guard<std::mutex> lock(_lock);
     auto query_id = f_context->get_query_id();
-    auto* q_context = f_context->get_query_context();
+    auto* q_context = f_context->get_query_ctx();
     std::vector<TUniqueId> ins_ids;
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
@@ -1412,7 +1413,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
             DCHECK(pip_context != nullptr);
             runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-            pool = &pip_context->get_query_context()->obj_pool;
+            pool = &pip_context->get_query_ctx()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);
             auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1563,6 +1564,25 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFrag
                 query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
                         local_param.fragment_instance_id, node.node_id);
             }
+        }
+    }
+}
+
+void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_info_list) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        // todo: use monotonic time
+        VecDateTimeValue now = VecDateTimeValue::local_time();
+        for (const auto& q : _query_ctx_map) {
+            WorkloadQueryInfo workload_query_info;
+            workload_query_info.query_id = print_id(q.first);
+            workload_query_info.tquery_id = q.first;
+
+            uint64_t query_time_millisecond = q.second->query_time(now) * 1000;
+            workload_query_info.metric_map.emplace(WorkloadMetricType::QUERY_TIME,
+                                                   std::to_string(query_time_millisecond));
+            // todo, add scan rows, scan bytes
+            query_info_list->push_back(workload_query_info);
         }
     }
 }

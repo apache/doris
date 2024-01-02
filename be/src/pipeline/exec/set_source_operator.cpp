@@ -42,7 +42,7 @@ OperatorPtr SetSourceOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSourceOperator<is_intersect>::SetSourceOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : SourceOperator<SetSourceOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : SourceOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSourceOperatorBuilder<true>;
 template class SetSourceOperatorBuilder<false>;

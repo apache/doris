@@ -47,7 +47,7 @@ public:
 
 private:
     Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
-    Status _add_blocks();
+    Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
@@ -70,6 +70,8 @@ private:
     std::vector<std::shared_ptr<vectorized::Block>> _blocks;
     bool _is_block_appended = false;
     double _max_filter_ratio = 0.0;
+
+    // used for find_partition
     VOlapTablePartitionParam* _vpartition = nullptr;
     // reuse for find_tablet.
     std::vector<VOlapTablePartition*> _partitions;

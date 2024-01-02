@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.InternalQueryExecutionException;
@@ -64,7 +63,8 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
         try {
             columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
         } catch (InternalQueryExecutionException e) {
-            retryLoad(key);
+            LOG.info("Failed to load stats for table {} column {}. Reason:{}",
+                    key.tableId, key.colName, e.getMessage());
             return Optional.empty();
         }
         ColumnStatistic columnStatistics;
@@ -78,44 +78,6 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
             return Optional.empty();
         } else {
             return Optional.of(columnStatistics);
-        }
-    }
-
-    private void retryLoad(StatisticsCacheKey key) {
-        singleThreadPool.submit(new RetryTask(key, 1));
-    }
-
-    private static class RetryTask implements Runnable {
-        StatisticsCacheKey key;
-        int retryTimes;
-
-        public RetryTask(StatisticsCacheKey key, int retryTimes) {
-            this.key = key;
-            this.retryTimes = retryTimes;
-        }
-
-        @Override
-        public void run() {
-            List<ResultRow> columnResults = null;
-            try {
-                columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
-            } catch (InternalQueryExecutionException e) {
-                if (this.retryTimes < StatisticConstants.LOAD_RETRY_TIMES) {
-                    retryTimes++;
-                    singleThreadPool.submit(this);
-                }
-                return;
-            }
-            ColumnStatistic columnStatistics;
-            try {
-                columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
-            } catch (Exception e) {
-                LOG.warn("Exception to deserialize column statistics", e);
-                return;
-            }
-            if (columnStatistics != null) {
-                Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistics);
-            }
         }
     }
 }
