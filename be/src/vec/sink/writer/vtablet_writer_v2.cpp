@@ -456,7 +456,7 @@ Status VTabletWriterV2::_cancel(Status status) {
         _delta_writer_for_tablet.reset();
     }
     for (const auto& [_, streams] : _streams_for_node) {
-        streams->release();
+        streams->release(status);
     }
     return Status::OK();
 }
@@ -513,7 +513,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // defer stream release to prevent memory leak
         Defer defer([&] {
             for (const auto& [_, streams] : _streams_for_node) {
-                streams->release();
+                streams->release(status);
             }
             _streams_for_node.clear();
         });

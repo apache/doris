@@ -60,6 +60,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -183,6 +184,10 @@ public:
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     Status close_wait(int64_t timeout_ms = 0) {
+        DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
+            while (true) {
+            };
+        });
         if (!_is_init.load() || _handler.is_closed()) {
             return Status::OK();
         }
