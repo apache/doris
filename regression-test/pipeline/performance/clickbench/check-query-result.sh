@@ -19,13 +19,11 @@ for i in {1..43}; do
         else
             is_ok=false
             echo "ERRPR: query_${i} result is error"
-            echo "**************************************************"
-            echo "target result"
+            echo "**** target result **********************************************"
             cat "query-result-target/doris-q${i}.result"
-            echo "**************************************************"
-            echo "actual result"
+            echo "**** actual result **********************************************"
             cat "query-result-actual/doris-q${i}.result"
-            echo "**************************************************"
+            echo "*****************************************************************"
             break
         fi
     fi
