@@ -1060,6 +1060,9 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
+    if (_write_single_replica) {
+        _slave_location->add_locations(*new_locations);
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
