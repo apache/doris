@@ -549,6 +549,13 @@ Status VTabletWriterV2::close(Status exec_status) {
         for (const auto& [node_id, streams] : _streams_for_node) {
             for (const auto& stream : streams->streams()) {
                 std::unordered_set<int64_t> known_tablets;
+                for (auto [tablet_id, _] : stream->failed_tablets()) {
+                    if (known_tablets.contains(tablet_id)) {
+                        continue;
+                    }
+                    known_tablets.insert(tablet_id);
+                    failed_tablets[tablet_id]++;
+                }
                 for (auto tablet_id : stream->success_tablets()) {
                     if (known_tablets.contains(tablet_id)) {
                         continue;
@@ -559,13 +566,6 @@ Status VTabletWriterV2::close(Status exec_status) {
                     commit_info.backendId = node_id;
                     tablet_commit_infos.emplace_back(std::move(commit_info));
                     success_tablets[tablet_id]++;
-                }
-                for (auto [tablet_id, _] : stream->failed_tablets()) {
-                    if (known_tablets.contains(tablet_id)) {
-                        continue;
-                    }
-                    known_tablets.insert(tablet_id);
-                    failed_tablets[tablet_id]++;
                 }
             }
         }
