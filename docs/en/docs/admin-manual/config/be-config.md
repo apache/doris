@@ -485,7 +485,7 @@ There are two ways to configure BE configuration items:
 git 
 * Type: int32
 * Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
-* Default value: -1
+* Default value: 4
 
 #### `generate_compaction_tasks_interval_ms`
 

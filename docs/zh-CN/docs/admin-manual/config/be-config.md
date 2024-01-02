@@ -499,7 +499,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
 * 类型：int32
 * 描述：Base Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
-* 默认值：-1
+* 默认值：4
 
 #### `generate_compaction_tasks_interval_ms`
 
