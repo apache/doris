@@ -19,6 +19,7 @@ package org.apache.doris.plugin;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,35 +33,44 @@ import java.io.IOException;
 import java.util.List;
 
 public class DialectPluginTest extends TestWithFeService {
+
+    private final static TestDialectPlugin1 sparkPlugin = new TestDialectPlugin1();
+    private final static TestDialectPlugin2 hivePlugin = new TestDialectPlugin2();
+    private final static String TEST_SQL = "select * from test_hive_table";
+
     @Override
     public void runBeforeAll() throws IOException, InterruptedException {
-        TestDialectPlugin2 hivePlugin = new TestDialectPlugin2();
-        PluginInfo hivePluginInfo = new PluginInfo("hiveDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
-        TestDialectPlugin1 sparkPlugin = new TestDialectPlugin1();
         PluginInfo sparkPluginInfo = new PluginInfo("sparkDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
-        Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(hivePluginInfo, hivePlugin);
         Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(sparkPluginInfo, sparkPlugin);
+
+        PluginInfo hivePluginInfo = new PluginInfo("hiveDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
+        Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(hivePluginInfo, hivePlugin);
     }
 
     @Test
     public void testHivePlugin() {
         ConnectContext.get().getSessionVariable().setSqlDialect(Dialect.HIVE.getDialectName());
         NereidsParser parser = new NereidsParser();
-        List<StatementBase> stmts = parser.parseSQL("select * from test_hive_table",
-                    ConnectContext.get().getSessionVariable());
+        List<StatementBase> stmts = parser.parseSQL(TEST_SQL, ConnectContext.get().getSessionVariable());
         Assertions.assertEquals(1, stmts.size());
-        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlan);
-        Assertions.assertTrue(stmts.get(0).toString().contains("select 1"));
+        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) stmts.get(0)).getLogicalPlan();
+        String convertedSql = hivePlugin.convertSql(TEST_SQL, ConnectContext.get().getSessionVariable());
+        Assertions.assertEquals(logicalPlan, parser.parseSingle(convertedSql));
     }
 
     @Test
     public void testSparkPlugin() {
         ConnectContext.get().getSessionVariable().setSqlDialect(Dialect.SPARK_SQL.getDialectName());
         NereidsParser parser = new NereidsParser();
-        List<StatementBase> stmts = parser.parseSQL("select * from test_hive_table",
-                    ConnectContext.get().getSessionVariable());
+        List<StatementBase> stmts = parser.parseSQL(TEST_SQL, ConnectContext.get().getSessionVariable());
         Assertions.assertEquals(1, stmts.size());
-        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlan);
-        Assertions.assertTrue(stmts.get(0).toString().contains("select 2"));
+        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) stmts.get(0)).getLogicalPlan();
+        List<StatementBase> expectStmts = sparkPlugin.parseSqlWithDialect(TEST_SQL,
+                    ConnectContext.get().getSessionVariable());
+        Assertions.assertTrue(expectStmts != null && expectStmts.size() == 1);
+        Assertions.assertTrue(expectStmts.get(0) instanceof LogicalPlanAdapter);
+        Assertions.assertEquals(logicalPlan, ((LogicalPlanAdapter) expectStmts.get(0)).getLogicalPlan());
     }
 }

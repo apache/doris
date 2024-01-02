@@ -27,7 +27,7 @@ import java.util.List;
 
 public class TestDialectPlugin2 extends Plugin implements DialectConverterPlugin {
 
-    private static final String TEST_CONVERTED_SQL = "select 1";
+    private static final String TEST_CONVERTED_SQL = "select * from rename_hive_table";
 
     @Override
     public ImmutableSet<Dialect> acceptDialects() {
