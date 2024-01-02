@@ -147,6 +147,8 @@ private:
         _report_result(stream, status, {}, failed_tablets);
     }
 
+    Status _write_stream(StreamId stream, butil::IOBuf& buf);
+
 private:
     PUniqueId _load_id;
     std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
