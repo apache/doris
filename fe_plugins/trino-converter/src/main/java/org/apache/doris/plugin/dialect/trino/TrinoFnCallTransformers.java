@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import com.google.common.collect.Lists;
 
 /**
- * The builder and factory for trino {@link AbstractFnCallTransformer},
+ * The builder and factory for trino function call transformers,
  * and supply transform facade ability.
  */
 public class TrinoFnCallTransformers extends AbstractFnCallTransformers {

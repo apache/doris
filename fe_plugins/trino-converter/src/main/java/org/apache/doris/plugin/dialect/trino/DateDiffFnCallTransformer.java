@@ -17,13 +17,14 @@
 
 package org.apache.doris.plugin.dialect.trino;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.parser.ComplexFnCallTransformer;
 import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -45,15 +46,12 @@ public class DateDiffFnCallTransformer extends ComplexFnCallTransformer {
     @Override
     protected boolean check(String sourceFnName, List<Expression> sourceFnTransformedArguments,
             ParserContext context) {
-        return getSourceFnName().equalsIgnoreCase(sourceFnName);
+        return getSourceFnName().equalsIgnoreCase(sourceFnName) && (sourceFnTransformedArguments.size() == 3);
     }
 
     @Override
     protected Function transform(String sourceFnName, List<Expression> sourceFnTransformedArguments,
             ParserContext context) {
-        if (sourceFnTransformedArguments.size() != 3) {
-            return null;
-        }
         VarcharLiteral diffGranularity = (VarcharLiteral) sourceFnTransformedArguments.get(0);
         if (SECOND.equals(diffGranularity.getValue())) {
             return new UnboundFunction(
