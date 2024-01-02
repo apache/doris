@@ -138,7 +138,7 @@ sudo docker run -i --rm \
 set +x
 set -x
 succ_symble="Successfully build Doris"
-if [[ -d outout ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
+if [[ -d output ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
     echo "INFO: ${succ_symble}"
 else
     echo -e "ERROR: BUILD FAILED"
