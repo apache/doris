@@ -19,24 +19,28 @@ package org.apache.doris.plugin;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.parser.Dialect;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 
-public class TestSparkDialectPlugin extends Plugin implements DialectConverterPlugin {
+public class TestDialectPlugin2 extends Plugin implements DialectConverterPlugin {
 
-    private static final String TEST_CONVERTED_SQL = "select 2";
+    private static final String TEST_CONVERTED_SQL = "select 1";
 
     @Override
     public ImmutableSet<Dialect> acceptDialects() {
-        return ImmutableSet.of(Dialect.SPARK_SQL);
+        return ImmutableSet.of(Dialect.HIVE);
+    }
+
+    @Override
+    public String convertSql(String originSql, SessionVariable sessionVariable) {
+        return TEST_CONVERTED_SQL;
     }
 
     @Override
     public List<StatementBase> parseSqlWithDialect(String sql, SessionVariable sessionVariable) {
-        return new NereidsParser().parseSQL(TEST_CONVERTED_SQL, sessionVariable);
+        return null;
     }
 }

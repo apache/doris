@@ -40,9 +40,9 @@ public class PluginTest extends TestWithFeService {
         connectContext.getSessionVariable().enableNereidsDML = true;
         FeConstants.runningUnitTest = true;
 
-        TestHiveDialectPlugin hivePlugin = new TestHiveDialectPlugin();
+        TestDialectPlugin2 hivePlugin = new TestDialectPlugin2();
         PluginInfo hivePluginInfo = new PluginInfo("hiveDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
-        TestSparkDialectPlugin sparkPlugin = new TestSparkDialectPlugin();
+        TestDialectPlugin1 sparkPlugin = new TestDialectPlugin1();
         PluginInfo sparkPluginInfo = new PluginInfo("sparkDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
         Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(hivePluginInfo, hivePlugin);
         Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(sparkPluginInfo, sparkPlugin);
