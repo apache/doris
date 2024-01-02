@@ -138,6 +138,12 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
+    if ((_constant_col != nullptr) && is_constant()) { // const have execute in open function
+        *result_column_id = block->columns();
+        block->insert({_constant_col->column_ptr, _data_type, _expr_name});
+        return Status::OK();
+    }
+
     // TODO: not execute const expr again, but use the const column in function context
     vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
