@@ -67,12 +67,12 @@ PhysicalResultSink
 
 -- !pushdown_inner_join_combined --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id];RF2 id->[id]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ------filter((t1.id < 10) and (t1.id > 1))
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1] apply RFs: RF0 RF1
 ------filter((t2.id < 10) and (t2.id > 1))
---------PhysicalOlapScan[t2] apply RFs: RF1
+--------PhysicalOlapScan[t2] apply RFs: RF2
 ----filter((t3.id < 10) and (t3.id > 1))
 ------PhysicalOlapScan[t3]
 
@@ -100,12 +100,12 @@ PhysicalResultSink
 
 -- !pushdown_left_outer_join_combined --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id];RF2 id->[id]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ------filter((t1.id < 10) and (t1.id > 1))
---------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalOlapScan[t1] apply RFs: RF0 RF1
 ------filter((t2.id < 10) and (t2.id > 1))
---------PhysicalOlapScan[t2] apply RFs: RF1
+--------PhysicalOlapScan[t2] apply RFs: RF2
 ----filter((t3.id < 10) and (t3.id > 1))
 ------PhysicalOlapScan[t3]
 
