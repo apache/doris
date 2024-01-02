@@ -154,7 +154,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
                                     if (childExpr instanceof SlotReference) {
                                         Optional<Column> column = ((SlotReference) childExpr).getColumn();
-                                        return column.isPresent() ? column.get().isDeleteSignColumn() : false; 
+                                        return column.isPresent() ? column.get().isDeleteSignColumn() : false;
                                     }
                                     return false;
                                 })
@@ -187,7 +187,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                                         .children().get(0);
                                                 if (childExpr instanceof SlotReference) {
                                                     Optional<Column> column = ((SlotReference) childExpr).getColumn();
-                                                    return column.isPresent() ? column.get().isDeleteSignColumn() : false;  
+                                                    return column.isPresent() ? column.get().isDeleteSignColumn()
+                                                            : false;
                                                 }
                                                 return false;
                                             }))
