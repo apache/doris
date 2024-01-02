@@ -19,30 +19,99 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_compaction_with_multi_index_segments", "p0") {
     def tableName = "test_index_compaction_with_multi_index_segments"
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
         for (String backend_id: backendId_to_backendIP.keySet()) {
             def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
             logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
         }
     }
 
-    boolean disableAutoCompaction = true
+    def trigger_full_compaction_on_tablets = { String[][] tablets ->
+        for (String[] tablet : tablets) {
+            String tablet_id = tablet[0]
+            backend_id = tablet[2]
+            times = 1
+            
+            String compactionStatus;
+            do{
+                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+                ++times
+                sleep(2000)
+                compactionStatus = parseJson(out.trim()).status.toLowerCase();
+            } while (compactionStatus!="success" && times<=10)
+
+
+            if (compactionStatus == "fail") {
+                assertEquals(disableAutoCompaction, false)
+                logger.info("Compaction was done automatically!")
+            }
+            if (disableAutoCompaction) {
+                assertEquals("success", compactionStatus)
+            }
+        }
+    }
+
+    def wait_full_compaction_done = { String[][] tablets ->
+        for (String[] tablet in tablets) {
+            boolean running = true
+            do {
+                Thread.sleep(1000)
+                String tablet_id = tablet[0]
+                backend_id = tablet[2]
+                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def compactionStatus = parseJson(out.trim())
+                assertEquals("success", compactionStatus.status.toLowerCase())
+                running = compactionStatus.run_status
+            } while (running)
+        }
+    }
+
+    def get_rowset_count = {String[][] tablets ->
+        int rowsetCount = 0
+        for (String[] tablet in tablets) {
+            String tablet_id = tablet[0]
+            def compactionStatusUrlIndex = 18
+            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def tabletJson = parseJson(out.trim())
+            assert tabletJson.rowsets instanceof List
+            rowsetCount +=((List<String>) tabletJson.rowsets).size()
+        }
+        return rowsetCount
+    }
+
+    def check_config = { String key, String value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def configList = parseJson(out.trim())
+            assert configList instanceof List
+            for (Object ele in (List) configList) {
+                assert ele instanceof List<String>
+                if (((List<String>) ele)[0] == key) {
+                    assertEquals(value, ((List<String>) ele)[2])
+                }
+            }
+        }
+    }
+
     boolean invertedIndexCompactionEnable = false
     int invertedIndexMaxBufferedDocs = -1;
     boolean has_update_be_config = false
 
     try {
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
+        String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
         
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
@@ -65,6 +134,19 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         set_be_config.call("inverted_index_max_buffered_docs", "5")
         has_update_be_config = true
 
+        // check config
+        check_config.call("inverted_index_compaction_enable", "true")
+        check_config.call("inverted_index_max_buffered_docs", "5")
+
+        /**
+        * test duplicated tables
+        * 1. insert 10 rows
+        * 2. insert another 10 rows
+        * 3. full compaction
+        * 4. insert 10 rows, again
+        * 5. full compaction
+        */
+        table_name = "test_index_compaction_with_multi_index_segments_dups"
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
             CREATE TABLE ${tableName} (
@@ -114,74 +196,19 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
-        def replicaNum = get_table_replica_num(tableName)
-        logger.info("get table replica num: " + replicaNum)
+        int replicaNum = 1
         // before full compaction, there are 3 rowsets.
-        int rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            rowsetCount +=((List<String>) tabletJson.rowsets).size()
-        }
+        int rowsetCount = get_rowset_count.call(tablets)
         assert (rowsetCount == 3 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
+        trigger_full_compaction_on_tablets.call(tablets)
 
         // wait for full compaction done
-        for (String[] tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
+        wait_full_compaction_done.call(tablets)
 
         // after full compaction, there is only 1 rowset.
-        
-        rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            rowsetCount +=((List<String>) tabletJson.rowsets).size()
-        }
+        rowsetCount = get_rowset_count.call(tablets)
         assert (rowsetCount == 1 * replicaNum)
 
         qt_sql """ select * from ${tableName} order by file_time, comment_id, body """
@@ -203,80 +230,136 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
 
         tablets = sql """ show tablets from ${tableName}; """
 
-        replicaNum = get_table_replica_num(tableName)
-        logger.info("get table replica num: " + replicaNum)
         // before full compaction, there are 2 rowsets.
-        rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            rowsetCount +=((List<String>) tabletJson.rowsets).size()
-        }
+        rowsetCount = get_rowset_count.call(tablets)
         assert (rowsetCount == 2 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            times = 1
-
-            do{
-                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                ++times
-                sleep(2000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
-
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
+        trigger_full_compaction_on_tablets.call(tablets)
 
         // wait for full compaction done
-        for (String[] tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
+        wait_full_compaction_done.call(tablets)
 
         // after full compaction, there is only 1 rowset.
-        
-        rowsetCount = 0
-        for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
-            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def tabletJson = parseJson(out.trim())
-            assert tabletJson.rowsets instanceof List
-            rowsetCount +=((List<String>) tabletJson.rowsets).size()
-        }
+        rowsetCount = get_rowset_count.call(tablets)
         assert (rowsetCount == 1 * replicaNum)
 
         qt_sql """ select * from ${tableName} order by file_time, comment_id, body """
         qt_sql """ select * from ${tableName} where body match "using" order by file_time, comment_id, body """
         qt_sql """ select * from ${tableName} where body match "the" order by file_time, comment_id, body """
         qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
+
+        /**
+        * test unique tables
+        * 1. insert 10 rows
+        * 2. insert another 10 rows
+        * 3. full compaction
+        * 4. insert 10 rows, again
+        * 5. full compaction
+        */
+        table_name = "test_index_compaction_with_multi_index_segments_unique"
+        sql """ DROP TABLE IF EXISTS ${tableName}; """
+        sql """
+            CREATE TABLE ${tableName} (
+                `file_time` DATETIME NOT NULL,
+                `comment_id` int(11)  NULL,
+                `body` TEXT NULL DEFAULT "",
+                INDEX idx_comment_id (`comment_id`) USING INVERTED COMMENT '''',
+                INDEX idx_body (`body`) USING INVERTED PROPERTIES("parser" = "unicode") COMMENT ''''
+            ) ENGINE=OLAP
+            UNIQUE KEY(`file_time`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`file_time`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "true"
+            );
+        """
+
+        // insert 10 rows
+        sql """ INSERT INTO ${tableName} VALUES ("2018-02-21 12:00:00", 1, "I\'m using the builds"),
+                                                ("2018-02-21 13:00:00", 2, "I\'m using the builds"),
+                                                ("2018-02-21 14:00:00", 3, "I\'m using the builds"),
+                                                ("2018-02-21 15:00:00", 4, "I\'m using the builds"),
+                                                ("2018-02-21 16:00:00", 5, "I\'m using the builds"),
+                                                ("2018-02-21 17:00:00", 6, "I\'m using the builds"),
+                                                ("2018-02-21 18:00:00", 7, "I\'m using the builds"),
+                                                ("2018-02-21 19:00:00", 8, "I\'m using the builds"),
+                                                ("2018-02-21 20:00:00", 9, "I\'m using the builds"),
+                                                ("2018-02-21 21:00:00", 10, "I\'m using the builds"); """
+        // insert another 10 rows
+        sql """ INSERT INTO ${tableName} VALUES ("2018-02-21 12:00:00", 1, "I\'m using the builds"),
+                                                ("2018-02-21 13:00:00", 2, "I\'m using the builds"),
+                                                ("2018-02-21 14:00:00", 3, "I\'m using the builds"),
+                                                ("2018-02-21 15:00:00", 4, "I\'m using the builds"),
+                                                ("2018-02-21 16:00:00", 5, "I\'m using the builds"),
+                                                ("2018-02-21 17:00:00", 6, "I\'m using the builds"),
+                                                ("2018-02-21 18:00:00", 7, "I\'m using the builds"),
+                                                ("2018-02-21 19:00:00", 8, "I\'m using the builds"),
+                                                ("2018-02-21 20:00:00", 9, "I\'m using the builds"),
+                                                ("2018-02-21 21:00:00", 10, "I\'m using the builds"); """
+
+        qt_sql """ select * from ${tableName} order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "using" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "the" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
+
+        //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
+        tablets = sql """ show tablets from ${tableName}; """
+
+        // before full compaction, there are 3 rowsets.
+        rowsetCount = get_rowset_count.call(tablets)
+        assert (rowsetCount == 3 * replicaNum)
+
+        // trigger full compactions for all tablets in ${tableName}
+        trigger_full_compaction_on_tablets.call(tablets)
+
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
+        // after full compaction, there is only 1 rowset.
+        rowsetCount = get_rowset_count.call(tablets)
+        assert (rowsetCount == 1 * replicaNum)
+
+        qt_sql """ select * from ${tableName} order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "using" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "the" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
+
+        // insert 10 rows, again
+        sql """ INSERT INTO ${tableName} VALUES ("2018-02-21 12:00:00", 1, "I\'m using the builds"),
+                                                ("2018-02-21 13:00:00", 2, "I\'m using the builds"),
+                                                ("2018-02-21 14:00:00", 3, "I\'m using the builds"),
+                                                ("2018-02-21 15:00:00", 4, "I\'m using the builds"),
+                                                ("2018-02-21 16:00:00", 5, "I\'m using the builds"),
+                                                ("2018-02-21 17:00:00", 6, "I\'m using the builds"),
+                                                ("2018-02-21 18:00:00", 7, "I\'m using the builds"),
+                                                ("2018-02-21 19:00:00", 8, "I\'m using the builds"),
+                                                ("2018-02-21 20:00:00", 9, "I\'m using the builds"),
+                                                ("2018-02-21 21:00:00", 10, "I\'m using the builds"); """
+
+        tablets = sql """ show tablets from ${tableName}; """
+
+        // before full compaction, there are 2 rowsets.
+        rowsetCount = get_rowset_count.call(tablets)
+        assert (rowsetCount == 2 * replicaNum)
+
+        // trigger full compactions for all tablets in ${tableName}
+        trigger_full_compaction_on_tablets.call(tablets)
+
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
+        // after full compaction, there is only 1 rowset.
+        rowsetCount = get_rowset_count.call(tablets)
+        assert (rowsetCount == 1 * replicaNum)
+
+        qt_sql """ select * from ${tableName} order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "using" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where body match "the" order by file_time, comment_id, body """
+        qt_sql """ select * from ${tableName} where comment_id < 8 order by file_time, comment_id, body """
+
 
     } finally {
         if (has_update_be_config) {
