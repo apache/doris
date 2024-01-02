@@ -71,8 +71,8 @@ exit_flag=0
 
     host="127.0.0.1"
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    backup_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/backup_session_variables.sql"
-    opt_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/opt_session_variables.sql"
+    backup_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/conf/backup_session_variables.sql"
+    opt_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/conf/opt_session_variables.sql"
 
     echo "#### 1. backup session variables to file ${backup_session_variables_file}"
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
