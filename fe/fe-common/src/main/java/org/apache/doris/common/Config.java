@@ -2220,7 +2220,7 @@ public class Config extends ConfigBase {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
-    public static boolean enable_convert_light_weight_schema_change = true;
+    public static boolean enable_convert_light_weight_schema_change = false;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",

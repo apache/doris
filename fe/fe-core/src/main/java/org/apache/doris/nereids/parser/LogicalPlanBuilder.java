@@ -55,6 +55,7 @@ import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
+import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -326,6 +327,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -351,6 +353,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -710,6 +713,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public ResumeMTMVCommand visitResumeMTMV(ResumeMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new ResumeMTMVCommand(new ResumeMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public CancelMTMVTaskCommand visitCancelMTMVTask(CancelMTMVTaskContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        long taskId = Long.parseLong(ctx.taskId.getText());
+        return new CancelMTMVTaskCommand(new CancelMTMVTaskInfo(new TableNameInfo(nameParts), taskId));
     }
 
     @Override

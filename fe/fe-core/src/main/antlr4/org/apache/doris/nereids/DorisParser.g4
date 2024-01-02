@@ -96,6 +96,7 @@ statement
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
     | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
     | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
+    | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
     | ALTER TABLE table=relation
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
@@ -677,7 +678,7 @@ primaryExpression
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | ATSIGN identifierOrText                                                                  #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
-    | identifier                                                                               #columnReference
+    | BINARY? identifier                                                                       #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
@@ -759,7 +760,7 @@ constant
     | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING_LITERAL                                                                           #stringLiteral
+    | BINARY? STRING_LITERAL                                                                   #stringLiteral
     | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
     | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
@@ -897,6 +898,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
     | BEGIN
@@ -1066,6 +1068,7 @@ nonReserved
     | PASSWORD_HISTORY
     | PASSWORD_LOCK_TIME
     | PASSWORD_REUSE
+    | PARTITIONS
     | PATH
     | PAUSE
     | PERCENT

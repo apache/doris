@@ -27,6 +27,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -197,6 +198,11 @@ public class MTMVRelationManager implements MTMVHookService {
 
     @Override
     public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+
+    }
+
+    @Override
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) {
 
     }
 

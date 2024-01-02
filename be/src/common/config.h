@@ -1187,7 +1187,7 @@ DECLARE_mInt32(group_commit_insert_threads);
 DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
 DECLARE_Bool(wait_internal_group_commit_finish);
 // Max size(bytes) of group commit queues, used for mem back pressure.
-DECLARE_Int32(group_commit_max_queue_size);
+DECLARE_Int32(group_commit_queue_mem_limit);
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
