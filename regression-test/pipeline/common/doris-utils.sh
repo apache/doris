@@ -256,10 +256,10 @@ function check_clickbench_performance_result() {
     # 单位是秒
     cold_run_time_threshold=${cold_run_time_threshold:-200}
     hot_run_time_threshold=${hot_run_time_threshold:-55}
-    cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+    cold_run_time=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     hot_run_time=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' "${result_file}")
     if [[ $(echo "${hot_run_time} > ${hot_run_time_threshold}" | bc) -eq 1 ]] ||
-        [[ $(echo "${cold_run_sum} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
+        [[ $(echo "${cold_run_time} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
         echo "ERROR:
     cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
     or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
