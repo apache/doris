@@ -20,16 +20,6 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
-<<<<<<< HEAD
-#include <atomic>
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <vector>
-
 #include "client_cache.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
