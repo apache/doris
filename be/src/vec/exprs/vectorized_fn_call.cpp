@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>
@@ -34,6 +35,7 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -140,7 +142,10 @@ Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block
                                  int* result_column_id) {
     if ((_constant_col != nullptr) && is_constant()) { // const have execute in open function
         *result_column_id = block->columns();
-        block->insert({_constant_col->column_ptr, _data_type, _expr_name});
+        DCHECK(is_column_const(*_constant_col->column_ptr))
+                << _constant_col->column_ptr->dump_structure();
+        auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
+        block->insert({std::move(column), _data_type, _expr_name});
         return Status::OK();
     }
 
