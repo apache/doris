@@ -21,7 +21,8 @@
 
 namespace doris {
 
-// This class act as a super class of all context like things
+// This class act as a super class of all context like things such as
+// plan fragment executor or pipelinefragmentcontext or pipelinexfragmentcontext
 class TaskExecutionContext : public std::enable_shared_from_this<TaskExecutionContext> {
 public:
     TaskExecutionContext() = default;

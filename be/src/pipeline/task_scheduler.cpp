@@ -345,8 +345,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                     Status exec_status) {
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
-    std::shared_ptr<TaskExecutionContext> lock_for_context =
-            task->fragment_context()->shared_from_this();
+    auto lock_for_context = task->fragment_context()->shared_from_this();
     auto status = task->try_close(exec_status);
     auto cancel = [&]() {
         task->query_context()->cancel(true, status.to_string(),
