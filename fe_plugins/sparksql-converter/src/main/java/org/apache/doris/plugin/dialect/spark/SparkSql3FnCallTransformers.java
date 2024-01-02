@@ -35,30 +35,54 @@ public class SparkSql3FnCallTransformers extends AbstractFnCallTransformers {
 
     @Override
     protected void registerTransformers() {
-        doRegister("get_json_object", 2, "json_extract",
-                Lists.newArrayList(
-                        PlaceholderExpression.of(Expression.class, 1),
-                        PlaceholderExpression.of(Expression.class, 2)), true);
-
-        doRegister("get_json_object", 2, "json_extract",
-                Lists.newArrayList(
-                        PlaceholderExpression.of(Expression.class, 1),
-                        PlaceholderExpression.of(Expression.class, 2)), false);
-
-        doRegister("split", 2, "split_by_string",
-                Lists.newArrayList(
-                        PlaceholderExpression.of(Expression.class, 1),
-                        PlaceholderExpression.of(Expression.class, 2)), true);
-        doRegister("split", 2, "split_by_string",
-                Lists.newArrayList(
-                        PlaceholderExpression.of(Expression.class, 1),
-                        PlaceholderExpression.of(Expression.class, 2)), false);
+        // register json functions
+        registerJsonFunctionTransformers();
+        // register string functions
+        registerStringFunctionTransformers();
+        // register date functions
+        registerDateFunctionTransformers();
+        // register numeric functions
+        registerNumericFunctionTransformers();
         // TODO: add other function transformer
     }
 
     @Override
     protected void registerComplexTransformers() {
+        DateTruncFnCallTransformer dateTruncFnCallTransformer = new DateTruncFnCallTransformer();
+        doRegister(dateTruncFnCallTransformer.getSourceFnName(), dateTruncFnCallTransformer);
         // TODO: add other complex function transformer
+    }
+
+    private void registerJsonFunctionTransformers() {
+        doRegister("get_json_object", "json_extract",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)));
+    }
+
+    private void registerStringFunctionTransformers() {
+        doRegister("split", "split_by_string",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)));
+    }
+
+    private void registerDateFunctionTransformers() {
+        // spark-sql support to_date(date_str, fmt) function but doris only support to_date(date_str)
+        // here try to compat with this situation by using str_to_date(str, fmt),
+        // this function support the following three formats which can handle the mainly situations:
+        //  1. yyyyMMdd
+        //  2. yyyy-MM-dd
+        //  3. yyyy-MM-dd HH:mm:ss
+        doRegister("to_date", "str_to_date",
+                Lists.newArrayList(
+                        PlaceholderExpression.of(Expression.class, 1),
+                        PlaceholderExpression.of(Expression.class, 2)));
+    }
+
+    private void registerNumericFunctionTransformers() {
+        doRegister("mean", "avg",
+                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)));
     }
 
     static class SingletonHolder {

@@ -301,8 +301,8 @@ public abstract class ConnectProcessor {
                         break;
                     }
                 } catch (Throwable throwable) {
-                    LOG.warn("Convert sql with dialect {} failed, sql: {}, use origin sql.",
-                                sqlDialect, originStmt, throwable);
+                    LOG.warn("Convert sql with dialect {} failed, plugin: {}, sql: {}, use origin sql.",
+                                sqlDialect, plugin.getClass().getSimpleName(), originStmt, throwable);
                 }
             }
         }

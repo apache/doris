@@ -97,7 +97,8 @@ public class NereidsParser {
                     return statementBases;
                 }
             } catch (Throwable throwable) {
-                LOG.warn("Parse sql with dialect {} failed, sql: {}.", sqlDialect, sql, throwable);
+                LOG.warn("Parse sql with dialect {} failed, plugin: {}, sql: {}.",
+                            sqlDialect, plugin.getClass().getSimpleName(), sql, throwable);
             }
         }
 

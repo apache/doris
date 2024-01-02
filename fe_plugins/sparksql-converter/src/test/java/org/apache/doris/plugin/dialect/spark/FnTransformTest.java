@@ -63,29 +63,29 @@ public class FnTransformTest {
                     "SELECT to_date('2023-12-16', 'yyyy-MM-dd') as b FROM t",
                     "str_to_date('2023-12-16', 'yyyy-MM-dd')");
         testFunction("SELECT str_to_date(c1, 'yyyy-MM-dd') as b FROM t",
-                "SELECT to_date(c1, 'yyyy-MM-dd') as b FROM t",
-                "str_to_date('c1, 'yyyy-MM-dd')");
+                    "SELECT to_date(c1, 'yyyy-MM-dd') as b FROM t",
+                    "str_to_date('c1, 'yyyy-MM-dd')");
 
         testFunction("SELECT date_trunc('2023-12-16', 'YEAR') as a FROM t",
                     "SELECT trunc('2023-12-16', 'YEAR') as a FROM t",
                     "date_trunc('2023-12-16', 'YEAR')");
         testFunction("SELECT date_trunc(c1, 'YEAR') as a FROM t",
-                "SELECT trunc(c1, 'YEAR') as a FROM t",
-                "date_trunc('c1, 'YEAR')");
+                    "SELECT trunc(c1, 'YEAR') as a FROM t",
+                    "date_trunc('c1, 'YEAR')");
 
         testFunction("SELECT date_trunc('2023-12-16', 'YEAR') as a FROM t",
                     "SELECT trunc('2023-12-16', 'YY') as a FROM t",
                     "date_trunc('2023-12-16', 'YEAR')");
         testFunction("SELECT date_trunc(c1, 'YEAR') as a FROM t",
-                "SELECT trunc(c1, 'YY') as a FROM t",
-                "date_trunc('c1, 'YEAR')");
+                    "SELECT trunc(c1, 'YY') as a FROM t",
+                    "date_trunc('c1, 'YEAR')");
 
         testFunction("SELECT date_trunc('2023-12-16', 'MONTH') as a FROM t",
                     "SELECT trunc('2023-12-16', 'MON') as a FROM t",
                     "date_trunc('2023-12-16', 'MONTH')");
         testFunction("SELECT date_trunc(c1, 'MONTH') as a FROM t",
-                "SELECT trunc(c1, 'MON') as a FROM t",
-                "date_trunc('c1, 'MONTH')");
+                    "SELECT trunc(c1, 'MON') as a FROM t",
+                    "date_trunc('c1, 'MONTH')");
 
         // test numeric functions
         testFunction("SELECT avg(c1) as a from t",

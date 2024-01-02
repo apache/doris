@@ -47,8 +47,8 @@ public class TrinoFnCallTransformers extends AbstractFnCallTransformers {
     }
 
     protected void registerStringFunctionTransformer() {
-        doRegister("codepoint", 1, "ascii",
-                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)), false);
+        doRegister("codepoint", "ascii",
+                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)));
         // TODO: add other string function transformer
     }
 
