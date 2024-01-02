@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 
 #include <gtest/gtest.h>
 

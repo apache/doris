@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+<<<<<<< HEAD
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -31,13 +32,9 @@
 
 #include "client_cache.h"
 #include "common/config.h"
-#include "common/status.h"
-#include "olap/wal_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/runtime_state.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/core/block.h"
 
 namespace doris {
 

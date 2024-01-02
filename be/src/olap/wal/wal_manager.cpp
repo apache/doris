@@ -15,41 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 
 #include <glog/logging.h>
-#include <thrift/protocol/TDebugProtocol.h>
 
-#include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <filesystem>
-#include <memory>
-#include <mutex>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
-#include "olap/wal_dirs_info.h"
-#include "olap/wal_writer.h"
-#include "runtime/client_cache.h"
+#include "olap/wal/wal_dirs_info.h"
+#include "olap/wal/wal_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/stream_load/stream_load_context.h"
 #include "util/parse_util.h"
-#include "util/path_util.h"
-#include "util/thrift_rpc_helper.h"
 #include "vec/exec/format/wal/wal_reader.h"
 
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
-        : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
+        : _exec_env(exec_env), _stop(false), _stop_background_threads_latch(1) {
     doris::vectorized::WalReader::string_split(wal_dir_list, ";", _wal_dirs);
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
                               .set_min_threads(1)
@@ -62,10 +52,14 @@ WalManager::~WalManager() {
     LOG(INFO) << "WalManager is destoried";
 }
 
+bool WalManager::is_running() {
+    return !_stop.load();
+}
+
 void WalManager::stop() {
     if (!this->_stop.load()) {
         this->_stop.store(true);
-        stop_relay_wal();
+        _stop_relay_wal();
         _stop_background_threads_latch.count_down();
         if (_replay_thread) {
             _replay_thread->join();
@@ -83,10 +77,10 @@ Status WalManager::init() {
     RETURN_IF_ERROR(_init_wal_dirs());
     RETURN_IF_ERROR(_init_wal_dirs_info());
     for (auto wal_dir : _wal_dirs) {
-        RETURN_IF_ERROR(scan_wals(wal_dir));
+        RETURN_IF_ERROR(_scan_wals(wal_dir));
     }
     return Thread::create(
-            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
+            "WalMgr", "replay_wal", [this]() { static_cast<void>(this->_replay()); },
             &_replay_thread);
 }
 
@@ -276,6 +270,7 @@ Status WalManager::create_wal_reader(const std::string& wal_path,
 Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer) {
     std::string wal_path;
     RETURN_IF_ERROR(get_wal_path(wal_id, wal_path));
+    // TODO move the create_dir into wal_writer::init
     std::vector<std::string> path_element;
     doris::vectorized::WalReader::string_split(wal_path, "/", path_element);
     std::stringstream ss;
@@ -292,13 +287,14 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
     wal_writer = std::make_shared<WalWriter>(wal_path);
     RETURN_IF_ERROR(wal_writer->init());
     {
+        // TODO no use, should remove it
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
         _wal_id_to_writer_map.emplace(wal_id, wal_writer);
     }
     return Status::OK();
 }
 
-Status WalManager::scan_wals(const std::string& wal_path) {
+Status WalManager::_scan_wals(const std::string& wal_path) {
     size_t count = 0;
     bool exists = true;
     std::vector<io::FileInfo> dbs;
@@ -360,7 +356,7 @@ Status WalManager::scan_wals(const std::string& wal_path) {
     return Status::OK();
 }
 
-Status WalManager::replay() {
+Status WalManager::_replay() {
     do {
         if (_stop.load()) {
             break;
@@ -372,7 +368,7 @@ Status WalManager::replay() {
         }
         std::vector<int64_t> replay_tables;
         {
-            std::lock_guard<std::shared_mutex> wrlock(_lock);
+            std::lock_guard<std::shared_mutex> wrlock(_table_lock);
             auto it = _table_map.begin();
             while (it != _table_map.end()) {
                 if (it->second->size() > 0) {
@@ -396,7 +392,7 @@ Status WalManager::replay() {
 
 Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id,
                                    std::string wal) {
-    std::lock_guard<std::shared_mutex> wrlock(_lock);
+    std::lock_guard<std::shared_mutex> wrlock(_table_lock);
     std::shared_ptr<WalTable> table_ptr;
     auto it = _table_map.find(table_id);
     if (it == _table_map.end()) {
@@ -414,7 +410,7 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_
 }
 
 size_t WalManager::get_wal_table_size(int64_t table_id) {
-    std::shared_lock rdlock(_lock);
+    std::shared_lock rdlock(_table_lock);
     auto it = _table_map.find(table_id);
     if (it != _table_map.end()) {
         return it->second->size();
@@ -440,12 +436,8 @@ Status WalManager::delete_wal(int64_t wal_id, size_t block_queue_pre_allocated) 
     return Status::OK();
 }
 
-bool WalManager::is_running() {
-    return !_stop.load();
-}
-
-void WalManager::stop_relay_wal() {
-    std::lock_guard<std::shared_mutex> wrlock(_lock);
+void WalManager::_stop_relay_wal() {
+    std::lock_guard<std::shared_mutex> wrlock(_table_lock);
     for (auto it = _table_map.begin(); it != _table_map.end(); it++) {
         it->second->stop();
     }

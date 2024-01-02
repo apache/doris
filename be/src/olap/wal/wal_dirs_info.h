@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -41,11 +40,10 @@ public:
               _pre_allocated(pre_allocated) {}
     std::string get_wal_dir();
     size_t get_limit();
-    size_t get_used();
-    size_t get_pre_allocated();
-    Status set_limit(size_t limit);
-    Status set_used(size_t used);
-    Status set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated);
+    void set_limit(size_t limit);
+    void set_used(size_t used);
+    // TODO increase_pre_allocated and decrease_pre_allocated
+    void set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated);
     size_t available();
     Status update_wal_dir_limit(size_t limit = -1);
     Status update_wal_dir_used(size_t used = -1);
@@ -66,7 +64,6 @@ public:
     WalDirsInfo() = default;
     ~WalDirsInfo() = default;
     Status add(const std::string& wal_dir, size_t limit, size_t used, size_t pre_allocated);
-    Status clear();
     std::string get_available_random_wal_dir();
     size_t get_max_available_size();
     Status update_wal_dir_limit(std::string wal_dir, size_t limit = -1);
