@@ -13,8 +13,6 @@ done <queries-sort.sql
 
 is_ok=true
 for i in {1..43}; do
-    echo "#### use diff command to check query${i}"
-    # if ! diff -w "query-result-target/doris-q$i.result" "query-result-actual/doris-q$i.result"; then
     if ! diff -w <(tail -n +2 "query-result-target/doris-q${i}.result") <(tail -n +2 "query-result-actual/doris-q${i}.result") >/dev/null; then
         if [[ "${i}" == 4 ]] && [[ $(sed -n '2p' "query-result-actual/doris-q${i}.result") == '2.528953029'* ]]; then
             is_ok=true

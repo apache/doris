@@ -257,7 +257,7 @@ exit_flag=0
     bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
-    cd clickbench && bash check-query-result.sh && cd -
+    if ! cd clickbench && bash check-query-result.sh && cd -; then exit 1; fi
     if ! check_clickbench_query_result; then exit 1; fi
     cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
