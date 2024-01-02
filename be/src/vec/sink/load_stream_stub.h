@@ -113,7 +113,7 @@ private:
             return _success_tablets;
         }
 
-        std::vector<int64_t> failed_tablets() {
+        std::unordered_map<int64_t, Status> failed_tablets() {
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             return _failed_tablets;
         }
@@ -131,7 +131,7 @@ private:
         bthread::Mutex _success_tablets_mutex;
         bthread::Mutex _failed_tablets_mutex;
         std::vector<int64_t> _success_tablets;
-        std::vector<int64_t> _failed_tablets;
+        std::unordered_map<int64_t, Status> _failed_tablets;
 
         LoadStreamStub* _stub = nullptr;
     };
@@ -217,7 +217,7 @@ public:
 
     std::vector<int64_t> success_tablets() { return _handler.success_tablets(); }
 
-    std::vector<int64_t> failed_tablets() { return _handler.failed_tablets(); }
+    std::unordered_map<int64_t, Status> failed_tablets() { return _handler.failed_tablets(); }
 
     brpc::StreamId stream_id() const { return _stream_id; }
 
