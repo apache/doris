@@ -27,6 +27,8 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <map>
@@ -1471,6 +1473,38 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
             callback(*part);
         }
     }
+}
+
+std::string ColumnObject::debug_string() const {
+    std::stringstream res;
+    res << get_family_name() << "(num_row = " << num_rows;
+    for (auto& entry : subcolumns) {
+        if (entry->data.is_finalized()) {
+            res << "[column:" << entry->data.data[0]->dump_structure()
+                << ",type:" << entry->data.data_types[0]->get_name()
+                << ",path:" << entry->path.get_path() << "],";
+        }
+    }
+    res << ")";
+    return res.str();
+}
+
+Status ColumnObject::sanitize() const {
+    RETURN_IF_CATCH_EXCEPTION(check_consistency());
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_finalized()) {
+            auto column = subcolumn->data.get_least_common_type()->create_column();
+            std::string original = subcolumn->data.get_finalized_column().get_family_name();
+            std::string expected = column->get_family_name();
+            if (original != expected) {
+                return Status::InternalError("Incompatible type between {} and {}, debug_info:",
+                                             original, expected, debug_string());
+            }
+        }
+    }
+
+    VLOG_DEBUG << "sanitized " << debug_string();
+    return Status::OK();
 }
 
 } // namespace doris::vectorized
