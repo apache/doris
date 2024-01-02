@@ -404,6 +404,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -1198,6 +1200,13 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                        "In the inverted index,"
+                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                        + " then skip the index and proceed directly to matching."})
+    public int invertedIndexSkipThreshold = 50;
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
@@ -2445,6 +2454,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
+
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
 
         return tResult;
     }
