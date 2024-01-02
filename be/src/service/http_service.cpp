@@ -160,8 +160,7 @@ Status HttpService::start() {
                                       download_binlog_action);
 
     AdjustLogLevelAction* adjust_log_level_action = _pool.add(new AdjustLogLevelAction());
-    _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust",
-                                      adjust_log_level_action);
+    _ev_http_server->register_handler(HttpMethod::POST, "api/glog/adjust", adjust_log_level_action);
 
     // Register BE version action
     VersionAction* version_action =
