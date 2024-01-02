@@ -1748,7 +1748,6 @@ public class DatabaseTransactionMgr {
 
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1808,10 +1807,6 @@ public class DatabaseTransactionMgr {
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
                 long versionTime = partitionCommitInfo.getVersionTime();
-                if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
-                        && version > Partition.PARTITION_INIT_VERSION) {
-                    analysisManager.setNewPartitionLoaded(tableId);
-                }
                 partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
@@ -1819,6 +1814,7 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         tableIdToTotalNumDeltaRows
