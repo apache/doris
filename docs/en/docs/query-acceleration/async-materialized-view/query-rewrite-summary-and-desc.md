@@ -290,13 +290,15 @@ l_suppkey;
 
 Temporary support for the aggregation roll-up functions is as follows:
 
-| Functions in Queries | Functions in Materialized Views | Aggregation Functions After Rewriting |
-|----------------------|---------------------------------|---------------------------------------|
-| max                  | max                             | max                                   |
-| min                  | min                             | min                                   |
-| sum                  | sum                             | sum                                   |
-| count                | count                           | sum                                   |
-| count(distinct )     | bitmap_union                    | bitmap_union_count                    |
+| Functions in Queries | Functions in Materialized Views  | Aggregation Functions After Rewriting |
+|----------------------|----------------------------------|---------------------------------------|
+| max                  | max                              | max                                   |
+| min                  | min                              | min                                   |
+| sum                  | sum                              | sum                                   |
+| count                | count                            | sum                                   |
+| count(distinct )     | bitmap_union                     | bitmap_union_count                    |
+| bitmap_union         | bitmap_union                     | bitmap_union                          |
+| bitmap_union_count   | bitmap_union                     | bitmap_union_count                    |
 
 ## Query partial Transparent Rewriting (TODO)
 When the number of tables in the materialized view is greater than the query, if the materialized view 
