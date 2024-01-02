@@ -172,7 +172,7 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 }
 
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
-    auto task_lock = ctx->get_task_execution_context().lock();
+    auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
         //             << " maybe finished";
@@ -266,7 +266,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                                      std::shared_ptr<ScannerContext> ctx, VScannerSPtr scanner) {
-    auto task_lock = ctx->get_task_execution_context().lock();
+    auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
         //             << " maybe finished";
