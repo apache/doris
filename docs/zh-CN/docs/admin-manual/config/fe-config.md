@@ -1495,7 +1495,7 @@ NORMAL 优先级挂起加载作业的并发数。
 
 #### `label_keep_max_second`
 
-默认值：3 * 24 * 3600  (3天)
+默认值：`3 * 24 * 3600`  (3天)
 
 是否可以动态配置：true
 
@@ -2128,7 +2128,7 @@ tablet 状态更新间隔
 
 #### `storage_flood_stage_left_capacity_bytes`
 
-默认值： 1 * 1024 * 1024 * 1024 (1GB)
+默认值： `1 * 1024 * 1024 * 1024` (1GB)
 
 是否可以动态配置：true
 
@@ -2327,7 +2327,7 @@ multi catalog 并发文件扫描线程数
 
 #### `file_scan_node_split_size`
 
-默认值：256 * 1024 * 1024
+默认值：`256 * 1024 * 1024`
 
 是否可以动态配置：true
 
@@ -2420,7 +2420,7 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 #### `dpp_bytes_per_reduce`
 
-默认值：100 * 1024 * 1024L (100M)
+默认值：`100 * 1024 * 1024L` (100M)
 
 #### `dpp_default_cluster`
 
