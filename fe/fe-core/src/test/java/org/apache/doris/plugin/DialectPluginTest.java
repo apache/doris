@@ -67,10 +67,10 @@ public class DialectPluginTest extends TestWithFeService {
         Assertions.assertEquals(1, stmts.size());
         Assertions.assertTrue(stmts.get(0) instanceof LogicalPlanAdapter);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) stmts.get(0)).getLogicalPlan();
-        List<StatementBase> expectStmts = sparkPlugin.parseSqlWithDialect(TEST_SQL,
+        List<StatementBase> expectedStmts = sparkPlugin.parseSqlWithDialect(TEST_SQL,
                     ConnectContext.get().getSessionVariable());
-        Assertions.assertTrue(expectStmts != null && expectStmts.size() == 1);
-        Assertions.assertTrue(expectStmts.get(0) instanceof LogicalPlanAdapter);
-        Assertions.assertEquals(logicalPlan, ((LogicalPlanAdapter) expectStmts.get(0)).getLogicalPlan());
+        Assertions.assertTrue(expectedStmts != null && expectedStmts.size() == 1);
+        Assertions.assertTrue(expectedStmts.get(0) instanceof LogicalPlanAdapter);
+        Assertions.assertEquals(logicalPlan, ((LogicalPlanAdapter) expectedStmts.get(0)).getLogicalPlan());
     }
 }
