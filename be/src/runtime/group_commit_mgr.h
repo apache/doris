@@ -66,8 +66,7 @@ public:
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                       int be_exe_version);
     Status close_wal();
-    bool has_enough_wal_disk_space(const std::vector<std::shared_ptr<vectorized::Block>>& blocks,
-                                   const TUniqueId& load_id, bool is_blocks_contain_all_load_data);
+    bool has_enough_wal_disk_space(size_t pre_allocated);
 
     // 1s
     static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
@@ -157,9 +156,6 @@ public:
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version);
-    Status update_load_info(TUniqueId load_id, size_t content_length);
-    Status get_load_info(TUniqueId load_id, size_t* content_length);
-    Status remove_load_info(TUniqueId load_id);
 
 private:
     ExecEnv* _exec_env = nullptr;
@@ -170,8 +166,6 @@ private:
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
-    std::shared_mutex _load_info_lock;
-    std::unordered_map<TUniqueId, size_t> _load_id_to_content_length_map;
 };
 
 } // namespace doris
