@@ -53,7 +53,7 @@ public:
     ~AggSinkDependency() override = default;
 
     void set_ready() override {
-        if (_is_streaming_agg_state()) {
+        if (_is_streaming_agg_state() && _shared_state) {
             if (((SharedState*)Dependency::_shared_state.get())
                         ->data_queue->has_enough_space_to_push()) {
                 Dependency::set_ready();
