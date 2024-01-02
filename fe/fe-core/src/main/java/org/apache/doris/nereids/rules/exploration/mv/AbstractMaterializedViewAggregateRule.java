@@ -34,8 +34,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -69,7 +74,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     protected static final Multimap<Expression, Expression>
             AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
     protected final String currentClassName = this.getClass().getSimpleName();
-
+    protected static final List<Expression> SUPPORTED_ROLL_UP_FUNCTIONS = new ArrayList<>();
     private final Logger logger = LogManager.getLogger(this.getClass());
 
     static {
@@ -77,6 +82,27 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
         AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
                 new BitmapUnion(new ToBitmap(Any.INSTANCE)));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
+                new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
+                new BitmapUnion(new ToBitmap(Any.INSTANCE)));
+
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new BitmapUnionCount(Any.INSTANCE),
+                new BitmapUnion(Any.INSTANCE));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
+                new BitmapUnionCount(new ToBitmap(Any.INSTANCE)),
+                new BitmapUnion(new ToBitmap(Any.INSTANCE)));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
+                new BitmapUnionCount(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))),
+                new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
+
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Sum(Any.INSTANCE));
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Count(Any.INSTANCE));
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Count());
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Min(Any.INSTANCE));
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Max(Any.INSTANCE));
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new BitmapUnion(Any.INSTANCE));
+        SUPPORTED_ROLL_UP_FUNCTIONS.add(new HllUnion(Any.INSTANCE));
     }
 
     @Override
@@ -164,10 +190,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                     queryTopPlanAndAggPair.value().treeString())));
             return null;
         }
-        // Secondly, try to roll up the agg functions
         // this map will be used to rewrite expression
         Multimap<Expression, Expression> needRollupExprMap = HashMultimap.create();
         Multimap<Expression, Expression> groupRewrittenExprMap = HashMultimap.create();
+        // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
                 materializationContext.getMvExprToMvScanExprMapping().keyPermute(
                         queryToViewSlotMapping.inverse()).flattenMap().get(0);
@@ -183,7 +209,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                         topExpression,
                         queryTopPlan);
                 // try to roll up
-                AggregateFunction queryFunction = (AggregateFunction) topExpression.firstMatch(
+                AggregateFunction queryFunction = (AggregateFunction) queryFunctionShuttled.firstMatch(
                         expr -> expr instanceof AggregateFunction);
                 Function rollupAggregateFunction = rollup(queryFunction, queryFunctionShuttled,
                         mvExprToMvScanExprQueryBased);
@@ -309,9 +335,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             return null;
         }
         Expression rollupParam = null;
+        Expression viewRollupFunction = null;
         if (mvExprToMvScanExprQueryBased.containsKey(queryAggregateFunctionShuttled)) {
             // function can rewrite by view
             rollupParam = mvExprToMvScanExprQueryBased.get(queryAggregateFunctionShuttled);
+            viewRollupFunction = queryAggregateFunctionShuttled;
         } else {
             // function can not rewrite by view, try to use complex roll up param
             // eg: query is count(distinct param), mv sql is bitmap_union(to_bitmap(param))
@@ -322,14 +350,33 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 if (isAggregateFunctionEquivalent(queryAggregateFunction, queryAggregateFunctionShuttled,
                         (Function) mvExprShuttled)) {
                     rollupParam = mvExprToMvScanExprQueryBased.get(mvExprShuttled);
+                    viewRollupFunction = mvExprShuttled;
                 }
             }
         }
-        if (rollupParam == null) {
+        if (rollupParam == null || !canRollup(viewRollupFunction)) {
             return null;
         }
         // do roll up
         return ((CouldRollUp) queryAggregateFunction).constructRollUp(rollupParam);
+    }
+
+    // Check the aggregate function can roll up or not, return true if could roll up
+    // if view aggregate function is distinct or is in the un supported rollup functions, it doesn't support
+    // roll up.
+    private boolean canRollup(Expression rollupExpression) {
+        if (rollupExpression == null) {
+            return false;
+        }
+        if (rollupExpression instanceof Function && !(rollupExpression instanceof AggregateFunction)) {
+            return false;
+        }
+        if (rollupExpression instanceof AggregateFunction) {
+            AggregateFunction aggregateFunction = (AggregateFunction) rollupExpression;
+            return !aggregateFunction.isDistinct() && SUPPORTED_ROLL_UP_FUNCTIONS.stream()
+                    .anyMatch(supportedFunction -> supportedFunction.equals(aggregateFunction));
+        }
+        return true;
     }
 
     private Pair<Set<? extends Expression>, Set<? extends Expression>> topPlanSplitToGroupAndFunction(
@@ -337,8 +384,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
         LogicalAggregate<Plan> queryAggregate = topPlanAndAggPair.value();
         Set<Expression> queryAggGroupSet = new HashSet<>(queryAggregate.getGroupByExpressions());
-        Set<Expression> queryAggFunctionSet = queryAggregate.getOutputExpressions().stream()
+        // when query is bitmap_count(bitmap_union), the plan is as following:
+        // project(bitmap_count()#1)
+        //    aggregate(bitmap_union()#2)
+        // we should use exprId which query top plan used to decide the query top plan is use the
+        // bottom agg function or not
+        Set<ExprId> queryAggFunctionSet = queryAggregate.getOutputExpressions().stream()
                 .filter(expr -> !queryAggGroupSet.contains(expr))
+                .map(NamedExpression::getExprId)
                 .collect(Collectors.toSet());
 
         Plan queryTopPlan = topPlanAndAggPair.key();
@@ -347,7 +400,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         queryTopPlan.getExpressions().forEach(
                 expression -> {
                     if (expression.anyMatch(expr -> expr instanceof NamedExpression
-                            && queryAggFunctionSet.contains((NamedExpression) expr))) {
+                            && queryAggFunctionSet.contains(((NamedExpression) expr).getExprId()))) {
                         topFunctionExpressions.add(expression);
                     } else {
                         topGroupByExpressions.add(expression);
