@@ -47,7 +47,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"

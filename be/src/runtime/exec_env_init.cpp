@@ -49,7 +49,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"

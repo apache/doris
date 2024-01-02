@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_dirs_info.h"
-
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
+#include "olap/wal/wal_dirs_info.h"
 
 #include "common/config.h"
 #include "common/status.h"
@@ -37,36 +33,23 @@ size_t WalDirInfo::get_limit() {
     return _limit;
 }
 
-size_t WalDirInfo::get_used() {
-    std::shared_lock rlock(_lock);
-    return _used;
-}
-
-size_t WalDirInfo::get_pre_allocated() {
-    std::shared_lock rlock(_lock);
-    return _pre_allocated;
-}
-
-Status WalDirInfo::set_limit(size_t limit) {
+void WalDirInfo::set_limit(size_t limit) {
     std::unique_lock wlock(_lock);
     _limit = limit;
-    return Status::OK();
 }
 
-Status WalDirInfo::set_used(size_t used) {
+void WalDirInfo::set_used(size_t used) {
     std::unique_lock wlock(_lock);
     _used = used;
-    return Status::OK();
 }
 
-Status WalDirInfo::set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
+void WalDirInfo::set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
     std::unique_lock wlock(_lock);
     if (is_add_pre_allocated) {
         _pre_allocated += pre_allocated;
     } else {
         _pre_allocated -= pre_allocated;
     }
-    return Status::OK();
 }
 
 size_t WalDirInfo::available() {
@@ -77,7 +60,7 @@ size_t WalDirInfo::available() {
 
 Status WalDirInfo::update_wal_dir_limit(size_t limit) {
     if (limit != static_cast<size_t>(-1)) {
-        RETURN_IF_ERROR(set_limit(limit));
+        set_limit(limit);
     } else {
         size_t available_bytes;
         size_t disk_capacity_bytes;
@@ -91,24 +74,25 @@ Status WalDirInfo::update_wal_dir_limit(size_t limit) {
         }
         size_t wal_dir_size = 0;
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
-        RETURN_IF_ERROR(set_limit(wal_disk_limit));
+        // TODO should be wal_disk_limit + wal_dir_size
+        set_limit(wal_disk_limit);
     }
     return Status::OK();
 }
 
 Status WalDirInfo::update_wal_dir_used(size_t used) {
     if (used != static_cast<size_t>(-1)) {
-        RETURN_IF_ERROR(set_used(used));
+        set_used(used);
     } else {
         size_t wal_dir_size = 0;
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
-        RETURN_IF_ERROR(set_used(wal_dir_size));
+        set_used(wal_dir_size);
     }
     return Status::OK();
 }
 
 Status WalDirInfo::update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
-    RETURN_IF_ERROR(set_pre_allocated(pre_allocated, is_add_pre_allocated));
+    set_pre_allocated(pre_allocated, is_add_pre_allocated);
     return Status::OK();
 }
 
@@ -125,12 +109,6 @@ Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
     std::unique_lock wlock(_lock);
     _wal_dirs_info_vec.emplace_back(
             std::make_shared<WalDirInfo>(wal_dir, limit, used, pre_allocated));
-    return Status::OK();
-}
-
-Status WalDirsInfo::clear() {
-    std::unique_lock wlock(_lock);
-    _wal_dirs_info_vec.clear();
     return Status::OK();
 }
 

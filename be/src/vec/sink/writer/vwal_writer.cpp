@@ -19,25 +19,7 @@
 
 #include <gen_cpp/data.pb.h>
 
-#include <mutex>
 #include <sstream>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "common/compiler_util.h"
-#include "common/status.h"
-#include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
-#include "util/proto_util.h"
-#include "util/thrift_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/block.h"
-#include "vec/sink/vtablet_block_convertor.h"
-#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 namespace vectorized {

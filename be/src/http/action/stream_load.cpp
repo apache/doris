@@ -51,7 +51,6 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
-#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
