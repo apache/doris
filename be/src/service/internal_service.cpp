@@ -83,7 +83,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"

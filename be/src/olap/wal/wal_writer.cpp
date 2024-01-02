@@ -15,18 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_writer.h"
-
-#include <atomic>
-#include <condition_variable>
-#include <memory>
+#include "olap/wal/wal_writer.h"
 
 #include "common/config.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/storage_engine.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "util/crc32c.h"
 
 namespace doris {

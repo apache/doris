@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_table.h"
+#include "olap/wal/wal_table.h"
 
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -27,7 +27,7 @@
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
@@ -53,7 +53,8 @@ void WalTable::add_wal(int64_t wal_id, std::string wal) {
     auto wal_info = std::make_shared<WalInfo>(wal_id, wal, 0, UnixMillis());
     _replay_wal_map.emplace(wal, wal_info);
 }
-void WalTable::pick_relay_wals() {
+
+void WalTable::_pick_relay_wals() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     std::vector<std::string> need_replay_wals;
     std::vector<std::string> need_erase_wals;
@@ -84,7 +85,7 @@ void WalTable::pick_relay_wals() {
     }
 }
 
-Status WalTable::relay_wal_one_by_one() {
+Status WalTable::_relay_wal_one_by_one() {
     std::vector<std::shared_ptr<WalInfo>> need_retry_wals;
     std::vector<std::shared_ptr<WalInfo>> need_delete_wals;
     while (!_replaying_queue.empty()) {
@@ -124,6 +125,7 @@ Status WalTable::relay_wal_one_by_one() {
     }
     return Status::OK();
 }
+
 Status WalTable::replay_wals() {
     {
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
@@ -138,8 +140,8 @@ Status WalTable::replay_wals() {
     }
     VLOG_DEBUG << "Start replay wals for db=" << _db_id << ", table=" << _table_id
                << ", wal size=" << _replay_wal_map.size();
-    pick_relay_wals();
-    RETURN_IF_ERROR(relay_wal_one_by_one());
+    _pick_relay_wals();
+    RETURN_IF_ERROR(_relay_wal_one_by_one());
     return Status::OK();
 }
 
@@ -184,6 +186,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
     TLoadTxnRollbackRequest request;
     request.__set_auth_code(0); // this is a fake, fe not check it now
     request.__set_db_id(db_id);
+    // TODO should we use label, because the replay wal use the same label and different wal_id
     request.__set_txnId(wal_id);
     std::string reason = "relay wal " + std::to_string(wal_id);
     request.__set_reason(reason);
@@ -265,6 +268,7 @@ Status WalTable::_construct_sql_str(const std::string& wal, const std::string& l
     sql_str = ss.str().data();
     return Status::OK();
 }
+
 Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
                                      const std::string& label) {
     std::string sql_str;

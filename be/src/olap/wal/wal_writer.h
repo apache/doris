@@ -15,27 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_info.h"
+#pragma once
+
+#include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "io/fs/file_reader_writer_fwd.h"
+
 namespace doris {
-WalInfo::WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms)
-        : _wal_id(wal_id),
-          _wal_path(wal_path),
-          _retry_num(retry_num),
-          _start_time_ms(start_time_ms) {}
-WalInfo::~WalInfo() {}
-int64_t WalInfo::get_wal_id() {
-    return _wal_id;
-}
-std::string WalInfo::get_wal_path() {
-    return _wal_path;
-}
-int64_t WalInfo::get_retry_num() {
-    return _retry_num;
-}
-int64_t WalInfo::get_start_time_ms() {
-    return _start_time_ms;
-}
-void WalInfo::add_retry_num() {
-    _retry_num++;
-}
+
+using PBlockArray = std::vector<PBlock*>;
+extern const char* k_wal_magic;
+extern const uint32_t k_wal_magic_length;
+
+class WalWriter {
+public:
+    explicit WalWriter(const std::string& file_name);
+    ~WalWriter();
+
+    Status init();
+    Status finalize();
+
+    Status append_blocks(const PBlockArray& blocks);
+    Status append_header(uint32_t version, std::string col_ids);
+
+    std::string file_name() { return _file_name; };
+
+public:
+    static const int64_t LENGTH_SIZE = 8;
+    static const int64_t CHECKSUM_SIZE = 4;
+    static const int64_t VERSION_SIZE = 4;
+
+private:
+    std::string _file_name;
+    io::FileWriterPtr _file_writer;
+};
+
 } // namespace doris

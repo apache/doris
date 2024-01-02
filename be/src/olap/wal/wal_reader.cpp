@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/wal_reader.h"
+#include "olap/wal/wal_reader.h"
 
 #include "common/status.h"
 #include "io/fs/file_reader.h"
