@@ -150,7 +150,9 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            check {
+                result -> return result.split("CHOSEN MATERIALIZATION'S")[1].contains("${mv_name}")
+            }
         }
     }
 
@@ -169,7 +171,9 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            check {
+                result -> return !result.split("CHOSEN MATERIALIZATION'S")[1].contains("${mv_name}")
+            }
         }
     }
 

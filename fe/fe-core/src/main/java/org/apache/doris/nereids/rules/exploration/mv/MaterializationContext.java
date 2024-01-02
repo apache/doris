@@ -143,7 +143,9 @@ public class MaterializationContext {
         this.failReason.clear();
     }
 
-    /**recordFailReason*/
+    /**
+     * recordFailReason
+     */
     public void recordFailReason(ObjectId objectId, Pair<String, String> summaryAndReason) {
         // once success, do not record the fail reason
         if (this.success) {
@@ -190,26 +192,25 @@ public class MaterializationContext {
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
             List<MTMV> chosenMaterializationNames) {
         StringBuilder builder = new StringBuilder();
-        builder.append("materializationContexts:").append("\n");
-        builder.append("========== AVAILABLE MATERIALIZATION'S ==========\n");
-        builder.append("[\n");
+        builder.append("\n========== AVAILABLE MATERIALIZATION'S ==========\n");
+        builder.append("[");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append(ctx.getMTMV().getName());
+            builder.append("\n").append(ctx.getMTMV().getName());
         }
         builder.append("\n]\n");
         List<MaterializationContext> queryRewriteSuccessMaterializationList = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toList());
         builder.append("========== REWRITTEN SUCCESS MATERIALIZATION'S ==========\n");
-        builder.append("[\n");
+        builder.append("[");
         for (MaterializationContext ctx : queryRewriteSuccessMaterializationList) {
-            builder.append(ctx.getMTMV().getName());
+            builder.append("\n").append(ctx.getMTMV().getName());
         }
         builder.append("\n]\n");
         builder.append("========== CHOSEN MATERIALIZATION'S ==========\n");
-        builder.append("[\n");
+        builder.append("[");
         for (MTMV mtmv : chosenMaterializationNames) {
-            builder.append(mtmv.getName());
+            builder.append("\n").append(mtmv.getName());
         }
         builder.append("\n]\n");
         return builder.toString();

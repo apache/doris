@@ -167,10 +167,14 @@ suite("partition_mv_rewrite") {
     // only can use valid partition
     explain {
         sql("${all_partition_sql}")
-        notContains "mv_10086"
+        check { result ->
+            return !result.split("CHOSEN MATERIALIZATION'S")[1].contains("mv_10086")
+        }
     }
     explain {
         sql("${partition_sql}")
-        contains "mv_10086"
+        check { result ->
+            return result.split("CHOSEN MATERIALIZATION'S")[1].contains("mv_10086")
+        }
     }
 }
