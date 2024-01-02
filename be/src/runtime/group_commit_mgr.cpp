@@ -60,7 +60,13 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                 return st;
             }
         }
+        _data_bytes += block->bytes();
         _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
+    }
+    if (_data_bytes >= _group_commit_data_bytes) {
+        VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
+                   << ", instance_id=" << load_instance_id << ", data_bytes=" << _data_bytes;
+        need_commit = true;
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -282,7 +288,8 @@ Status GroupCommitTable::_create_group_commit_load(
     {
         load_block_queue = std::make_shared<LoadBlockQueue>(
                 instance_id, label, txn_id, schema_version, _all_block_queues_bytes,
-                result.wait_internal_group_commit_finish, result.group_commit_interval_ms);
+                result.wait_internal_group_commit_finish, result.group_commit_interval_ms,
+                result.group_commit_data_bytes);
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
         _need_plan_fragment = false;

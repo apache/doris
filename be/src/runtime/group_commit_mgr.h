@@ -45,15 +45,17 @@ public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
                    int64_t schema_version,
                    std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
-                   bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms)
+                   bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms,
+                   int64_t group_commit_data_bytes)
             : load_instance_id(load_instance_id),
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
+              _group_commit_interval_ms(group_commit_interval_ms),
               _start_time(std::chrono::steady_clock::now()),
-              _all_block_queues_bytes(all_block_queues_bytes),
-              _group_commit_interval_ms(group_commit_interval_ms) {};
+              _group_commit_data_bytes(group_commit_data_bytes),
+              _all_block_queues_bytes(all_block_queues_bytes) {};
 
     Status add_block(RuntimeState* runtime_state, std::shared_ptr<vectorized::Block> block,
                      bool write_wal);
@@ -87,7 +89,13 @@ public:
 
 private:
     void _cancel_without_lock(const Status& st);
+
+    // commit by time interval, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
+    int64_t _group_commit_interval_ms;
     std::chrono::steady_clock::time_point _start_time;
+    // commit by data size
+    int64_t _group_commit_data_bytes;
+    int64_t _data_bytes = 0;
 
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
@@ -97,8 +105,6 @@ private:
 
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
-    // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
-    int64_t _group_commit_interval_ms;
     std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
 };
 
