@@ -313,10 +313,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
         exchangeNode.setPartitionType(dataPartition.getType());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
-        exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
             // gather to one instance
             exchangeNode.setNumInstances(1);
+        } else {
+            exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         }
 
         // process multicast sink
