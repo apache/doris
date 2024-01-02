@@ -597,7 +597,7 @@ Status VTabletWriterV2::close(Status exec_status) {
 }
 
 Status VTabletWriterV2::_failed_reason(int64_t tablet_id) {
-    Status st = Status::Error<INTERNAL_ERROR, false>("unknown");
+    Status st = Status::InternalError("tablet {} failed", tablet_id);
     auto backends = _location->find_tablet(tablet_id)->node_ids;
     for (auto& backend_id : backends) {
         auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
