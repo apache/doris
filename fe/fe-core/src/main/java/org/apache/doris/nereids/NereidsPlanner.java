@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -415,9 +417,15 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
+                List<MTMV> chosenMaterializationNames = this.getPhysicalPlan()
+                        .collectToList(node -> node instanceof PhysicalCatalogRelation
+                                && ((PhysicalCatalogRelation) node).getTable() instanceof MTMV).stream()
+                        .map(node -> (MTMV) ((PhysicalCatalogRelation) node).getTable())
+                        .collect(Collectors.toList());
                 plan = super.getExplainString(explainOptions)
-                        + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts());
+                        + "\n\n========== MATERIALIZATION'S ==========\n"
+                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                        chosenMaterializationNames);
         }
         if (statementContext != null && !statementContext.getHints().isEmpty()) {
             String hint = getHintExplainString(statementContext.getHints());

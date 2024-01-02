@@ -39,6 +39,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Maintain the context for query rewrite by materialized view
@@ -152,6 +153,10 @@ public class MaterializationContext {
         this.failReason.put(objectId, summaryAndReason);
     }
 
+    public boolean isSuccess() {
+        return success;
+    }
+
     @Override
     public String toString() {
         StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
@@ -182,28 +187,31 @@ public class MaterializationContext {
     /**
      * toSummaryString, this contains only summary info.
      */
-    public String toSummaryString() {
-        StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
-        for (Map.Entry<ObjectId, Pair<String, String>> reason : this.failReason.entrySet()) {
-            failReasonBuilder
-                    .append("ObjectId : ").append(reason.getKey()).append(".\n")
-                    .append("Summary : ").append(reason.getValue().key()).append(".\n");
-        }
-        failReasonBuilder.append("\n").append("]");
-        return Utils.toSqlString("MaterializationContext[" + mtmv.getName() + "]",
-                "rewriteSuccess", this.success,
-                "failReason", failReasonBuilder.toString());
-    }
-
-    /**
-     * toSummaryString, this contains only summary info.
-     */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts) {
+    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+            List<MTMV> chosenMaterializationNames) {
         StringBuilder builder = new StringBuilder();
         builder.append("materializationContexts:").append("\n");
+        builder.append("========== AVAILABLE MATERIALIZATION'S ==========\n");
+        builder.append("[\n");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n").append(ctx.toSummaryString()).append("\n");
+            builder.append(ctx.getMTMV().getName());
         }
+        builder.append("\n]\n");
+        List<MaterializationContext> queryRewriteSuccessMaterializationList = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
+                .collect(Collectors.toList());
+        builder.append("========== REWRITTEN SUCCESS MATERIALIZATION'S ==========\n");
+        builder.append("[\n");
+        for (MaterializationContext ctx : queryRewriteSuccessMaterializationList) {
+            builder.append(ctx.getMTMV().getName());
+        }
+        builder.append("\n]\n");
+        builder.append("========== CHOSEN MATERIALIZATION'S ==========\n");
+        builder.append("[\n");
+        for (MTMV mtmv : chosenMaterializationNames) {
+            builder.append(mtmv.getName());
+        }
+        builder.append("\n]\n");
         return builder.toString();
     }
 
