@@ -57,6 +57,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
@@ -295,7 +296,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
-            custom(RuleType.ELIMINATE_JOIN_BY_FOREIGN_KEY, EliminateJoinByFK::new),
+            topic("eliminate join according unique or foreign key",
+                custom(RuleType.ELIMINATE_JOIN_BY_FOREIGN_KEY, EliminateJoinByFK::new),
+                topDown(new EliminateJoinByUnique())
+            ),
+
             // this rule should be after topic "Column pruning and infer predicate"
             topic("Join pull up",
                     topDown(
