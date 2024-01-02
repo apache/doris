@@ -18,11 +18,11 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
-import org.apache.doris.analysis.AdminDiagnoseTabletStmt;
-import org.apache.doris.analysis.AdminShowConfigStmt;
-import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
-import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
-import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
+import org.apache.doris.analysis.DiagnoseTabletStmt;
+import org.apache.doris.analysis.ShowConfigStmt;
+import org.apache.doris.analysis.ShowReplicaDistributionStmt;
+import org.apache.doris.analysis.ShowReplicaStatusStmt;
+import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
@@ -370,11 +370,11 @@ public class ShowExecutor {
             handleShowTrash();
         } else if (stmt instanceof ShowTrashDiskStmt) {
             handleShowTrashDisk();
-        } else if (stmt instanceof AdminShowReplicaStatusStmt) {
+        } else if (stmt instanceof ShowReplicaStatusStmt) {
             handleAdminShowTabletStatus();
-        } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
+        } else if (stmt instanceof ShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
-        } else if (stmt instanceof AdminShowConfigStmt) {
+        } else if (stmt instanceof ShowConfigStmt) {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
@@ -408,9 +408,9 @@ public class ShowExecutor {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
             handleShowLastInsert();
-        } else if (stmt instanceof AdminShowTabletStorageFormatStmt) {
+        } else if (stmt instanceof ShowTabletStorageFormatStmt) {
             handleAdminShowTabletStorageFormat();
-        } else if (stmt instanceof AdminDiagnoseTabletStmt) {
+        } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
@@ -2107,7 +2107,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowTabletStatus() throws AnalysisException {
-        AdminShowReplicaStatusStmt showStmt = (AdminShowReplicaStatusStmt) stmt;
+        ShowReplicaStatusStmt showStmt = (ShowReplicaStatusStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletStatus(showStmt);
@@ -2118,7 +2118,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowTabletDistribution() throws AnalysisException {
-        AdminShowReplicaDistributionStmt showStmt = (AdminShowReplicaDistributionStmt) stmt;
+        ShowReplicaDistributionStmt showStmt = (ShowReplicaDistributionStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletDistribution(showStmt);
@@ -2129,7 +2129,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminShowConfig() throws AnalysisException {
-        AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
+        ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
         List<List<String>> results;
 
         PatternMatcher matcher = null;
@@ -2605,7 +2605,7 @@ public class ShowExecutor {
     }
 
     private void handleAdminDiagnoseTablet() {
-        AdminDiagnoseTabletStmt showStmt = (AdminDiagnoseTabletStmt) stmt;
+        DiagnoseTabletStmt showStmt = (DiagnoseTabletStmt) stmt;
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);

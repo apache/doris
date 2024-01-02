@@ -31,8 +31,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-// admin show replica distribution from tbl [partition(p1, p2, ...)]
-public class AdminShowReplicaDistributionStmt extends ShowStmt {
+// show replica distribution from tbl [partition(p1, p2, ...)]
+public class ShowReplicaDistributionStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("ReplicaNum").add("ReplicaSize")
             .add("NumGraph").add("NumPercent")
@@ -41,7 +41,7 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
 
     private TableRef tblRef;
 
-    public AdminShowReplicaDistributionStmt(TableRef tblRef) {
+    public ShowReplicaDistributionStmt(TableRef tblRef) {
         this.tblRef = tblRef;
     }
 

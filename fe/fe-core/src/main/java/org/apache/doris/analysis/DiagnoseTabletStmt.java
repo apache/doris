@@ -27,57 +27,50 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class AdminShowTabletStorageFormatStmt extends ShowStmt {
-    private boolean verbose;
+import com.google.common.collect.ImmutableList;
 
-    public AdminShowTabletStorageFormatStmt(boolean verbose) {
-        this.verbose = verbose;
+// SHOW TABLET DIAGNOSIS tablet_id
+public class DiagnoseTabletStmt extends ShowStmt {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Item").add("Info").add("Suggestion")
+            .build();
+
+    private long tabletId;
+
+    public DiagnoseTabletStmt(long tabletId) {
+        this.tabletId = tabletId;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        // check access first
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
-                    toSql(),
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), "ADMIN Privilege needed.");
-        }
-
         super.analyze(analyzer);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
     }
 
-    @Override
-    public boolean isVerbose() {
-        return verbose;
+    public long getTabletId() {
+        return tabletId;
     }
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder("ADMIN SHOW TABLET STORAGE TYPE");
-        if (verbose) {
-            sb.append(" VERBOSE");
-        }
-        return sb.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
+        return "ADMIN DIAGNOSE TABLET " + tabletId;
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        if (verbose) {
-            builder.addColumn(new Column("BackendId", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("TabletId", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("StorageFormat", ScalarType.createVarchar(30)));
-        } else {
-            builder.addColumn(new Column("BackendId", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("V1Count", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("V2Count", ScalarType.createVarchar(30)));
+        for (String title : TITLE_NAMES) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(1024)));
         }
         return builder.build();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

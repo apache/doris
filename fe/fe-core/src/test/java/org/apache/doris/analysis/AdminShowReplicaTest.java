@@ -52,7 +52,7 @@ public class AdminShowReplicaTest extends TestWithFeService {
     @Test
     public void testShowReplicaDistribution() throws Exception {
         String stmtStr = "admin show replica distribution from test.tbl1 partition(p1)";
-        AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) parseAndAnalyzeStmt(
+        ShowReplicaDistributionStmt stmt = (ShowReplicaDistributionStmt) parseAndAnalyzeStmt(
                 stmtStr);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         ShowResultSet resultSet = executor.execute();
@@ -120,9 +120,9 @@ public class AdminShowReplicaTest extends TestWithFeService {
 
     private void testAnalyzeWhere(String stmt, boolean correct) {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
-        AdminShowReplicaStatusStmt showStmt = null;
+        ShowReplicaStatusStmt showStmt = null;
         try {
-            showStmt = (AdminShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
+            showStmt = (ShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             Assert.fail(e.getMessage());
         } catch (Exception e) {
@@ -130,7 +130,7 @@ public class AdminShowReplicaTest extends TestWithFeService {
         }
 
         try {
-            Method method = AdminShowReplicaStatusStmt.class.getDeclaredMethod("analyzeWhere");
+            Method method = ShowReplicaStatusStmt.class.getDeclaredMethod("analyzeWhere");
             method.setAccessible(true);
             if (!(Boolean) method.invoke(showStmt)) {
                 if (correct) {
