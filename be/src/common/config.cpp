@@ -366,7 +366,7 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "-1");
 DEFINE_mInt32(max_cumu_compaction_threads, "-1");
-DEFINE_mInt32(max_single_replica_compaction_threads, "10");
+DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");

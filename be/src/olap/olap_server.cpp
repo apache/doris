@@ -111,6 +111,15 @@ static int32_t get_base_compaction_threads_num(size_t data_dirs_num) {
     return threads_num;
 }
 
+static int32_t get_single_replica_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_single_replica_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
@@ -138,6 +147,8 @@ Status StorageEngine::start_bg_threads() {
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
+    auto single_replica_compaction_threads = get_single_replica_compaction_threads_num(
+            data_dirs.size());
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                             .set_min_threads(base_compaction_threads)
@@ -148,8 +159,8 @@ Status StorageEngine::start_bg_threads() {
                             .set_max_threads(cumu_compaction_threads)
                             .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-                            .set_min_threads(config::max_single_replica_compaction_threads)
-                            .set_max_threads(config::max_single_replica_compaction_threads)
+                            .set_min_threads(single_replica_compaction_threads)
+                            .set_max_threads(single_replica_compaction_threads)
                             .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
@@ -479,64 +490,68 @@ void StorageEngine::_tablet_path_check_callback() {
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
-    if (_base_compaction_thread_pool->max_threads() != config::max_base_compaction_threads) {
+    auto base_compaction_threads_num = get_base_compaction_threads_num(_store_map.size());
+    if (_base_compaction_thread_pool->max_threads() != base_compaction_threads_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
         Status status =
-                _base_compaction_thread_pool->set_max_threads(config::max_base_compaction_threads);
+                _base_compaction_thread_pool->set_max_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool max_threads from " << old_max_threads
-                        << " to " << config::max_base_compaction_threads;
+                        << " to " << base_compaction_threads_num;
         }
     }
-    if (_base_compaction_thread_pool->min_threads() != config::max_base_compaction_threads) {
+    if (_base_compaction_thread_pool->min_threads() != base_compaction_threads_num) {
         int old_min_threads = _base_compaction_thread_pool->min_threads();
         Status status =
-                _base_compaction_thread_pool->set_min_threads(config::max_base_compaction_threads);
+                _base_compaction_thread_pool->set_min_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool min_threads from " << old_min_threads
-                        << " to " << config::max_base_compaction_threads;
+                        << " to " << base_compaction_threads_num;
         }
     }
 
-    if (_cumu_compaction_thread_pool->max_threads() != config::max_cumu_compaction_threads) {
+    auto cumu_compaction_threads_num = get_cumu_compaction_threads_num(_store_map.size());
+    if (_cumu_compaction_thread_pool->max_threads() != cumu_compaction_threads_num) {
         int old_max_threads = _cumu_compaction_thread_pool->max_threads();
         Status status =
-                _cumu_compaction_thread_pool->set_max_threads(config::max_cumu_compaction_threads);
+                _cumu_compaction_thread_pool->set_max_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool max_threads from " << old_max_threads
-                        << " to " << config::max_cumu_compaction_threads;
+                        << " to " << cumu_compaction_threads_num;
         }
     }
-    if (_cumu_compaction_thread_pool->min_threads() != config::max_cumu_compaction_threads) {
+    if (_cumu_compaction_thread_pool->min_threads() != cumu_compaction_threads_num) {
         int old_min_threads = _cumu_compaction_thread_pool->min_threads();
         Status status =
-                _cumu_compaction_thread_pool->set_min_threads(config::max_cumu_compaction_threads);
+                _cumu_compaction_thread_pool->set_min_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool min_threads from " << old_min_threads
-                        << " to " << config::max_cumu_compaction_threads;
+                        << " to " << cumu_compaction_threads_num;
         }
     }
 
+    auto single_replica_compaction_threads_num =
+            get_single_replica_compaction_threads_num(_store_map.size());
     if (_single_replica_compaction_thread_pool->max_threads() !=
-        config::max_single_replica_compaction_threads) {
+        single_replica_compaction_threads_num) {
         int old_max_threads = _single_replica_compaction_thread_pool->max_threads();
         Status status = _single_replica_compaction_thread_pool->set_max_threads(
-                config::max_single_replica_compaction_threads);
+                single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool max_threads from "
                         << old_max_threads << " to "
-                        << config::max_single_replica_compaction_threads;
+                        << single_replica_compaction_threads_num;
         }
     }
     if (_single_replica_compaction_thread_pool->min_threads() !=
-        config::max_single_replica_compaction_threads) {
+        single_replica_compaction_threads_num) {
         int old_min_threads = _single_replica_compaction_thread_pool->min_threads();
         Status status = _single_replica_compaction_thread_pool->set_min_threads(
-                config::max_single_replica_compaction_threads);
+                single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool min_threads from "
                         << old_min_threads << " to "
-                        << config::max_single_replica_compaction_threads;
+                        << single_replica_compaction_threads_num;
         }
     }
 }

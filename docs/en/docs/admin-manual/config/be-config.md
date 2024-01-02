@@ -686,8 +686,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in single replica compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in single replica compaction thread pool. -1 means one thread per disk.
+* Default value: -1
 
 #### `update_replica_infos_interval_seconds`
 
