@@ -28,4 +28,28 @@ public:
     virtual ~TaskExecutionContext() = default;
 };
 
+using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;
+
+struct HasTaskExecutionCtx {
+    using Weak = typename TaskExecutionContextSPtr::weak_type;
+
+    HasTaskExecutionCtx(TaskExecutionContextSPtr task_exec_ctx) : task_exec_ctx_(task_exec_ctx) {}
+
+    // Init task ctx from state, the state has to has a method named get_task_execution_context()
+    // like runtime state
+    template <typename T>
+    HasTaskExecutionCtx(T* state) : task_exec_ctx_(state->get_task_execution_context()) {}
+
+public:
+    inline TaskExecutionContextSPtr task_exec_ctx() const {
+        if (task_exec_ctx_ == nullptr) {
+            return nullptr;
+        }
+        return task_exec_ctx_.lock();
+    }
+
+private:
+    Weak task_exec_ctx_;
+};
+
 } // namespace doris

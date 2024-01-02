@@ -52,7 +52,8 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                                pipeline::ScanLocalStateBase* local_state,
                                std::shared_ptr<pipeline::ScanDependency> dependency,
                                std::shared_ptr<pipeline::Dependency> finish_dependency)
-        : _state(state),
+        : HasTaskExecutionCtx(state),
+          _state(state),
           _parent(nullptr),
           _local_state(local_state),
           _output_tuple_desc(output_row_descriptor
@@ -72,8 +73,6 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
           _finish_dependency(finish_dependency) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
-    // Use the task exec context as a lock between scanner threads and fragment exection threads
-    _task_exec_ctx = _state->get_task_execution_context();
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
@@ -102,7 +101,8 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
                                const std::list<VScannerSPtr>& scanners, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue, const int num_parallel_instances,
                                pipeline::ScanLocalStateBase* local_state)
-        : _state(state),
+        : HasTaskExecutionCtx(state),
+          _state(state),
           _parent(parent),
           _local_state(local_state),
           _output_tuple_desc(output_row_descriptor
@@ -120,8 +120,6 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
           _num_parallel_instances(num_parallel_instances) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
-    // Use the task exec context as a lock between scanner threads and fragment exection threads
-    _task_exec_ctx = _state->get_task_execution_context();
     _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
