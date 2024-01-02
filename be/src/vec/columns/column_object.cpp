@@ -34,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
@@ -1009,12 +1010,12 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
         return;
     }
     root.SetObject();
-    for (auto it = node_root->children.begin(); it != node_root->children.end(); ++it) {
-        auto child = it->get_second();
+    // sort to make output stable
+    std::vector<StringRef> sorted_keys = node_root->get_sorted_chilren_keys();
+    for (const StringRef& key : sorted_keys) {
         rapidjson::Value value(rapidjson::kObjectType);
-        get_json_by_column_tree(value, allocator, child.get());
-        root.AddMember(rapidjson::StringRef(it->get_first().data, it->get_first().size), value,
-                       allocator);
+        get_json_by_column_tree(value, allocator, node_root->get_child_node(key).get());
+        root.AddMember(rapidjson::StringRef(key.data, key.size), value, allocator);
     }
 }
 
@@ -1081,14 +1082,6 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        if (subcolumn->data.data.empty() || subcolumn->data.get_finalized_column_ptr() == nullptr) {
-            // TODO this is a tmp defensive code to prevent from crash and
-            // print more info about crash info
-            LOG(WARNING) << "Dump crash debug info"
-                         << ", structure:" << JsonFunctions::print_json_value(*doc_structure)
-                         << ", num_rows: " << num_rows << ", row_position: " << row;
-            return false;
-        }
         find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
                                  subcolumn->data.get_least_common_type_serde(), root,
                                  doc_structure->GetAllocator(), row);
