@@ -80,6 +80,7 @@ exit_flag=0
         _IFS="${IFS}"
         IFS=$'\n'
         while read -r line; do
+            if [[ -z "${line}" || "${line}" == "#"* ]]; then continue; fi
             k="${line/set global /}"
             k="${k%=*}"
             v=$(mysql -h"${host}" -P"${query_port}" -uroot -e"show variables like '${k}'\G" | grep " Value: ")
