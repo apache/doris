@@ -78,8 +78,6 @@ public:
 
     void release();
 
-    void cancel(Status status);
-
     Streams& streams() { return _streams; }
 
 private:
@@ -97,7 +95,7 @@ public:
     ~LoadStreamStubPool();
 
     std::shared_ptr<LoadStreams> get_or_create(PUniqueId load_id, int64_t src_id, int64_t dst_id,
-                                               int num_streams, int num_sink, RuntimeState* state);
+                                               int num_streams, int num_sink);
 
     void erase(UniqueId load_id, int64_t dst_id);
 

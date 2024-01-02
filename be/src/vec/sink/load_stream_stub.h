@@ -57,7 +57,6 @@
 #include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
@@ -102,29 +101,11 @@ private:
         Status close_wait(int64_t timeout_ms) {
             DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
             std::unique_lock<bthread::Mutex> lock(_mutex);
-            int ret = 0;
-            MonotonicStopWatch watch;
-            watch.start();
-            while (true) {
-                if (_is_closed) {
-                    return Status::OK();
-                }
-                if (_stub->is_cancelled()) {
-                    return _stub->cancelled_state();
-                }
-                if (_stub->runtime_state()->is_cancelled()) {
-                    return Status::Cancelled(_stub->runtime_state()->cancel_reason());
-                }
-                // wait 1s once time.
-                ret = _close_cv.wait_for(lock, 1);
-                if (ret == 0) {
-                    return Status::OK();
-                }
-                if (watch.elapsed_time() / 1000 / 1000 >= timeout_ms) {
-                    return Status::InternalError("stream close wait timeout, result: {}", ret);
-                }
+            if (_is_closed) {
+                return Status::OK();
             }
-            return Status::OK();
+            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
         };
 
         std::vector<int64_t> success_tablets() {
@@ -157,28 +138,10 @@ private:
 
 public:
     // construct new stub
-    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use, RuntimeState* state);
+    LoadStreamStub(PUniqueId load_id, int64_t src_id, int num_use);
 
     // copy constructor, shared_ptr members are shared
-    LoadStreamStub(LoadStreamStub& stub, RuntimeState* state);
-
-    void cancel(Status status) {
-        _cancel = true;
-        _cancel_status = status;
-    }
-
-    RuntimeState* runtime_state() const { return _state; }
-
-    bool is_cancelled() const { return _cancel; }
-
-    Status cancelled_state() const { return _cancel_status; }
-
-    std::string cancel_reason() const {
-        if (_state == nullptr) {
-            return "";
-        }
-        return _state->cancel_reason();
-    }
+    LoadStreamStub(LoadStreamStub& stub);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -268,11 +231,6 @@ private:
     Status _send_with_retry(butil::IOBuf& buf);
 
 protected:
-    RuntimeState* _state = nullptr;
-
-    bool _cancel = false;
-    Status _cancel_status;
-
     std::atomic<bool> _is_init;
     bthread::Mutex _mutex;
 
