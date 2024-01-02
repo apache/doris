@@ -34,9 +34,9 @@ import java.util.List;
 
 public class DialectPluginTest extends TestWithFeService {
 
-    private final static TestDialectPlugin1 sparkPlugin = new TestDialectPlugin1();
-    private final static TestDialectPlugin2 hivePlugin = new TestDialectPlugin2();
-    private final static String TEST_SQL = "select * from test_hive_table";
+    private static final TestDialectPlugin1 sparkPlugin = new TestDialectPlugin1();
+    private static final TestDialectPlugin2 hivePlugin = new TestDialectPlugin2();
+    private static final String TEST_SQL = "select * from test_hive_table";
 
     @Override
     public void runBeforeAll() throws IOException, InterruptedException {
