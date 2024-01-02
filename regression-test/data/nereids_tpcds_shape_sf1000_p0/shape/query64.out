@@ -47,7 +47,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------PhysicalOlapScan[store_returns] apply RFs: RF11 RF12
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF10 cs_item_sk->[ss_item_sk]
+------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF10 cs_item_sk->[ss_item_sk,i_item_sk]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF9 p_promo_sk->[ss_promo_sk]
@@ -84,7 +84,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------PhysicalDistribute
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------filter((item.i_current_price <= 58.00) and (item.i_current_price >= 49.00) and i_color IN ('blush', 'lace', 'lawn', 'misty', 'orange', 'pink'))
-----------------------------------------------------------PhysicalOlapScan[item]
+----------------------------------------------------------PhysicalOlapScan[item] apply RFs: RF10
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------PhysicalOlapScan[customer_address]

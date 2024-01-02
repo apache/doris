@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF4 n_nationkey->[s_nationkey]
 ------------PhysicalProject
---------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = t3.ps_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
+--------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((supplier.s_suppkey = t3.ps_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey,l_suppkey]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((t2.l_partkey = t1.ps_partkey) and (t2.l_suppkey = t1.ps_suppkey)) otherCondition=((cast(ps_availqty as DECIMALV3(38, 3)) > t2.l_q)) build RFs:RF1 ps_partkey->[l_partkey];RF2 ps_suppkey->[l_suppkey]
@@ -17,7 +17,7 @@ PhysicalResultSink
 ----------------------------hashAgg[LOCAL]
 ------------------------------PhysicalProject
 --------------------------------filter((lineitem.l_shipdate < '1995-01-01') and (lineitem.l_shipdate >= '1994-01-01'))
-----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2
+----------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF3
 ----------------------PhysicalDistribute
 ------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((partsupp.ps_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
 --------------------------PhysicalProject

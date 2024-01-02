@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((sr_items.item_id = wr_items.item_id)) otherCondition=() build RFs:RF13 item_id->[i_item_id]
+------------hashJoin[INNER_JOIN] hashCondition=((sr_items.item_id = wr_items.item_id)) otherCondition=() build RFs:RF13 item_id->[i_item_id,i_item_id]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((sr_items.item_id = cr_items.item_id)) otherCondition=() build RFs:RF12 item_id->[i_item_id]
 ------------------PhysicalProject
@@ -49,7 +49,7 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF6 RF7
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[item]
+--------------------------------------PhysicalOlapScan[item] apply RFs: RF13
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
