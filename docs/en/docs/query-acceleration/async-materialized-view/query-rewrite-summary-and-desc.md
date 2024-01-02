@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Query transparent rewriting",
+    "title": "Querying Asynchronous Materialized Views",
     "language": "en"
 }
 ---
