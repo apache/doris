@@ -287,23 +287,29 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
                 if (_build_indexs[i] == 0) {
                     filter_map[i] = is_mark_join && not_matched_before;
                     filter_column_ptr[i] = false;
-                } else if (filter_column_ptr[i]) {
-                    filter_map[i] = not_matched_before;
-                    _parent->_last_probe_match = _probe_indexs[i];
                 } else {
-                    filter_map[i] = false;
+                    if (filter_column_ptr[i]) {
+                        filter_map[i] = not_matched_before;
+                        _parent->_last_probe_match = _probe_indexs[i];
+                    } else {
+                        filter_map[i] = false;
+                    }
                 }
             } else {
-                if (_build_indexs[i]) {
+                if (_build_indexs[i] == 0) {
+                    if (not_matched_before) {
+                        filter_map[i] = true;
+                    } else if (is_mark_join) {
+                        filter_map[i] = true;
+                        filter_column_ptr[i] = false;
+                    } else {
+                        filter_map[i] = false;
+                    }
+                } else {
                     filter_map[i] = false;
                     if (filter_column_ptr[i]) {
                         _parent->_last_probe_match = _probe_indexs[i];
                     }
-                } else if (not_matched_before) {
-                    filter_map[i] = true;
-                } else if (is_mark_join) {
-                    filter_map[i] = true;
-                    filter_column_ptr[i] = false;
                 }
             }
         }
