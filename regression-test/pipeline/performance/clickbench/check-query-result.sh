@@ -6,8 +6,8 @@ if [[ ! -d query-result-actual ]]; then mkdir query-result-actual; fi
 
 QUERY_NUM=1
 while read -r query; do
-    echo "${query}"
-    mysql -h"${host:-}" -P"${query_port:-}" -uroot -D"${db_name:-}" -e"${query}" >"query-result-actual/doris-q${QUERY_NUM}.result"
+    echo "query${QUERY_NUM}:  ${query}"
+    mysql -h"${host:-127.0.0.1}" -P"${query_port:-9030}" -uroot -D"${db_name:-clickbench}" -e"${query}" >"query-result-actual/doris-q${QUERY_NUM}.result"
     QUERY_NUM=$((QUERY_NUM + 1))
 done <queries-sort.sql
 
