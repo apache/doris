@@ -482,10 +482,10 @@ There are two ways to configure BE configuration items:
 * Default value: 10485760
 
 #### `max_base_compaction_threads`
-
+git 
 * Type: int32
-* Description: The maximum of thread number in base compaction thread pool.
-* Default value: 4
+* Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `generate_compaction_tasks_interval_ms`
 
@@ -625,8 +625,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in cumulative compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in cumulative compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `enable_segcompaction`
 

@@ -93,6 +93,24 @@ volatile uint32_t g_schema_change_active_threads = 0;
 static const uint64_t DEFAULT_SEED = 104729;
 static const uint64_t MOD_PRIME = 7652413;
 
+static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_cumu_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
+static int32_t get_base_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_base_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
@@ -118,13 +136,16 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
+    auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
+    auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
+
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                            .set_min_threads(config::max_base_compaction_threads)
-                            .set_max_threads(config::max_base_compaction_threads)
+                            .set_min_threads(base_compaction_threads)
+                            .set_max_threads(base_compaction_threads)
                             .build(&_base_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                            .set_min_threads(config::max_cumu_compaction_threads)
-                            .set_max_threads(config::max_cumu_compaction_threads)
+                            .set_min_threads(cumu_compaction_threads)
+                            .set_max_threads(cumu_compaction_threads)
                             .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
                             .set_min_threads(config::max_single_replica_compaction_threads)
