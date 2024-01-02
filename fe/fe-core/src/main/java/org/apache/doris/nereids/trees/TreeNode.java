@@ -152,6 +152,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * Foreach treeNode. Top-down traverse implicitly, stop traverse if satisfy test.
+     * @param func foreach function
+     */
+    default void foreach(Predicate<TreeNode<NODE_TYPE>> func) {
+        boolean valid = func.test(this);
+        if (!valid) {
+            for (NODE_TYPE child : children()) {
+                child.foreach(func);
+            }
+        }
+    }
+
+    /**
      * Foreach treeNode. Top-down traverse implicitly.
      * @param func foreach function
      */
@@ -251,6 +264,7 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             if (result.isEmpty() && predicate.test(node)) {
                 result.add(node);
             }
+            return !result.isEmpty();
         });
         return (List<T>) ImmutableList.copyOf(result);
     }

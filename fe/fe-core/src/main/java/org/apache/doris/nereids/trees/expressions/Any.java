@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * This represents any expression, it means it equals any expression
@@ -63,5 +64,14 @@ public class Any extends Expression implements LeafExpression {
     @Override
     public boolean deepEquals(TreeNode<?> that) {
         return true;
+    }
+
+    /**
+     * Equals with direction
+     * Since the equals method in Any is always true, that means Any is equals to others, but not equal in reverse.
+     * The expression with Any should always be the first argument.
+     */
+    public static boolean equals(Expression expressionWithAny, Expression target) {
+        return Objects.equals(expressionWithAny, target);
     }
 }
