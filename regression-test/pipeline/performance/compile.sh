@@ -136,6 +136,7 @@ sudo docker run -i --rm \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
 set +x
+set -x
 succ_symble="Successfully build Doris"
 if [[ -d outout ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
     echo "INFO: ${succ_symble}"
