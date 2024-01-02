@@ -24,7 +24,6 @@
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -256,8 +255,6 @@ Status GroupCommitTable::_create_group_commit_load(
             10000L);
     RETURN_IF_ERROR(st);
     st = Status::create(result.status);
-    DBUG_EXECUTE_IF("GroupCommitTable._create_group_commit_load.create_load_filed",
-                    { st = Status::InternalError("create group commit load error."); });
     if (!st.ok()) {
         LOG(WARNING) << "create group commit load error, st=" << st.to_string();
     }
@@ -413,8 +410,6 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
         static_cast<void>(_finish_group_commit_load(db_id, table_id, label, txn_id,
                                                     state->fragment_instance_id(), *status, state));
     };
-    DBUG_EXECUTE_IF("GroupCommitTable._exec_plan_fragment.exec_plan_fragment_fail",
-                    { return Status::InternalError("exec plan fragment failed!"); });
     if (is_pipeline) {
         return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
     } else {
