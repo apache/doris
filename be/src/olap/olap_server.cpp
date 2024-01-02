@@ -147,8 +147,8 @@ Status StorageEngine::start_bg_threads() {
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
-    auto single_replica_compaction_threads = get_single_replica_compaction_threads_num(
-            data_dirs.size());
+    auto single_replica_compaction_threads =
+            get_single_replica_compaction_threads_num(data_dirs.size());
 
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
                             .set_min_threads(base_compaction_threads)
@@ -493,8 +493,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
     auto base_compaction_threads_num = get_base_compaction_threads_num(_store_map.size());
     if (_base_compaction_thread_pool->max_threads() != base_compaction_threads_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
-        Status status =
-                _base_compaction_thread_pool->set_max_threads(base_compaction_threads_num);
+        Status status = _base_compaction_thread_pool->set_max_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool max_threads from " << old_max_threads
                         << " to " << base_compaction_threads_num;
@@ -502,8 +501,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
     }
     if (_base_compaction_thread_pool->min_threads() != base_compaction_threads_num) {
         int old_min_threads = _base_compaction_thread_pool->min_threads();
-        Status status =
-                _base_compaction_thread_pool->set_min_threads(base_compaction_threads_num);
+        Status status = _base_compaction_thread_pool->set_min_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool min_threads from " << old_min_threads
                         << " to " << base_compaction_threads_num;
@@ -513,8 +511,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
     auto cumu_compaction_threads_num = get_cumu_compaction_threads_num(_store_map.size());
     if (_cumu_compaction_thread_pool->max_threads() != cumu_compaction_threads_num) {
         int old_max_threads = _cumu_compaction_thread_pool->max_threads();
-        Status status =
-                _cumu_compaction_thread_pool->set_max_threads(cumu_compaction_threads_num);
+        Status status = _cumu_compaction_thread_pool->set_max_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool max_threads from " << old_max_threads
                         << " to " << cumu_compaction_threads_num;
@@ -522,8 +519,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
     }
     if (_cumu_compaction_thread_pool->min_threads() != cumu_compaction_threads_num) {
         int old_min_threads = _cumu_compaction_thread_pool->min_threads();
-        Status status =
-                _cumu_compaction_thread_pool->set_min_threads(cumu_compaction_threads_num);
+        Status status = _cumu_compaction_thread_pool->set_min_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool min_threads from " << old_min_threads
                         << " to " << cumu_compaction_threads_num;
@@ -539,8 +535,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
                 single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool max_threads from "
-                        << old_max_threads << " to "
-                        << single_replica_compaction_threads_num;
+                        << old_max_threads << " to " << single_replica_compaction_threads_num;
         }
     }
     if (_single_replica_compaction_thread_pool->min_threads() !=
@@ -550,8 +545,7 @@ void StorageEngine::_adjust_compaction_thread_num() {
                 single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool min_threads from "
-                        << old_min_threads << " to "
-                        << single_replica_compaction_threads_num;
+                        << old_min_threads << " to " << single_replica_compaction_threads_num;
         }
     }
 }
