@@ -56,6 +56,15 @@ public class Any extends Expression implements LeafExpression {
         return true;
     }
 
+    /**
+     * Equals with direction
+     * Since the equals method in Any is always true, that means Any is equals to others, but not equal in reverse.
+     * The expression with Any should always be the first argument.
+     */
+    public static boolean equals(Expression expressionWithAny, Expression target) {
+        return Objects.equals(expressionWithAny, target);
+    }
+
     @Override
     public int hashCode() {
         return 0;
@@ -64,14 +73,5 @@ public class Any extends Expression implements LeafExpression {
     @Override
     public boolean deepEquals(TreeNode<?> that) {
         return true;
-    }
-
-    /**
-     * Equals with direction
-     * Since the equals method in Any is always true, that means Any is equals to others, but not equal in reverse.
-     * The expression with Any should always be the first argument.
-     */
-    public static boolean equals(Expression expressionWithAny, Expression target) {
-        return Objects.equals(expressionWithAny, target);
     }
 }
