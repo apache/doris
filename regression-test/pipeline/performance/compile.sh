@@ -138,6 +138,8 @@ sudo docker run -i --rm \
 set +x
 succ_symble="BUILD SUCCESS"
 if [[ -d outout ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
+    echo "INFO: ${succ_symble}"
+else
     echo -e "ERROR: BUILD FAILED"
     exit 1
 fi

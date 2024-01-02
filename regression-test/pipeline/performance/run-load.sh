@@ -36,7 +36,7 @@ EOF
 # restart_doris, set_session_variable
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
-# create_an_issue_comment
+# create_an_issue_comment_load
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
 # shellcheck source=/dev/null
 # upload_doris_log_to_oss
@@ -77,7 +77,7 @@ exit_flag=0
     shopt -s inherit_errexit
 
     stream_load_json() {
-        echo "#### create table"
+        echo "## create table"
         ddl="
             CREATE TABLE IF NOT EXISTS  hits_json (
                 CounterID INT NOT NULL, 
@@ -191,7 +191,7 @@ exit_flag=0
             PROPERTIES (\"replication_num\"=\"1\");
         "
         ${clt} -D"${DB}" -e"${ddl}"
-        echo "#### load data"
+        echo "## load data"
         if [[ ! -d "${data_home}" ]]; then mkdir -p "${data_home}"; fi
         if [[ ! -f "${data_home}"/hits.json.1000000 ]] || [[ $(wc -c "${data_home}"/hits.json.1000000 | awk '{print $1}') != '2358488459' ]]; then
             cd "${data_home}"
@@ -212,7 +212,7 @@ exit_flag=0
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_json" | sed -n '2p') != 1000000 ]]; then echo "check load fail..." && return 1; fi
 
-        echo "#### record load test result"
+        echo "## record load test result"
         stream_load_json_size=$(echo "${ret}" | jq '.LoadBytes')
         stream_load_json_time=$(printf "%.0f" "$(echo "scale=1;$(echo "${ret}" | jq '.LoadTimeMs')/1000" | bc)")
         stream_load_json_speed=$(echo "${stream_load_json_size} / 1024 / 1024/ ${stream_load_json_time}" | bc)
@@ -222,7 +222,7 @@ exit_flag=0
     }
 
     stream_load_orc() {
-        echo "#### create table"
+        echo "## create table"
         ddl="
         CREATE TABLE IF NOT EXISTS  hits_orc (
             CounterID INT NOT NULL, 
@@ -336,7 +336,7 @@ exit_flag=0
         PROPERTIES (\"replication_num\"=\"1\");
         "
         ${clt} -D"${DB}" -e"${ddl}"
-        echo "#### load data"
+        echo "## load data"
         if [[ ! -d "${data_home}" ]]; then mkdir -p "${data_home}"; fi
         if [[ ! -f "${data_home}"/hits_0.orc ]] || [[ $(wc -c "${data_home}"/hits_0.orc | awk '{print $1}') != '1101869774' ]]; then
             cd "${data_home}"
@@ -355,7 +355,7 @@ exit_flag=0
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_orc" | sed -n '2p') != 8800160 ]]; then echo "check load fail..." && return 1; fi
 
-        echo "#### record load test result"
+        echo "## record load test result"
         stream_load_orc_size=$(echo "${ret}" | jq '.LoadBytes')
         stream_load_orc_time=$(printf "%.0f" "$(echo "scale=1;$(echo "${ret}" | jq '.LoadTimeMs')/1000" | bc)")
         stream_load_orc_speed=$(echo "${stream_load_orc_size} / 1024 / 1024/ ${stream_load_orc_time}" | bc)
@@ -365,7 +365,7 @@ exit_flag=0
     }
 
     stream_load_parquet() {
-        echo "#### create table"
+        echo "## create table"
         ddl="
         CREATE TABLE IF NOT EXISTS  hits_parquet (
             CounterID INT NOT NULL, 
@@ -479,7 +479,7 @@ exit_flag=0
         PROPERTIES (\"replication_num\"=\"1\");
         "
         ${clt} -D"${DB}" -e"${ddl}"
-        echo "#### load data"
+        echo "## load data"
         stream_load_parquet_size=0
         stream_load_parquet_time=0
         if [[ ! -d "${data_home}" ]]; then mkdir -p "${data_home}"; fi
@@ -507,7 +507,7 @@ exit_flag=0
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_parquet" | sed -n '2p') != 5000000 ]]; then echo "check load fail..." && return 1; fi
 
-        echo "#### record load test result"
+        echo "## record load test result"
         stream_load_parquet_speed=$(echo "${stream_load_parquet_size} / 1024 / 1024/ ${stream_load_parquet_time}" | bc)
         export stream_load_parquet_size
         export stream_load_parquet_time
@@ -515,7 +515,7 @@ exit_flag=0
     }
 
     insert_into_select() {
-        echo "#### create table"
+        echo "## create table"
         ddl="
         CREATE TABLE IF NOT EXISTS  hits_insert_into_select (
             CounterID INT NOT NULL, 
@@ -630,7 +630,7 @@ exit_flag=0
         "
         ${clt} -D"${DB}" -e"${ddl}"
 
-        echo "#### load data by INSERT INTO SELECT"
+        echo "## load data by INSERT INTO SELECT"
         insert_into_select_time=0
         insert_into_select_rows=10000000
         start=$(date +%s%3N)
@@ -644,7 +644,7 @@ exit_flag=0
         sleep 5
         if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_insert_into_select" | sed -n '2p') != "${insert_into_select_rows}" ]]; then echo "check load fail..." && return 1; fi
 
-        echo "#### record load test result"
+        echo "## record load test result"
         insert_into_select_speed=$(echo "${insert_into_select_rows} / 1000 / ${insert_into_select_time}" | bc)
         export insert_into_select_rows
         export insert_into_select_time
@@ -654,7 +654,7 @@ exit_flag=0
     echo "#### 1. Restart doris"
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
-    echo "#### 3. run streamload test"
+    echo "#### 2. run load test"
     set_session_variable runtime_filter_mode global
     ${clt} -e "DROP DATABASE IF EXISTS ${DB}" && sleep 1
     ${clt} -e "CREATE DATABASE IF NOT EXISTS ${DB}" && sleep 5
@@ -662,7 +662,12 @@ exit_flag=0
     if ! stream_load_orc; then exit 1; fi
     if ! stream_load_parquet; then exit 1; fi
     if ! insert_into_select; then exit 1; fi
-    if ! check_load_performance; then exit 1; fi
+
+    echo "#### 3. check load performance"
+    if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
+    if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
+    if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
+    if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
 
     echo "#### 4. comment result on tpch"
     comment_body="Load test result on commit ${commit_id:-} with default conf and session variables"
@@ -672,12 +677,13 @@ exit_flag=0
     if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\n insert into select:          ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
 
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_tpch "${pull_request_num:-}" "${comment_body}"
+    create_an_issue_comment_load "${pull_request_num:-}" "${comment_body}"
 )
 exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
+    stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then

@@ -71,70 +71,35 @@ exit_flag=0
 
     host="127.0.0.1"
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    backup_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/backup_session_variables_file.sql"
-    opt_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/opt_session_variables_file.sql"
+    backup_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/backup_session_variables.sql"
+    opt_session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/clickbench/opt_session_variables.sql"
 
-    echo "####optimize doris config"
-    echo "
-priority_networks=127.0.0.1/24
-meta_dir=/data/doris-meta
-stream_load_default_timeout_second=3600
-ignore_unknown_metadata_module=true
-enable_full_auto_analyze=false
-" | tee "${DORIS_HOME}"/fe/conf/fe_custom.conf
-
-    echo "
-priority_networks=127.0.0.1/24
-storage_root_path=/data/doris-storage
-load_channel_memory_refresh_sleep_time_ms=1000
-soft_mem_limit_frac=1
-track_new_delete=false
-streaming_load_max_mb=102400
-doris_scanner_thread_pool_thread_num=8
-tc_enable_aggressive_memory_decommit=false
-enable_new_scan_node=false
-#mem_limit=100%
-mem_limit=90%
-#write_buffer_size=1609715200
-write_buffer_size=1209715200
-load_process_max_memory_limit_percent=100
-#load_process_soft_mem_limit_percent=80
-disable_auto_compaction=true
-disable_storage_page_cache=false
-disable_chunk_allocator=false
-enable_simdjson_reader = true
-" | tee "${DORIS_HOME}"/be/conf/be_custom.conf
-
-    opt_session_variables="
-set global exec_mem_limit=34359738368;
-set global parallel_fragment_exec_instance_num=16;
-set global parallel_pipeline_task_num=16;
-set global enable_single_distinct_column_opt=true;
-set global enable_function_pushdown=true;
-set global forbid_unknown_col_stats=false;
-set global runtime_filter_mode=global;
-"
-    echo -e "${opt_session_variables}" | tee "${opt_session_variables_file}"
-
+    echo "#### 1. backup session variables to file ${backup_session_variables_file}"
+    if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
     backup_session_variables() {
         _IFS="${IFS}"
         IFS=$'\n'
-        for line in ${opt_session_variables}; do
+        while read -r line; do
             k="${line/set global /}"
             k="${k%=*}"
             v=$(mysql -h"${host}" -P"${query_port}" -uroot -e"show variables like '${k}'\G" | grep " Value: ")
             v="${v/*Value: /}"
             echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
-        done
+        done <"${opt_session_variables_file}"
         IFS="${_IFS}"
     }
     backup_session_variables
-    mysql -h"${host}" -P"${query_port}" -uroot -e"source ${opt_session_variables_file};"
 
-    echo "#### 1. Restart doris"
+    echo "#### 2. optimize doris config"
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
-    echo "#### 2. check if need to load data"
+    echo "#### 3. optimize session variables"
+    cat "${opt_session_variables_file}"
+    mysql -h"${host}" -P"${query_port}" -uroot -e"source ${opt_session_variables_file};"
+
+    echo "#### 4. check data rows"
     data_home="/data/clickbench" # no / at the end
     db_name="clickbench"
     if ! check_clickbench_table_rows "${db_name}"; then
@@ -287,10 +252,11 @@ set global runtime_filter_mode=global;
         data_reload="true"
     fi
 
-    echo "#### 3. run clickbench query"
+    echo "#### 5. run clickbench query"
     bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
+    cd clickbench && bash check-query-result.sh && cd -
     if ! check_clickbench_query_result; then exit 1; fi
     cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
@@ -300,7 +266,7 @@ $(sed 's|,|\t|g' result.csv)
 Total cold run time: ${cold_run_sum} s
 Total hot run time: ${best_hot_run_sum} s"
 
-    echo "#### 4. comment result on clickbench"
+    echo "#### 6. comment result on clickbench"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body}"
     rm -f result.csv
@@ -310,7 +276,7 @@ Total hot run time: ${best_hot_run_sum} s"
 )
 exit_flag="$?"
 
-echo "#### 5. check if need backup doris logs"
+echo "#### 7. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
     stop_doris
     print_doris_fe_log

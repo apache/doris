@@ -244,10 +244,6 @@ function check_tpcds_result() {
     check_tpch_result "$1"
 }
 
-function check_clickbench_query_result() {
-    echo "TODO"
-}
-
 function check_clickbench_performance_result() {
     result_file="$1"
     if [[ -z "${result_file}" ]]; then return 1; fi
@@ -273,10 +269,6 @@ function check_clickbench_performance_result() {
     cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
     hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
     fi
-}
-
-function check_load_performance() {
-    echo "TODO"
 }
 
 get_session_variable() {
