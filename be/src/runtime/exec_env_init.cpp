@@ -626,7 +626,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    // cache_manager must be destoried after _inverted_index_query_cache
+    // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
 
