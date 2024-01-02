@@ -37,6 +37,6 @@ public class TestDialectPlugin1 extends Plugin implements DialectConverterPlugin
 
     @Override
     public List<StatementBase> parseSqlWithDialect(String sql, SessionVariable sessionVariable) {
-        return new NereidsParser().parseSQL(TEST_CONVERTED_SQL, sessionVariable);
+        return new NereidsParser().parseSQL(TEST_CONVERTED_SQL);
     }
 }
