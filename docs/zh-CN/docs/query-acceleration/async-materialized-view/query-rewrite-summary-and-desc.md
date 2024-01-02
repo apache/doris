@@ -25,15 +25,13 @@ under the License.
 -->
 
 ## 概述
-Doris 的异步物化视图采用了基于 SPJG（SELECT-PROJECT-JOIN-GROUP-BY）模式的结构信息来进行透明改写算法。
+Doris 的异步物化视图采用了基于 SPJG（SELECT-PROJECT-JOIN-GROUP-BY）模式的结构信息来进行透明改写的算法。
 
 Doris 可以分析查询 SQL 的结构信息，自动寻找满足要求的物化视图，并尝试进行透明改写，使用物化视图来表达查询SQL。
 
-通过使用预计算的物化视图 结果，可以大幅提高查询性能，减少计算成本。
+通过使用预计算的物化视图结果，可以大幅提高查询性能，减少计算成本。
 
-
-## 透明改写能力
-以 TPC-H 的三张 lineitem， orders 和 partsupp 表来描述透明改写的能力。
+以 TPC-H 的三张 lineitem，orders 和 partsupp 表来描述直接查询物化视图和使用物化视图进行查询透明改写的能力。
 表的定义如下：
 ```sql
 CREATE TABLE IF NOT EXISTS lineitem (
@@ -94,8 +92,42 @@ CREATE TABLE IF NOT EXISTS orders  (
     );
 ```
 
+## 直查物化视图
+物化视图可以看作是表，可以像正常的表一样直接查询。
+
+**用例1:**
+
+物化视图的定义语法，详情见 [CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
+
+mv 定义:
+```sql
+CREATE MATERIALIZED VIEW mv1
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 12
+PROPERTIES ('replication_num' = '1')
+AS
+SELECT t1.l_linenumber,
+       o_custkey,
+       o_orderdate
+FROM (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
+LEFT OUTER JOIN orders
+ON l_orderkey = o_orderkey;
+```
+查询语句:
+
+可以对物化视图添加过滤条件和聚合等，进行直接查询。
+
+```sql
+SELECT l_linenumber,
+       o_custkey
+FROM mv1
+WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
+```
+
+## 透明改写能力
 ### JOIN 改写
-JOIN 改写指的是查询和物化使用的表相同，可以在物化视图和查询 JOIN 的内部输入或者 JOIN 的外部写 WHERE，可以进行透明改写。
+JOIN 改写指的是查询和物化使用的表相同，可以在物化视图和查询 JOIN 的内部输入或者 JOIN 的外部写 WHERE，可以进行改写。
+
 当查询和物化视图的 Join 的类型不同时，满足一定条件时，也可以进行改写。
 
 **用例1:**
@@ -105,7 +137,8 @@ JOIN 改写指的是查询和物化使用的表相同，可以在物化视图和
 mv 定义:
 ```sql
 SELECT t1.l_linenumber,
-       o_custkey
+       o_custkey,
+       o_orderdate
 FROM (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
 LEFT OUTER JOIN orders
 ON l_orderkey = o_orderkey;
@@ -123,13 +156,13 @@ WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
 **用例2:**
 
 JOIN衍生（TODO）
-当查询和物化视图的 JOIN 的类型不一致时，但物化可以提供查询所需的所有数据时，通过在 JOIN 的上层补偿谓词，也可以进行透明改写，
+当查询和物化视图的 JOIN 的类型不一致时，但物化可以提供查询所需的所有数据时，通过在 JOIN 的外部补偿谓词，也可以进行透明改写，
 举例如下，待支持。
 
 mv 定义:
 ```sql
 SELECT
-    l_shipdate, l_suppkey,
+    l_shipdate, l_suppkey, o_orderdate
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -139,13 +172,14 @@ FROM lineitem
 LEFT OUTER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
 GROUP BY
 l_shipdate,
-l_suppkey;
+l_suppkey,
+o_orderdate;
 ```
 
 查询语句:
 ```sql
 SELECT
-    l_shipdate, l_suppkey,
+    l_shipdate, l_suppkey, o_orderdate
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -153,17 +187,18 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 INNER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_partkey = 3
+WHERE o_orderdate = '2023-12-11' AND l_suppkey = 3
 GROUP BY
 l_shipdate,
-l_suppkey;
+l_suppkey,
+o_orderdate;
 ```
 
 ### 聚合改写
 
 **用例1**
 
-如下查询可以进行透明改写，查询和物化使用聚合的维度一致，可以使用维度中的字段进行过滤结果，查询会尝试使用物化视图 SELECT 后的表达式。
+如下查询可以进行透明改写，查询和物化使用聚合的维度一致，可以使用维度中的字段进行过滤结果，并且查询会尝试使用物化视图 SELECT 后的表达式。
 
 mv 定义:
 ```sql
@@ -202,7 +237,9 @@ o_comment;
 **用例2**
 
 如下查询可以进行透明改写，查询和物化使用聚合的维度不一致，物化视图使用的维度包含查询的维度。 可以使用维度中的字段进行过滤结果，
-查询会尝试使用物化视图 SELECT 后函数进行上卷，如物化视图的 `bitmap_union` 最后会上卷成 `bitmap_union_count`，和查询中
+
+查询会尝试使用物化视图 SELECT 后的函数进行上卷，如物化视图的 `bitmap_union` 最后会上卷成 `bitmap_union_count`，和查询中
+
 `count(distinct)` 的语义 保持一致。
 
 mv 定义:
@@ -251,7 +288,9 @@ l_suppkey;
 | count(distinct ) | bitmap_union | bitmap_union_count |
 
 ## Query partial 透明改写 （TODO）
-当物化视图的表比查询多时，如果物化视图比查询多的表满足 JOIN 消除的条件，那么也可以进行透明改写，如下也可以进行透明改写，待支持。
+当物化视图的表比查询多时，如果物化视图比查询多的表满足 JOIN 消除的条件，那么也可以进行透明改写，如下可以进行透明改写，待支持。
+
+**用例1**
 
 mv 定义:
 ```sql
@@ -279,6 +318,7 @@ mv 定义:
 当物化视图不足以提供查询的所有数据时，可以通过 Union 的方式，将查询原表和物化视图 Union 起来返回数据，如下可以进行透明改写，待支持。
 
 **用例1**
+
 mv 定义:
 ```sql
 SELECT
@@ -301,7 +341,7 @@ FROM orders
 WHERE o_orderkey > 5;
 ```
 
-改写结果：
+改写结果示意：
 ```sql
 SELECT *
 FROM mv
@@ -348,5 +388,5 @@ INNER 和 LEFT OUTER JOIN 其他类型的 JOIN 操作逐步支持。
 - 不支持非确定性函数的改写，包括 rand、now、current_time、current_date、random、uuid等。
 - 不支持窗口函数的改写。
 - 物化视图的定义暂时不能使用视图和物化视图。
-- 目前 WHERE 条件补偿，支持物化视图没有 WHERE，查询有 WHERE情况的条件补偿；或者物化视图有 WHERE 且查询的 WHERE 条件是物化视图的超集。目前暂时还不支持
-范围的条件补偿，比如物化视图定义是 a > 5，查询是 a > 10。
+- 目前 WHERE 条件补偿，支持物化视图没有 WHERE，查询有 WHERE情况的条件补偿；或者物化视图有 WHERE 且查询的 WHERE 条件是物化视图的超集。
+目前暂时还不支持，范围的条件补偿，比如物化视图定义是 a > 5，查询是 a > 10。

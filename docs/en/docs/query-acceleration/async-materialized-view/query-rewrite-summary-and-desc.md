@@ -32,11 +32,8 @@ automatically identify suitable materialized views, and attempt transparent rewr
 query SQL using the materialized views. By utilizing precomputed materialized view results, 
 significant improvements in query performance and a reduction in computational costs can be achieved.
 
-
-## Transparent Rewriting Capability
-
-Describing the transparent rewriting capability using the three TPC-H tables, lineitem, orders, and partsupp.
-The definitions of the tables are as follows:
+Using the three tables: lineitem, orders, and partsupp from TPC-H, let's describe the capability of directly querying
+a materialized view and using the materialized view for transparent query rewriting.
 ```sql
 CREATE TABLE IF NOT EXISTS lineitem (
     l_orderkey    integer not null,
@@ -96,6 +93,38 @@ CREATE TABLE IF NOT EXISTS orders  (
     );
 ```
 
+## Direct Query of Materialized View
+A materialized view can be considered as a table and can be queried just like a regular table.
+
+The syntax for defining a materialized view, details can be found in 
+[CREATE-ASYNC-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
+
+Materialized view definition:
+```sql
+CREATE MATERIALIZED VIEW mv1
+BUILD IMMEDIATE REFRESH AUTO ON SCHEDULE EVERY 1 hour
+DISTRIBUTED BY RANDOM BUCKETS 12
+PROPERTIES ('replication_num' = '1')
+AS
+SELECT t1.l_linenumber,
+       o_custkey,
+       o_orderdate
+FROM (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
+         LEFT OUTER JOIN orders
+                         ON l_orderkey = o_orderkey;
+```
+
+Query statement:
+Direct queries can be performed on the materialized view with additional filtering conditions and aggregations.
+      
+```sql
+SELECT l_linenumber,
+       o_custkey
+FROM mv1
+WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
+```      
+
+## Transparent Rewriting Capability
 ### Join rewriting
 
 JOIN rewriting refers to the ability to transparently rewrite a query when the tables used in the query and 
@@ -105,13 +134,15 @@ Additionally, under certain conditions, when the types of JOINs in the query and
 rewriting can still take place.
 
 **Case 1:**
+
 The following case can undergo transparent rewriting. The condition `l_linenumber > 1` allows for pull-up, 
 enabling transparent rewriting by expressing the query using the precomputed results of the materialized view.
 
 Materialized view definition:
 ```sql
 SELECT t1.l_linenumber,
-       o_custkey
+       o_custkey,
+       o_orderdate
 FROM (SELECT * FROM lineitem WHERE l_linenumber > 1) t1
 LEFT OUTER JOIN orders
 ON l_orderkey = o_orderkey;
@@ -137,7 +168,7 @@ For example:
 Materialized view definition:
 ```sql
 SELECT
-    l_shipdate, l_suppkey,
+    l_shipdate, l_suppkey, o_orderdate
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -147,13 +178,14 @@ FROM lineitem
 LEFT OUTER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
 GROUP BY
 l_shipdate,
-l_suppkey;
+l_suppkey,
+o_orderdate;
 ```
 
 Query statement:
 ```sql
 SELECT
-    l_shipdate, l_suppkey,
+    l_shipdate, l_suppkey, o_orderdate
     sum(o_totalprice) AS sum_total,
     max(o_totalprice) AS max_total,
     min(o_totalprice) AS min_total,
@@ -161,10 +193,11 @@ SELECT
     count(distinct CASE WHEN o_shippriority > 1 AND o_orderkey IN (1, 3) THEN o_custkey ELSE null END) AS bitmap_union_basic
 FROM lineitem
 INNER JOIN orders ON lineitem.l_orderkey = orders.o_orderkey AND l_shipdate = o_orderdate
-WHERE o_orderdate = '2023-12-11' AND l_partkey = 3
+WHERE o_orderdate = '2023-12-11' AND l_suppkey = 3
 GROUP BY
 l_shipdate,
-l_suppkey;
+l_suppkey,
+o_orderdate;
 ```
 
 ### 聚合改写
@@ -257,18 +290,20 @@ l_suppkey;
 
 Temporary support for the aggregation roll-up functions is as follows:
 
-| 查询中函数            | 物化视图中函数      | 函数上卷后              |
-|------------------|--------------|--------------------|
-| max              | max          | max                |
-| min              | min          | min                |
-| sum              | sum          | sum                |
-| count            | count        | sum                |
-| count(distinct ) | bitmap_union | bitmap_union_count |
+| Functions in Queries | Functions in Materialized Views | Aggregation Functions After Rewriting |
+|----------------------|---------------------------------|---------------------------------------|
+| max                  | max                             | max                                   |
+| min                  | min                             | min                                   |
+| sum                  | sum                             | sum                                   |
+| count                | count                           | sum                                   |
+| count(distinct )     | bitmap_union                    | bitmap_union_count                    |
 
 ## Query partial Transparent Rewriting (TODO)
 When the number of tables in the materialized view is greater than the query, if the materialized view 
 satisfies the conditions for JOIN elimination for tables more than the query, transparent rewriting can also occur. 
 For example:
+
+**Case 1**
 
 Materialized view definition:
 
@@ -299,7 +334,9 @@ data by combining the original table and the materialized view.
 For example:
 
 **Case 1**
+
 Materialized view definition:
+
 ```sql
 SELECT
     o_orderkey,
@@ -363,9 +400,14 @@ If you want to know the detailed information about materialized view candidates,
 
 
 ## Limitations
-- The materialized view definition statement only allows SELECT, FROM, WHERE, JOIN, and GROUP BY statements, and the input to JOIN cannot contain GROUP BY. Only INNER and LEFT OUTER JOIN types are currently supported; other types of JOIN operations will be supported gradually.
+- The materialized view definition statement only allows SELECT, FROM, WHERE, JOIN, and GROUP BY statements, and
+the input to JOIN cannot contain GROUP BY. Only INNER and LEFT OUTER JOIN types are currently supported; other
+types of JOIN operations will be supported gradually.
 - Materialized views based on External Tables do not guarantee strong consistency of query results.
 - No support for rewriting non-deterministic functions, including rand, now, current_time, current_date, random, uuid, etc.
 - No support for rewriting window functions.
 - The definition of materialized views currently cannot use views and other materialized views.
-- Currently, WHERE condition compensation supports cases where the materialized view has no WHERE clause, and the query has a WHERE clause; or the materialized view has a WHERE clause, and the query's WHERE condition is a superset of the materialized view's. Currently, range condition compensation is not yet supported, such as the materialized view definition being a > 5, and the query being a > 10.
+- Currently, WHERE condition compensation supports cases where the materialized view has no WHERE clause, and
+the query has a WHERE clause; or the materialized view has a WHERE clause, and the query's WHERE condition is a
+superset of the materialized view's. Currently, range condition compensation is not yet supported,
+such as the materialized view definition being a > 5, and the query being a > 10.
