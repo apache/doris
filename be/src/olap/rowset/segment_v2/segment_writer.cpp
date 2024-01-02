@@ -692,7 +692,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         return Status::InternalError("failed to convert {}", e.what());
     }
 
-
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
     if (_has_key) {
