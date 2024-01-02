@@ -153,7 +153,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<Expr> projectList;
 
-    protected int nereidsId;
+    protected int nereidsId = -1;
 
     private List<List<Expr>> distributeExprLists = new ArrayList<>();
 
@@ -520,7 +520,11 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         // Print the current node
         // The plan node header line will be prefixed by rootPrefix and the remaining details
         // will be prefixed by detailPrefix.
-        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "(" + nereidsId + ")\n");
+        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName);
+        if (nereidsId != -1) {
+            expBuilder.append("(" + nereidsId + ")");
+        }
+        expBuilder.append("\n");
         expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
