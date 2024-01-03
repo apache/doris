@@ -28,7 +28,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -244,8 +243,9 @@ public class HyperGraph {
             joinEdges.add(edge);
         }
         curJoinEdges.stream().forEach(i -> joinEdges.get(i).addCurJoinEdges(curJoinEdges));
-        curJoinEdges.stream().forEach(i -> makeJoinConflictRules(joinEdges.get(i)));
-        curJoinEdges.stream().forEach(i -> makeFilterConflictRules(joinEdges.get(i)));
+        curJoinEdges.stream().forEach(i -> ConflictRulesMaker.makeJoinConflictRules(joinEdges.get(i), joinEdges));
+        curJoinEdges.stream().forEach(i ->
+                ConflictRulesMaker.makeFilterConflictRules(joinEdges.get(i), joinEdges, filterEdges));
         return curJoinEdges;
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
@@ -257,73 +257,6 @@ public class HyperGraph {
         filterEdges.add(edge);
         BitSet bitSet = new BitSet();
         bitSet.set(edge.getIndex());
-        return bitSet;
-    }
-
-    private void makeFilterConflictRules(JoinEdge joinEdge) {
-        long leftSubNodes = joinEdge.getLeftSubNodes(joinEdges);
-        long rightSubNodes = joinEdge.getRightSubNodes(joinEdges);
-        filterEdges.forEach(e -> {
-            if (LongBitmap.isSubset(e.getReferenceNodes(), leftSubNodes)
-                    && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_LEFT.contains(joinEdge.getJoinType())) {
-                e.addLeftRejectEdge(joinEdge);
-            }
-            if (LongBitmap.isSubset(e.getReferenceNodes(), rightSubNodes)
-                    && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_RIGHT.contains(joinEdge.getJoinType())) {
-                e.addRightRejectEdge(joinEdge);
-            }
-        });
-    }
-
-    // Make edge with CD-C algorithm in
-    // On the correct and complete enumeration of the core search
-    private void makeJoinConflictRules(JoinEdge edgeB) {
-        BitSet leftSubTreeEdges = subTreeEdges(edgeB.getLeftChildEdges());
-        BitSet rightSubTreeEdges = subTreeEdges(edgeB.getRightChildEdges());
-        long leftRequired = edgeB.getLeftRequiredNodes();
-        long rightRequired = edgeB.getRightRequiredNodes();
-
-        for (int i = leftSubTreeEdges.nextSetBit(0); i >= 0; i = leftSubTreeEdges.nextSetBit(i + 1)) {
-            JoinEdge childA = joinEdges.get(i);
-            if (!JoinType.isAssoc(childA.getJoinType(), edgeB.getJoinType())) {
-                leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getLeftSubNodes(joinEdges));
-                childA.addLeftRejectEdge(edgeB);
-            }
-            if (!JoinType.isLAssoc(childA.getJoinType(), edgeB.getJoinType())) {
-                leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getRightSubNodes(joinEdges));
-                childA.addLeftRejectEdge(edgeB);
-            }
-        }
-
-        for (int i = rightSubTreeEdges.nextSetBit(0); i >= 0; i = rightSubTreeEdges.nextSetBit(i + 1)) {
-            JoinEdge childA = joinEdges.get(i);
-            if (!JoinType.isAssoc(edgeB.getJoinType(), childA.getJoinType())) {
-                rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getRightSubNodes(joinEdges));
-                childA.addRightRejectEdge(edgeB);
-            }
-            if (!JoinType.isRAssoc(edgeB.getJoinType(), childA.getJoinType())) {
-                rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getLeftSubNodes(joinEdges));
-                childA.addRightRejectEdge(edgeB);
-            }
-        }
-        edgeB.setLeftExtendedNodes(leftRequired);
-        edgeB.setRightExtendedNodes(rightRequired);
-    }
-
-    private BitSet subTreeEdge(Edge edge) {
-        long subTreeNodes = edge.getSubTreeNodes();
-        BitSet subEdges = new BitSet();
-        joinEdges.stream()
-                .filter(e -> LongBitmap.isSubset(subTreeNodes, e.getReferenceNodes()))
-                .forEach(e -> subEdges.set(e.getIndex()));
-        return subEdges;
-    }
-
-    private BitSet subTreeEdges(BitSet edgeSet) {
-        BitSet bitSet = new BitSet();
-        edgeSet.stream()
-                .mapToObj(i -> subTreeEdge(joinEdges.get(i)))
-                .forEach(bitSet::or);
         return bitSet;
     }
 
