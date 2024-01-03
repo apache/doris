@@ -534,3 +534,15 @@ CREATE CATALOG hive_krb_ha PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+## Hive Transactional 表
+Hive transactional 表是 Hive 中支持 ACID 语义的表。详情可见：https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions
+
+### Hive Transactional 表支持情况：
+|表类型|在 Hive 中支持的操作|Hive 表属性|支持的Hive 版本|
+|---|---|---|---|
+|Full-ACID Transactional Table |支持 Insert, Update, Delete 操作|'transactional'='true', 'transactional_properties'='insert_only'|3.x，2.x，其中 2.x 需要在 Hive 中执行完 major compaction 才可以加载|
+|Insert-Only Transactional Table|只支持 Insert 操作|'transactional'='true'|3.x，2.x|
+
+### 当前限制：
+目前不支持 Original Files 的场景。
+当一个表转换成 Transactional 表之后，后续新写的数据文件会使用 Hive Transactional 表的 schema，但是已经存在的数据文件是不会转化成 Transactional 表的 schema，这样的文件称为 Original Files。
