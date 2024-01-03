@@ -905,7 +905,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         }
         {
             std::lock_guard<std::mutex> lock(query_ctx->pipeline_lock);
-            query_ctx->is_pipeline_x = true;
             query_ctx->fragment_id_to_pipeline_ctx.insert({params.fragment_id, context});
         }
 

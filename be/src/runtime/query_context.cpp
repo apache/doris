@@ -79,7 +79,7 @@ void QueryContext::set_ready_to_execute(bool is_cancelled) {
     _execution_dependency->set_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        if (!is_pipeline_x) {
+        if (!_is_cancelled) {
             _is_cancelled = is_cancelled;
         }
         _ready_to_execute = true;
