@@ -3860,7 +3860,7 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user, null);
     :}
-    | KW_SHOW KW_ROW KW_POLICY KW_FOR KW_ROLE STRING_LITERAL:role
+    | KW_SHOW KW_ROW KW_POLICY KW_FOR KW_ROLE ident:role
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, role);
     :}
