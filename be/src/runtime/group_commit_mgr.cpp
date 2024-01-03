@@ -34,7 +34,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     RETURN_IF_ERROR(status);
     auto start = std::chrono::steady_clock::now();
     while (!runtime_state->is_cancelled() && status.ok() &&
-           _all_block_queues_bytes->load(std::memory_order_relaxed) >
+           _all_block_queues_bytes->load(std::memory_order_relaxed) >=
                    config::group_commit_queue_mem_limit) {
         _put_cond.wait_for(l,
                            std::chrono::milliseconds(LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIME));
