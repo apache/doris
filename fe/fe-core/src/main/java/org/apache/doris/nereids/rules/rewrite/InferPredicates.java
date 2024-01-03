@@ -51,7 +51,6 @@ import java.util.stream.Collectors;
  *   round of predicate push-down
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PredicatePropagation propagation = new PredicatePropagation();
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
 
     @Override
@@ -109,7 +108,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(propagation.infer(baseExpressions));
+        baseExpressions.addAll(PredicatePropagation.infer(baseExpressions));
         return baseExpressions;
     }
 
