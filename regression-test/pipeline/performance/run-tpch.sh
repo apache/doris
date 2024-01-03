@@ -54,7 +54,6 @@ if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not se
 if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
-
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
