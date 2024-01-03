@@ -180,6 +180,10 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
             = Config.group_commit_interval_ms_default_value;
 
+    public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES= "group_commit_data_bytes";
+    public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
+            = Config.group_commit_data_bytes_default_value;
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -1211,6 +1215,22 @@ public class PropertyAnalyzer {
         }
 
         return groupCommitIntervalMs;
+    }
+
+    public static int analyzeGroupCommitDateBytes(Map<String, String> properties) throws AnalysisException {
+        int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
+            } catch (Exception e) {
+                throw new AnalysisException("parse group_commit_interval_ms format error");
+            }
+
+            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+        }
+
+        return groupCommitDataBytes;
     }
 
     /**
