@@ -85,6 +85,7 @@ if _get_pr_changed_files "${pull_request_num}"; then
 fi
 
 echo "#### 2. check if tpch depending files exist"
+set -x
 if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
@@ -95,9 +96,9 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-u
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/be_custom.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/fe_custom.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/opt_session_variables.sql &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/check-query-result.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/queries-sort.sql &&
-    -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/query-result-target/ &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/check-query-result.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/queries-sort.sql &&
+    -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/query-result-target/ &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/prepare.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/compile.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/deploy.sh &&
