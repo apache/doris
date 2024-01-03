@@ -173,14 +173,14 @@ Next, connect to Doris through `mysql` client, mysql supports five SSL modes:
 
 3. `mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connections.
 
-4.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection and verify the validity of the server's identity by specifying the CA certificate。
+4.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection and verify the validity of the server's identity by specifying the CA certificate.
 
-5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert=client-cert.pem --ssl-key=client-key.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection, two-way ssl。
+5.`mysql --ssl-mode=VERIFY_CA --ssl-ca=ca.pem --ssl-cert=client-cert.pem --ssl-key=client-key.pem -uroot -P9030 -h127.0.0.1`, force the use of SSL encrypted connection, two-way ssl.
 
 >Note:
->`--ssl-mode` parameter is introduced by mysql5.7.11 version, please refer to [here](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-connp-props-security.html) for mysql client version lower than this version。
+>`--ssl-mode` parameter is introduced by mysql5.7.11 version, please refer to [here](https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-connp-props-security.html) for mysql client version lower than this version.
 
-Doris needs a key certificate file to verify the SSL encrypted connection. The default key certificate file is located at `Doris/fe/mysql_ssl_default_certificate/`. For the generation of the key certificate file, please refer to [Key Certificate Configuration](../admin-manual/certificate.md)。
+Doris needs a key certificate file to verify the SSL encrypted connection. The default key certificate file is located at `Doris/fe/mysql_ssl_default_certificate/`. For the generation of the key certificate file, please refer to [Key Certificate Configuration](../admin-manual/certificate.md).
 
 #### Stop FE
 
@@ -347,7 +347,7 @@ Save the above data into `test.csv` file.
 
 4. Import data
 
-Here we import the data saved to the file above into the table we just created via Stream load。
+Here we import the data saved to the file above into the table we just created via Stream load.
 
 ```
 curl  --location-trusted -u root: -T test.csv -H "column_separator:," http://127.0.0.1:8030/api/demo/example_tbl/_stream_load
