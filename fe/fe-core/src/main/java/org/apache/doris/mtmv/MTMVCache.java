@@ -43,7 +43,7 @@ public class MTMVCache {
     // this should be shuttle expression with lineage
     private final List<NamedExpression> mvOutputExpressions;
 
-    public MTMVCache(MTMV materializedView, Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
         this.logicalPlan = logicalPlan;
         this.mvOutputExpressions = mvOutputExpressions;
     }
@@ -54,11 +54,6 @@ public class MTMVCache {
 
     public List<NamedExpression> getMvOutputExpressions() {
         return mvOutputExpressions;
-    }
-
-    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
-        this.logicalPlan = logicalPlan;
-        this.mvOutputExpressions = mvOutputExpressions;
     }
 
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
