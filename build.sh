@@ -75,7 +75,7 @@ Usage: $0 <options>
   "
     exit 1
 }
-
+echo 'test'
 clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
