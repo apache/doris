@@ -417,15 +417,14 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
-                List<MTMV> chosenMaterializationNames = this.getPhysicalPlan()
+                List<MTMV> materializationListChosenByCbo = this.getPhysicalPlan()
                         .collectToList(node -> node instanceof PhysicalCatalogRelation
                                 && ((PhysicalCatalogRelation) node).getTable() instanceof MTMV).stream()
                         .map(node -> (MTMV) ((PhysicalCatalogRelation) node).getTable())
                         .collect(Collectors.toList());
                 plan = super.getExplainString(explainOptions)
-                        + "\n\n========== MATERIALIZATION'S ==========\n"
                         + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        chosenMaterializationNames);
+                        materializationListChosenByCbo);
         }
         if (statementContext != null && !statementContext.getHints().isEmpty()) {
             String hint = getHintExplainString(statementContext.getHints());

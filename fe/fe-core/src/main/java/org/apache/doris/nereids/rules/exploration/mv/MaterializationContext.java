@@ -138,6 +138,10 @@ public class MaterializationContext {
         return mvPlan;
     }
 
+    public Map<ObjectId, Pair<String, String>> getFailReason() {
+        return failReason;
+    }
+
     public void setSuccess(boolean success) {
         this.success = success;
         this.failReason.clear();
@@ -191,28 +195,30 @@ public class MaterializationContext {
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
             List<MTMV> chosenMaterializationNames) {
+        Set<String> materializationChosenNameSet = chosenMaterializationNames.stream()
+                .map(MTMV::getName)
+                .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
-        builder.append("\n========== AVAILABLE MATERIALIZATION'S ==========\n");
-        builder.append("[");
+        builder.append("\n\nMaterialized View\n");
+        builder.append("\nMATERIALIZED VIEW REWRITTEN FAIL:");
         for (MaterializationContext ctx : materializationContexts) {
-            builder.append("\n").append(ctx.getMTMV().getName());
+            if (!ctx.isSuccess()) {
+                Set<String> failReasonSet =
+                        ctx.getFailReason().values().stream().map(Pair::key).collect(Collectors.toSet());
+                builder.append("\n\n")
+                        .append("  NAME: ").append(ctx.getMTMV().getName())
+                        .append("\n")
+                        .append("  FAIL_SUMMARY: ").append(String.join(", ", failReasonSet));
+            }
         }
-        builder.append("\n]\n");
-        List<MaterializationContext> queryRewriteSuccessMaterializationList = materializationContexts.stream()
-                .filter(MaterializationContext::isSuccess)
-                .collect(Collectors.toList());
-        builder.append("========== REWRITTEN SUCCESS MATERIALIZATION'S ==========\n");
-        builder.append("[");
-        for (MaterializationContext ctx : queryRewriteSuccessMaterializationList) {
-            builder.append("\n").append(ctx.getMTMV().getName());
-        }
-        builder.append("\n]\n");
-        builder.append("========== CHOSEN MATERIALIZATION'S ==========\n");
-        builder.append("[");
-        for (MTMV mtmv : chosenMaterializationNames) {
-            builder.append("\n").append(mtmv.getName());
-        }
-        builder.append("\n]\n");
+        builder.append("\n\nMATERIALIZED VIEW REWRITTEN SUCCESS BUT NOT CHOSEN:\n");
+        builder.append("  NAMES: ").append(materializationContexts.stream()
+                .filter(materializationContext -> materializationContext.isSuccess()
+                        && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
+                .map(materializationContext -> materializationContext.getMTMV().getName())
+                .collect(Collectors.joining(", ")));
+        builder.append("\n\nMATERIALIZED VIEW SUCCESS AND CHOSEN:\n");
+        builder.append("  NAMES: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }
 
