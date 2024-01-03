@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test;
 
 
 /**
- * Trino query tests.
+ * Spark-sql query tests.
  */
 public class ParserTest {
 
