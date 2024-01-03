@@ -57,7 +57,7 @@ public class DiagnoseTabletStmt extends ShowStmt {
 
     @Override
     public String toSql() {
-        return "ADMIN DIAGNOSE TABLET " + tabletId;
+        return "SHOW TABLET DIAGNOSIS " + tabletId;
     }
 
     @Override
