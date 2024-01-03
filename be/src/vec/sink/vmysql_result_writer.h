@@ -51,6 +51,10 @@ public:
 
     bool can_sink() override;
 
+    Status try_close(RuntimeState * state) override {
+        return Status::OK();
+    };
+
     Status close(Status status) override;
 
     const ResultList& results() { return _results; }

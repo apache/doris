@@ -23,11 +23,13 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <mutex>
 #include <ostream>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
@@ -35,6 +37,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -43,6 +46,7 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
+#include "util/runtime_profile.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/uid_util.h"
@@ -55,6 +59,7 @@
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 #include "vec/sink/vresult_sink.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris::vectorized {
 
@@ -419,7 +424,12 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
+Status VFileResultWriter::try_close(RuntimeState* state) {
+    RETURN_IF_ERROR(AsyncResultWriter::try_close(state));
+    return _close_file_writer(true);
+}
+
+Status VFileResultWriter::close(Status status) {
     // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
     // must be outside the `_close_file_writer()`.
     // because `_close_file_writer()` may be called in deconstructor,
@@ -429,7 +439,8 @@ Status VFileResultWriter::close(Status) {
         COUNTER_SET(_written_rows_counter, _written_rows);
         SCOPED_TIMER(_writer_close_timer);
     }
-    return _close_file_writer(true);
+
+    return AsyncResultWriter::close(status);
 }
 
 } // namespace doris::vectorized

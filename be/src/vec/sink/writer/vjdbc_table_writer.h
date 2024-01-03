@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/exec/vjdbc_connector.h"
 #include "vec/sink/writer/async_result_writer.h"
 

@@ -63,6 +63,9 @@ public:
 
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
+    Status try_close(RuntimeState* rs, Status exec_status) override;
+
+    // notify writer to stop if they have pending block to write.
     Status close(RuntimeState* state, Status exec_status) override;
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;

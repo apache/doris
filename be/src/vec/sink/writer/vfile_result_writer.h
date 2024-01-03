@@ -62,6 +62,8 @@ public:
 
     Status close(Status s = Status::OK()) override;
 
+    Status try_close(RuntimeState*) override;
+
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
     // file result writer always return statistic result in one row

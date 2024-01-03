@@ -177,7 +177,8 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
 
     Status final_status = exec_status;
     // close the writer
-    if (_writer && _writer->need_normal_close()) {
+    // if (_writer && _writer->need_normal_close()) {
+    if (_writer) {
         Status st = _writer->close();
         if (!st.ok() && exec_status.ok()) {
             // close file writer failed, should return this error to client

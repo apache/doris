@@ -1346,10 +1346,9 @@ Status VTabletWriter::_send_new_partition_batch() {
     return Status::OK();
 }
 
-Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
+Status VTabletWriter::try_close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
-    Status status = exec_status;
-
+    auto status = Status::OK();
     // must before set _try_close
     if (status.ok()) {
         SCOPED_TIMER(_profile->total_time_counter());
@@ -1417,9 +1416,6 @@ Status VTabletWriter::close(Status exec_status) {
 
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
-
-    // will make the last batch of request-> close_wait will wait this finished.
-    static_cast<void>(try_close(_state, exec_status));
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {

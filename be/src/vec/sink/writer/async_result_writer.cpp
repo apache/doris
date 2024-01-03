@@ -53,11 +53,13 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
 
     // if io task failed, just return error status to
     // end the query
-    if (!_writer_status.ok()) {
-        return _writer_status;
-    }
 
     std::lock_guard l(_m);
+
+    if (_is_closed) {
+        return Status::Cancelled("Already closed");
+    }
+
     _eos = eos;
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
@@ -93,48 +95,70 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
     if (auto status = open(state, profile); !status.ok()) {
-        force_close(status);
+        auto close_st = close(status);
+        return;
     }
 
-    if (_writer_status.ok()) {
-        while (true) {
-            if (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty() && _writer_status.ok()) {
-                    _cv.wait(l);
-                }
-            }
+    while (true) {
+        std::unique_lock<std::mutex> lock(_m);
 
-            if ((_eos && _data_queue.empty()) || !_writer_status.ok()) {
-                _data_queue.clear();
-                break;
-            }
-
-            auto block = _get_block_from_queue();
-            auto status = write(block);
-            if (!status.ok()) [[unlikely]] {
-                std::unique_lock l(_m);
-                _writer_status = status;
-                if (_dependency && _is_finished()) {
-                    _dependency->set_ready();
-                }
-                break;
-            }
-
-            _return_free_block(std::move(block));
+        while (!_is_closed && !_eos && _data_queue.empty()) {
+            _cv.wait_for(lock, std::chrono::seconds(1));
         }
+
+        if (_is_closed) {
+            break;
+        }
+
+        if (_eos && _data_queue.empty()) {
+            break;
+        }
+
+        // if _eos == true && !_data_queue.empty()
+        // we will write block to downstream one by one until _data_queue is empty
+        // and loop will be breaked then.
+
+        // release lock before IO
+        lock.unlock();
+
+        auto block = _get_block_from_queue();
+        // for VFileResultWriter, we have three types of transformer:
+        // 1. VCSVTransformer
+        // 2. VParquetTransformer
+        // 3. FORMAT_ORC
+        // what if method write blocks for a very long time? seems that we cannot
+        // notify them to stop unless they are using async writing pattern.
+        auto write_st = write(block);
+
+        if (write_st.ok()) {
+            _return_free_block(std::move(block));
+            continue;
+        }
+
+        lock.lock();
+        // from this point on, there will be no further block added to _data_queue
+        _is_closed = true;
+
+        if (_dependency && _is_finished()) {
+            _dependency->set_ready();
+        }
+
+        lock.unlock();
+        break;
     }
 
-    // if not in transaction or status is in error or force close we can do close in
-    // async IO thread
-    if (!_writer_status.ok() || !in_transaction()) {
-        _writer_status = close(_writer_status);
-        _need_normal_close = false;
-    }
+    std::lock_guard<std::mutex> lg(_m);
+    // we need this to notify try_close to return.
     _writer_thread_closed = true;
+    _data_queue.clear();
+
     if (_finish_dependency) {
         _finish_dependency->set_ready();
     }
+    // notify try_close thread
+    _cv.notify_one();
+
+    return;
 }
 
 Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_block,
@@ -147,15 +171,6 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
             _vec_output_expr_ctxs, input_block, output_block));
     materialize_block_inplace(*output_block);
     return status;
-}
-
-void AsyncResultWriter::force_close(Status s) {
-    std::lock_guard l(_m);
-    _writer_status = s;
-    if (_dependency && _is_finished()) {
-        _dependency->set_ready();
-    }
-    _cv.notify_one();
 }
 
 void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {

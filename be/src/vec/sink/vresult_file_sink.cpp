@@ -25,8 +25,11 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "runtime/buffer_control_block.h"
+#include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
@@ -110,42 +113,52 @@ Status VResultFileSink::open(RuntimeState* state) {
     return AsyncWriterSink::open(state);
 }
 
-Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
+Status VResultFileSink::try_close(RuntimeState* state, Status exec_status) {
     if (_closed) {
+        LOG_WARNING("Closing a closed result file sink");
         return Status::OK();
     }
 
-    Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
-        if (!st.ok() && exec_status.ok()) {
-            // close file writer failed, should return this error to client
-            final_status = st;
-        }
+    if (_writer == nullptr) {
+        LOG_WARNING("writer of result file sink is not initialized");
+        return Status::RuntimeError("writer of result file sink is not initialized");
     }
+
+    // TaskScheduler should call close if exec_status is not ok.
+    // actually we should remove arg exec_status.
+    RETURN_IF_ERROR(exec_status);
+
+    // here we should rename _writer->cloes to _writer->try_close
+    // to make read code easily
+    // check of EOF should be left to operator
+    RETURN_IF_ERROR(_writer->try_close(state));
+
     if (_is_top_sink) {
-        // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
-            static_cast<void>(_sender->close(final_status));
+            _sender->update_num_written_rows(_writer->get_written_rows());
+            // WIP: close -> flush
+            RETURN_IF_ERROR(_sender->close(exec_status));
         }
-        static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->result_mgr()->cancel_at_time(
                 time(nullptr) + config::result_buffer_cancelled_interval_time,
                 state->fragment_instance_id()));
     } else {
-        if (final_status.ok()) {
-            auto st = _stream_sender->send(state, _output_block.get(), true);
-            if (!st.template is<ErrorCode::END_OF_FILE>()) {
-                RETURN_IF_ERROR(st);
-            }
-        }
-        RETURN_IF_ERROR(_stream_sender->close(state, final_status));
+        RETURN_IF_ERROR(_stream_sender->send(state, _output_block.get(), true));
+        // WIP: close -> flush
+        RETURN_IF_ERROR(_stream_sender->close(state, exec_status));
         _output_block->clear();
     }
-
     _closed = true;
     return Status::OK();
+}
+
+Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
+    if (_writer == nullptr) {
+        LOG_WARNING("writer of result file sink is not initialized");
+        return Status::RuntimeError("writer of result file sink is not initialized");
+    }
+
+    return _writer->close(exec_status);
 }
 
 void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {

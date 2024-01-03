@@ -71,6 +71,7 @@ public:
         return send(state, block, eos);
     }
 
+    // Flush all pending data, wait until flush finished.
     [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }

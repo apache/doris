@@ -19,8 +19,10 @@
 #include <concurrentqueue.h>
 
 #include <condition_variable>
+#include <mutex>
 #include <queue>
 
+#include "common/status.h"
 #include "runtime/result_writer.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -59,13 +61,9 @@ public:
 
     void set_dependency(pipeline::AsyncWriterDependency* dep, pipeline::Dependency* finish_dep);
 
-    void force_close(Status s);
-
     virtual bool in_transaction() { return false; }
 
     virtual Status commit_trans() { return Status::OK(); }
-
-    bool need_normal_close() const { return _need_normal_close; }
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 
@@ -88,7 +86,26 @@ public:
     // Add the IO thread task process block() to thread pool to dispose the IO
     void start_writer(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_writer_status() { return _writer_status; }
+    // block until thread process_block finished
+    Status try_close(RuntimeState* state) override {
+        std::lock_guard<std::mutex> lg(_m);
+        _is_closed = true;
+
+        // notify process_block to flush all data
+        while (!_writer_thread_closed) {
+            _cv.notify_one();
+        }
+
+        return Status::OK();
+    }
+
+    // signal singal process_block thread to stop.
+    Status close(Status s = Status::OK()) override {
+        std::unique_lock<std::mutex> lock(_m);
+        _is_closed = true;
+        _cv.notify_one();
+        return Status::OK();
+    }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -98,9 +115,9 @@ protected:
 
     void _return_free_block(std::unique_ptr<Block>);
 
-private:
+protected:
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
-    [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
+    [[nodiscard]] bool _is_finished() const { return _writer_thread_closed; }
 
     std::unique_ptr<Block> _get_block_from_queue();
 
@@ -108,9 +125,9 @@ private:
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
-    Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _need_normal_close = true;
+    bool _is_closed = false;
+    // try_close will wait until this is set to true
     bool _writer_thread_closed = false;
 
     // Used by pipelineX
