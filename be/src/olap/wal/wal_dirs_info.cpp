@@ -69,9 +69,6 @@ Status WalDirInfo::update_wal_dir_limit(size_t limit) {
         if (wal_disk_limit <= 0) {
             return Status::InternalError("Disk full! Please check your disk usage!");
         }
-        size_t wal_dir_size = 0;
-        RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
-        // If here we set wal_disk_limit + wal_dir_size, then wal dir size will be larger and larger.
         set_limit(wal_disk_limit);
     }
     return Status::OK();

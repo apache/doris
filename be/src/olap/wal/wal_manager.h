@@ -134,7 +134,7 @@ private:
     // TODO Now only used for debug wal status, consider remove it
     std::shared_mutex _wal_status_lock;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WalStatus>> _wal_status_queues;
-    
+
     // TODO should remove
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
