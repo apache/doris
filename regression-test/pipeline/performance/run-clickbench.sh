@@ -258,7 +258,6 @@ exit_flag=0
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
     if ! cd clickbench && bash check-query-result.sh && cd -; then exit 1; fi
-    if ! check_clickbench_query_result; then exit 1; fi
     cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
     comment_body="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
