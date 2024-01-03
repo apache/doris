@@ -196,6 +196,8 @@ By default, Doris On ES obtains all target columns from `_source`, which is in r
 
 1. Columnar storage is not available for `text` fields in ES. Thus, if you need to obtain fields containing `text` values, you will need to obtain them from `_source`.
 2. When obtaining large numbers of fields (`>= 25`), the performances of `docvalue`  and  `_source` are basically equivalent.
+3. The `keyword` type field, due to the [`ignore_above`](https://www.elastic.co/guide/en/elasticsearch/reference/current/keyword.html#keyword-params) parameter's limit, long text fields exceeding this limit will be ignored, so the result may be empty. In this case, you need to turn off `enable_docvalue_scan` and get the result from `_source`.
+
 
 ### Sniff Keyword Fields
 
