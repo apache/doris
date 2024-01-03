@@ -45,15 +45,15 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils
 if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    target_branch="master"
     SF="1"
 fi
 echo "#### Check env"
-if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${pull_request_num}" ||
-    -z "${commit_id}" ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
-    exit 1
-fi
+if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
+if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
+if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
+
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
