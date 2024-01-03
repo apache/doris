@@ -1306,7 +1306,7 @@ Spark 负载调度程序运行间隔,默认 60 秒
 
 #### `enable_single_replica_load`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
