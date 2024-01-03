@@ -206,7 +206,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         VLOG_DEBUG << "dump rs schema: " << _context->tablet_schema->dump_structure();
     }
 
-    block.swap(flush_block);
+    block.swap(flush_block); // NOLINT(bugprone-use-after-move)
     VLOG_DEBUG << "dump block: " << block.dump_data();
     VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();
     return Status::OK();

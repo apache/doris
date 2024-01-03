@@ -662,7 +662,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 }
 
                 const auto max_add_seg_nums = rs_seg_count[rowset_idx] - segment_idx_to_scan;
-                auto& split = rs_splits.emplace_back();
+                auto& split = rs_splits.emplace_back(); // NOLINT(bugprone-use-after-move)
                 split.rs_reader = read_source.rs_splits[rowset_idx].rs_reader->clone();
 
                 // if segments assigned to current scanner are already more than the average count,
