@@ -279,7 +279,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
         //             << " maybe finished";
         return;
     }
-    LOG_EVERY_N(INFO, 100) << "start running scanner from ctx " << ctx->debug_string();
+    //LOG_EVERY_N(INFO, 100) << "start running scanner from ctx " << ctx->debug_string();
     // will release scanner if it is the last one, task lock is hold here, to ensure
     // that scanner could call scannode's method during deconstructor
     std::shared_ptr<ScannerDelegate> scanner_delegate = scanner_ref.lock();
