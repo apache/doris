@@ -143,6 +143,8 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
+    //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
+    //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         return Status::InternalError("failed to submit scanner context to scheduler");
@@ -174,28 +176,23 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
-        //             << " maybe finished";
+        LOG(WARNING) << "could not lock task execution context, query " << ctx->debug_string()
+                     << " maybe finished";
         return;
     }
+    //LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string() << " maybe finished";
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
-    size_t size = 0;
-    Defer defer {[&]() {
-        ctx->incr_num_scanner_scheduling(size);
-        ctx->dec_num_scheduling_ctx();
-    }};
 
     if (ctx->done()) {
         return;
     }
 
-    std::list<VScannerSPtr> this_run;
+    std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
-    size = this_run.size();
-    if (!size) {
+    if (this_run.empty()) {
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
@@ -214,9 +211,14 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     if (ctx->thread_token != nullptr) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
-            auto s = ctx->thread_token->submit_func(
-                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
+            auto s = ctx->thread_token->submit_func([this, scanner_ref = *iter, ctx]() {
+                this->_scanner_scan(this, ctx, scanner_ref);
+            });
             if (s.ok()) {
                 this_run.erase(iter++);
             } else {
@@ -226,28 +228,32 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         }
     } else {
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
-            TabletStorageType type = (*iter)->get_storage_type();
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
+            TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
-                    auto work_func = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                    auto work_func = [this, scanner_ref = *iter, ctx]() {
+                        this->_scanner_scan(this, ctx, scanner_ref);
                     };
                     SimplifiedScanTask simple_scan_task = {work_func, ctx};
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
                 } else {
                     PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                    task.work_function = [this, scanner_ref = *iter, ctx]() {
+                        this->_scanner_scan(this, ctx, scanner_ref);
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
                 }
             } else {
                 PriorityThreadPool::Task task;
-                task.work_function = [this, scanner = *iter, ctx] {
-                    this->_scanner_scan(this, ctx, scanner);
+                task.work_function = [this, scanner_ref = *iter, ctx]() {
+                    this->_scanner_scan(this, ctx, scanner_ref);
                 };
                 task.priority = nice;
                 ret = _remote_scan_thread_pool->offer(task);
@@ -265,11 +271,20 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 }
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
-                                     std::shared_ptr<ScannerContext> ctx, VScannerSPtr scanner) {
+                                     std::shared_ptr<ScannerContext> ctx,
+                                     std::weak_ptr<ScannerDelegate> scanner_ref) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
         //             << " maybe finished";
+        return;
+    }
+    LOG_EVERY_N(INFO, 100) << "start running scanner from ctx " << ctx->debug_string();
+    // will release scanner if it is the last one, task lock is hold here, to ensure
+    // that scanner could call scannode's method during deconstructor
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scanner_ref.lock();
+    auto& scanner = scanner_delegate->_scanner;
+    if (scanner_delegate == nullptr) {
         return;
     }
     SCOPED_ATTACH_TASK(scanner->runtime_state());
@@ -404,7 +419,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
-    ctx->push_back_scanner_and_reschedule(scanner);
+    ctx->push_back_scanner_and_reschedule(scanner_delegate);
 }
 
 void ScannerScheduler::_register_metrics() {
