@@ -382,8 +382,13 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
     } while (target_block_row < _reader_context.batch_size);
 
-    // do filter delete row in base compaction, only base compaction need to do the job
-    if (_filter_delete) {
+    // do filter delete row in base compaction, only base compaction need to do the job.
+    // If the table has a sequence column, it should be ensured that the data with the highest
+    // sequence is not deleted for comparison with the data load later. So we can't filter delete
+    // row with sequence column, Otherwise it may result in inconsistent replicas when the base
+    // compaction progress is different. However, this may leave a lot of data marked for deletion
+    // in the table.
+    if (_filter_delete && _sequence_col_idx != -1) {
         int delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
         DCHECK(delete_sign_idx > 0);
         if (delete_sign_idx <= 0 || delete_sign_idx >= target_columns.size()) {
