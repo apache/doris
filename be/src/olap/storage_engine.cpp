@@ -525,8 +525,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     }
 
     // if two disk available diff not exceeds 20% capacity, then they are the same available level.
-    size_t same_level_available_diff = std::max<size_t>(
-            max_disk_capacity * config::disk_diff_usage_percentage_for_create_tablet / 100, 1);
+    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
     int level = 0;
     size_t level_start_available = available_levels.rbegin()->first;
     for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {

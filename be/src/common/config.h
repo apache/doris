@@ -1172,10 +1172,6 @@ DECLARE_Int32(download_binlog_rate_limit_kbs);
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
-// if difference of two disk usage is exceed this value,
-// then the new created tablet will not locate in the high use disk.
-// range: 0 ~ 100
-DECLARE_mInt32(disk_diff_usage_percentage_for_create_tablet);
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
 
