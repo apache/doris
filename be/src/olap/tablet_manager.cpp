@@ -341,8 +341,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
                                                   request.tablet_id);
     }
 
-    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id << ", tablet_path="
-              << tablet->tablet_path();
+    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
+              << ", tablet_path=" << tablet->tablet_path();
     return Status::OK();
 }
 
