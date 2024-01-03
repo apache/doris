@@ -180,7 +180,7 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
             = Config.group_commit_interval_ms_default_value;
 
-    public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES= "group_commit_data_bytes";
+    public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
