@@ -201,7 +201,7 @@ public class MaterializationContext {
                 .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
         builder.append("\n\nMaterialized View\n");
-        builder.append("\nMATERIALIZED VIEW REWRITTEN FAIL:");
+        builder.append("\nMATERIALIZED VIEW REWRITE FAIL:");
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
@@ -212,13 +212,13 @@ public class MaterializationContext {
                         .append("  FAIL_SUMMARY: ").append(String.join(", ", failReasonSet));
             }
         }
-        builder.append("\n\nMATERIALIZED VIEW REWRITTEN SUCCESS BUT NOT CHOSEN:\n");
+        builder.append("\n\nMATERIALIZED VIEW REWRITE SUCCESS BUT NOT CHOSEN:\n");
         builder.append("  NAMES: ").append(materializationContexts.stream()
                 .filter(materializationContext -> materializationContext.isSuccess()
                         && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
                 .map(materializationContext -> materializationContext.getMTMV().getName())
                 .collect(Collectors.joining(", ")));
-        builder.append("\n\nMATERIALIZED VIEW SUCCESS AND CHOSEN:\n");
+        builder.append("\n\nMATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN:\n");
         builder.append("  NAMES: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }

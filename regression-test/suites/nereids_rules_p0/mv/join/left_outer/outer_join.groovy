@@ -141,7 +141,7 @@ suite("outer_join") {
         explain {
             sql("${query_sql}")
             check {
-                result -> return result.split("CHOSEN MATERIALIZATION'S")[1].contains("${mv_name}")
+                result -> return result.split("MATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN")[1].contains("${mv_name}")
             }
         }
     }
@@ -162,7 +162,7 @@ suite("outer_join") {
         explain {
             sql("${query_sql}")
             check {
-                result -> return !result.split("CHOSEN MATERIALIZATION'S")[1].contains("${mv_name}")
+                result -> return !result.split("MATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN")[1].contains("${mv_name}")
             }
         }
     }
