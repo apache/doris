@@ -32,7 +32,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 export DORIS_HOME="${ROOT}"
 
 . "${DORIS_HOME}/env.sh"
-
+echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}
 # Check args
 usage() {
     echo "
@@ -76,6 +76,7 @@ Usage: $0 <options>
     exit 1
 }
 echo 'test'
+echo 1+1
 clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
