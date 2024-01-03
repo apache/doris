@@ -176,6 +176,13 @@ public class RowPolicy extends Policy {
     }
 
     @Override
+    public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
+        return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
+                checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
+                checkedDropPolicyLogCondition.getUser(), checkedDropPolicyLogCondition.getRoleName());
+    }
+
+    @Override
     public boolean isInvalid() {
         return (wherePredicate == null);
     }
