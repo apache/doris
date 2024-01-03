@@ -568,7 +568,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));
-                                RETURN_IF_ERROR(local_state._runtime_filter_slots->publish());
+                                RETURN_IF_ERROR(local_state._runtime_filter_slots->publish(true));
                                 return Status::OK();
                             }},
                     *local_state._shared_state->hash_table_variants);
