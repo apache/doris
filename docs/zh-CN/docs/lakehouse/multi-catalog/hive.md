@@ -373,6 +373,12 @@ CREATE CATALOG hive PROPERTIES (
 "broker.name" = "test_broker"
 ```
 
+Doris 基于 Iceberg `FileIO` 接口实现了 Broker 查询 HMS Catalog Iceberg 的支持。如有需求，可以在创建 HMS Catalog 时增加如下配置。
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
 ## 使用 Ranger 进行权限校验
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
