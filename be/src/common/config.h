@@ -524,6 +524,8 @@ DECLARE_Int64(load_data_reserve_hours);
 DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
+// load Indicates the maximum number of error logs, default 500MB
+DECLARE_mInt64(load_max_error_size_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number

@@ -481,6 +481,8 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
+// load Indicates the maximum number of error logs, default 500MB
+DEFINE_mInt64(load_max_error_size_bytes, "524288000");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
