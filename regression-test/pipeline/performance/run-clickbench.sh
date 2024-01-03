@@ -254,6 +254,7 @@ exit_flag=0
     fi
 
     echo "#### 5. run clickbench query"
+    sed -i '/^run_sql \"analyze table hits with sync;\"/d' "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
@@ -270,7 +271,7 @@ Total hot run time: ${best_hot_run_sum} s"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body}"
     rm -f result.csv
-    echo "INFO: Restore session variables"
+    echo -e "INFO: Restore session variables \n$(cat "${backup_session_variables_file}")"
     mysql -h"${host}" -P"${query_port}" -uroot -e "source ${backup_session_variables_file};"
     rm -f "${backup_session_variables_file}"
 )

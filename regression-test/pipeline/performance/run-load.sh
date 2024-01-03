@@ -652,6 +652,8 @@ exit_flag=0
     }
 
     echo "#### 1. Restart doris"
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 2. run load test"
@@ -670,11 +672,11 @@ exit_flag=0
     if [[ ${insert_into_select_speed} -lt ${insert_into_select_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${insert_into_select_speed} is less than the threshold ${insert_into_select_speed_threshold}" && exit 1; fi
 
     echo "#### 4. comment result on tpch"
-    comment_body="Load test result on commit ${commit_id:-} with default conf and session variables"
+    comment_body="Load test result on commit ${commit_id:-} with default session variables"
     if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\n stream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
     if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\n stream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
-    if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\n stream load parquet:          ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
-    if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\n insert into select:          ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
+    if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\n stream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
+    if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\n insert into select:       ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
 
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_load "${pull_request_num:-}" "${comment_body}"
