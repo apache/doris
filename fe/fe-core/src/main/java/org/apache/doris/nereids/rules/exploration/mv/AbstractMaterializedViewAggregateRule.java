@@ -37,10 +37,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -70,11 +66,9 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    // we only support roll up function which has only one argument currently
     protected static final Multimap<Expression, Expression>
             AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
     protected final String currentClassName = this.getClass().getSimpleName();
-    protected static final List<Expression> SUPPORTED_ROLL_UP_FUNCTIONS = new ArrayList<>();
     private final Logger logger = LogManager.getLogger(this.getClass());
 
     static {
@@ -95,14 +89,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(
                 new BitmapUnionCount(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))),
                 new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
-
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Sum(Any.INSTANCE));
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Count(Any.INSTANCE));
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Count());
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Min(Any.INSTANCE));
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new Max(Any.INSTANCE));
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new BitmapUnion(Any.INSTANCE));
-        SUPPORTED_ROLL_UP_FUNCTIONS.add(new HllUnion(Any.INSTANCE));
     }
 
     @Override
@@ -373,8 +359,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         if (rollupExpression instanceof AggregateFunction) {
             AggregateFunction aggregateFunction = (AggregateFunction) rollupExpression;
-            return !aggregateFunction.isDistinct() && SUPPORTED_ROLL_UP_FUNCTIONS.stream()
-                    .anyMatch(supportedFunction -> supportedFunction.equals(aggregateFunction));
+            return !aggregateFunction.isDistinct() && aggregateFunction instanceof CouldRollUp;
         }
         return true;
     }
@@ -481,6 +466,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     }
                     // check param in query function is same as the view function
                     List<Expression> viewFunctionArguments = extractViewArguments(equivalentFunction, viewFunction);
+                    // check argument size,we only support roll up function which has only one argument currently
                     if (queryFunctionShuttled.getArguments().size() != 1 || viewFunctionArguments.size() != 1) {
                         continue;
                     }
