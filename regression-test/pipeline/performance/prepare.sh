@@ -54,8 +54,8 @@ commit_id_from_checkout=${commit_id}
 echo "#### 1. check if need run"
 if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     echo -e "从触发流水线 -> 流水线开始跑，这个时间段中如果有新commit，
-这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit了，
-这种情况不需要跑，预期pr owner会重新触发。"
+这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit 了，
+这种情况不需要跑，预期 pr owner 会重新触发。"
     echo -e "ERROR: PR(${pull_request_num}),
     the lastest commit id
     ${commit_id_from_checkout}
