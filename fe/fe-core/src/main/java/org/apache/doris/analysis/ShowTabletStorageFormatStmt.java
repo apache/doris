@@ -54,7 +54,7 @@ public class ShowTabletStorageFormatStmt extends ShowStmt {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder("ADMIN SHOW TABLET STORAGE TYPE");
+        StringBuilder sb = new StringBuilder("SHOW TABLET STORAGE TYPE");
         if (verbose) {
             sb.append(" VERBOSE");
         }
