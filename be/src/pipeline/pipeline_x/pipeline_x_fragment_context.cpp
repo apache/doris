@@ -327,13 +327,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         if (!thrift_sink.__isset.stream_sink) {
             return Status::InternalError("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         _sink.reset(new ExchangeSinkOperatorX(state, row_desc, next_sink_operator_id(),
-                                              thrift_sink.stream_sink, params.destinations,
-                                              send_query_statistics_with_every_batch));
+                                              thrift_sink.stream_sink, params.destinations));
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -377,16 +372,11 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        bool send_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
         // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
-            _sink.reset(new ResultFileSinkOperatorX(
-                    next_sink_operator_id(), row_desc, thrift_sink.result_file_sink,
-                    params.destinations, send_query_statistics_with_every_batch, output_exprs,
-                    desc_tbl));
+            _sink.reset(new ResultFileSinkOperatorX(next_sink_operator_id(), row_desc,
+                                                    thrift_sink.result_file_sink,
+                                                    params.destinations, output_exprs, desc_tbl));
         } else {
             _sink.reset(
                     new ResultFileSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs));
@@ -431,10 +421,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
             // 2. create and set sink operator of data stream sender for new pipeline
 
             DataSinkOperatorXPtr sink_op;
-            sink_op.reset(new ExchangeSinkOperatorX(
-                    state, *_row_desc, next_sink_operator_id(),
-                    thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i], false));
+            sink_op.reset(
+                    new ExchangeSinkOperatorX(state, *_row_desc, next_sink_operator_id(),
+                                              thrift_sink.multi_cast_stream_sink.sinks[i],
+                                              thrift_sink.multi_cast_stream_sink.destinations[i]));
 
             static_cast<void>(new_pipeline->set_sink(sink_op));
             {
@@ -605,7 +595,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
         auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
-            RETURN_IF_ERROR(task->prepare(local_params, request.fragment.output_sink));
+            RETURN_IF_ERROR(
+                    task->prepare(local_params, request.fragment.output_sink, _query_ctx.get()));
             return Status::OK();
         };
 

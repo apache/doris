@@ -156,13 +156,6 @@ public:
     // so should be fast.
     [[nodiscard]] virtual Status reset(RuntimeState* state);
 
-    // This should be called before close() and after get_next(), it is responsible for
-    // collecting statistics sent with row batch, it can't be called when prepare() returns
-    // error.
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
-
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
-                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -242,6 +235,8 @@ public:
     // when the fragment is normal finished, call this method to do some finish work
     // such as send the last buffer to remote.
     virtual Status try_close(RuntimeState* state) { return Status::OK(); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 protected:
     friend class DataSink;
@@ -329,6 +324,8 @@ protected:
     void add_runtime_exec_option(const std::string& option);
 
     std::atomic<bool> _can_read = false;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
 private:
     static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
