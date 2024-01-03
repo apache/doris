@@ -1125,6 +1125,7 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
+DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
