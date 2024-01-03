@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -103,6 +104,7 @@ public class CreateMTMVInfo {
     private final MTMVPartitionInfo mvPartitionInfo;
     private PartitionDesc partitionDesc;
     private MTMVRelation relation;
+    private static final String MTMV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE";
 
     /**
      * constructor for create MTMV
@@ -206,7 +208,10 @@ public class CreateMTMVInfo {
      */
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        StatementContext statementContext = ctx.getStatementContext();
+        // Should not make scan to empty relation when the table used by materialized view has no data
+        statementContext.getConnectContext().getSessionVariable().setDisableNereidsRules(MTMV_PLANER_DISABLE_RULES);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
         // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
         Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.RelatedTableInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -119,7 +120,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
 
-        createTable("CREATE TABLE `lineitem_auto_partition` (\n"
+        createTable("CREATE TABLE `lineitem_no_data` (\n"
                 + "      `l_orderkey` BIGINT NOT NULL,\n"
                 + "      `l_linenumber` INT NOT NULL,\n"
                 + "      `l_partkey` INT NOT NULL,\n"
@@ -145,14 +146,15 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "       \"replication_num\" = \"1\"\n"
                 + "    );\n"
                 + "\n");
-
+        // Should not make scan to empty relation when the table used by materialized view has no data
+        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE");
     }
 
     @Test
     public void getRelatedTableInfoWhenAutoPartitionTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("select * from "
-                                + "(select * from lineitem_auto_partition "
+                                + "(select * from lineitem_no_data "
                                 + "where l_shipdate >= \"2023-12-01\" and l_shipdate <= \"2023-12-03\") t1 "
                                 + "left join "
                                 + "(select * from orders where o_orderdate >= \"2023-12-01\" and o_orderdate <= \"2023-12-03\" ) t2 "
@@ -162,12 +164,11 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
-                                    "lineitem_auto_partition",
+                                    "lineitem_no_data",
                                     "L_SHIPDATE",
                                     true);
                         });
     }
-
 
     @Test
     public void getRelatedTableInfoTestWithoutGroupTest() {
