@@ -700,9 +700,7 @@ Status execute_bitmap_op_count_null_to_zero(
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func) {
-    NullPresence null_presence = get_null_presence(block, arguments);
-
-    if (null_presence.has_nullable) {
+    if (get_null_presence(block, arguments)) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,
