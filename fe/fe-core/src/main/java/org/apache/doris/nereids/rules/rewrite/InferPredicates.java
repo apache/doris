@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -37,6 +36,7 @@ import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
+ * <pre>
  * The logic is as follows:
  * 1. poll up bottom predicate then infer additional predicates
  *   for example:
@@ -49,6 +49,7 @@ import java.util.stream.Collectors;
  *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t2.id = 1
  * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
  *   round of predicate push-down
+ * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
@@ -61,6 +62,9 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
         join = visitChildren(this, join, context);
+        if (join.isMarkJoin()) {
+            return join;
+        }
         Plan left = join.left();
         Plan right = join.right();
         Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
@@ -85,7 +89,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 break;
         }
         if (left != join.left() || right != join.right()) {
-            return join.withChildren(ImmutableList.of(left, right));
+            return join.withChildren(left, right);
         } else {
             return join;
         }
