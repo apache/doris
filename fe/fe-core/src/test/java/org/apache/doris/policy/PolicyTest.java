@@ -115,7 +115,7 @@ public class PolicyTest extends TestWithFeService {
         queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 2"));
-        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 for role role1");
     }
 
     @Test
