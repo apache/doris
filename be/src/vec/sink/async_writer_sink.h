@@ -110,9 +110,9 @@ public:
     }
 
     Status try_close(RuntimeState* state, Status exec_status) override {
-        if (state->is_cancelled() || !exec_status.ok()) {
-            return _writer->try_close(state);
-        }
+        // if (state->is_cancelled() || !exec_status.ok()) {
+        return _writer->try_close(state);
+        // }
         return Status::OK();
     }
 

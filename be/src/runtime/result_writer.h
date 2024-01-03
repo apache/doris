@@ -39,7 +39,7 @@ public:
     virtual Status init(RuntimeState* state) = 0;
 
     // WIP: should be renamed to flush/finish or something like this
-    virtual Status try_close(RuntimeState * state) = 0;
+    virtual Status try_close(RuntimeState* state) = 0;
 
     virtual Status close(Status s = Status::OK()) = 0;
 

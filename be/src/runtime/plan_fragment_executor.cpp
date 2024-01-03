@@ -354,6 +354,8 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
+        status = _sink->try_close(runtime_state(), status);
+        RETURN_IF_ERROR(status);
         status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);
     }
