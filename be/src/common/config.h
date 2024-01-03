@@ -1232,6 +1232,8 @@ DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
+DECLARE_mInt64(enable_debug_log_timeout_secs);
+
 DECLARE_mBool(enable_column_type_check);
 
 #ifdef BE_TEST
