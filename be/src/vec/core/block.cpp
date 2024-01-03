@@ -223,6 +223,8 @@ void Block::erase(size_t position) {
 }
 
 void Block::erase_impl(size_t position) {
+    data.erase(data.begin() + position);
+
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
         if (it->second == position) {
             index_by_name.erase(it++);
