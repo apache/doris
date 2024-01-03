@@ -555,3 +555,17 @@ CREATE CATALOG hive PROPERTIES (
     'yarn.resourcemanager.principal' = 'your-rm-principal'
 );
 ```
+## Hive Transactional Tables
+
+Hive transactional tables are tables in Hive that support ACID (Atomicity, Consistency, Isolation, Durability) semantics. For more details, you can refer to: [Hive Transactions](https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions).
+
+### Supported Operations for Hive Transactional Tables:
+|Transactional Table Type|Supported Operations in Hive|Hive Table Properties|Supported Hive Versions|
+|---|---|---|---|
+|Full-ACID Transactional Table |Supports insert, update, delete operations|'transactional'='true', 'transactional_properties'='insert_only'|3.x, 2.x (requires major compaction in Hive before loading)|
+|Insert-Only Transactional Table|Supports only Insert operations|'transactional'='true'|3.x, 2.x|
+
+### Current Limitations:
+Currently, it does not support scenarios involving Original Files.
+When a table is transformed into a transactional table, subsequent newly written data files will use the schema of the Hive transactional table. However, existing data files will not be converted to the schema of the transactional table. These existing files are referred to as Original Files.
+
