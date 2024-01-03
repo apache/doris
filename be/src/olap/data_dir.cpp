@@ -839,7 +839,8 @@ Status DataDir::update_capacity() {
     disks_total_capacity->set_value(_disk_capacity_bytes);
     disks_avail_capacity->set_value(_available_bytes);
     LOG(INFO) << "path: " << _path << " total capacity: " << _disk_capacity_bytes
-              << ", available capacity: " << _available_bytes;
+              << ", available capacity: " << _available_bytes << ", usage: " << get_usage()
+              << ", in_use: " << is_used();
 
     return Status::OK();
 }
