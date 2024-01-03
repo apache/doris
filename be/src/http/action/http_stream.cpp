@@ -296,6 +296,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
     } else {
+        request.__set_token(ctx->token);
         request.__set_load_sql(ctx->sql_str);
     }
     request.__set_loadId(ctx->id.to_thrift());
