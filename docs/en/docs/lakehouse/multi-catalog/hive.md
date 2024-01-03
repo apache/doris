@@ -391,6 +391,13 @@ Add following setting when creating an HMS catalog, file splitting and scanning 
 "broker.name" = "test_broker"
 ```
 
+
+Doris has implemented Broker query support for HMS Catalog Iceberg based on the Iceberg `FileIO` interface. If needed, the following configuration can be added when creating the HMS Catalog.
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
 ## Integrate with Apache Ranger
 
 Apache Ranger is a security framework for monitoring, enabling services, and comprehensive data security access management on the Hadoop platform.
