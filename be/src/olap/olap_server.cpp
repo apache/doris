@@ -57,6 +57,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -92,6 +93,33 @@ volatile uint32_t g_schema_change_active_threads = 0;
 static const uint64_t DEFAULT_SEED = 104729;
 static const uint64_t MOD_PRIME = 7652413;
 
+static int32_t get_cumu_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_cumu_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
+static int32_t get_base_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_base_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
+static int32_t get_single_replica_compaction_threads_num(size_t data_dirs_num) {
+    int32_t threads_num = config::max_single_replica_compaction_threads;
+    if (threads_num == -1) {
+        threads_num = data_dirs_num;
+    }
+    threads_num = threads_num <= 0 ? 1 : threads_num;
+    return threads_num;
+}
+
 Status StorageEngine::start_bg_threads() {
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "unused_rowset_monitor_thread",
@@ -117,17 +145,22 @@ Status StorageEngine::start_bg_threads() {
         data_dirs.push_back(tmp_store.second);
     }
 
+    auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
+    auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
+    auto single_replica_compaction_threads =
+            get_single_replica_compaction_threads_num(data_dirs.size());
+
     RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                            .set_min_threads(config::max_base_compaction_threads)
-                            .set_max_threads(config::max_base_compaction_threads)
+                            .set_min_threads(base_compaction_threads)
+                            .set_max_threads(base_compaction_threads)
                             .build(&_base_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                            .set_min_threads(config::max_cumu_compaction_threads)
-                            .set_max_threads(config::max_cumu_compaction_threads)
+                            .set_min_threads(cumu_compaction_threads)
+                            .set_max_threads(cumu_compaction_threads)
                             .build(&_cumu_compaction_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("SingleReplicaCompactionTaskThreadPool")
-                            .set_min_threads(config::max_single_replica_compaction_threads)
-                            .set_max_threads(config::max_single_replica_compaction_threads)
+                            .set_min_threads(single_replica_compaction_threads)
+                            .set_max_threads(single_replica_compaction_threads)
                             .build(&_single_replica_compaction_thread_pool));
 
     if (config::enable_segcompaction) {
@@ -457,64 +490,62 @@ void StorageEngine::_tablet_path_check_callback() {
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
-    if (_base_compaction_thread_pool->max_threads() != config::max_base_compaction_threads) {
+    auto base_compaction_threads_num = get_base_compaction_threads_num(_store_map.size());
+    if (_base_compaction_thread_pool->max_threads() != base_compaction_threads_num) {
         int old_max_threads = _base_compaction_thread_pool->max_threads();
-        Status status =
-                _base_compaction_thread_pool->set_max_threads(config::max_base_compaction_threads);
+        Status status = _base_compaction_thread_pool->set_max_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool max_threads from " << old_max_threads
-                        << " to " << config::max_base_compaction_threads;
+                        << " to " << base_compaction_threads_num;
         }
     }
-    if (_base_compaction_thread_pool->min_threads() != config::max_base_compaction_threads) {
+    if (_base_compaction_thread_pool->min_threads() != base_compaction_threads_num) {
         int old_min_threads = _base_compaction_thread_pool->min_threads();
-        Status status =
-                _base_compaction_thread_pool->set_min_threads(config::max_base_compaction_threads);
+        Status status = _base_compaction_thread_pool->set_min_threads(base_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update base compaction thread pool min_threads from " << old_min_threads
-                        << " to " << config::max_base_compaction_threads;
+                        << " to " << base_compaction_threads_num;
         }
     }
 
-    if (_cumu_compaction_thread_pool->max_threads() != config::max_cumu_compaction_threads) {
+    auto cumu_compaction_threads_num = get_cumu_compaction_threads_num(_store_map.size());
+    if (_cumu_compaction_thread_pool->max_threads() != cumu_compaction_threads_num) {
         int old_max_threads = _cumu_compaction_thread_pool->max_threads();
-        Status status =
-                _cumu_compaction_thread_pool->set_max_threads(config::max_cumu_compaction_threads);
+        Status status = _cumu_compaction_thread_pool->set_max_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool max_threads from " << old_max_threads
-                        << " to " << config::max_cumu_compaction_threads;
+                        << " to " << cumu_compaction_threads_num;
         }
     }
-    if (_cumu_compaction_thread_pool->min_threads() != config::max_cumu_compaction_threads) {
+    if (_cumu_compaction_thread_pool->min_threads() != cumu_compaction_threads_num) {
         int old_min_threads = _cumu_compaction_thread_pool->min_threads();
-        Status status =
-                _cumu_compaction_thread_pool->set_min_threads(config::max_cumu_compaction_threads);
+        Status status = _cumu_compaction_thread_pool->set_min_threads(cumu_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update cumu compaction thread pool min_threads from " << old_min_threads
-                        << " to " << config::max_cumu_compaction_threads;
+                        << " to " << cumu_compaction_threads_num;
         }
     }
 
+    auto single_replica_compaction_threads_num =
+            get_single_replica_compaction_threads_num(_store_map.size());
     if (_single_replica_compaction_thread_pool->max_threads() !=
-        config::max_single_replica_compaction_threads) {
+        single_replica_compaction_threads_num) {
         int old_max_threads = _single_replica_compaction_thread_pool->max_threads();
         Status status = _single_replica_compaction_thread_pool->set_max_threads(
-                config::max_single_replica_compaction_threads);
+                single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool max_threads from "
-                        << old_max_threads << " to "
-                        << config::max_single_replica_compaction_threads;
+                        << old_max_threads << " to " << single_replica_compaction_threads_num;
         }
     }
     if (_single_replica_compaction_thread_pool->min_threads() !=
-        config::max_single_replica_compaction_threads) {
+        single_replica_compaction_threads_num) {
         int old_min_threads = _single_replica_compaction_thread_pool->min_threads();
         Status status = _single_replica_compaction_thread_pool->set_min_threads(
-                config::max_single_replica_compaction_threads);
+                single_replica_compaction_threads_num);
         if (status.ok()) {
             VLOG_NOTICE << "update single replica compaction thread pool min_threads from "
-                        << old_min_threads << " to "
-                        << config::max_single_replica_compaction_threads;
+                        << old_min_threads << " to " << single_replica_compaction_threads_num;
         }
     }
 }
@@ -593,11 +624,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 continue;
             }
 
-            /// Regardless of whether the tablet is submitted for compaction or not,
-            /// we need to call 'reset_compaction' to clean up the base_compaction or cumulative_compaction objects
-            /// in the tablet, because these two objects store the tablet's own shared_ptr.
-            /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
-            /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     tablet->set_last_base_compaction_schedule_time(UnixMillis());
@@ -717,33 +743,39 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
-    Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
+
+    auto compaction = std::make_shared<SingleReplicaCompaction>(tablet, compaction_type);
+    auto st = compaction->prepare_compact();
+
     auto clean_single_replica_compaction = [tablet, this]() {
-        tablet->reset_single_replica_compaction();
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     };
 
-    if (st.ok()) {
-        auto submit_st = _single_replica_compaction_thread_pool->submit_func(
-                [tablet, compaction_type, clean_single_replica_compaction]() {
-                    tablet->execute_single_replica_compaction(compaction_type);
-                    clean_single_replica_compaction();
-                });
-        if (!submit_st.ok()) {
-            clean_single_replica_compaction();
-            return Status::InternalError(
-                    "failed to submit single replica compaction task to thread pool, "
-                    "tablet_id={} ",
-                    tablet->tablet_id());
+    if (!st.ok()) {
+        clean_single_replica_compaction();
+        if (!st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            LOG(WARNING) << "failed to prepare single replica compaction, tablet_id="
+                         << tablet->tablet_id() << " : " << st;
+            return st;
         }
-        return Status::OK();
-    } else {
+        return Status::OK(); // No suitable version, regard as OK
+    }
+
+    auto submit_st = _single_replica_compaction_thread_pool->submit_func(
+            [tablet, compaction = std::move(compaction),
+             clean_single_replica_compaction]() mutable {
+                tablet->execute_single_replica_compaction(*compaction);
+                clean_single_replica_compaction();
+            });
+    if (!submit_st.ok()) {
         clean_single_replica_compaction();
         return Status::InternalError(
-                "failed to prepare single replica compaction task tablet_id={} ",
+                "failed to submit single replica compaction task to thread pool, "
+                "tablet_id={}",
                 tablet->tablet_id());
     }
+    return Status::OK();
 }
 
 void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
@@ -917,8 +949,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
+    std::shared_ptr<Compaction> compaction;
     int64_t permits = 0;
-    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+    Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
+                                                                 compaction, permits);
     bool is_low_priority_task = [&]() {
         // Can add more strategies to determine whether a task is a low priority task in the future
         if (!config::enable_compaction_priority_scheduling) {
@@ -938,27 +972,24 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([tablet, compaction_type, permits, is_low_priority_task,
+        auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
+                                            compaction_type, permits, is_low_priority_task,
                                             this]() {
             if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
                 VLOG_DEBUG << "skip low priority compaction task for tablet: "
                            << tablet->tablet_id();
                 // Todo: push task back
             } else {
-                tablet->execute_compaction(compaction_type);
+                tablet->execute_compaction(*compaction);
                 if (is_low_priority_task) {
                     _decrease_low_priority_task_nums(tablet->data_dir());
                 }
             }
             _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         });
         if (!st.ok()) {
             _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -967,8 +998,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         }
         return Status::OK();
     } else {
-        // reset compaction
-        tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
             return Status::InternalError(
@@ -997,17 +1026,22 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     return _submit_compaction_task(tablet, compaction_type, force);
 }
 
-Status StorageEngine::_handle_seg_compaction(SegcompactionWorker* worker,
-                                             SegCompactionCandidatesSharedPtr segments) {
+Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
+                                             SegCompactionCandidatesSharedPtr segments,
+                                             uint64_t submission_time) {
+    // note: be aware that worker->_writer maybe released when the task is cancelled
+    uint64_t exec_queue_time = GetCurrentTimeMicros() - submission_time;
+    LOG(INFO) << "segcompaction thread pool queue time(ms): " << exec_queue_time / 1000;
     worker->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
-Status StorageEngine::submit_seg_compaction_task(SegcompactionWorker* worker,
+Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
-    return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, worker, segments));
+    uint64_t submission_time = GetCurrentTimeMicros();
+    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
+            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
@@ -1038,6 +1072,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
     do {
         // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
+        std::vector<RowsetSharedPtr> rowsets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
         auto cur_time = time(nullptr);
         // we should skip all the tablets which are not running and those pending to do cooldown
@@ -1054,17 +1089,19 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
             return _running_cooldown_tablets.find(tablet->tablet_id()) !=
                    _running_cooldown_tablets.end();
         };
-        _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
+        _tablet_manager->get_cooldown_tablets(&tablets, &rowsets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         int max_priority = tablets.size();
+        int index = 0;
         for (const auto& tablet : tablets) {
             {
                 std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
                 _running_cooldown_tablets.insert(tablet->tablet_id());
             }
             PriorityThreadPool::Task task;
-            task.work_function = [tablet, task_size = tablets.size(), this]() {
-                Status st = tablet->cooldown();
+            RowsetSharedPtr rowset = std::move(rowsets[index++]);
+            task.work_function = [tablet, rowset, task_size = tablets.size(), this]() {
+                Status st = tablet->cooldown(rowset);
                 {
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
                     _running_cooldown_tablets.erase(tablet->tablet_id());

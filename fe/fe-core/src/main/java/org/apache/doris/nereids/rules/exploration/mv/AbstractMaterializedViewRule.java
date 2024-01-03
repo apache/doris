@@ -136,12 +136,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 LogicalCompatibilityContext compatibilityContext =
                         LogicalCompatibilityContext.from(queryToViewTableMapping, queryToViewSlotMapping,
                                 queryStructInfo, viewStructInfo);
-                List<Expression> pulledUpExpressions = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
+                ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                         compatibilityContext);
-                if (pulledUpExpressions == null) {
+                if (comparisonResult.isInvalid()) {
                     logger.debug(currentClassName + " graph logical is not equals so continue");
                     continue;
                 }
+                // TODO: Use set of list? And consider view expr
+                List<Expression> pulledUpExpressions = ImmutableList.copyOf(comparisonResult.getQueryExpressions());
                 // set pulled up expression to queryStructInfo predicates and update related predicates
                 if (!pulledUpExpressions.isEmpty()) {
                     queryStructInfo.addPredicates(pulledUpExpressions);

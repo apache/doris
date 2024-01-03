@@ -41,6 +41,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -65,6 +66,7 @@ import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -111,6 +113,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -175,6 +178,7 @@ import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
@@ -312,10 +316,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
         exchangeNode.setPartitionType(dataPartition.getType());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
-        exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
             // gather to one instance
             exchangeNode.setNumInstances(1);
+        } else {
+            exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         }
 
         // process multicast sink
@@ -572,6 +577,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), jdbcScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, PlanTranslatorContext context) {
+        List<Slot> slots = odbcScan.getOutput();
+        TableIf table = odbcScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        OdbcScanNode odbcScanNode = new OdbcScanNode(odbcScan.translatePlanNodeId(), tupleDescriptor,
+                (OdbcTable) table);
+        odbcScanNode.addConjuncts(translateToLegacyConjuncts(odbcScan.getConjuncts()));
+        Utils.execWithUncheckedException(odbcScanNode::init);
+        context.addScanNode(odbcScanNode);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(odbcScan).forEach(
+                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
+                )
+        );
+        Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), odbcScan);
         return planFragment;
     }
 
@@ -865,10 +893,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
             aggregationNode.setColocate(true);
-
-            if (aggregate.getAggMode().isFinalPhase) {
-                inputPlanFragment.setHasColocateFinalizeAggNode(true);
-            }
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
@@ -1540,8 +1564,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        child.setOffset(physicalLimit.getOffset());
-        child.setLimit(physicalLimit.getLimit());
+        child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(), child.getLimit()));
+        child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
         updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
         return inputFragment;
     }

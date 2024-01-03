@@ -39,7 +39,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AggSinkOperator final : public StreamingOperator<AggSinkOperatorBuilder> {
+class AggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; }
@@ -53,7 +53,7 @@ public:
     ~AggSinkDependency() override = default;
 
     void set_ready() override {
-        if (_is_streaming_agg_state()) {
+        if (_shared_state && _is_streaming_agg_state()) {
             if (((SharedState*)Dependency::_shared_state.get())
                         ->data_queue->has_enough_space_to_push()) {
                 Dependency::set_ready();

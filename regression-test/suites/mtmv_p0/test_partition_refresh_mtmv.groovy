@@ -30,7 +30,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -64,7 +64,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -98,7 +98,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -144,7 +144,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -236,7 +236,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -337,7 +337,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'

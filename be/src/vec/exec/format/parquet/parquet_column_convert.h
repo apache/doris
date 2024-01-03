@@ -108,11 +108,11 @@ struct PhysicalTypeTraits<tparquet::Type::INT96> {
     M(TypeIndex::Float32, Float32, Float32) \
     M(TypeIndex::Float64, Float64, Float64)
 
-#define FOR_LOGICAL_DECIMAL_TYPES(M)                 \
-    M(TypeIndex::Decimal32, Decimal32, Decimal32)    \
-    M(TypeIndex::Decimal64, Decimal64, Decimal64)    \
-    M(TypeIndex::Decimal128, Decimal128, Decimal128) \
-    M(TypeIndex::Decimal128I, Decimal128I, Decimal128I)
+#define FOR_LOGICAL_DECIMAL_TYPES(M)                       \
+    M(TypeIndex::Decimal32, Decimal32, Decimal32)          \
+    M(TypeIndex::Decimal64, Decimal64, Decimal64)          \
+    M(TypeIndex::Decimal128V2, Decimal128V2, Decimal128V2) \
+    M(TypeIndex::Decimal128V3, Decimal128V3, Decimal128V3)
 
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
@@ -537,10 +537,10 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
                 *converter = std::make_unique<StringToDecimalString<Decimal64, Int64>>();
                 break;
             } else if (show_type == PrimitiveType::TYPE_DECIMALV2) {
-                *converter = std::make_unique<StringToDecimalString<Decimal128, Int128>>();
+                *converter = std::make_unique<StringToDecimalString<Decimal128V2, Int128>>();
                 break;
             } else if (show_type == PrimitiveType::TYPE_DECIMAL128I) {
-                *converter = std::make_unique<StringToDecimalString<Decimal128, Int128>>();
+                *converter = std::make_unique<StringToDecimalString<Decimal128V2, Int128>>();
                 break;
             }
 

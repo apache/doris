@@ -41,6 +41,7 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "util/cpu_info.h"
 
 namespace doris::config {
 
@@ -207,6 +208,8 @@ DEFINE_Int32(sys_log_roll_num, "10");
 DEFINE_Strings(sys_log_verbose_modules, "");
 // verbose log level
 DEFINE_Int32(sys_log_verbose_level, "10");
+// verbose log FLAGS_v
+DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
 
@@ -228,7 +231,14 @@ DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
-DEFINE_Int32(doris_scanner_thread_pool_thread_num, "48");
+DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
+DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 4);
+    }
+    return true;
+});
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -268,7 +278,8 @@ DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "1000000
 
 DEFINE_mInt32(cache_prune_stale_interval, "10");
 // the clean interval of tablet lookup cache
-DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
+DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
+DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -355,8 +366,8 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
-DEFINE_mInt32(max_cumu_compaction_threads, "10");
-DEFINE_mInt32(max_single_replica_compaction_threads, "10");
+DEFINE_mInt32(max_cumu_compaction_threads, "-1");
+DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -425,7 +436,7 @@ DEFINE_mBool(disable_compaction_trace_log, "true");
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
-DEFINE_mBool(enable_compaction_priority_scheduling, "false");
+DEFINE_mBool(enable_compaction_priority_scheduling, "true");
 DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
 DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
 
@@ -585,7 +596,7 @@ DEFINE_Int32(memory_max_alignment, "16");
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
-DEFINE_mInt64(write_buffer_size, "209715200");
+DEFINE_mInt64(write_buffer_size, "104857600");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
@@ -767,7 +778,7 @@ DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
 DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
 // idle timeout for load stream in ms
-DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+DEFINE_mInt64(load_stream_idle_timeout_ms, "600000");
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
@@ -775,7 +786,9 @@ DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 // max tasks per flush token in load stream
-DEFINE_Int32(load_stream_flush_token_max_tasks, "5");
+DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
+// max wait flush token time in load stream
+DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -802,6 +815,9 @@ DEFINE_mInt32(external_table_connect_timeout_sec, "30");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
+
+DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 
 // s3 config
 DEFINE_mInt32(max_remote_storage_count, "10");
@@ -865,6 +881,8 @@ DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
 DEFINE_mDouble(max_amplified_read_ratio, "0.8");
+DEFINE_mInt32(merged_oss_min_io_size, "1048576");
+DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
@@ -960,7 +978,7 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(variant_enable_flatten_nested, "false");
-DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
@@ -997,13 +1015,18 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
+// index by RAM directory
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1089,19 +1112,23 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
-// group commit insert config
-DEFINE_String(group_commit_wal_path, "./wal");
+// group commit config
+DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
-
-// the count of thread to group commit insert
+// This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
@@ -1116,12 +1143,6 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
-// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
-DEFINE_Int32(group_commit_max_queue_size, "67108864");
-
-// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
-DEFINE_Int32(wal_max_disk_size, "67108864");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1134,8 +1155,12 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
+DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
+
+// Default 300s, if its value <= 0, then log is disabled
+DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
 
 // clang-format off
 #ifdef BE_TEST

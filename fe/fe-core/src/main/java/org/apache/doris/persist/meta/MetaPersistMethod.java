@@ -240,6 +240,12 @@ public class MetaPersistMethod {
                 break;
             case "JobTaskManager":
                 break;
+            case "insertOverwrite":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadInsertOverwrite", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveInsertOverwrite", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

@@ -18,23 +18,27 @@
 #include "wal_reader.h"
 
 #include "common/logging.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
 #include "vec/data_types/data_type_string.h"
+
 namespace doris::vectorized {
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
+
 WalReader::~WalReader() {
     if (_wal_reader.get() != nullptr) {
         static_cast<void>(_wal_reader->finalize());
     }
 }
+
 Status WalReader::init_reader() {
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->create_wal_reader(_wal_path, _wal_reader));
     return Status::OK();
 }
+
 Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
@@ -88,8 +92,6 @@ void WalReader::string_split(const std::string& str, const std::string& splits,
 Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     RETURN_IF_ERROR(_wal_reader->read_header(_version, _col_ids));
-    std::vector<std::string> col_element;
-    string_split(_col_ids, ",", col_element);
     RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_column_index(_wal_id, _column_index));
     return Status::OK();
 }

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScala
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -105,14 +106,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .collect(Collectors.toSet());
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
-            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s in plan: %s,"
-                            + " child output is: %s\n" + "plan tree:\n" + plan.treeString(),
-                    StringUtils.join(notFromChildren.stream()
-                            .map(ExpressionTrait::toString)
-                            .collect(Collectors.toSet()), ", "), plan,
-                    plan.children().stream()
-                            .flatMap(child -> child.getOutput().stream())
-                            .collect(Collectors.toSet())));
+            if (plan.child(0) instanceof LogicalAggregate) {
+                throw new AnalysisException(String.format("%s not in agg's output", notFromChildren
+                        .stream().map(slot -> slot.getName()).collect(Collectors.joining(", "))));
+            } else {
+                throw new AnalysisException(String.format(
+                        "Input slot(s) not in child's output: %s in plan: %s,"
+                                + " child output is: %s\n" + "plan tree:\n" + plan.treeString(),
+                        StringUtils.join(notFromChildren.stream().map(ExpressionTrait::toString)
+                                .collect(Collectors.toSet()), ", "),
+                        plan, plan.children().stream().flatMap(child -> child.getOutput().stream())
+                                .collect(Collectors.toSet())));
+            }
         }
     }
 
@@ -175,7 +180,8 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
     private void checkMatchIsUsedCorrectly(Plan plan) {
         if (plan.getExpressions().stream().anyMatch(
                 expression -> expression instanceof Match)) {
-            if (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan) {
+            if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
+                    || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
                 return;
             } else {
                 throw new AnalysisException(String.format(

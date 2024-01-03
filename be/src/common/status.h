@@ -160,7 +160,6 @@ namespace ErrorCode {
     E(BE_INVALID_NEED_MERGED_VERSIONS, -810, true);          \
     E(BE_ERROR_DELETE_ACTION, -811, true);                   \
     E(BE_SEGMENTS_OVERLAPPING, -812, true);                  \
-    E(BE_CLONE_OCCURRED, -813, true);                        \
     E(PUSH_INIT_ERROR, -900, true);                          \
     E(PUSH_VERSION_INCORRECT, -902, true);                   \
     E(PUSH_SCHEMA_MISMATCH, -903, true);                     \
@@ -228,7 +227,6 @@ namespace ErrorCode {
     E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004, true); \
     E(CUMULATIVE_ERROR_DELETE_ACTION, -2005, true);          \
     E(CUMULATIVE_MISS_VERSION, -2006, true);                 \
-    E(CUMULATIVE_CLONE_OCCURRED, -2007, true);               \
     E(FULL_NO_SUITABLE_VERSION, -2008, false);               \
     E(FULL_MISS_VERSION, -2009, true);                       \
     E(META_INVALID_ARGUMENT, -3000, true);                   \
@@ -435,14 +433,6 @@ public:
     void set_code(int code) { _code = code; }
 
     bool ok() const { return _code == ErrorCode::OK; }
-
-    // Convert into TStatus. Call this if 'status_container' contains an optional
-    // TStatus field named 'status'. This also sets __isset.status.
-    template <typename T>
-    void set_t_status(T* status_container) const {
-        to_thrift(&status_container->status);
-        status_container->__isset.status = true;
-    }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;

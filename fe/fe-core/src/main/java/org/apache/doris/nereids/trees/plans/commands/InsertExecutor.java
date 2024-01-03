@@ -318,11 +318,14 @@ public class InsertExecutor {
             if (0 != jobId) {
                 etlJobType = EtlJobType.INSERT_JOB;
             }
-            ctx.getEnv().getLoadManager()
-                    .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
-                            table.getId(),
-                            etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
-                            coordinator.getTrackingUrl(), userIdentity, jobId);
+            if (!Config.enable_nereids_load) {
+                // just record for loadv2 here
+                ctx.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
+                                table.getId(),
+                                etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
+                                coordinator.getTrackingUrl(), userIdentity, jobId);
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             errMsg = "Record info of insert load with error " + e.getMessage();

@@ -166,6 +166,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c100= """select * from array_nested order by c1;"""
 
+            def c101="""select * from all_table where c1 is not null or c2 is not null order by c1"""
+
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -284,5 +286,24 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            qt_c101 c101
+
+            // test view from jion paimon
+            sql """ switch internal """
+            String view_db = "test_view_for_paimon"
+            sql """ drop database if exists ${view_db}"""
+            sql """ create database if not exists ${view_db}"""
+            sql """use ${view_db}"""
+            sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
+            sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
+            sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """
+            sql """ create table test_tst_6 properties ("replication_num" = "1") as 
+                        select f.c2,f.c3,c.c1 from 
+                            (select a.c2,b.c3 from test_tst_1 a inner join test_tst_2 b on a.c2=b.c2) f
+                    inner join test_tst_5 c on f.c2=c.c1;
+                """
+            def view1 = """select * from test_tst_6 order by c1"""
+
+            // qt_view1 view1
         }
 }

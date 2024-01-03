@@ -25,7 +25,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
@@ -73,7 +75,9 @@ public class MTMVTask extends AbstractTask {
             new Column("JobId", ScalarType.createStringType()),
             new Column("JobName", ScalarType.createStringType()),
             new Column("MvId", ScalarType.createStringType()),
+            new Column("MvName", ScalarType.createStringType()),
             new Column("MvDatabaseId", ScalarType.createStringType()),
+            new Column("MvDatabaseName", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
@@ -135,6 +139,7 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void run() throws JobException {
+        LOG.info("mtmv task run, taskId: {}", super.getTaskId());
         try {
             ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
@@ -185,18 +190,21 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public synchronized void onFail() throws JobException {
+        LOG.info("mtmv task onFail, taskId: {}", super.getTaskId());
         super.onFail();
         after();
     }
 
     @Override
     public synchronized void onSuccess() throws JobException {
+        LOG.info("mtmv task onSuccess, taskId: {}", super.getTaskId());
         super.onSuccess();
         after();
     }
 
     @Override
     public synchronized void cancel() throws JobException {
+        LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
         super.cancel();
         if (executor != null) {
             executor.cancel();
@@ -206,10 +214,10 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void before() throws JobException {
+        LOG.info("mtmv task before, taskId: {}", super.getTaskId());
         super.before();
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+            mtmv = getMTMV();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
                 MTMVUtil.alignMvPartition(mtmv, relatedTable);
@@ -220,14 +228,23 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    private MTMV getMTMV() throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+    }
+
     @Override
     public void runTask() throws JobException {
+        LOG.info("mtmv task runTask, taskId: {}", super.getTaskId());
         MTMVJob job = (MTMVJob) getJobOrJobException();
         try {
+            LOG.info("mtmv task get writeLock start, taskId: {}", super.getTaskId());
             job.writeLock();
+            LOG.info("mtmv task get writeLock end, taskId: {}", super.getTaskId());
             super.runTask();
         } finally {
             job.writeUnlock();
+            LOG.info("mtmv task release writeLock, taskId: {}", super.getTaskId());
         }
     }
 
@@ -237,8 +254,19 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
+        String dbName = "";
+        String mvName = "";
+        try {
+            MTMV mtmv = getMTMV();
+            dbName = mtmv.getQualifiedDbName();
+            mvName = mtmv.getName();
+        } catch (UserException e) {
+            LOG.warn("can not find mv", e);
+        }
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
+        trow.addToColumnValue(new TCell().setStringVal(mvName));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(dbId)));
+        trow.addToColumnValue(new TCell().setStringVal(dbName));
         trow.addToColumnValue(new TCell()
                 .setStringVal(super.getStatus() == null ? FeConstants.null_string : super.getStatus().toString()));
         trow.addToColumnValue(new TCell().setStringVal(super.getErrMsg()));
@@ -345,5 +373,20 @@ public class MTMVTask extends AbstractTask {
 
     public MTMVTaskContext getTaskContext() {
         return taskContext;
+    }
+
+    @Override
+    public String toString() {
+        return "MTMVTask{"
+                + "dbId=" + dbId
+                + ", mtmvId=" + mtmvId
+                + ", taskContext=" + taskContext
+                + ", needRefreshPartitions=" + needRefreshPartitions
+                + ", completedPartitions=" + completedPartitions
+                + ", refreshMode=" + refreshMode
+                + ", mtmv=" + mtmv
+                + ", relation=" + relation
+                + ", executor=" + executor
+                + "} " + super.toString();
     }
 }

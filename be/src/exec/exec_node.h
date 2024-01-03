@@ -103,7 +103,7 @@ public:
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     [[nodiscard]] virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
-    [[nodiscard]] Status get_next_after_projects(
+    [[nodiscard]] virtual Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
             const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
             bool clear_data = true);
@@ -238,6 +238,10 @@ public:
     ExecNode* child(int i) { return _children[i]; }
 
     size_t children_count() const { return _children.size(); }
+
+    // when the fragment is normal finished, call this method to do some finish work
+    // such as send the last buffer to remote.
+    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
 
 protected:
     friend class DataSink;

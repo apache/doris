@@ -482,9 +482,9 @@ There are two ways to configure BE configuration items:
 * Default value: 10485760
 
 #### `max_base_compaction_threads`
-
+git 
 * Type: int32
-* Description: The maximum of thread number in base compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
 * Default value: 4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -625,8 +625,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in cumulative compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in cumulative compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `enable_segcompaction`
 
@@ -686,8 +686,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in single replica compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in single replica compaction thread pool. -1 means one thread per disk.
+* Default value: -1
 
 #### `update_replica_infos_interval_seconds`
 
@@ -1504,3 +1504,16 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `group_commit_wal_path`
+
+* The `WAL` directory of group commit.
+* Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* Default: 10000

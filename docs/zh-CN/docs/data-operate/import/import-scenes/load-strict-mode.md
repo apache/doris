@@ -37,7 +37,7 @@ under the License.
 
 不同的导入方式设置严格模式的方式不尽相同。
 
-1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md)
+1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD)
 
    ```sql
    LOAD LABEL example_db.label1

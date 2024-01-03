@@ -222,6 +222,7 @@ public class MaterializedViewUtils {
             if (partitionColumnSet.contains(mvReferenceColumn)) {
                 context.setRelatedTable(table);
                 context.setRelatedTableColumn(mvReferenceColumn);
+                context.setPctPossible(!mvReferenceColumn.isAllowNull());
             }
             return visit(relation, context);
         }

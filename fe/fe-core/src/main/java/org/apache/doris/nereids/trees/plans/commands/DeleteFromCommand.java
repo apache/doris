@@ -54,7 +54,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;

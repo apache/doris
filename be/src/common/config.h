@@ -256,6 +256,8 @@ DECLARE_Int32(sys_log_roll_num);
 DECLARE_Strings(sys_log_verbose_modules);
 // verbose log level
 DECLARE_Int32(sys_log_verbose_level);
+// verbose log FLAGS_v
+DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
 
@@ -276,7 +278,7 @@ DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
-DECLARE_Int32(doris_scanner_thread_pool_thread_num);
+DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
 // if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
@@ -319,7 +321,8 @@ DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 // the prune stale interval of all cache
 DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
-DECLARE_mInt32(tablet_lookup_cache_clean_interval);
+DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
+DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
@@ -643,7 +646,7 @@ DECLARE_Int32(memory_max_alignment);
 
 // memtable insert memory tracker will multiply input block size with this ratio
 DECLARE_mDouble(memtable_insert_memory_ratio);
-// max write buffer size before flush, default 200MB
+// max write buffer size before flush, default 100MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
@@ -837,6 +840,8 @@ DECLARE_Int32(load_stream_messages_in_batch);
 DECLARE_Int32(load_stream_eagain_wait_seconds);
 // max tasks per flush token in load stream
 DECLARE_Int32(load_stream_flush_token_max_tasks);
+// max wait flush token time in load stream
+DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -864,6 +869,10 @@ DECLARE_mInt32(external_table_connect_timeout_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
+
+// A common object cache depends on an Sharded LRU Cache.
+DECLARE_mInt32(common_obj_lru_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
@@ -922,6 +931,10 @@ DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 DECLARE_mInt32(parquet_column_max_buffer_mb);
 // Merge small IO, the max amplified read ratio
 DECLARE_mDouble(max_amplified_read_ratio);
+// Equivalent min size of each IO that can reach the maximum storage speed limit
+// 1MB for oss, 8KB for hdfs
+DECLARE_mInt32(merged_oss_min_io_size);
+DECLARE_mInt32(merged_hdfs_min_io_size);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
@@ -1040,13 +1053,16 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1162,16 +1178,20 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
-// group commit insert config
+// group commit config
 DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);
-
-// This config can be set to limit thread number in group commit insert thread pool.
+// This config can be set to limit thread number in group commit request fragment thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
 DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
 DECLARE_Bool(wait_internal_group_commit_finish);
+// Max size(bytes) of group commit queues, used for mem back pressure.
+DECLARE_mInt32(group_commit_queue_mem_limit);
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DECLARE_mString(group_commit_wal_max_disk_limit);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1197,12 +1217,6 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
 
-// Max size(bytes) of group commit queues, used for mem back pressure.
-DECLARE_Int32(group_commit_max_queue_size);
-
-// Max size(bytes) of wal disk using, used for disk space back pressure.
-DECLARE_Int32(wal_max_disk_size);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1218,6 +1232,10 @@ DECLARE_Bool(enable_snapshot_action);
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
+
+DECLARE_mInt64(enable_debug_log_timeout_secs);
+
+DECLARE_mBool(enable_column_type_check);
 
 #ifdef BE_TEST
 // test s3
