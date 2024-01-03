@@ -50,10 +50,6 @@ class FunctionContext;
 namespace doris::vectorized {
 class FunctionNullIf : public IFunction {
 public:
-    struct NullPresence {
-        bool has_nullable = false;
-    };
-
     static constexpr auto name = "nullif";
 
     static FunctionPtr create() { return std::make_shared<FunctionNullIf>(); }
@@ -68,18 +64,6 @@ public:
         return make_nullable(arguments[0]);
     }
 
-    static NullPresence get_null_resense(const ColumnsWithTypeAndName& args) {
-        NullPresence res;
-
-        for (const auto& elem : args) {
-            if (!res.has_nullable) {
-                res.has_nullable = elem.type->is_nullable();
-            }
-        }
-
-        return res;
-    }
-
     static DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) {
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
 
@@ -91,8 +75,7 @@ public:
         }
 
         if (!arguments.empty()) {
-            NullPresence null_presence = get_null_resense(arguments);
-            if (null_presence.has_nullable) {
+            if (get_null_presence(arguments)) {
                 return make_nullable(std::make_shared<doris::vectorized::DataTypeUInt8>());
             }
         }

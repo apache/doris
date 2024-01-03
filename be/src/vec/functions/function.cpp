@@ -104,30 +104,14 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     return ColumnNullable::create(src_not_nullable, result_null_map_column);
 }
 
-NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
-    NullPresence res;
-
-    for (const auto& arg : args) {
-        const auto& elem = block.get_by_position(arg);
-
-        if (!res.has_nullable) {
-            res.has_nullable = elem.type->is_nullable();
-        }
-    }
-
-    return res;
+bool get_null_presence(const Block& block, const ColumnNumbers& args) {
+    return std::ranges::any_of(args, [&block](const auto& elem) {
+        return block.get_by_position(elem).type->is_nullable();
+    });
 }
 
-[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args) {
-    NullPresence res;
-
-    for (const auto& elem : args) {
-        if (!res.has_nullable) {
-            res.has_nullable = elem.type->is_nullable();
-        }
-    }
-
-    return res;
+bool get_null_presence(const ColumnsWithTypeAndName& args) {
+    return std::ranges::any_of(args, [](const auto& elem) { return elem.type->is_nullable(); });
 }
 
 inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
@@ -219,9 +203,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         return Status::OK();
     }
 
-    NullPresence null_presence = get_null_presence(block, args);
-
-    if (null_presence.has_nullable) {
+    if (get_null_presence(block, args)) {
         bool need_to_default = need_replace_null_data_to_default();
         if (context) {
             need_to_default &= context->check_overflow_for_decimal();
@@ -287,9 +269,7 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
-        NullPresence null_presence = get_null_presence(arguments);
-
-        if (null_presence.has_nullable) {
+        if (get_null_presence(arguments)) {
             ColumnNumbers numbers(arguments.size());
             std::iota(numbers.begin(), numbers.end(), 0);
             auto [nested_block, _] =

@@ -60,17 +60,13 @@ template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
 
-struct NullPresence {
-    bool has_nullable = false;
-};
-
 template <typename T>
 concept HasGetVariadicArgumentTypesImpl = requires(T t) {
     { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
 };
 
-NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
-[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
+bool get_null_presence(const Block& block, const ColumnNumbers& args);
+bool get_null_presence(const ColumnsWithTypeAndName& args);
 
 /// The simplest executable object.
 /// Motivation:
