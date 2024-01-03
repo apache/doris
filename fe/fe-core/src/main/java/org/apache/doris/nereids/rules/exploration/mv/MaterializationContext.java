@@ -200,26 +200,26 @@ public class MaterializationContext {
                 .map(MTMV::getName)
                 .collect(Collectors.toSet());
         StringBuilder builder = new StringBuilder();
-        builder.append("\n\nMaterialized View\n");
-        builder.append("\nMATERIALIZED VIEW REWRITE FAIL:");
+        builder.append("\n\nMaterializedView\n");
+        builder.append("\nMaterializedViewRewriteFail:");
         for (MaterializationContext ctx : materializationContexts) {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(Collectors.toSet());
                 builder.append("\n\n")
-                        .append("  NAME: ").append(ctx.getMTMV().getName())
+                        .append("  Name: ").append(ctx.getMTMV().getName())
                         .append("\n")
-                        .append("  FAIL_SUMMARY: ").append(String.join(", ", failReasonSet));
+                        .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
-        builder.append("\n\nMATERIALIZED VIEW REWRITE SUCCESS BUT NOT CHOSEN:\n");
-        builder.append("  NAMES: ").append(materializationContexts.stream()
+        builder.append("\n\nMaterializedViewRewriteSuccessButNotChose:\n");
+        builder.append("  Names: ").append(materializationContexts.stream()
                 .filter(materializationContext -> materializationContext.isSuccess()
                         && !materializationChosenNameSet.contains(materializationContext.getMTMV().getName()))
                 .map(materializationContext -> materializationContext.getMTMV().getName())
                 .collect(Collectors.joining(", ")));
-        builder.append("\n\nMATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN:\n");
-        builder.append("  NAMES: ").append(String.join(", ", materializationChosenNameSet));
+        builder.append("\n\nMaterializedViewRewriteSuccessAndChose:\n");
+        builder.append("  Names: ").append(String.join(", ", materializationChosenNameSet));
         return builder.toString();
     }
 
