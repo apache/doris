@@ -65,7 +65,8 @@ class SimplifiedScanScheduler;
 // ScannerContext is also the scheduling unit of ScannerScheduler.
 // ScannerScheduler schedules a ScannerContext at a time,
 // and submits the Scanners to the scanner thread pool for data scanning.
-class ScannerContext : public std::enable_shared_from_this<ScannerContext> {
+class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
+                       public HasTaskExecutionCtx {
     ENABLE_FACTORY_CREATOR(ScannerContext);
 
 public:
@@ -170,7 +171,7 @@ public:
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
-    void reschedule_scanner_ctx();
+    virtual void reschedule_scanner_ctx();
 
     // the unique id of this context
     std::string ctx_id;
@@ -179,8 +180,6 @@ public:
     ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
-
-    std::weak_ptr<TaskExecutionContext> get_task_execution_context() { return _task_exec_ctx; }
 
 private:
     template <typename Parent>
@@ -199,7 +198,6 @@ protected:
     void _set_scanner_done();
 
     RuntimeState* _state = nullptr;
-    std::weak_ptr<TaskExecutionContext> _task_exec_ctx;
     VScanNode* _parent = nullptr;
     pipeline::ScanLocalStateBase* _local_state = nullptr;
 

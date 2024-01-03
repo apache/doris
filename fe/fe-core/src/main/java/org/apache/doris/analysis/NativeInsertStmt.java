@@ -69,7 +69,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -150,10 +149,10 @@ public class NativeInsertStmt extends InsertStmt {
     private boolean isGroupCommit = false;
     private int baseSchemaVersion = -1;
     private TUniqueId loadId = null;
-    private ByteString execPlanFragmentParamsBytes = null;
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
     private GroupCommitPlanner groupCommitPlanner;
+    private boolean reuseGroupCommitPlan = false;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -381,7 +380,7 @@ public class NativeInsertStmt extends InsertStmt {
             label = new LabelName(db.getFullName(),
                     insertType.labePrefix + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
         }
-        if (!isExplain() && !isTransactionBegin) {
+        if (!isExplain() && !isTransactionBegin && !isGroupCommitStreamLoadSql) {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
@@ -1019,15 +1018,17 @@ public class NativeInsertStmt extends InsertStmt {
             if (!allowAutoPartition) {
                 ((OlapTableSink) dataSink).setAutoPartition(false);
             }
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionState(db.getId(), transactionId);
-            if (txnState == null) {
-                throw new DdlException("txn does not exist: " + transactionId);
-            }
-            txnState.addTableIndexes((OlapTable) targetTable);
-            if (isPartialUpdate) {
-                txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
+            if (!isGroupCommitStreamLoadSql) {
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionState(db.getId(), transactionId);
+                if (txnState == null) {
+                    throw new DdlException("txn does not exist: " + transactionId);
+                }
+                txnState.addTableIndexes((OlapTable) targetTable);
+                if (isPartialUpdate) {
+                    txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
+                }
             }
         }
     }
@@ -1108,7 +1109,18 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    public void analyzeGroupCommit(Analyzer analyzer) {
+    public void analyzeGroupCommit(Analyzer analyzer) throws AnalysisException {
+        // check if http stream meets group commit requirements.
+        // If not meets, throw exception (consider fallback to non group commit mode).
+        if (isGroupCommitStreamLoadSql) {
+            if (targetTable != null && (targetTable instanceof OlapTable)
+                    && !((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()) {
+                throw new AnalysisException(
+                        "table light_schema_change is false, can't do http_stream with group commit mode");
+            }
+            return;
+        }
+        // check if 'insert into' meets group commit requirements. If meets, set isGroupCommit to true
         if (isGroupCommit) {
             return;
         }
@@ -1123,6 +1135,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
+                && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null
@@ -1162,12 +1175,18 @@ public class NativeInsertStmt extends InsertStmt {
         return isGroupCommit;
     }
 
+    public boolean isReuseGroupCommitPlan() {
+        return reuseGroupCommitPlan;
+    }
+
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
             LOG.debug("reuse group commit plan, table={}", olapTable);
+            reuseGroupCommitPlan = true;
             return groupCommitPlanner;
         }
+        reuseGroupCommitPlan = false;
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
             reset();

@@ -357,7 +357,7 @@ Status PipelineTask::close(Status exec_status) {
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_context();
+    return _fragment_context->get_query_ctx();
 }
 
 // The FSM see PipelineTaskState's comment

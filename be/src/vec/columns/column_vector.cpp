@@ -372,11 +372,15 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
-
-    for (uint32_t i = 0; i < new_size; ++i) {
-        data[origin_size + i] = src_data[indices_begin[i]];
-    }
+    auto copy = [](const T* __restrict src, T* __restrict dest, const uint32_t* __restrict begin,
+                   const uint32_t* __restrict end) {
+        for (auto it = begin; it != end; ++it) {
+            *dest = src[*it];
+            ++dest;
+        }
+    };
+    copy(reinterpret_cast<const T*>(src.get_raw_data().data), data.data() + origin_size,
+         indices_begin, indices_end);
 }
 
 template <typename T>

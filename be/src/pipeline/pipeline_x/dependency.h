@@ -56,13 +56,9 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep = nullptr;
-    Dependency* sink_dep = nullptr;
+    DependencySPtr source_dep = nullptr;
+    DependencySPtr sink_dep = nullptr;
 
-    std::atomic<int> ref_count = 0;
-
-    void ref() { ref_count++; }
-    virtual Status close(RuntimeState* state) { return Status::OK(); }
     virtual ~BasicSharedState() = default;
 };
 
@@ -93,6 +89,7 @@ public:
     void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
         _shared_state = shared_state;
     }
+    void clear_shared_state() { _shared_state.reset(); }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
@@ -296,23 +293,16 @@ public:
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
-    ~AggSharedState() override = default;
+    ~AggSharedState() override {
+        if (probe_expr_ctxs.empty()) {
+            _close_without_key();
+        } else {
+            _close_with_serialized_key();
+        }
+    }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
                 std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
-    }
-    Status close(RuntimeState* state) override {
-        if (ref_count.fetch_sub(1) == 1) {
-            for (auto* aggregate_evaluator : aggregate_evaluators) {
-                aggregate_evaluator->close(state);
-            }
-            if (probe_expr_ctxs.empty()) {
-                _close_without_key();
-            } else {
-                _close_with_serialized_key();
-            }
-        }
-        return Status::OK();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
@@ -620,25 +610,25 @@ struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<Dependency*> source_dependencies;
+    std::vector<DependencySPtr> source_dependencies;
     Dependency* sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
-        for (auto* dep : source_dependencies) {
+        for (auto& dep : source_dependencies) {
             DCHECK(dep);
             dep->set_ready();
         }
     }
 
-    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
+    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
 
     void set_ready_to_read(int channel_id) {
-        auto* dep = source_dependencies[channel_id];
+        auto& dep = source_dependencies[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }

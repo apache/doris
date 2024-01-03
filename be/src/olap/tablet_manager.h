@@ -156,6 +156,7 @@ public:
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
     void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::vector<RowsetSharedPtr>* rowsets,
                               std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);

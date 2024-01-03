@@ -204,10 +204,10 @@ public:
     }
 
     // publish runtime filter
-    Status publish() {
+    Status publish(bool publish_local = false) {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish());
+            for (auto& filter : pair.second) {
+                RETURN_IF_ERROR(filter->publish(publish_local));
             }
         }
         return Status::OK();

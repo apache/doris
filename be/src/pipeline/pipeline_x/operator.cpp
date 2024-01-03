@@ -335,18 +335,16 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         }
     }
 
@@ -378,11 +376,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    if (_shared_state) {
-        RETURN_IF_ERROR(_shared_state->close(state));
-    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
+        _dependency->clear_shared_state();
     }
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
@@ -419,10 +415,6 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
-        if constexpr (!is_fake_shared) {
-            _shared_state->ref();
-        }
-
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
@@ -445,11 +437,11 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     if (_closed) {
         return Status::OK();
     }
-    if (_shared_state) {
-        RETURN_IF_ERROR(_shared_state->close(state));
-    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
+        if constexpr (!std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
+            _dependency->clear_shared_state();
+        }
     }
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());

@@ -54,7 +54,7 @@ public:
     io::FileWriterPtr& get_file_writer() { return _file_writer; }
 
     // set the cancel flag, tasks already started will not be cancelled.
-    void cancel() { _cancelled = true; }
+    bool cancel();
 
 private:
     Status _create_segment_writer_for_segcompaction(
@@ -77,6 +77,8 @@ private:
     // Currently cloud storage engine doesn't need segcompaction
     BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
-    std::atomic<bool> _cancelled = false;
+
+    // the state is not mutable when 1)actual compaction operation started or 2) cancelled
+    std::atomic<bool> _is_compacting_state_mutable = true;
 };
 } // namespace doris

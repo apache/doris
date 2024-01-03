@@ -67,7 +67,6 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
@@ -169,7 +168,8 @@ public:
     }
 
     Status create_index_directory(std::unique_ptr<DorisCompoundDirectory>& dir) {
-        bool create = true;
+        bool use_compound_file_writer = true;
+        bool can_use_ram_dir = true;
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id(),
                 _index_meta->get_index_suffix());
@@ -185,8 +185,8 @@ public:
             return Status::InternalError("init_fulltext_index directory already exists");
         }
 
-        dir = std::unique_ptr<DorisCompoundDirectory>(
-                DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), create));
+        dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
+                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
         return Status::OK();
     }
 
@@ -195,8 +195,8 @@ public:
         bool close_dir_on_shutdown = true;
         index_writer = std::make_unique<lucene::index::IndexWriter>(
                 _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
-        index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
@@ -536,7 +536,10 @@ public:
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id(),
                         _index_meta->get_index_suffix());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                bool use_compound_file_writer = true;
+                bool can_use_ram_dir = true;
+                dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;

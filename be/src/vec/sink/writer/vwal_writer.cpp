@@ -19,25 +19,7 @@
 
 #include <gen_cpp/data.pb.h>
 
-#include <mutex>
 #include <sstream>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "common/compiler_util.h"
-#include "common/status.h"
-#include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
-#include "util/proto_util.h"
-#include "util/thrift_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/block.h"
-#include "vec/sink/vtablet_block_convertor.h"
-#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 namespace vectorized {
@@ -56,7 +38,7 @@ VWalWriter::~VWalWriter() {}
 
 Status VWalWriter::init() {
     RETURN_IF_ERROR(_wal_manager->create_wal_writer(_wal_id, _wal_writer));
-    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WAL_STATUS::CREATE);
+    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WalStatus::CREATE);
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
         if (slot_desc.col_unique_id < 0) {

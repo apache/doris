@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 
 #include <gtest/gtest.h>
 
@@ -44,8 +44,7 @@
 namespace doris {
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
-extern Status k_stream_load_plan_status;
-extern std::string k_request_line;
+extern Status k_stream_load_exec_status;
 
 ExecEnv* _env = nullptr;
 std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
@@ -67,7 +66,6 @@ public:
         _env->_store_paths = {StorePath(std::filesystem::current_path(), 0)};
         _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
         k_stream_load_begin_result = TLoadTxnBeginResult();
-        k_stream_load_plan_status = Status::OK();
     }
     void TearDown() override {
         static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
@@ -88,7 +86,7 @@ public:
 
 TEST_F(WalManagerTest, recovery_normal) {
     _env->wal_mgr()->wal_limit_test_bytes = 1099511627776;
-    k_request_line = "{\"Status\": \"Success\",    \"Message\": \"Test\"}";
+    k_stream_load_exec_status = Status::OK();
 
     std::string db_id = "1";
     int64_t tb_1_id = 1;

@@ -985,7 +985,7 @@ Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int*
     return Status::OK();
 }
 
-Status IRuntimeFilter::publish() {
+Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
     if (_is_global) {
         std::vector<IRuntimeFilter*> filters;
@@ -1010,13 +1010,17 @@ Status IRuntimeFilter::publish() {
             filter->update_runtime_filter_type_to_profile();
             filter->signal();
         }
-        return Status::OK();
-    } else {
+    } else if (!publish_local) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
         return push_to_remote(_state, &addr, _opt_remote_rf);
+    } else {
+        // remote broadcast join only push onetime in build shared hash table
+        // publish_local only set true on copy shared hash table
+        DCHECK(_is_broadcast_join);
     }
+    return Status::OK();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
