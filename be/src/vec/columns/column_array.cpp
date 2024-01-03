@@ -708,8 +708,9 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
 
     auto res = ColumnArray::create(data->clone_empty());
 
-    if (result_size_hint < 0)
+    if (result_size_hint < 0) {
         nested_result_size_hint = result_size_hint;
+    }
 
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
