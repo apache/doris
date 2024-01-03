@@ -281,7 +281,6 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->label = label;
     ctx->auth.token = "relay_wal"; // this is a fake, fe not check it now
     ctx->auth.user = "admin";
-    ctx->auth.passwd = "";
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish
