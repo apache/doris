@@ -86,7 +86,8 @@ Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int
         std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
         bw.write(str.c_str(), str.size());
     } else {
-        bw.write("\\N", 2);
+        bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
     }
     return Status::OK();
 }
