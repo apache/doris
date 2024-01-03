@@ -428,6 +428,7 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _status_error = true;
         _blocks_queue_added_cv.notify_one();
         _should_stop = true;
+        _state->get_query_ctx()->set_exec_status(_process_status);
         _set_scanner_done();
         return true;
     }

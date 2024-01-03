@@ -231,6 +231,7 @@ public:
 
     std::vector<TUniqueId> fragment_instance_ids;
     std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::atomic<bool> is_pipeline_x = false;
     std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
