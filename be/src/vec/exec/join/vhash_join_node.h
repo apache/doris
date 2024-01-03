@@ -76,12 +76,13 @@ class HashJoinNode;
 
 struct ProcessRuntimeFilterBuild {
     template <class HashTableContext, typename Parent>
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Parent* parent) {
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Parent* parent,
+                      bool is_global = false) {
         if (parent->runtime_filter_descs().empty()) {
             return Status::OK();
         }
         parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                parent->_build_expr_ctxs, parent->runtime_filter_descs());
+                parent->_build_expr_ctxs, parent->runtime_filter_descs(), is_global);
 
         RETURN_IF_ERROR(
                 parent->_runtime_filter_slots->init(state, hash_table_ctx.hash_table->size()));
