@@ -4,6 +4,10 @@ Checks: |
   clang-diagnostic-*,
   clang-analyzer-*,
   bugprone-redundant-branch-condition,
+  bugprone-use-after-move,
+  bugprone-bool-pointer-implicit-conversion,
+  bugprone-unused-raii,
+  bugprone-fold-init-type,
   modernize-*,
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
@@ -24,10 +28,9 @@ Checks: |
   performance-faster-string-find,
   performance-inefficient-algorithm,
   performance-move-const-arg
-WarningsAsErrors: '*'
+WarningsAsErrors: "*"
 CheckOptions:
-  - key:             readability-function-size.LineThreshold
-    value:           '80'
-  - key:             readability-function-cognitive-complexity.Threshold
-    value:           '50'
-
+  - key: readability-function-size.LineThreshold
+    value: "80"
+  - key: readability-function-cognitive-complexity.Threshold
+    value: "50"
