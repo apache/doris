@@ -52,7 +52,7 @@ illustrate:
 2) Modify / add properties for the catalog
 
 ```sql
-ALTER CATALOG catalog_name SET PROPERTIES ('key1' = 'value1' [, 'key' = 'value2']); 
+ALTER CATALOG catalog_name SET PROPERTIES ('key1' = 'value1', 'key' = 'value2'); 
 ```
 
 Update values of specified keys. If a key does not exist in the catalog properties, it will be added. 
