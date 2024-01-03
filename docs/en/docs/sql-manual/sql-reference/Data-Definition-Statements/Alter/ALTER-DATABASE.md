@@ -54,7 +54,7 @@ ALTER DATABASE db_name SET REPLICA QUOTA quota;
 
 illustrate:
     After renaming the database, use the REVOKE and GRANT commands to modify the appropriate user permissions, if necessary.
-    The default data quota for the database is 1024GB, and the default replica quota is 1073741824.
+    The default data quota for the database is 1024TB, and the default replica quota is 1073741824.
 
 4) Modify the properties of an existing database
 
