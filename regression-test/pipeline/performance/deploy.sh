@@ -29,6 +29,7 @@ else
 fi
 EOF
 
+#####################################################################################
 ## deploy.sh content ##
 
 # shellcheck source=/dev/null
@@ -46,14 +47,13 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-uti
 if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id="b052225cd0a180b4576319b5bd6331218dd0d3fe"
+    target_branch="master"
 fi
 echo "#### Check env"
-if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${pull_request_num}" ||
-    -z "${commit_id}" ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
-    exit 1
-fi
+if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
+if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
+if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
 echo "#### Deploy Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
@@ -64,16 +64,13 @@ need_backup_doris_logs=false
 echo "#### 1. try to kill old doris process"
 stop_doris
 
+set -e
 echo "#### 2. copy conf from regression-test/pipeline/performance/conf/"
-rm -f "${DORIS_HOME}"/fe/conf/fe_custom.conf "${DORIS_HOME}"/be/conf/be_custom.conf
-if [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf ]]; then
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
-else
-    echo "ERROR: doris conf file missing in ${teamcity_build_checkoutDir}/regression-test/pipeline/performance/conf/"
-    exit 1
-fi
+cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
+cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
+target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
+sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
+sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
 
 echo "#### 3. start Doris"
 meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
