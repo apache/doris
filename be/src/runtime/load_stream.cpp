@@ -547,6 +547,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
 }
 
 void LoadStream::on_idle_timeout(StreamId id) {
+    LOG(WARNING) << "closing load stream on idle timeout, load_id=" << print_id(_load_id);
     brpc::StreamClose(id);
 }
 
