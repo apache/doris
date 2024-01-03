@@ -247,13 +247,15 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // create a parent project node
         LogicalProject<Plan> project = new LogicalProject(upperProjects, newAggregate);
         if (having != null) {
-            // because project may contain window functions, in order to get the correct result
-            // always push having through project to make it the parent node of logicalAgg
-            return project.withChildren(ImmutableList.of(
-                    new LogicalHaving(
-                            ExpressionUtils.replace(having.getConjuncts(), project.getAliasToProducer()),
-                            project.child()
-                    )));
+            if (upperProjects.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance))) {
+                // when project contains window functions, in order to get the correct result
+                // push having through project to make it the parent node of logicalAgg
+                return project.withChildren(ImmutableList.of(new LogicalHaving(
+                                        ExpressionUtils.replace(having.getConjuncts(), project.getAliasToProducer()),
+                                        project.child())));
+            } else {
+                return (LogicalPlan) having.withChildren(project);
+            }
         } else {
             return project;
         }
