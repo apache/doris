@@ -292,13 +292,14 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
 Status HttpStreamAction::process_put(HttpRequest* http_req,
                                      std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
-    set_request_auth(&request, ctx->auth);
     if (http_req != nullptr) {
         request.__set_load_sql(http_req->header(HTTP_SQL));
     } else {
-        request.__set_token(ctx->token);
+        request.__set_token(ctx->auth.token);
         request.__set_load_sql(ctx->sql_str);
+        ctx->auth.token = "";
     }
+    set_request_auth(&request, ctx->auth);
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
     if (ctx->group_commit) {
