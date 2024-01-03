@@ -174,7 +174,7 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_DOWNLOAD="https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz"
 BOOST_NAME=boost_1_81_0.tar.gz
 BOOST_SOURCE=boost_1_81_0
 BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
