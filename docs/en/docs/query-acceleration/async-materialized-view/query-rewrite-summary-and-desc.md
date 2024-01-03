@@ -160,7 +160,7 @@ WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
 
 **Case 2:**
 
-OIN Derivation (TODO)
+JOIN Derivation (Coming soon)
 When the types of JOINs in the query and the materialized view do not match, but the materialized view can provide 
 all the data required for the query, transparent rewriting can also occur by compensating predicates above the JOIN. 
 For example:
@@ -200,7 +200,7 @@ l_suppkey,
 o_orderdate;
 ```
 
-### 聚合改写
+### Aggregate rewriting
 
 **Case 1**
 
@@ -300,7 +300,7 @@ Temporary support for the aggregation roll-up functions is as follows:
 | bitmap_union         | bitmap_union                     | bitmap_union                          |
 | bitmap_union_count   | bitmap_union                     | bitmap_union_count                    |
 
-## Query partial Transparent Rewriting (TODO)
+## Query partial Transparent Rewriting (Coming soon)
 When the number of tables in the materialized view is greater than the query, if the materialized view 
 satisfies the conditions for JOIN elimination for tables more than the query, transparent rewriting can also occur. 
 For example:
@@ -330,7 +330,7 @@ Query statement:
  LEFT OUTER JOIN orders ON L_ORDERKEY = O_ORDERKEY;
 ```
 
-## Union Rewriting (TODO)
+## Union Rewriting (Coming soon)
 When the materialized view is not sufficient to provide all the data for the query, it can use Union to return 
 data by combining the original table and the materialized view. 
 For example:

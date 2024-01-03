@@ -155,7 +155,7 @@ WHERE l_linenumber > 1 and o_orderdate = '2023-12-31';
 
 **用例2:**
 
-JOIN衍生（TODO）
+JOIN衍生（Coming soon）
 当查询和物化视图的 JOIN 的类型不一致时，但物化可以提供查询所需的所有数据时，通过在 JOIN 的外部补偿谓词，也可以进行透明改写，
 举例如下，待支持。
 
@@ -289,7 +289,7 @@ l_suppkey;
 | bitmap_union       | bitmap_union  | bitmap_union        |
 | bitmap_union_count | bitmap_union  | bitmap_union_count  |
 
-## Query partial 透明改写 （TODO）
+## Query partial 透明改写（Coming soon）
 当物化视图的表比查询多时，如果物化视图比查询多的表满足 JOIN 消除的条件，那么也可以进行透明改写，如下可以进行透明改写，待支持。
 
 **用例1**
@@ -316,7 +316,7 @@ mv 定义:
  LEFT OUTER JOIN orders ON L_ORDERKEY = O_ORDERKEY;
 ```
 
-## Union 改写（TODO）
+## Union 改写（Coming soon）
 当物化视图不足以提供查询的所有数据时，可以通过 Union 的方式，将查询原表和物化视图 Union 起来返回数据，如下可以进行透明改写，待支持。
 
 **用例1**
