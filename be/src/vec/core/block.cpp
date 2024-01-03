@@ -183,12 +183,16 @@ void Block::clear_names() {
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {
-    index_by_name.emplace(elem.name, data.size());
+    if (!elem.name.empty()) {
+        index_by_name.emplace(elem.name, data.size());
+    }
     data.emplace_back(elem);
 }
 
 void Block::insert(ColumnWithTypeAndName&& elem) {
-    index_by_name.emplace(elem.name, data.size());
+    if (!elem.name.empty()) {
+        index_by_name.emplace(elem.name, data.size());
+    }
     data.emplace_back(std::move(elem));
 }
 
@@ -223,6 +227,16 @@ void Block::erase(size_t position) {
 }
 
 void Block::erase_impl(size_t position) {
+    if (position == data.size() - 1) {
+        bool have_name = !data.back().name.empty();
+        data.pop_back();
+        if (!have_name) {
+            return;
+        }
+    } else {
+        data.erase(data.begin() + position);
+    }
+
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
         if (it->second == position) {
             index_by_name.erase(it++);
