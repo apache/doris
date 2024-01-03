@@ -168,6 +168,7 @@ public class MaterializationContext {
         StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
         for (Map.Entry<ObjectId, Pair<String, String>> reason : this.failReason.entrySet()) {
             failReasonBuilder
+                    .append("\n")
                     .append("ObjectId : ").append(reason.getKey()).append(".\n")
                     .append("Summary : ").append(reason.getValue().key()).append(".\n")
                     .append("Reason : ").append(reason.getValue().value()).append(".\n");

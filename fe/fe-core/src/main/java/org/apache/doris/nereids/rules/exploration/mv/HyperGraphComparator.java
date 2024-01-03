@@ -123,7 +123,7 @@ public class HyperGraphComparator {
                     .filter(expr -> !ExpressionUtils.isInferred(expr))
                     .collect(Collectors.toList());
             if (!rawFilter.isEmpty() && !canPullUp(e.getKey())) {
-                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "\nwith error edge " + e);
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "with error edge\n" + e);
             }
             builder.addViewExpressions(rawFilter);
         }
@@ -138,11 +138,12 @@ public class HyperGraphComparator {
      */
     public String getErrorMessage() {
         return String.format(
-                "graph logical is not equal, query join edges is %s,\n" + "query filter edges is %s,\n"
-                        + "view join edges is %s,\n" + "view filter edges is %s\n" + "inferred edge with conds %s",
+                "graph logical is not equal\n query join edges is\n %s,\n view join edges is\n %s,\n"
+                        + "query filter edges\n is %s,\nview filter edges\n is %s\n"
+                        + "inferred edge with conditions\n %s",
                 getQueryJoinEdges(),
-                getQueryFilterEdges(),
                 getViewJoinEdges(),
+                getQueryFilterEdges(),
                 getViewFilterEdges(),
                 inferredViewEdgeMap);
     }
