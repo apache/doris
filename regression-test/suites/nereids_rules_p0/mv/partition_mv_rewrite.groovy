@@ -168,13 +168,13 @@ suite("partition_mv_rewrite") {
     explain {
         sql("${all_partition_sql}")
         check { result ->
-            return !result.split("CHOSEN MATERIALIZATION'S")[1].contains("mv_10086")
+            return !result.split("MATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN")[1].contains("mv_10086")
         }
     }
     explain {
         sql("${partition_sql}")
         check { result ->
-            return result.split("CHOSEN MATERIALIZATION'S")[1].contains("mv_10086")
+            return result.split("MATERIALIZED VIEW REWRITE SUCCESS AND CHOSEN")[1].contains("mv_10086")
         }
     }
 }
