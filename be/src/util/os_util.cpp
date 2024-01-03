@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -38,7 +39,6 @@
 using std::string;
 using std::vector;
 using strings::Split;
-using strings::Substitute;
 
 namespace doris {
 
