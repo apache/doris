@@ -268,7 +268,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id
-              << ", replica_id=" << request.replica_id;
+              << ", replica_id=" << request.replica_id << ", stores.size=" << stores.size()
+              << ", first store=" << stores[0]->path();
 
     // when we create rollup tablet A(assume on shard-1) from tablet B(assume on shard-2)
     // we need use write lock on shard-1 and then use read lock on shard-2
@@ -340,7 +341,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
                                                   request.tablet_id);
     }
 
-    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
+    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
+              << ", tablet_path=" << tablet->tablet_path();
     return Status::OK();
 }
 
