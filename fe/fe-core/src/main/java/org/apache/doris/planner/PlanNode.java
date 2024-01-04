@@ -626,6 +626,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 msg.addToOutputSlotIds(slotId.asInt());
             }
         }
+        if (!CollectionUtils.isEmpty(distributeExprLists)) {
+            for (List<Expr> exprList : distributeExprLists) {
+                msg.addToDistributeExprLists(new ArrayList<>());
+                for (Expr expr : exprList) {
+                    msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1).add(expr.treeToThrift());
+                }
+            }
+        }
         toThrift(msg);
         container.addToNodes(msg);
         if (projectList != null) {
