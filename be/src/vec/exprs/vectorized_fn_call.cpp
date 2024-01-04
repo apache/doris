@@ -139,11 +139,8 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
-    if ((_constant_col != nullptr) && is_constant()) { // const have execute in open function
-        *result_column_id = block->columns();
-        auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
-        block->insert({std::move(column), _data_type, _expr_name});
-        return Status::OK();
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
     }
 
     // TODO: not execute const expr again, but use the const column in function context
