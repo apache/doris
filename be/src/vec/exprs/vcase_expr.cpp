@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -95,6 +96,12 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if ((_constant_col != nullptr) && is_constant()) { // const have execute in open function
+        *result_column_id = block->columns();
+        auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
+        block->insert({std::move(column), _data_type, _expr_name});
+        return Status::OK();
+    }
     ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;
