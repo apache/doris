@@ -1421,7 +1421,8 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
 std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
     const Version& ver = rowset->version();
     std::string disk_size = PrettyPrinter::print(
-            static_cast<uint64_t>(rowset->rowset_meta()->total_disk_size()), TUnit::BYTES);
+            static_cast<uint64_t>(rowset->index_disk_size() + rowset->data_disk_size()),
+            TUnit::BYTES);
     return strings::Substitute("[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second,
                                rowset->num_segments(), (delete_flag ? "DELETE" : "DATA"),
                                SegmentsOverlapPB_Name(rowset->rowset_meta()->segments_overlap()),
@@ -1547,9 +1548,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (int i = 0; i < stale_rowsets.size(); ++i) {
         const Version& ver = stale_rowsets[i]->version();
         rapidjson::Value value;
-        std::string disk_size = PrettyPrinter::print(
-                static_cast<uint64_t>(stale_rowsets[i]->rowset_meta()->total_disk_size()),
-                TUnit::BYTES);
+        std::string disk_size =
+                PrettyPrinter::print(static_cast<uint64_t>(stale_rowsets[i]->index_disk_size() +
+                                                           stale_rowsets[i]->data_disk_size()),
+                                     TUnit::BYTES);
         std::string version_str = strings::Substitute(
                 "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
                 stale_rowsets[i]->rowset_id().to_string(), disk_size);

@@ -582,7 +582,7 @@ inline size_t TabletMeta::tablet_local_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->index_disk_size() + rs->data_disk_size();
         }
     }
     return total_size;
@@ -592,7 +592,7 @@ inline size_t TabletMeta::tablet_remote_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (!rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->index_disk_size() + rs->data_disk_size();
         }
     }
     return total_size;
