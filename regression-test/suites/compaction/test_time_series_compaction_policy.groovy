@@ -149,4 +149,15 @@ suite("test_time_series_compaction_polciy", "p0") {
     assert (rowsetCount == 22)
 
     qt_sql """ select count() from ${tableName}"""
+    qt_sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
+    // trigger cumulative compactions for all tablets in ${tableName}
+    trigger_cumulative_compaction_on_tablets.call(tablets)
+
+    // wait for cumulative compaction done
+    wait_cumulative_compaction_done.call(tablets)
+
+    // after cumulative compaction, there is only 11 rowset.
+    rowsetCount = get_rowset_count.call(tablets);
+    assert (rowsetCount == 11)
+    qt_sql """ select count() from ${tableName}"""
 }
