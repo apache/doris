@@ -215,7 +215,7 @@ public class FloatLiteral extends LiteralExpr {
             res.setType(targetType);
             return res;
         } else if (targetType.isDecimalV3()) {
-            DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+            DecimalLiteral res = new DecimalLiteral(BigDecimal.valueOf(value));
             res.setType(ScalarType.createDecimalV3Type(targetType.getPrecision(),
                     ((ScalarType) targetType).decimalScale()));
             return res;

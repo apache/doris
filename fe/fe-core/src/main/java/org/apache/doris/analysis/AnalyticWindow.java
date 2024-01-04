@@ -422,7 +422,7 @@ public class AnalyticWindow {
                         + "constant positive number: " + boundary.toSql());
             }
 
-            boundary.offsetValue = new BigDecimal(val);
+            boundary.offsetValue = BigDecimal.valueOf(val);
         }
     }
 
