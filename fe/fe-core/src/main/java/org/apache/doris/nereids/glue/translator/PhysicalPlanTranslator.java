@@ -849,6 +849,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 aggFunOutputIds, isPartial, outputTupleDesc, outputTupleDesc, aggregate.getAggPhase().toExec());
         AggregationNode aggregationNode = new AggregationNode(aggregate.translatePlanNodeId(),
                 inputPlanFragment.getPlanRoot(), aggInfo);
+
+        // get child distribute specification
+        DistributionSpec spec = ((PhysicalPlan) aggregate.child(0)).getPhysicalProperties().getDistributionSpec();
+        aggregationNode.setDistributeExprLists(getDistributeExprLists(spec));
+
         if (!aggregate.getAggMode().isFinalPhase) {
             aggregationNode.unsetNeedsFinalize();
         }
@@ -1183,6 +1188,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             hashJoinNode.setDistributionMode(DistributionMode.PARTITIONED);
         }
+
+        // add distribute expr lists if children distribute type is hash
+        DistributionSpec leftDistributionSpec = physicalHashJoin.left().getPhysicalProperties().getDistributionSpec();
+        DistributionSpec rightDistributionSpec = physicalHashJoin.right().getPhysicalProperties().getDistributionSpec();
+        hashJoinNode.setDistributeExprLists(getDistributeExprLists(leftDistributionSpec, rightDistributionSpec));
         // Nereids does not care about output order of join,
         // but BE need left child's output must be before right child's output.
         // So we need to swap the output order of left and right child if necessary.
@@ -2049,6 +2059,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 orderElementsIsNullableMatched,
                 bufferedTupleDesc
         );
+        // get child distribute specification
+        DistributionSpec spec = ((PhysicalPlan) physicalWindow.child(0))
+                .getPhysicalProperties().getDistributionSpec();
+        analyticEvalNode.setDistributeExprLists(getDistributeExprLists(spec));
         inputPlanFragment.addPlanRoot(analyticEvalNode);
 
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
@@ -2446,5 +2460,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return root.getChildren().stream().anyMatch(child -> findOlapScanNodesByPassExchangeAndJoinNode(child));
         }
         return false;
+    }
+
+    private List<List<Expr>> getDistributeExprLists(DistributionSpec ... specs) {
+        List<List<Expr>> distributeExprLists = new ArrayList<>();
+        for (DistributionSpec spec : specs) {
+            if (spec instanceof DistributionSpecHash) {
+                List<Expr> distributeOutput = ((DistributionSpecHash) spec).getOrderedShuffledColumns().stream()
+                        .map(exprId -> context.findSlotRef(exprId)).collect(Collectors.toList());
+                distributeExprLists.add(distributeOutput);
+            }
+        }
+        return distributeExprLists;
     }
 }
