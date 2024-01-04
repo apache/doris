@@ -311,6 +311,7 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
 }
 
 struct TMaxComputeFileDesc {

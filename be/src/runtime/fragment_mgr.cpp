@@ -213,7 +213,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_backend_num(req.backend_num);
     params.__set_fragment_instance_id(req.fragment_instance_id);
     params.__set_fragment_id(req.fragment_id);
-    exec_status.set_t_status(&params);
+    params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
@@ -574,27 +574,29 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = f_context->get_query_id();
     auto* q_context = f_context->get_query_ctx();
-    std::vector<TUniqueId> ins_ids;
-    f_context->instance_ids(ins_ids);
-    bool all_done = q_context->countdown(ins_ids.size());
-    for (const auto& ins_id : ins_ids) {
-        {
-            std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
-            if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
-                q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
-            }
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto query_id = f_context->get_query_id();
+        std::vector<TUniqueId> ins_ids;
+        f_context->instance_ids(ins_ids);
+        bool all_done = q_context->countdown(ins_ids.size());
+        for (const auto& ins_id : ins_ids) {
+            LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
+                     print_id(ins_id), all_done);
+            _pipeline_map.erase(ins_id);
+            g_pipeline_fragment_instances_count << -1;
         }
-        LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
-                 print_id(ins_id), all_done);
-        _pipeline_map.erase(ins_id);
-        g_pipeline_fragment_instances_count << -1;
+        if (all_done) {
+            LOG_INFO("Query {} finished", print_id(query_id));
+            _query_ctx_map.erase(query_id);
+        }
     }
-    if (all_done) {
-        LOG_INFO("Query {} finished", print_id(query_id));
-        _query_ctx_map.erase(query_id);
+    {
+        std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
+        if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
+            q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
+        }
     }
 }
 

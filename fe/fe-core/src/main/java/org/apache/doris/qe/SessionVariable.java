@@ -477,8 +477,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE
-            = "materialized_view_rewrite_enable_contain_foreign_table";
+    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+            = "materialized_view_rewrite_enable_contain_external_table";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
@@ -817,7 +819,8 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable local shuffle on pipelineX engine."})
     private boolean enableLocalShuffle = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -1221,6 +1224,11 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
 
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
+        "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
+    public boolean enablePushDownMinMaxOnUnique = false;
+
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
@@ -1473,11 +1481,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE, needForward = true,
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainForeignTable = false;
+    public boolean materializedViewRewriteEnableContainExternalTable = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -2438,6 +2446,14 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
     /**
      * Nereids only support vectorized engine.
      *
@@ -3193,8 +3209,8 @@ public class SessionVariable implements Serializable, Writable {
         return enableMaterializedViewRewrite;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainForeignTable() {
-        return materializedViewRewriteEnableContainForeignTable;
+    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
+        return materializedViewRewriteEnableContainExternalTable;
     }
 
     public boolean isIgnoreStorageDataDistribution() {

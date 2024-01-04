@@ -52,8 +52,8 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     protected DistributionSpec distributionSpec;
 
-    public PhysicalDistribute(DistributionSpec spec, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(spec, Optional.empty(), logicalProperties, child);
+    public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
+        this(spec, Optional.empty(), child.getLogicalProperties(), child);
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
@@ -165,5 +165,12 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder("PhysicalDistribute");
+        builder.append("[").append(getDistributionSpec().shapeInfo()).append("]");
+        return builder.toString();
     }
 }

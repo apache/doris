@@ -20,7 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MatchingUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -38,7 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupported {
+class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -127,7 +127,7 @@ class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupporte
                                                         return true;
                                                     }), physicalDistribute()),
                                                     physicalDistribute()
-                                            ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
+                                            ).when(join -> join.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT)
                                     )
                             )
                     ));
