@@ -103,7 +103,7 @@ CREATE MATERIALIZED VIEW mv1
             l_suppkey;
 ```
 
-Specific syntax can be viewed [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
+Specific syntax can be viewed [CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ### View materialized view meta information
 
@@ -111,9 +111,9 @@ Specific syntax can be viewed [CREATE MATERIALIZED VIEW](../sql-manual/sql-refer
 select * from mv_infos("database"="tpch") where Name="mv1";
 ```
 
-The unique features of materialized views can be viewed through [mv_infos()](../sql-manual/sql-functions/table-functions/mv_infos.md)
+The unique features of materialized views can be viewed through [mv_infos()](../../sql-manual/sql-functions/table-functions/mv_infos.md)
 
-Properties related to table, still viewed through [SHOW TABLES](../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)
+Properties related to table, still viewed through [SHOW TABLES](../../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)
 
 ### Refresh materialized view
 
@@ -129,7 +129,7 @@ Refresh partition named `p_20231017_20231018`
 REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 ```
 
-Specific syntax can be viewed [REFRESH MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
+Specific syntax can be viewed [REFRESH MATERIALIZED VIEW](../../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
 
 ### task management
 
@@ -142,7 +142,7 @@ Task is used to describe specific refresh information, such as the time used for
 select * from jobs("type"="mv") order by CreateTime;
 ```
 
-Specific syntax can be viewed [jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
+Specific syntax can be viewed [jobs("type"="mv")](../../sql-manual/sql-functions/table-functions/jobs.md)
 
 #### Pause materialized view job scheduled scheduling
 
@@ -152,7 +152,7 @@ PAUSE MATERIALIZED VIEW JOB ON mv1;
 
 Can pause the scheduled scheduling of materialized views
 
-Specific syntax can be viewed [PAUSE MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
+Specific syntax can be viewed [PAUSE MATERIALIZED VIEW JOB](../../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
 
 #### RESUME materialized view job scheduling
 
@@ -162,7 +162,7 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 
 Can RESUME scheduled scheduling of materialized views
 
-Specific syntax can be viewed [RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
+Specific syntax can be viewed [RESUME MATERIALIZED VIEW JOB](../../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
 #### Viewing tasks in materialized views
 
@@ -170,7 +170,7 @@ Specific syntax can be viewed [RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-r
 select * from tasks("type"="mv");
 ```
 
-Specific syntax can be viewed [tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
+Specific syntax can be viewed [tasks("type"="mv")](../../sql-manual/sql-functions/table-functions/tasks.md)
 
 #### Cancel the task of objectifying the view
 
@@ -180,7 +180,7 @@ CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 
 Can cancel the operation of this task
 
-Specific syntax can be viewed [CANCEL MATERIALIZED VIEW TASK](../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
+Specific syntax can be viewed [CANCEL MATERIALIZED VIEW TASK](../../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
 
 ### Modifying materialized views
 
@@ -189,7 +189,7 @@ Modify the properties of materialized views
 ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 ```
 
-Modify the name of the materialized view, the refresh method of the materialized view, and the unique properties of the materialized view can be viewed through [ALTER MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)
+Modify the name of the materialized view, the refresh method of the materialized view, and the unique properties of the materialized view can be viewed through [ALTER MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)
 
 The materialized view itself is also a Table, so Table related properties, such as the number of copies, are still modified through the syntax related to `ALTER TABLE`.
 
@@ -201,17 +201,8 @@ DROP MATERIALIZED VIEW mv1;
 
 The materialized view has a dedicated deletion syntax and cannot be deleted through the drop table,
 
-Specific syntax can be viewed [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
+Specific syntax can be viewed [DROP MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
 
 ## The use of materialized views
 
-### Directly view data from materialized views
-
-The materialized view itself is also a Table, so it can be directly queried
-
-```sql
-select * FROM mv1;
-```
-
-### Query rewriting by materialized view
-can be viewed [Query rewriting by materialized view](async-materialized-view/query-rewrite-summary-and-desc.md)
+can be viewed [Query async materialized view](./query-async-materialized-view.md)
