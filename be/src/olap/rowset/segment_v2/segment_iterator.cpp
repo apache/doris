@@ -259,6 +259,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _lazy_materialization_read(false),
           _lazy_inited(false),
           _inited(false),
+          _estimate_row_size(true),
+          _wait_times_estimate_row_size(10),
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
@@ -2051,6 +2053,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
+    if (_wait_times_estimate_row_size > 0) {
+        // first time, read 100 rows to estimate average row size, to avoid oom caused by a single batch being too large.
+        // If no valid data is read for the first time, block_row_max is read each time thereafter.
+        // Avoid low performance when valid data cannot be read all the time
+        nrows_read_limit = std::min(nrows_read_limit, (uint32_t)100);
+        _wait_times_estimate_row_size--;
+    }
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2190,6 +2199,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
+            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+                _update_max_row(block);
+            }
             return Status::OK();
         }
 
@@ -2214,6 +2226,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+
+    if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
+        _update_max_row(block);
+    }
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
@@ -2363,6 +2379,14 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
+}
+
+void SegmentIterator::_update_max_row(const vectorized::Block* block) {
+    _estimate_row_size = false;
+    auto avg_row_size = block->bytes() / block->rows();
+
+    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
+    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
