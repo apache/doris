@@ -1002,14 +1002,54 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
 
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                vectorized::MutableColumnPtr& dst) {
+    const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+    auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
+    column_offsets_ptr->reserve(count);
+    std::vector<ordinal_t> item_ordinals;
+    item_ordinals.reserve(count);
+    std::vector<size_t> item_counts;
+    item_counts.reserve(count);
     for (size_t i = 0; i < count; ++i) {
-        // TODO(cambyzju): now read array one by one, need optimize later
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        ordinal_t offset = 0;
+        {
+            RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(rowids[i]));
+            RETURN_IF_ERROR(_peek_one_offset(&offset));
+        }
+
         size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        bool offsets_has_null = false;
+        ssize_t start = column_offsets_ptr->size();
+        RETURN_IF_ERROR(
+                _offset_iterator->next_batch(&num_read, column_offsets_ptr, &offsets_has_null));
         DCHECK(num_read == 1);
+        auto& column_offsets =
+                static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+        RETURN_IF_ERROR(_calculate_offsets(start, column_offsets));
+        size_t num_items = column_offsets.get_data().back() -
+                           column_offsets.get_data()[start - 1]; // -1 is valid
+        if (!item_ordinals.empty() && offset == item_ordinals.back() + item_counts.back()) {
+            item_counts.back() += num_items;
+        } else {
+            item_ordinals.push_back(offset);
+            item_counts.push_back(num_items);
+        }
     }
-    return Status::OK();
+
+    if (dst->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_ptr));
+        } else {
+            null_map_ptr->insert_many_defaults(count);
+        }
+    }
+
+    auto column_items_ptr = column_array->get_data().assume_mutable();
+    return _item_iterator->read_by_ranges(item_ordinals.data(), item_counts.data(),
+                                          item_ordinals.size(), column_items_ptr);
 }
 
 Status ArrayFileColumnIterator::read_by_ranges(const ordinal_t* ordinals, const size_t* counts,
