@@ -408,6 +408,10 @@ public class Coordinator implements CoordInterface {
         return scanRangeNum;
     }
 
+    public TQueryOptions getQueryOptions() {
+        return this.queryOptions;
+    }
+
     public void setQueryId(TUniqueId queryId) {
         this.queryId = queryId;
     }
