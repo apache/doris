@@ -135,7 +135,7 @@ private:
 
     void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
-                        const FailedTablets& failed_tablets);
+                        const FailedTablets& failed_tablets, bool eos);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
 
     // report failure for one message
@@ -144,7 +144,7 @@ private:
         if (header.has_tablet_id()) {
             failed_tablets.emplace_back(header.tablet_id(), status);
         }
-        _report_result(stream, status, {}, failed_tablets);
+        _report_result(stream, status, {}, failed_tablets, false);
     }
 
 private:

@@ -378,11 +378,12 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
                                 const std::vector<int64_t>& success_tablet_ids,
-                                const FailedTablets& failed_tablets) {
+                                const FailedTablets& failed_tablets, bool eos) {
     LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablets.size();
     butil::IOBuf buf;
     PLoadStreamResponse response;
+    response.set_eos(eos);
     status.to_protobuf(response.mutable_status());
     for (auto& id : success_tablet_ids) {
         response.add_success_tablet_ids(id);
@@ -534,7 +535,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
-        _report_result(id, st, success_tablet_ids, failed_tablets);
+        _report_result(id, st, success_tablet_ids, failed_tablets, true);
         brpc::StreamClose(id);
     } break;
     case PStreamHeader::GET_SCHEMA: {

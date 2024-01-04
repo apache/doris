@@ -778,6 +778,7 @@ message PLoadStreamResponse {
     repeated PFailedTablet failed_tablets = 3;
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
+    optional bool eos = 6;
 }
 
 message PStreamHeader {
