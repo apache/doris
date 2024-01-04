@@ -294,6 +294,9 @@ public:
 
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
 
+    bool get_skip_inverted_index() const { return skip_inverted_index; }
+    void set_skip_inverted_index(bool skip) { skip_inverted_index = skip; }
+
 protected:
     friend class RowsetFactory;
 
@@ -327,6 +330,9 @@ protected:
     // rowset state machine
     RowsetStateMachine _rowset_state_machine;
     std::atomic<uint64_t> _delayed_expired_timestamp = 0;
+
+    // skip inverted index
+    bool skip_inverted_index = false;
 };
 
 } // namespace doris

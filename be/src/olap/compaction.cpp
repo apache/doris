@@ -398,118 +398,145 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));
 
-    if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
-        OlapStopWatch inverted_watch;
+    if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable &&
+        !ctx.skip_inverted_index.empty()) {
+        try {
+            OlapStopWatch inverted_watch;
 
-        // check rowid_conversion correctness
-        Version version = _tablet->max_version();
-        DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
-        std::set<RowLocation> missed_rows;
-        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
-        // Convert the delete bitmap of the input rowsets to output rowset.
-        std::size_t missed_rows_size = 0;
-        _tablet->calc_compaction_output_rowset_delete_bitmap(
-                _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, _tablet->tablet_meta()->delete_bitmap(),
-                &output_rowset_delete_bitmap);
-        if (!allow_delete_in_cumu_compaction()) {
-            missed_rows_size = missed_rows.size();
-            if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
-                stats.merged_rows != missed_rows_size) {
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
-                        _tablet->table_id());
-                DCHECK(false) << err_msg;
-                LOG(WARNING) << err_msg;
-            }
-        }
-
-        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
-
-        // translation vec
-        // <<dest_idx_num, dest_docId>>
-        // the first level vector: index indicates src segment.
-        // the second level vector: index indicates row id of source segment,
-        // value indicates row id of destination segment.
-        // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
-        std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec =
-                stats.rowid_conversion->get_rowid_conversion_map();
-
-        // source rowset,segment -> index_id
-        std::map<std::pair<RowsetId, uint32_t>, uint32_t> src_seg_to_id_map =
-                stats.rowid_conversion->get_src_segment_to_id_map();
-        // dest rowset id
-        RowsetId dest_rowset_id = stats.rowid_conversion->get_dst_rowset_id();
-        // dest segment id -> num rows
-        std::vector<uint32_t> dest_segment_num_rows;
-        RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&dest_segment_num_rows));
-
-        auto src_segment_num = src_seg_to_id_map.size();
-        auto dest_segment_num = dest_segment_num_rows.size();
-
-        if (dest_segment_num > 0) {
-            // src index files
-            // format: rowsetId_segmentId
-            std::vector<std::string> src_index_files(src_segment_num);
-            for (const auto& m : src_seg_to_id_map) {
-                std::pair<RowsetId, uint32_t> p = m.first;
-                src_index_files[m.second] = p.first.to_string() + "_" + std::to_string(p.second);
+            // check rowid_conversion correctness
+            Version version = _tablet->max_version();
+            DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+            std::set<RowLocation> missed_rows;
+            std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
+            // Convert the delete bitmap of the input rowsets to output rowset.
+            std::size_t missed_rows_size = 0;
+            _tablet->calc_compaction_output_rowset_delete_bitmap(
+                    _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
+                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                    &output_rowset_delete_bitmap);
+            if (!allow_delete_in_cumu_compaction()) {
+                missed_rows_size = missed_rows.size();
+                if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                    stats.merged_rows != missed_rows_size) {
+                    std::string err_msg = fmt::format(
+                            "cumulative compaction: the merged rows({}) is not equal to missed "
+                            "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                            stats.merged_rows, missed_rows_size, _tablet->tablet_id(),
+                            _tablet->table_id());
+                    DCHECK(false) << err_msg;
+                    LOG(WARNING) << err_msg;
+                }
             }
 
-            // dest index files
-            // format: rowsetId_segmentId
-            std::vector<std::string> dest_index_files(dest_segment_num);
-            for (int i = 0; i < dest_segment_num; ++i) {
-                auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i);
-                dest_index_files[i] = prefix;
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+
+            // translation vec
+            // <<dest_idx_num, dest_docId>>
+            // the first level vector: index indicates src segment.
+            // the second level vector: index indicates row id of source segment,
+            // value indicates row id of destination segment.
+            // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
+            std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec =
+                    stats.rowid_conversion->get_rowid_conversion_map();
+
+            // source rowset,segment -> index_id
+            std::map<std::pair<RowsetId, uint32_t>, uint32_t> src_seg_to_id_map =
+                    stats.rowid_conversion->get_src_segment_to_id_map();
+            // dest rowset id
+            RowsetId dest_rowset_id = stats.rowid_conversion->get_dst_rowset_id();
+            // dest segment id -> num rows
+            std::vector<uint32_t> dest_segment_num_rows;
+            RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&dest_segment_num_rows));
+
+            auto src_segment_num = src_seg_to_id_map.size();
+            auto dest_segment_num = dest_segment_num_rows.size();
+
+            if (dest_segment_num > 0) {
+                // src index files
+                // format: rowsetId_segmentId
+                std::vector<std::string> src_index_files(src_segment_num);
+                for (const auto& m : src_seg_to_id_map) {
+                    std::pair<RowsetId, uint32_t> p = m.first;
+                    src_index_files[m.second] =
+                            p.first.to_string() + "_" + std::to_string(p.second);
+                }
+
+                // dest index files
+                // format: rowsetId_segmentId
+                std::vector<std::string> dest_index_files(dest_segment_num);
+                for (int i = 0; i < dest_segment_num; ++i) {
+                    auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(i);
+                    dest_index_files[i] = prefix;
+                }
+
+                // create index_writer to compaction indexes
+                auto& fs = _output_rowset->rowset_meta()->fs();
+                auto& tablet_path = _tablet->tablet_path();
+
+                // we choose the first destination segment name as the temporary index writer path
+                // Used to distinguish between different index compaction
+                auto index_writer_path = tablet_path + "/" + dest_index_files[0];
+                LOG(INFO) << "start index compaction"
+                          << ". tablet=" << _tablet->tablet_id()
+                          << ", source index size=" << src_segment_num
+                          << ", destination index size=" << dest_segment_num << ".";
+                Status status = Status::OK();
+                std::for_each(
+                        ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
+                        [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
+                         &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
+                         &status, this](int32_t column_uniq_id) {
+                            auto st = compact_column(
+                                    _cur_tablet_schema->get_inverted_index(column_uniq_id, "")
+                                            ->index_id(),
+                                    src_segment_num, dest_segment_num, src_index_files,
+                                    dest_index_files, fs, index_writer_path, tablet_path, trans_vec,
+                                    dest_segment_num_rows);
+                            if (!st.ok()) {
+                                LOG(WARNING)
+                                        << "failed to do index compaction"
+                                        << ". tablet=" << _tablet->tablet_id()
+                                        << ". column uniq id=" << column_uniq_id << ". index_id= "
+                                        << _cur_tablet_schema
+                                                   ->get_inverted_index(column_uniq_id, "")
+                                                   ->index_id();
+                                for (auto& rowset : _input_rowsets) {
+                                    rowset->set_skip_inverted_index(true);
+                                    LOG(INFO) << "skip inverted index compaction next time. rowset="
+                                              << rowset->rowset_id();
+                                }
+                                status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                        st.msg());
+                            }
+                        });
+
+                if (!status.ok()) {
+                    return status;
+                }
+
+                LOG(INFO) << "succeed to do index compaction"
+                          << ". tablet=" << _tablet->tablet_id()
+                          << ", input row number=" << _input_row_num
+                          << ", output row number=" << _output_rowset->num_rows()
+                          << ", input_rowset_size=" << _input_rowsets_size
+                          << ", output_rowset_size=" << _output_rowset->data_disk_size()
+                          << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+            } else {
+                LOG(INFO) << "skip doing index compaction due to no output segments"
+                          << ". tablet=" << _tablet->tablet_id()
+                          << ", input row number=" << _input_row_num
+                          << ", output row number=" << _output_rowset->num_rows()
+                          << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
             }
-
-            // create index_writer to compaction indexes
-            auto& fs = _output_rowset->rowset_meta()->fs();
-            auto& tablet_path = _tablet->tablet_path();
-
-            // we choose the first destination segment name as the temporary index writer path
-            // Used to distinguish between different index compaction
-            auto index_writer_path = tablet_path + "/" + dest_index_files[0];
-            LOG(INFO) << "start index compaction"
-                      << ". tablet=" << _tablet->tablet_id()
-                      << ", source index size=" << src_segment_num
-                      << ", destination index size=" << dest_segment_num << ".";
-            std::for_each(
-                    ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
-                    [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
-                     &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
-                     this](int32_t column_uniq_id) {
-                        auto st = compact_column(
-                                _cur_tablet_schema->get_inverted_index(column_uniq_id, "")
-                                        ->index_id(),
-                                src_segment_num, dest_segment_num, src_index_files,
-                                dest_index_files, fs, index_writer_path, tablet_path, trans_vec,
-                                dest_segment_num_rows);
-                        if (!st.ok()) {
-                            LOG(ERROR) << "failed to do index compaction"
-                                       << ". tablet=" << _tablet->tablet_id()
-                                       << ". column uniq id=" << column_uniq_id << ". index_id= "
-                                       << _cur_tablet_schema->get_inverted_index(column_uniq_id, "")
-                                                  ->index_id();
-                        }
-                    });
-
-            LOG(INFO) << "succeed to do index compaction"
-                      << ". tablet=" << _tablet->tablet_id()
-                      << ", input row number=" << _input_row_num
-                      << ", output row number=" << _output_rowset->num_rows()
-                      << ", input_rowset_size=" << _input_rowsets_size
-                      << ", output_rowset_size=" << _output_rowset->data_disk_size()
-                      << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
-        } else {
-            LOG(INFO) << "skip doing index compaction due to no output segments"
-                      << ". tablet=" << _tablet->tablet_id()
-                      << ", input row number=" << _input_row_num
-                      << ", output row number=" << _output_rowset->num_rows()
-                      << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
+        } catch (CLuceneError& e) {
+            LOG(WARNING) << "failed to do index compaction"
+                         << ". tablet=" << _tablet->tablet_id() << ". error message=" << e.what();
+            for (auto& rowset : _input_rowsets) {
+                rowset->set_skip_inverted_index(true);
+                LOG(INFO) << "skip inverted index compaction next time. rowset="
+                          << rowset->rowset_id();
+            }
+            return Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(e.what());
         }
     }
 
@@ -578,6 +605,13 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             if (rowset == nullptr) {
                                 LOG(WARNING) << "tablet[" << _tablet->tablet_id()
                                              << "] rowset is null, will skip index compaction";
+                                return false;
+                            }
+                            if (rowset->get_skip_inverted_index()) {
+                                LOG(WARNING)
+                                        << "tablet[" << _tablet->tablet_id() << "] rowset["
+                                        << rowset->rowset_id()
+                                        << "] skip inverted index compaction due to last failure";
                                 return false;
                             }
                             auto fs = rowset->rowset_meta()->fs();

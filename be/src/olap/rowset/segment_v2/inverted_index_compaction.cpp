@@ -21,6 +21,7 @@
 
 #include "inverted_index_compound_directory.h"
 #include "inverted_index_compound_reader.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
@@ -29,6 +30,12 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
                       std::string index_writer_path, std::string tablet_path,
                       std::vector<std::vector<std::pair<uint32_t, uint32_t>>> trans_vec,
                       std::vector<uint32_t> dest_segment_num_rows) {
+    DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error",
+                    { _CLTHROWA(CL_ERR_IO, "debug point: test throw error in index compaction"); })
+    DBUG_EXECUTE_IF("index_compaction_compact_column_status_not_ok", {
+        return Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                "debug point: index compaction error");
+    })
     lucene::store::Directory* dir =
             DorisCompoundDirectoryFactory::getDirectory(fs, index_writer_path.c_str());
     lucene::analysis::SimpleAnalyzer<char> analyzer;
