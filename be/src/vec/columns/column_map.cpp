@@ -242,10 +242,6 @@ int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direc
 
     size_t min_size = std::min(lhs_size, rhs_size);
 
-    int a = 0;
-    if (a) {
-        return 0;
-    }
     for (size_t i = 0; i < min_size; ++i) {
         // if any value in key not equal, just return
         if (int res = get_keys().compare_at(lhs_offset + i, rhs_offset + i, rhs.get_keys(),
