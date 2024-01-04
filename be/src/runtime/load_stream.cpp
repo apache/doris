@@ -411,10 +411,9 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
     }
 
     buf.append(response.SerializeAsString());
-    int ret = brpc::StreamWrite(stream, buf);
-    // TODO: handle EAGAIN
-    if (ret != 0) {
-        LOG(INFO) << "stream write report status " << ret << ": " << std::strerror(ret);
+    auto wst = _write_stream(stream, buf);
+    if (!wst.ok()) {
+        LOG(WARNING) << *this << " report result failed with " << wst;
     }
 }
 
@@ -437,11 +436,31 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     st.to_protobuf(response.mutable_status());
 
     buf.append(response.SerializeAsString());
-    int ret = brpc::StreamWrite(stream, buf);
-    // TODO: handle EAGAIN
-    if (ret != 0) {
-        LOG(INFO) << "stream write report schema " << ret << ": " << std::strerror(ret);
+    auto wst = _write_stream(stream, buf);
+    if (!wst.ok()) {
+        LOG(WARNING) << *this << " report result failed with " << wst;
     }
+}
+
+Status LoadStream::_write_stream(StreamId stream, butil::IOBuf& buf) {
+    for (;;) {
+        int ret = brpc::StreamWrite(stream, buf);
+        switch (ret) {
+        case 0:
+            return Status::OK();
+        case EAGAIN: {
+            const timespec time = butil::seconds_from_now(config::load_stream_eagain_wait_seconds);
+            int wait_ret = brpc::StreamWait(stream, &time);
+            if (wait_ret != 0) {
+                return Status::InternalError("StreamWait failed, err={}", wait_ret);
+            }
+            break;
+        }
+        default:
+            return Status::InternalError("StreamWrite failed, err={}", ret);
+        }
+    }
+    return Status::OK();
 }
 
 void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) {
