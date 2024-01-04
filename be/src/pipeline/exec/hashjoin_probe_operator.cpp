@@ -69,16 +69,6 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
-                using RowRefListType = std::conditional_t<
-                        have_other_join_conjunct, vectorized::RowRefListWithFlags,
-                        std::conditional_t<JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN ||
-                                                   JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN ||
-                                                   JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
-                                                   JoinOpType::value == TJoinOp::FULL_OUTER_JOIN,
-                                           vectorized::RowRefListWithFlag, vectorized::RowRefList>>;
-                _probe_row_match_iter.emplace<vectorized::ForwardIterator<RowRefListType>>();
-                _outer_join_pull_visited_iter
-                        .emplace<vectorized::ForwardIterator<RowRefListType>>();
                 _process_hashtable_ctx_variants->emplace<vectorized::ProcessHashTableProbe<
                         JoinOpType::value, HashJoinProbeLocalState>>(this, state->batch_size());
             },

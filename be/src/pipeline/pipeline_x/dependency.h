@@ -40,6 +40,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
+#include "vec/exec/vset_operation_node.h"
 
 namespace doris::pipeline {
 
@@ -481,7 +482,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants =
+    std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
             nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
