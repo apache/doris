@@ -89,12 +89,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // get view and query aggregate and top plan correspondingly
         Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
         if (viewTopPlanAndAggPair == null) {
-            logger.warn(currentClassName + " split to view to top plan and agg fail so return null");
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Split view to top plan and agg fail",
+                            String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString())));
             return null;
         }
         Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair = splitToTopPlanAndAggregate(queryStructInfo);
         if (queryTopPlanAndAggPair == null) {
-            logger.warn(currentClassName + " split to query to top plan and agg fail so return null");
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Split query to top plan and agg fail",
+                            String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString())));
             return null;
         }
         // Firstly, handle query group by expression rewrite
@@ -123,7 +127,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     true);
             if (rewrittenQueryGroupExpr.isEmpty()) {
                 // can not rewrite, bail out.
-                logger.debug(currentClassName + " can not rewrite expression when not need roll up");
+                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                        Pair.of("Can not rewrite expression when no roll up",
+                                String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
+                                                + "queryToViewSlotMapping = %s",
+                                        queryTopPlan.getExpressions(),
+                                        materializationContext.getMvExprToMvScanExprMapping(),
+                                        queryToViewSlotMapping)));
                 return null;
             }
             return new LogicalProject<>(
@@ -138,14 +148,20 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 viewExpr -> viewExpr.anyMatch(expr -> expr instanceof AggregateFunction
                         && ((AggregateFunction) expr).isDistinct()))) {
             // if mv aggregate function contains distinct, can not roll up, bail out.
-            logger.debug(currentClassName + " view contains distinct function so can not roll up");
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("View contains distinct function so can not roll up",
+                            String.format("view plan = %s", viewAggregate.getOutputExpressions())));
             return null;
         }
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair);
         if (queryGroupAndFunctionPair == null) {
-            logger.warn(currentClassName + " query top plan split to group by and function fail so return null");
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Query top plan split to group by and function fail",
+                            String.format("queryTopPlan = %s,\n agg = %s",
+                                    queryTopPlanAndAggPair.key().treeString(),
+                                    queryTopPlanAndAggPair.value().treeString())));
             return null;
         }
         // Secondly, try to roll up the agg functions
@@ -172,18 +188,27 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 Function rollupAggregateFunction = rollup(queryFunction, queryFunctionShuttled,
                         mvExprToMvScanExprQueryBased);
                 if (rollupAggregateFunction == null) {
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Query function roll up fail",
+                                    String.format("queryFunction = %s,\n queryFunctionShuttled = %s,\n"
+                                                    + "mvExprToMvScanExprQueryBased = %s",
+                                            queryFunction, queryFunctionShuttled, mvExprToMvScanExprQueryBased)));
                     return null;
                 }
                 // key is query need roll up expr, value is mv scan based roll up expr
                 needRollupExprMap.put(queryFunctionShuttled, rollupAggregateFunction);
                 // rewrite query function expression by mv expression
+                ExpressionMapping needRollupExprMapping = new ExpressionMapping(needRollupExprMap);
                 Expression rewrittenFunctionExpression = rewriteExpression(topExpression,
                         queryTopPlan,
-                        new ExpressionMapping(needRollupExprMap),
+                        needRollupExprMapping,
                         queryToViewSlotMapping,
                         false);
                 if (rewrittenFunctionExpression == null) {
-                    logger.debug(currentClassName + " roll up expression can not rewrite by view so return null");
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Roll up expression can not rewrite by view", String.format(
+                                    "topExpression = %s,\n needRollupExprMapping = %s,\n queryToViewSlotMapping = %s",
+                                    topExpression, needRollupExprMapping, queryToViewSlotMapping)));
                     return null;
                 }
                 finalAggregateExpressions.add((NamedExpression) rewrittenFunctionExpression);
@@ -193,22 +218,28 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                         ExpressionUtils.shuttleExpressionWithLineage(topExpression, queryTopPlan);
                 if (!mvExprToMvScanExprQueryBased.containsKey(queryGroupShuttledExpr)) {
                     // group expr can not rewrite by view
-                    logger.debug(currentClassName
-                            + " view group expressions can not contains the query group by expression so return null");
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("View dimensions doesn't not cover the query dimensions",
+                                    String.format("mvExprToMvScanExprQueryBased is %s,\n queryGroupShuttledExpr is %s",
+                                            mvExprToMvScanExprQueryBased, queryGroupShuttledExpr)));
                     return null;
                 }
                 groupRewrittenExprMap.put(queryGroupShuttledExpr,
                         mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr));
                 // rewrite query group expression by mv expression
+                ExpressionMapping groupRewrittenExprMapping = new ExpressionMapping(groupRewrittenExprMap);
                 Expression rewrittenGroupExpression = rewriteExpression(
                         topExpression,
                         queryTopPlan,
-                        new ExpressionMapping(groupRewrittenExprMap),
+                        groupRewrittenExprMapping,
                         queryToViewSlotMapping,
                         true);
                 if (rewrittenGroupExpression == null) {
-                    logger.debug(currentClassName
-                            + " query top expression can not be rewritten by view so return null");
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Query dimensions can not be rewritten by view",
+                                    String.format("topExpression is %s,\n groupRewrittenExprMapping is %s,\n"
+                                                    + "queryToViewSlotMapping = %s",
+                                            topExpression, groupRewrittenExprMapping, queryToViewSlotMapping)));
                     return null;
                 }
                 finalAggregateExpressions.add((NamedExpression) rewrittenGroupExpression);
