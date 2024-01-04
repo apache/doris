@@ -32,9 +32,6 @@
 namespace doris {
 class ExecNode;
 } // namespace doris
-namespace doris::vectorized {
-class ScannerDelegate;
-}
 
 namespace doris::pipeline {
 class PipScannerContext;
@@ -52,9 +49,13 @@ public:
 
     bool can_read() override; // for source
 
+    bool is_pending_finish() const override;
+
     bool runtime_filters_are_ready_or_timeout() override;
 
     std::string debug_string() const override;
+
+    Status try_close(RuntimeState* state) override;
 };
 
 class ScanDependency final : public Dependency {
@@ -173,6 +174,7 @@ protected:
     RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
@@ -213,6 +215,7 @@ class ScanLocalState : public ScanLocalStateBase {
     int64_t get_push_down_count() override;
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -348,7 +351,7 @@ protected:
     Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners);
+    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
 
     // For some conjunct there is chance to elimate cast operator
     // Eg. Variant's sub column could eliminate cast in storage layer if
@@ -411,13 +414,14 @@ protected:
 
     std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 
-    // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
-    std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
+    Status try_close(RuntimeState* state) override;
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;

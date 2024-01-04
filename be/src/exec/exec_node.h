@@ -239,10 +239,6 @@ public:
 
     size_t children_count() const { return _children.size(); }
 
-    // when the fragment is normal finished, call this method to do some finish work
-    // such as send the last buffer to remote.
-    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
-
 protected:
     friend class DataSink;
 
