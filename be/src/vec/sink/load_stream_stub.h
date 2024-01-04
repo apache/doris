@@ -63,7 +63,6 @@
 #include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
-#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
