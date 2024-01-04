@@ -1251,6 +1251,8 @@ struct TPlanNode {
   48: optional TPushAggOp push_down_agg_type_opt
 
   49: optional i64 push_down_count
+
+  50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
