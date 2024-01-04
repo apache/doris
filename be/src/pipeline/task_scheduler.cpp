@@ -119,7 +119,6 @@ void BlockedTaskScheduler::_schedule() {
         while (iter != local_blocked_tasks.end()) {
             auto* task = *iter;
             auto state = task->get_state();
-            task->log_detail_if_need();
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
@@ -237,7 +236,6 @@ void TaskScheduler::_do_work(size_t index) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
         }
-        task->log_detail_if_need();
         task->set_running(true);
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();

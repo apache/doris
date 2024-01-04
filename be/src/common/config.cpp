@@ -1158,9 +1158,6 @@ DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
-// Default 300s, if its value <= 0, then log is disabled
-DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
-
 // clang-format off
 #ifdef BE_TEST
 // test s3

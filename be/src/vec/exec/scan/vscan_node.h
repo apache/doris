@@ -87,21 +87,6 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-// We want to close scanner automatically, so using a delegate class
-// and call close method in the delegate class's dctor.
-class ScannerDelegate {
-public:
-    VScannerSPtr _scanner;
-    ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
-    ~ScannerDelegate() {
-        Status st = _scanner->close(_scanner->runtime_state());
-        if (!st.ok()) {
-            LOG(WARNING) << "close scanner failed, st = " << st;
-        }
-    }
-    ScannerDelegate(ScannerDelegate&&) = delete;
-};
-
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -170,6 +155,8 @@ public:
 
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
+
+    Status try_close(RuntimeState* state);
 
     bool should_run_serial() const {
         return _should_run_serial || _state->enable_scan_node_run_serial();
@@ -289,11 +276,8 @@ protected:
     int _max_scan_key_num;
     int _max_pushdown_conditions_per_column;
 
-    // ScanNode owns the ownership of scanner, scanner context only has its weakptr
-    std::list<std::shared_ptr<ScannerDelegate>> _scanners;
-
-    // Each scan node will generates a ScannerContext to do schedule work
-    // ScannerContext will be added to scanner scheduler
+    // Each scan node will generates a ScannerContext to manage all Scanners.
+    // See comments of ScannerContext for more details
     std::shared_ptr<ScannerContext> _scanner_ctx = nullptr;
 
     // indicate this scan node has no more data to return
@@ -467,8 +451,8 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    void _start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                         const int query_parallel_instance_num);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners,
+                           const int query_parallel_instance_num);
 };
 
 } // namespace doris::vectorized
