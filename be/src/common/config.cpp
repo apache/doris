@@ -1370,8 +1370,8 @@ bool Properties::load(const char* conf_file, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
-                                bool* is_retval_set, std::string& rawval) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                                std::string& rawval) const {
     const auto& it = file_conf_map.find(std::string(key));
     std::string valstr;
     if (it == file_conf_map.end()) {
