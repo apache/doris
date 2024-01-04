@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Querying Asynchronous Materialized Views",
+    "title": "Querying Async Materialized View",
     "language": "en"
 }
 ---
