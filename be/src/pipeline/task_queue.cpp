@@ -23,7 +23,6 @@
 
 #include "common/logging.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/task_group/task_group.h"
 
 namespace doris {
 namespace pipeline {
@@ -55,7 +54,7 @@ void PriorityTaskQueue::close() {
     _wait_task.notify_all();
 }
 
-PipelineTask* PriorityTaskQueue::try_take_unprotected(bool is_steal) {
+PipelineTask* PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
     if (_total_task_size == 0 || _closed) {
         return nullptr;
     }
@@ -94,12 +93,12 @@ int PriorityTaskQueue::_compute_level(uint64_t runtime) {
 PipelineTask* PriorityTaskQueue::try_take(bool is_steal) {
     // TODO other efficient lock? e.g. if get lock fail, return null_ptr
     std::unique_lock<std::mutex> lock(_work_size_mutex);
-    return try_take_unprotected(is_steal);
+    return _try_take_unprotected(is_steal);
 }
 
 PipelineTask* PriorityTaskQueue::take(uint32_t timeout_ms) {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
-    auto task = try_take_unprotected(false);
+    auto task = _try_take_unprotected(false);
     if (task) {
         return task;
     } else {
@@ -108,7 +107,7 @@ PipelineTask* PriorityTaskQueue::take(uint32_t timeout_ms) {
         } else {
             _wait_task.wait(lock);
         }
-        return try_take_unprotected(false);
+        return _try_take_unprotected(false);
     }
 }
 
@@ -129,6 +128,11 @@ Status PriorityTaskQueue::push(PipelineTask* task) {
     _total_task_size++;
     _wait_task.notify_one();
     return Status::OK();
+}
+
+int PriorityTaskQueue::task_size() {
+    std::unique_lock<std::mutex> lock(_work_size_mutex);
+    return _total_task_size;
 }
 
 MultiCoreTaskQueue::~MultiCoreTaskQueue() = default;
@@ -201,9 +205,9 @@ Status MultiCoreTaskQueue::push_back(PipelineTask* task, size_t core_id) {
 }
 
 bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
-        const taskgroup::TGEntityPtr& lhs_ptr, const taskgroup::TGEntityPtr& rhs_ptr) const {
-    int64_t lhs_val = lhs_ptr->vruntime_ns();
-    int64_t rhs_val = rhs_ptr->vruntime_ns();
+        const taskgroup::TGPTEntityPtr& lhs_ptr, const taskgroup::TGPTEntityPtr& rhs_ptr) const {
+    auto lhs_val = lhs_ptr->vruntime_ns();
+    auto rhs_val = rhs_ptr->vruntime_ns();
     if (lhs_val != rhs_val) {
         return lhs_val < rhs_val;
     } else {
@@ -217,7 +221,8 @@ bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
     }
 }
 
-TaskGroupTaskQueue::TaskGroupTaskQueue(size_t core_size) : TaskQueue(core_size) {}
+TaskGroupTaskQueue::TaskGroupTaskQueue(size_t core_size)
+        : TaskQueue(core_size), _min_tg_entity(nullptr) {}
 
 TaskGroupTaskQueue::~TaskGroupTaskQueue() = default;
 
@@ -237,9 +242,10 @@ Status TaskGroupTaskQueue::push_back(PipelineTask* task, size_t core_id) {
 
 template <bool from_executor>
 Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
-    auto* entity = task->get_task_group()->task_entity();
+    task->put_in_runnable_queue();
+    auto* entity = task->get_task_group_entity();
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    entity->push_back(task);
+    entity->task_queue()->emplace(task);
     if (_group_entities.find(entity) == _group_entities.end()) {
         _enqueue_task_group<from_executor>(entity);
     }
@@ -250,7 +256,7 @@ Status TaskGroupTaskQueue::_push_back(PipelineTask* task) {
 // TODO pipeline support steal
 PipelineTask* TaskGroupTaskQueue::take(size_t core_id) {
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    taskgroup::TGEntityPtr entity = nullptr;
+    taskgroup::TGPTEntityPtr entity = nullptr;
     while (entity == nullptr) {
         if (_closed) {
             return nullptr;
@@ -268,11 +274,16 @@ PipelineTask* TaskGroupTaskQueue::take(size_t core_id) {
     if (entity->task_size() == 1) {
         _dequeue_task_group(entity);
     }
-    return entity->take();
+    auto task = entity->task_queue()->front();
+    if (task) {
+        entity->task_queue()->pop();
+        task->pop_out_runnable_queue();
+    }
+    return task;
 }
 
 template <bool from_worker>
-void TaskGroupTaskQueue::_enqueue_task_group(taskgroup::TGEntityPtr tg_entity) {
+void TaskGroupTaskQueue::_enqueue_task_group(taskgroup::TGPTEntityPtr tg_entity) {
     _total_cpu_share += tg_entity->cpu_share();
     if constexpr (!from_worker) {
         /**
@@ -283,7 +294,9 @@ void TaskGroupTaskQueue::_enqueue_task_group(taskgroup::TGEntityPtr tg_entity) {
         auto old_v_ns = tg_entity->vruntime_ns();
         auto* min_entity = _min_tg_entity.load();
         if (min_entity) {
-            int64_t new_vruntime_ns = min_entity->vruntime_ns() - _ideal_runtime_ns(tg_entity) / 2;
+            auto min_tg_v = min_entity->vruntime_ns();
+            auto ideal_r = _ideal_runtime_ns(tg_entity) / 2;
+            uint64_t new_vruntime_ns = min_tg_v > ideal_r ? min_tg_v - ideal_r : min_tg_v;
             if (new_vruntime_ns > old_v_ns) {
                 tg_entity->adjust_vruntime_ns(new_vruntime_ns);
             }
@@ -297,7 +310,7 @@ void TaskGroupTaskQueue::_enqueue_task_group(taskgroup::TGEntityPtr tg_entity) {
     _update_min_tg();
 }
 
-void TaskGroupTaskQueue::_dequeue_task_group(taskgroup::TGEntityPtr tg_entity) {
+void TaskGroupTaskQueue::_dequeue_task_group(taskgroup::TGPTEntityPtr tg_entity) {
     _total_cpu_share -= tg_entity->cpu_share();
     _group_entities.erase(tg_entity);
     VLOG_DEBUG << "dequeue tg " << tg_entity->debug_string()
@@ -317,12 +330,12 @@ void TaskGroupTaskQueue::_update_min_tg() {
 }
 
 // like sched_fair.c calc_delta_fair, THREAD_TIME_SLICE maybe a dynamic value.
-int64_t TaskGroupTaskQueue::_ideal_runtime_ns(taskgroup::TGEntityPtr tg_entity) const {
+uint64_t TaskGroupTaskQueue::_ideal_runtime_ns(taskgroup::TGPTEntityPtr tg_entity) const {
     return PipelineTask::THREAD_TIME_SLICE * _core_size * tg_entity->cpu_share() / _total_cpu_share;
 }
 
-taskgroup::TGEntityPtr TaskGroupTaskQueue::_next_tg_entity() {
-    taskgroup::TGEntityPtr res = nullptr;
+taskgroup::TGPTEntityPtr TaskGroupTaskQueue::_next_tg_entity() {
+    taskgroup::TGPTEntityPtr res = nullptr;
     for (auto* entity : _group_entities) {
         res = entity;
         break;
@@ -332,8 +345,7 @@ taskgroup::TGEntityPtr TaskGroupTaskQueue::_next_tg_entity() {
 
 void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    auto* group = task->get_task_group();
-    auto* entity = group->task_entity();
+    auto* entity = task->get_task_group_entity();
     auto find_entity = _group_entities.find(entity);
     bool is_in_queue = find_entity != _group_entities.end();
     VLOG_DEBUG << "update_statistics " << entity->debug_string() << ", in queue:" << is_in_queue;
@@ -348,15 +360,14 @@ void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
 }
 
 void TaskGroupTaskQueue::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                             taskgroup::TaskGroupPtr task_group) {
+                                             taskgroup::TGPTEntityPtr entity) {
     std::unique_lock<std::mutex> lock(_rs_mutex);
-    auto* entity = task_group->task_entity();
     bool is_in_queue = _group_entities.find(entity) != _group_entities.end();
     if (is_in_queue) {
         _group_entities.erase(entity);
         _total_cpu_share -= entity->cpu_share();
     }
-    task_group->update_cpu_share_unlock(task_group_info);
+    entity->check_and_update_cpu_share(task_group_info);
     if (is_in_queue) {
         _group_entities.emplace(entity);
         _total_cpu_share += entity->cpu_share();

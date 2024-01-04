@@ -172,12 +172,15 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("database", new Integer(SqlParserSymbols.KW_DATABASE));
         keywordMap.put("databases", new Integer(SqlParserSymbols.KW_DATABASES));
         keywordMap.put("date", new Integer(SqlParserSymbols.KW_DATE));
+        keywordMap.put("datev1", new Integer(SqlParserSymbols.KW_DATEV1));
         keywordMap.put("datev2", new Integer(SqlParserSymbols.KW_DATEV2));
         keywordMap.put("datetime", new Integer(SqlParserSymbols.KW_DATETIME));
+        keywordMap.put("datetimev1", new Integer(SqlParserSymbols.KW_DATETIMEV1));
         keywordMap.put("datetimev2", new Integer(SqlParserSymbols.KW_DATETIMEV2));
         keywordMap.put("time", new Integer(SqlParserSymbols.KW_TIME));
         keywordMap.put("day", new Integer(SqlParserSymbols.KW_DAY));
         keywordMap.put("decimal", new Integer(SqlParserSymbols.KW_DECIMAL));
+        keywordMap.put("decimalv2", new Integer(SqlParserSymbols.KW_DECIMALV2));
         keywordMap.put("decimalv3", new Integer(SqlParserSymbols.KW_DECIMALV3));
         keywordMap.put("decommission", new Integer(SqlParserSymbols.KW_DECOMMISSION));
         keywordMap.put("default", new Integer(SqlParserSymbols.KW_DEFAULT));
@@ -306,6 +309,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("match_any", new Integer(SqlParserSymbols.KW_MATCH_ANY));
         keywordMap.put("match_all", new Integer(SqlParserSymbols.KW_MATCH_ALL));
         keywordMap.put("match_phrase", new Integer(SqlParserSymbols.KW_MATCH_PHRASE));
+        keywordMap.put("match_phrase_prefix", new Integer(SqlParserSymbols.KW_MATCH_PHRASE_PREFIX));
+        keywordMap.put("match_regexp", new Integer(SqlParserSymbols.KW_MATCH_REGEXP));
         keywordMap.put("element_eq", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_EQ));
         keywordMap.put("element_lt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_LT));
         keywordMap.put("element_gt", new Integer(SqlParserSymbols.KW_MATCH_ELEMENT_GT));
@@ -376,6 +381,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("read", new Integer(SqlParserSymbols.KW_READ));
         keywordMap.put("real", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("rebalance", new Integer(SqlParserSymbols.KW_REBALANCE));
+        keywordMap.put("recent", new Integer(SqlParserSymbols.KW_RECENT));
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
         keywordMap.put("recycle", new Integer(SqlParserSymbols.KW_RECYCLE));
         keywordMap.put("refresh", new Integer(SqlParserSymbols.KW_REFRESH));
@@ -421,6 +427,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("snapshot", new Integer(SqlParserSymbols.KW_SNAPSHOT));
         keywordMap.put("soname", new Integer(SqlParserSymbols.KW_SONAME));
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
+        keywordMap.put("sql", new Integer(SqlParserSymbols.KW_SQL));
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
         keywordMap.put("sample", new Integer(SqlParserSymbols.KW_SAMPLE));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
@@ -567,7 +574,11 @@ import org.apache.doris.qe.SqlModeHelper;
     return new Symbol(id, yyline+1, yycolumn+1, value);
   }
 
-  private static String escapeBackSlash(String str) {
+  private static String escapeBackSlash(String str, long sqlMode) {
+      if ((sqlMode & SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES) != 0) {
+          return str;
+      }
+
       StringWriter writer = new StringWriter();
       int strLen = str.length();
       for (int i = 0; i < strLen; ++i) {
@@ -727,12 +738,12 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("''", "'"));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("''", "'"));
 }
 
 {DoubleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("\"\"", "\""));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("\"\"", "\""));
 }
 
 {CommentedHintBegin} {

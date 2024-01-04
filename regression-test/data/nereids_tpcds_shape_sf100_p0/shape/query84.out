@@ -16,14 +16,15 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = customer_address.ca_address_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer]
-----------------------------PhysicalDistribute
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = customer_address.ca_address_sk)
 ------------------------------PhysicalProject
---------------------------------filter((customer_address.ca_city = 'Oakwood'))
-----------------------------------PhysicalOlapScan[customer_address]
+--------------------------------PhysicalOlapScan[customer]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((customer_address.ca_city = 'Oakwood'))
+------------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalDistribute
 --------------------------hashJoin[INNER_JOIN](income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)
 ----------------------------PhysicalProject

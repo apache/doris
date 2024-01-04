@@ -38,6 +38,7 @@
 #include <sstream>
 #include <thread>
 
+#include "common/config.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 
@@ -303,6 +304,11 @@ Status ThriftServer::start() {
     DCHECK(!_started);
     std::shared_ptr<apache::thrift::protocol::TProtocolFactory> protocol_factory(
             new apache::thrift::protocol::TBinaryProtocolFactory());
+    // add binary_protocal_factory to call TBinaryProtocolFactory's member function:setStringSizeLimit
+    std::shared_ptr<apache::thrift::protocol::TBinaryProtocolFactory> binary_protocal_factory =
+            std::dynamic_pointer_cast<apache::thrift::protocol::TBinaryProtocolFactory>(
+                    protocol_factory);
+    binary_protocal_factory->setStringSizeLimit(config::be_thrift_max_pkg_bytes);
     std::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
     std::shared_ptr<apache::thrift::concurrency::ThreadFactory> thread_factory =
             std::make_shared<apache::thrift::concurrency::ThreadFactory>();

@@ -64,6 +64,9 @@ public:
 
     virtual Status close(RuntimeState* state);
 
+    // Try to stop scanner, and all running readers.
+    virtual void try_stop() { _should_stop = true; };
+
     virtual std::string get_name() { return ""; }
 
     // return the readable name of current scan range.
@@ -107,6 +110,8 @@ public:
     }
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+
+    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
@@ -187,6 +192,8 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    int64_t _num_byte_read = 0;
+
     // num of rows return from scanner, after filter block
     int64_t _num_rows_return = 0;
 
@@ -208,8 +215,11 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _should_stop = false;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
+using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

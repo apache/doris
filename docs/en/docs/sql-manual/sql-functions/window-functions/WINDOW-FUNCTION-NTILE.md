@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-NTILE",
+    "title": "WINDOW_FUNCTION_NTILE",
     "language": "en"
 }
 ---

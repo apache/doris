@@ -17,6 +17,7 @@
 
 suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remote_tvf") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    def column_separator = ","
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
         String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
@@ -27,45 +28,45 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_1 """
         select * from HDFS(
             "uri" = "${baseUri}/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator"="${column_separator}",
             "path_partition_keys"="dt1" ) order by c1,c2 ;
         """ 
 
         order_qt_hdfs_2 """
         select * from HDFS(
             "uri" = "${baseUri}/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator"="${column_separator}",
             "path_partition_keys"="dt1") where dt1!="cyw" order by c1,c2 limit 3;
         """ 
 
         order_qt_hdfs_3 """
         select dt1,c1,count(*) from HDFS(
             "uri" = "${baseUri}/dt1=hello/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator"="${column_separator}",
             "path_partition_keys"="dt1") group by c1,dt1 order by c1;
         """ 
     
         order_qt_hdfs_4 """
         select * from HDFS(
             "uri" = "${baseUri}/dt2=two/dt1=hello/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator"="${column_separator}",
             "path_partition_keys"="dt1") order by c1;
         """ 
 
         order_qt_hdfs_5 """
         select * from HDFS(
             "uri" = "${baseUri}/dt2=two/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator"="${column_separator}",
             "path_partition_keys"="dt2,dt1");
         """
 
@@ -88,6 +89,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=cyw/a.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "path_partition_keys"="dt1") order by c1,c2;
     """
     
@@ -96,6 +98,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=cyw/*",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "path_partition_keys"="dt1") order by c1,c2  limit 2;
     """
     
@@ -104,6 +107,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=hello/c.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "path_partition_keys"="dt1") order by c1,c2  limit 7;
     """
 
@@ -112,6 +116,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt2=two/dt1=hello/c.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "path_partition_keys"="dt2,dt1") order by c1,c2  limit 9;
     """
     
@@ -132,6 +137,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator"="${column_separator}",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") 
     """
@@ -146,6 +152,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator"="${column_separator}",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") limit 3;
     """
@@ -159,6 +166,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator"="${column_separator}",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") limit 3;
     """
@@ -172,6 +180,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator"="${column_separator}",
         "use_path_style" = "true",
         "path_partition_keys"="dt2,dt1") limit 3;
     """

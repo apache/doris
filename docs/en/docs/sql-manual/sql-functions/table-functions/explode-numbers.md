@@ -1,6 +1,6 @@
 ---
 {
-    "title": "explode_numbers",
+    "title": "EXPLODE_NUMBERS",
     "language": "en"
 }
 ---

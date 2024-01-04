@@ -156,4 +156,30 @@ suite("test_outfile_exception") {
         // check exception
         exception "NoSuchBucket:The specified bucket does not exist"
     }
+
+    String ak = getS3AK()
+    String sk = getS3SK()
+    String s3_endpoint = getS3Endpoint()
+    String region = getS3Region()
+    String bucket = getS3BucketName();
+    def outFilePath = "${bucket}/outfile/expr/exception/exp_"
+
+    // test export expr exception
+    // orc format
+    test {
+        sql """
+            select 1 + 1 > 2 from outfile_exception_test
+            INTO OUTFILE "s3://${outFilePath}"
+            FORMAT AS ORC
+            PROPERTIES (
+                "s3.endpoint" = "${s3_endpoint}",
+                "s3.region" = "${region}",
+                "s3.secret_key"="${sk}",
+                "s3.access_key" = "${ak}"
+            );
+        """
+
+        // check exception
+        exception """Orc build schema from "struct<((1 + 1) > 2):boolean>" failed: Missing field name"""
+    }
 }

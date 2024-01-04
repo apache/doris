@@ -104,6 +104,11 @@ public class LoadManager implements Writable {
         this.mysqlLoadManager = new MysqlLoadManager(tokenManager);
     }
 
+    public void start() {
+        tokenManager.start();
+        mysqlLoadManager.start();
+    }
+
     /**
      * This method will be invoked by the broker load(v2) now.
      */
@@ -563,8 +568,9 @@ public class LoadManager implements Writable {
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (DdlException e) {
-                    continue;
+                } catch (RuntimeException | DdlException e) {
+                    // ignore this load job
+                    LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }
             }
             return loadJobInfos;

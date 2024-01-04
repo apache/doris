@@ -89,6 +89,13 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     }
 
     @Override
+    public void finalizeForNereids() throws UserException {
+        computeColumnsFilter();
+        computePartitionInfo();
+        createScanRangeLocations();
+    }
+
+    @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         return scanRangeLocations;
     }

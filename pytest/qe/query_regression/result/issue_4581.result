@@ -1,0 +1,12 @@
+drop database if exists issue_4581
+()
+create database issue_4581
+()
+use issue_4581
+CREATE TABLE `table1` (`city_id` bigint(20) NULL, `tag_id` bigint(20) NULL, `dt` bigint(20) NULL, `num` bigint(20) NULL) ENGINE=OLAP DUPLICATE KEY(`city_id`, `tag_id`, `dt`) COMMENT "OLAP" PARTITION BY RANGE(`dt`) (PARTITION p20200102 VALUES [("20200101"), ("20200102")), PARTITION p20200103 VALUES [("20200102"), ("20200103"))) DISTRIBUTED BY HASH(`city_id`) BUCKETS 5 PROPERTIES ("replication_num" = "1", "in_memory" = "false", "storage_format" = "DEFAULT")
+()
+INSERT INTO table1 VALUES (1, 2, 20200102, 3)
+SELECT rank, tag_id FROM ( SELECT row_number() OVER (ORDER BY num DESC) AS rank, tag_id FROM table1 ) t WHERE -1 = -1 OR tag_id IN (-1) LIMIT 10
+(['1', '2'],)
+drop database issue_4581
+()

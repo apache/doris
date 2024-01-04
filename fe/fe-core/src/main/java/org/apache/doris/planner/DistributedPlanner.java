@@ -125,7 +125,7 @@ public class DistributedPlanner {
         boolean needRepartition = false;
         boolean needMerge = false;
         if (isFragmentPartitioned(inputFragment)) {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (stmt.getDataPartition().getType() == TPartitionType.RANDOM) {
                     return inputFragment;
                 }
@@ -138,7 +138,7 @@ public class DistributedPlanner {
                 needMerge = true;
             }
         } else {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (isRepart != null && isRepart) {
                     needRepartition = true;
                 } else {

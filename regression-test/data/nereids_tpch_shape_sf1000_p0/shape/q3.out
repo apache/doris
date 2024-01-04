@@ -9,14 +9,14 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
 ----------------PhysicalProject
-------------------filter((lineitem.l_shipdate > 1995-03-15))
+------------------filter((lineitem.l_shipdate > '1995-03-15'))
 --------------------PhysicalOlapScan[lineitem]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((orders.o_orderdate < 1995-03-15))
+--------------------------filter((orders.o_orderdate < '1995-03-15'))
 ----------------------------PhysicalOlapScan[orders]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

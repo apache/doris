@@ -137,8 +137,8 @@ private:
         /// It is guaranteed (by PaddedPODArray) that we can overwrite up to 15 bytes after end.
     }
 
-    UInt64 randomSeed() {
-        struct timespec times;
+    UInt64 randomSeed() const {
+        struct timespec times {};
 
         /// Not cryptographically secure as time, pid and stack address can be predictable.
 

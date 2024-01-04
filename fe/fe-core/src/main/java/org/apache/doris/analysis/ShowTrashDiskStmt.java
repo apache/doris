@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TrashProcNode;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -38,7 +39,7 @@ public class ShowTrashDiskStmt extends ShowStmt {
     public ShowTrashDiskStmt(String backendQuery) {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
-            String backendStr = String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort());
+            String backendStr = NetUtils.getHostPortInAccessibleFormat(backend.getHost(), backend.getHeartbeatPort());
             if (backendQuery.equals(backendStr)) {
                 this.backend = backend;
                 break;

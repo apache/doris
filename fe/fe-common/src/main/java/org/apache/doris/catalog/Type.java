@@ -746,19 +746,14 @@ public abstract class Type {
         }
 
         if (t1.isArrayType() && t2.isArrayType()) {
-            ArrayType arrayType1 = (ArrayType) t1;
-            ArrayType arrayType2 = (ArrayType) t2;
-            Type itemCompatibleType = Type.getAssignmentCompatibleType(arrayType1.getItemType(),
-                    arrayType2.getItemType(), strict);
-
-            if (itemCompatibleType.isInvalid()) {
-                return itemCompatibleType;
-            }
-
-            return new ArrayType(itemCompatibleType, arrayType1.getContainsNull() || arrayType2.getContainsNull());
-        } else if (t1.isArrayType() && t2.isNull()) {
+            return ArrayType.getAssignmentCompatibleType((ArrayType) t1, (ArrayType) t2, strict);
+        } else if (t1.isMapType() && t2.isMapType()) {
+            return MapType.getAssignmentCompatibleType((MapType) t1, (MapType) t2, strict);
+        } else if (t1.isStructType() && t2.isStructType()) {
+            return StructType.getAssignmentCompatibleType((StructType) t1, (StructType) t2, strict);
+        } else if (t1.isComplexType() && t2.isNull()) {
             return t1;
-        } else if (t1.isNull() && t2.isArrayType()) {
+        } else if (t1.isNull() && t2.isComplexType()) {
             return t2;
         }
 
@@ -1948,6 +1943,7 @@ public abstract class Type {
     }
 
     public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
+        // we should make type decide to match other for itself to impl matchesType instead of switch case types
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -1960,13 +1956,6 @@ public abstract class Type {
                     return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
                             ((ScalarType) type1).decimalPrecision());
                 }
-            } else if (type2.isArrayType()) {
-                // For types array, we also need to check contains null for case like
-                // cast(array<not_null(int)> as array<int>)
-                if (!((ArrayType) type2).getContainsNull() == ((ArrayType) type1).getContainsNull()) {
-                    return false;
-                }
-                return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
             } else {
                 return true;
             }

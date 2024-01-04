@@ -173,7 +173,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 默认值: 4096
 
@@ -376,6 +376,18 @@ heartbeat_mgr 中处理心跳事件的线程数。
 
 是否开启单BE的多标签功能
 
+#### `initial_root_password`
+
+设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。
+
+示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` 获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`。
+
+默认值：空字符串
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：true
+
 ### 服务
 
 #### `query_port`
@@ -383,6 +395,12 @@ heartbeat_mgr 中处理心跳事件的线程数。
 默认值：9030
 
 Doris FE 通过 mysql 协议查询连接端口
+
+#### `arrow_flight_sql_port`
+
+默认值：-1
+
+Doris FE 通过 Arrow Flight SQL 协议查询连接端口
 
 #### `frontend_address`
 
@@ -430,14 +448,6 @@ FE https 使能标志位，false 表示支持 http，true 表示同时支持 htt
 默认值：1024
 
 每个 FE 的最大连接数
-
-#### `max_connection_scheduler_threads_num`
-
-默认值：4096
-
-查询请求调度器中的最大线程数。
-
-目前的策略是，有请求过来，就为其单独申请一个线程进行服务
 
 #### `check_java_version`
 
@@ -668,43 +678,6 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 http header size 配置参数
 
-#### `enable_tracing`
-
-默认值：false
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：false
-
-是否开启链路追踪
-
-如果启用此配置，您还应该指定 trace_export_url。
-
-#### `trace_exporter`
-
-默认值：zipkin
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：false
-
-当前支持导出的链路追踪：
-    zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
-    collector：collector可用于接收和处理traces，支持导出到多种第三方系统
-如果启用此配置，您还应该指定 enable_tracing=true 和 trace_export_url。
-
-#### `trace_export_url`
-
-默认值：`http://127.0.0.1:9411/api/v2/spans`
-
-是否可以动态配置：false
-
-是否为 Master FE 节点独有的配置项：false
-
-trace导出到 zipkin: `http://127.0.0.1:9411/api/v2/spans`
-
-trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
-
 ### 查询引擎
 
 #### `default_max_query_instances`
@@ -764,6 +737,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于限制批量创建分区表时可以创建的最大分区数，避免一次创建过多分区。
 
 </version>
+
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -1151,7 +1134,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：500 * 1024 * 1024 * 1024L  （500G）
+默认值：`500 * 1024 * 1024 * 1024L`  （500G）
 
 是否可以动态配置：true
 
@@ -1807,24 +1790,6 @@ show data （其他用法：HELP SHOW DATA）
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
-#### `recover_with_skip_missing_version`
-
-默认值：disable
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-有些场景下集群出现了不可恢复的元数据问题，数据已的visibleversion 已经和be 不匹配，
-
-这种情况下仍然需要恢复剩余的数据（可能能会导致数据的正确性有问题），这个配置同`recover_with_empty_tablet` 一样只能在紧急情况下使用
-
-这个配置有三个值：
-
-   * disable ：出现异常会正常报错。
-   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
-   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
-
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
 默认值：最小3分钟，最大两小时
@@ -2186,7 +2151,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2624,23 +2589,23 @@ SmallFileMgr 中存储的最大文件数
 
 #### `enable_date_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
+FE 会自动将 Date/Datetime 转换为 DateV2/DatetimeV2(0)。
 
 #### `enable_decimal_conversion`
 
-默认值：false
+默认值：true
 
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将自动将 DecimalV2 转换为 DecimalV3。
+FE 将自动将 DecimalV2 转换为 DecimalV3。
 
 #### `proxy_auth_magic_prefix`
 
@@ -2761,8 +2726,30 @@ show data （其他用法：HELP SHOW DATA）
 
 暂时性配置项，开启后会启动后台线程自动将所有的olap表修改为可light schema change，修改结果可通过命令`show convert_light_schema_change [from db]` 来查看，将会展示所有非light schema change表的转换结果
 
+#### `disable_local_deploy_manager_drop_node`
+
+默认值：true
+
+禁止LocalDeployManager删除节点，防止cluster.info文件有误导致节点被删除。
+
 #### `mysqldb_replace_name`
 
-Default: mysql
+默认值：mysql
 
 Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，请修改这个字段，为 doris 内置的 mysql database 更换一个名字
+
+#### `max_auto_partition_num`
+
+默认值：2000
+
+对于自动分区表，防止用户意外创建大量分区，每个OLAP表允许的分区数量为`max_auto_partition_num`。默认2000。
+
+#### `fe_thrift_max_pkg_bytes`
+
+默认值：20000000
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于限制fe节点thrift端口可以接收的最大包长度，避免接收到过大或者错误的包导致OOM

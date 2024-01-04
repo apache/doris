@@ -115,7 +115,7 @@ Doris currently supports the following permissions
 
 1. Node_priv
 
-	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. Currently, this permission can only be granted to Root users.
+	Nodes change permissions. Including FE, BE, BROKER node addition, deletion, offline operations. User who has Node_priv and Grant_priv permission, can grant Node_priv to other users.
 
     The root user has this permission by default.
 

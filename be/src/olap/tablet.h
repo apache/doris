@@ -44,6 +44,7 @@
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -60,9 +61,7 @@ namespace doris {
 
 class Tablet;
 class CumulativeCompactionPolicy;
-class CumulativeCompaction;
-class BaseCompaction;
-class FullCompaction;
+class Compaction;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct TabletTxnInfo;
@@ -89,7 +88,7 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 enum TabletStorageType { STORAGE_TYPE_LOCAL, STORAGE_TYPE_REMOTE, STORAGE_TYPE_REMOTE_AND_LOCAL };
 
-extern const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD;
+static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(1);
 
 class Tablet : public BaseTablet {
 public:
@@ -151,6 +150,8 @@ public:
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
+
+    // MUST hold EXCLUSIVE `_meta_lock`.
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
@@ -191,18 +192,12 @@ public:
     Status capture_rs_readers(const std::vector<Version>& version_path,
                               std::vector<RowSetSplits>* rs_splits) const;
 
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() {
-        return _tablet_meta->delete_predicates();
-    }
-    bool version_for_delete_predicate(const Version& version);
-
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
-    std::mutex& get_full_compaction_lock() { return _full_compaction_lock; }
 
     std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -258,6 +253,11 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
+    void set_last_base_compaction_schedule_time(int64_t millis) {
+        _last_base_compaction_schedule_millis = millis;
+    }
+
     void delete_all_files();
 
     void check_tablet_path_exists();
@@ -275,6 +275,8 @@ public:
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_single_replica_compaction();
     std::vector<Version> get_all_versions();
+
+    std::vector<RowsetSharedPtr> pick_first_consecutive_empty_rowsets(int limit);
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -305,18 +307,13 @@ public:
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
-    Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                    TabletSharedPtr tablet, int64_t* permits);
+    static Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                           const TabletSharedPtr& tablet,
+                                                           std::shared_ptr<Compaction>& compaction,
+                                                           int64_t& permits);
 
-    Status prepare_single_replica_compaction(TabletSharedPtr tablet,
-                                             CompactionType compaction_type);
-    void execute_compaction(CompactionType compaction_type);
-    void reset_compaction(CompactionType compaction_type);
-    void execute_single_replica_compaction(CompactionType compaction_type);
-    void reset_single_replica_compaction();
-
-    void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
-    bool get_clone_occurred() { return _is_clone_occurred; }
+    void execute_compaction(Compaction& compaction);
+    void execute_single_replica_compaction(SingleReplicaCompaction& compaction);
 
     void set_cumulative_compaction_policy(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
@@ -326,6 +323,12 @@ public:
     std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
         return _cumulative_compaction_policy;
     }
+
+    void set_last_base_compaction_status(std::string status) {
+        _last_base_compaction_status = std::move(status);
+    }
+
+    std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -345,7 +348,8 @@ public:
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
-                                          std::unique_ptr<RowsetWriter>* rowset_writer);
+                                          std::unique_ptr<RowsetWriter>* rowset_writer,
+                                          std::shared_ptr<PartialUpdateInfo> partial_update_info);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
 
@@ -434,7 +438,11 @@ public:
                                  const TabletColumn& tablet_column,
                                  vectorized::MutableColumnPtr& dst);
 
-    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
+    // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
+    // may be outdated due to schema change. Also note that the the cids should indicate the indexes
+    // of the columns in the TabletSchema passed in.
+    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                          const TabletSchema& tablet_schema, uint32_t segid,
                                           const std::vector<uint32_t>& rowids,
                                           const std::vector<uint32_t>& cids,
                                           vectorized::Block& block);
@@ -471,7 +479,8 @@ public:
     void prepare_to_read(const RowLocation& row_location, size_t pos,
                          PartialUpdateReadPlan* read_plan);
     Status generate_new_block_for_partial_update(
-            TabletSchemaSPtr rowset_schema, const PartialUpdateReadPlan& read_plan_ori,
+            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
             vectorized::Block* output_block);
@@ -499,7 +508,7 @@ public:
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
-    RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
+    Status all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
@@ -621,7 +630,6 @@ private:
     std::mutex _ingest_lock;
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
-    std::mutex _full_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
@@ -657,22 +665,17 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last base compaction schedule time
+    std::atomic<int64_t> _last_base_compaction_schedule_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    std::string _last_base_compaction_status;
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
-
-    std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
-    std::shared_ptr<BaseCompaction> _base_compaction;
-    std::shared_ptr<FullCompaction> _full_compaction;
-    std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction;
-
-    // whether clone task occurred during the tablet is in thread pool queue to wait for compaction
-    std::atomic<bool> _is_clone_occurred;
 
     // use a seperate thread to check all tablets paths existance
     std::atomic<bool> _is_tablet_path_exists;

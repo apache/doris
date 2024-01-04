@@ -84,7 +84,7 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
 fi
 
 if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-    echo "Please disable swap memory before installation."
+    echo "Please disable swap memory before installation, eg: 'swapoff -a'."
     exit 1
 fi
 
@@ -303,7 +303,7 @@ java_version="$(
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
+JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000 -DJDBC_KEEP_ALIVE=FALSE"
 
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then

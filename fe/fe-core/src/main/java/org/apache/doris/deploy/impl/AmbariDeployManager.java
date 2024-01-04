@@ -20,6 +20,7 @@ package org.apache.doris.deploy.impl;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.system.SystemInfoService;
@@ -215,7 +216,8 @@ public class AmbariDeployManager extends DeployManager {
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
-                hostPort = SystemInfoService.validateHostAndPort(hostname + ":" + port);
+                hostPort = SystemInfoService.validateHostAndPort(NetUtils
+                        .getHostPortInAccessibleFormat(hostname, port));
             } catch (AnalysisException e) {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;

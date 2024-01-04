@@ -34,6 +34,9 @@ namespace vectorized {
 class Arena;
 
 class DataTypeJsonbSerDe : public DataTypeStringSerDe {
+public:
+    DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
+
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
@@ -48,12 +51,11 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level = 1) const override;
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
 private:
     template <bool is_binary_format>

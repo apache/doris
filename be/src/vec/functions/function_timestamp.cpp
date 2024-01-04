@@ -63,15 +63,22 @@
 
 namespace doris::vectorized {
 
+template <typename DateType>
 struct StrToDate {
     static constexpr auto name = "str_to_date";
 
     static bool is_variadic() { return false; }
 
-    static DataTypes get_variadic_argument_types() { return {}; }
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        if constexpr (IsDataTypeDateTimeV2<DateType>) {
+            // max scale
+            return make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+        }
+        return make_nullable(std::make_shared<DateType>());
     }
 
     static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -114,6 +121,8 @@ struct StrToDate {
         auto& rdata = specific_char_column->get_chars();
         auto& roffsets = specific_char_column->get_offsets();
 
+        // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
+        // which decided by FE. that's found by which.
         ColumnPtr res = nullptr;
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
@@ -207,12 +216,13 @@ private:
         auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size)) {
             null_map[index] = 1;
-        }
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
-                ts_val.to_datetime();
-            } else {
-                ts_val.cast_to_date();
+        } else {
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                    ts_val.to_datetime();
+                } else {
+                    ts_val.cast_to_date();
+                }
             }
         }
     }
@@ -807,7 +817,10 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeInt64>());
+        if (arguments[0].type->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeInt64>());
+        }
+        return std::make_shared<DataTypeInt64>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -815,31 +828,23 @@ public:
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
         auto res_col = ColumnInt64::create();
-        auto null_vector = ColumnVector<UInt8>::create();
-        res_col->get_data().resize_fill(input_rows_count, 0);
-        null_vector->get_data().resize_fill(input_rows_count, false);
-        NullMap& null_map = null_vector->get_data();
         auto& res_data = res_col->get_data();
-        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        res_col->get_data().resize_fill(input_rows_count, 0);
         for (int i = 0; i < input_rows_count; i++) {
-            if (arg_col->is_null_at(i)) {
-                null_map[i] = true;
-                continue;
-            }
             StringRef source = column_data.get_data_at(i);
             const DateV2Value<DateTimeV2ValueType>& dt =
                     reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
+            const cctz::time_zone& time_zone = context->state()->timezone_obj();
             int64_t timestamp {0};
-            if (!dt.unix_timestamp(&timestamp, time_zone)) {
-                null_map[i] = true;
-            } else {
-                auto microsecond = dt.microsecond();
-                timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
-                res_data[i] = timestamp;
-            }
+            auto ret = dt.unix_timestamp(&timestamp, time_zone);
+            // ret must be true
+            DCHECK(ret);
+            auto microsecond = dt.microsecond();
+            timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
+            res_data[i] = timestamp;
         }
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res_col), std::move(null_vector));
+        block.replace_by_position(result, std::move(res_col));
+
         return Status::OK();
     }
 };
@@ -1267,7 +1272,10 @@ public:
     }
 };
 
-using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate>;
+using FunctionStrToDate = FunctionOtherTypesToDateType<StrToDate<DataTypeDate>>;
+using FunctionStrToDatetime = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTime>>;
+using FunctionStrToDateV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateV2>>;
+using FunctionStrToDatetimeV2 = FunctionOtherTypesToDateType<StrToDate<DataTypeDateTimeV2>>;
 using FunctionMakeDate = FunctionOtherTypesToDateType<MakeDateImpl>;
 using FunctionDateTrunc = FunctionOtherTypesToDateType<DateTrunc<VecDateTimeValue, Int64>>;
 using FunctionDateTruncV2 =
@@ -1275,6 +1283,9 @@ using FunctionDateTruncV2 =
 
 void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStrToDate>();
+    factory.register_function<FunctionStrToDatetime>();
+    factory.register_function<FunctionStrToDateV2>();
+    factory.register_function<FunctionStrToDatetimeV2>();
     factory.register_function<FunctionMakeDate>();
     factory.register_function<FromDays>();
     factory.register_function<FunctionDateTrunc>();

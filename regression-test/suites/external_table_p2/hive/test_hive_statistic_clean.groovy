@@ -31,78 +31,79 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         """
         logger.info("catalog " + catalog_name + " created")
 
-        sql """analyze database ${catalog_name}.statistics with sync"""
+        // sql """analyze database ${catalog_name}.statistics with sync"""
+        sql """analyze table ${catalog_name}.statistics.statistics with sync"""
         sql """use ${catalog_name}.statistics"""
 
         def result = sql """show column stats `statistics` (lo_quantity)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_quantity")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "46.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "50")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_quantity")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "46.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "50")
 
         result = sql """show column stats `statistics` (lo_orderkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_orderkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "98")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_orderkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "98")
 
         result = sql """show column stats `statistics` (lo_linenumber)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_linenumber")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "7.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "7")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_linenumber")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "7.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "7")
 
         sql """drop expired stats"""
         result = sql """show column stats `statistics` (lo_quantity)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_quantity")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "46.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "50")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_quantity")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "46.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "50")
 
         result = sql """show column stats `statistics` (lo_orderkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_orderkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "98")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_orderkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "98")
 
         result = sql """show column stats `statistics` (lo_linenumber)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_linenumber")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "7.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "7")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_linenumber")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "7.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "7")
 
         def ctlId
-        result = sql """show proc '/catalogs'"""
+        result = sql """show catalogs"""
 
         for (int i = 0; i < result.size(); i++) {
             if (result[i][1] == catalog_name) {
@@ -113,7 +114,7 @@ suite("test_hive_statistic_clean", "p2,external,hive,external_remote,external_re
         sql """drop catalog ${catalog_name}"""
         sql """drop expired stats"""
         result = sql """select * from internal.__internal_schema.column_statistics where catalog_id=${ctlId}"""
-        assertTrue(result.size() == 0)
+        assertEquals(result.size(), 0)
 
     }
 }

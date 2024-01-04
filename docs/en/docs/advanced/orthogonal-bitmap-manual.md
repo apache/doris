@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Orthogonal BITMAP calculation",
+    "title": "Orthogonal BITMAP Calculation",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Orthogonal BITMAP calculation
+# Orthogonal BITMAP Calculation
 
 ## Background
 

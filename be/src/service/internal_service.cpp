@@ -458,10 +458,22 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
+        const auto& fragment_list = t_request.paramsList;
+        MonotonicStopWatch timer;
+        timer.start();
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().params.query_id),
+                        cost_secs);
+        }
+
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
         TPipelineFragmentParamsList t_request;
@@ -471,9 +483,21 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_req
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
 
-        for (const TPipelineFragmentParams& params : t_request.params_list) {
-            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+        const auto& fragment_list = t_request.params_list;
+        MonotonicStopWatch timer;
+        timer.start();
+
+        for (const TPipelineFragmentParams& fragment : fragment_list) {
+            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+        }
+
         return Status::OK();
     } else {
         return Status::InternalError("invalid version");
@@ -494,7 +518,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
 
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
-            LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
+            LOG(INFO) << "Cancel fragment, fragment_instance_id=" << print_id(tid)
                       << ", reason: " << PPlanFragmentCancelReason_Name(request->cancel_reason());
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
@@ -683,6 +707,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
         std::set<std::set<int32_t>> filter_set;
+        std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -695,17 +720,45 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             }
             // check schema consistency, column ids should be the same
             const auto& columns = tablet->tablet_schema()->columns();
+
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
                 column_ids.insert(col.unique_id());
             }
             filter_set.insert(column_ids);
+
+            if (id_to_column.empty()) {
+                for (const auto& col : columns) {
+                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                }
+            } else {
+                for (const auto& col : columns) {
+                    auto it = id_to_column.find(col.unique_id());
+                    if (it == id_to_column.end() || *(it->second) != col) {
+                        ColumnPB prev_col_pb;
+                        ColumnPB curr_col_pb;
+                        if (it != id_to_column.end()) {
+                            it->second->to_schema_pb(&prev_col_pb);
+                        }
+                        col.to_schema_pb(&curr_col_pb);
+                        std::stringstream ss;
+                        ss << "consistency check failed: index{ " << index_id << " }"
+                           << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
+                           << " current column: " << curr_col_pb.DebugString();
+                        LOG(WARNING) << ss.str();
+                        response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                        response->mutable_status()->add_error_msgs(ss.str());
+                        return;
+                    }
+                }
+            }
         }
+
         if (filter_set.size() > 1) {
             // consistecy check failed
             std::stringstream ss;
             ss << "consistency check failed: index{" << index_id << "}"
-               << "got inconsistent shema";
+               << "got inconsistent schema";
             LOG(WARNING) << ss.str();
             response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
             response->mutable_status()->add_error_msgs(ss.str());
@@ -1057,7 +1110,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
         st = _exec_env->vstream_mgr()->transmit_block(request, &done);
-        if (!st.ok()) {
+        if (!st.ok() && !st.is<END_OF_FILE>()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
@@ -1609,7 +1662,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done, this]() {
+    bool ret = _light_work_pool.try_offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();

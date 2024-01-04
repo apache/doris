@@ -61,7 +61,11 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
             return getDataTypeForDecimalV2((DecimalV2Type) t1, (DecimalV2Type) t2);
         }
         if (t1.isDecimalV3Type() && t2.isDecimalV3Type()) {
-            return getDataTypeForDecimalV3((DecimalV3Type) t1, (DecimalV3Type) t2);
+            if (this instanceof Add || this instanceof Subtract || this instanceof Mod) {
+                return t1;
+            } else {
+                return getDataTypeForDecimalV3((DecimalV3Type) t1, (DecimalV3Type) t2);
+            }
         }
         return getDataTypeForOthers(t1, t2);
     }
@@ -91,5 +95,15 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitBinaryArithmetic(this, context);
+    }
+
+    protected DecimalV3Type processDecimalV3OverFlow(int integralPart, int targetScale, int maxIntegralPart) {
+        int precision = integralPart + targetScale;
+        int scale = targetScale;
+        if (precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+            precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+            scale = precision - maxIntegralPart;
+        }
+        return DecimalV3Type.createDecimalV3Type(precision, scale);
     }
 }

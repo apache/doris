@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -41,6 +42,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,8 +83,14 @@ public class StatementContext {
     private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
-    private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
+
+    private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
+    private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
+
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+
+    private final List<Hint> hints = new ArrayList<>();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -213,8 +221,12 @@ public class StatementContext {
         return cteIdToConsumerGroup;
     }
 
-    public Map<CTEId, LogicalPlan> getRewrittenCtePlan() {
-        return rewrittenCtePlan;
+    public Map<CTEId, LogicalPlan> getRewrittenCteProducer() {
+        return rewrittenCteProducer;
+    }
+
+    public Map<CTEId, LogicalPlan> getRewrittenCteConsumer() {
+        return rewrittenCteConsumer;
     }
 
     public void addViewDdlSql(String ddlSql) {
@@ -223,5 +235,13 @@ public class StatementContext {
 
     public List<String> getViewDdlSqls() {
         return ImmutableList.copyOf(viewDdlSqlSet);
+    }
+
+    public void addHint(Hint hint) {
+        this.hints.add(hint);
+    }
+
+    public List<Hint> getHints() {
+        return ImmutableList.copyOf(hints);
     }
 }

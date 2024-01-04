@@ -46,7 +46,7 @@ struct AggregateFunctionBitmapAggData {
 
     void add(const T& value_) { value.add(value_); }
 
-    void reset() { value.clear(); }
+    void reset() { value.reset(); }
 
     void merge(const AggregateFunctionBitmapAggData& other) { value |= other.value; }
 

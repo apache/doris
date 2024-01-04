@@ -22,15 +22,17 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.core.util.CronExpression;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
+// TODO: Remove map
 public class AnalyzeProperties {
-
-    private final Map<String, String> properties;
 
     public static final String PROPERTY_SYNC = "sync";
     public static final String PROPERTY_INCREMENTAL = "incremental";
@@ -40,6 +42,23 @@ public class AnalyzeProperties {
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
+    public static final String PROPERTY_FORCE_FULL = "force.full";
+    public static final String PROPERTY_PARTITION_COLUMN_FROM_SQL = "partition.column.from.sql";
+
+    public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
+        {
+            put(AnalyzeProperties.PROPERTY_SYNC, "false");
+            put(AnalyzeProperties.PROPERTY_AUTOMATIC, "false");
+            put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisType.FUNDAMENTALS.toString());
+        }
+    });
+
+    public static final String PROPERTY_PERIOD_CRON = "period.cron";
+
+    private CronExpression cronExpression;
+
+    @SerializedName("analyzeProperties")
+    private final Map<String, String> properties;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
@@ -50,6 +69,9 @@ public class AnalyzeProperties {
             .add(PROPERTY_NUM_BUCKETS)
             .add(PROPERTY_ANALYSIS_TYPE)
             .add(PROPERTY_PERIOD_SECONDS)
+            .add(PROPERTY_PERIOD_CRON)
+            .add(PROPERTY_FORCE_FULL)
+            .add(PROPERTY_PARTITION_COLUMN_FROM_SQL)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {
@@ -72,6 +94,7 @@ public class AnalyzeProperties {
         checkAnalysisMode(msgTemplate);
         checkAnalysisType(msgTemplate);
         checkScheduleType(msgTemplate);
+        checkPeriod();
     }
 
     public boolean isSync() {
@@ -113,6 +136,10 @@ public class AnalyzeProperties {
         }
         int minutes = Integer.parseInt(properties.get(PROPERTY_PERIOD_SECONDS));
         return TimeUnit.SECONDS.toMillis(minutes);
+    }
+
+    public CronExpression getCron() {
+        return cronExpression;
     }
 
     private void checkPeriodSeconds() throws AnalysisException {
@@ -207,6 +234,22 @@ public class AnalyzeProperties {
         }
     }
 
+    private void checkPeriod() throws AnalysisException {
+        if (properties.containsKey(PROPERTY_PERIOD_SECONDS)
+                && properties.containsKey(PROPERTY_PERIOD_CRON)) {
+            throw new AnalysisException(PROPERTY_PERIOD_SECONDS + " and " + PROPERTY_PERIOD_CRON
+                    + " couldn't be set simultaneously");
+        }
+        String cronExprStr = properties.get(PROPERTY_PERIOD_CRON);
+        if (cronExprStr != null) {
+            try {
+                cronExpression = new CronExpression(cronExprStr);
+            } catch (java.text.ParseException e) {
+                throw new AnalysisException("Invalid cron expression: " + cronExprStr);
+            }
+        }
+    }
+
     private void checkNumericProperty(String key, String value, int lowerBound, int upperBound,
             boolean includeBoundary, String errorMsg) throws AnalysisException {
         if (!StringUtils.isNumeric(value)) {
@@ -224,6 +267,18 @@ public class AnalyzeProperties {
     public boolean isSample() {
         return properties.containsKey(PROPERTY_SAMPLE_PERCENT)
                 || properties.containsKey(PROPERTY_SAMPLE_ROWS);
+    }
+
+    public boolean forceFull() {
+        return properties.containsKey(PROPERTY_FORCE_FULL);
+    }
+
+    public boolean isSampleRows() {
+        return properties.containsKey(PROPERTY_SAMPLE_ROWS);
+    }
+
+    public boolean usingSqlForPartitionColumn() {
+        return properties.containsKey(PROPERTY_PARTITION_COLUMN_FROM_SQL);
     }
 
     public String toSQL() {

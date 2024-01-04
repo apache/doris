@@ -6,9 +6,9 @@
 4	[]	[]
 
 -- !select --
-1	["1", "2", "3"]	[NULL, NULL, NULL]
+1	["1", "2", "3"]	[null, null, null]
 2	["4"]	[1, 2, 3]
-3	["10000"]	[NULL, NULL]
+3	["10000"]	[null, null]
 4	[]	[]
 
 -- !select --
@@ -18,8 +18,8 @@
 4	\N	\N
 
 -- !select --
-1	[1, 2, 3]	[NULL, NULL, NULL]
-2	[4]	[NULL, NULL, NULL]
-3	[16]	[2022-08-10, 2022-08-11]
+1	[1, 2, 3]	[null, null, null]
+2	[4]	[null, null, null]
+3	[16]	["2022-08-10", "2022-08-11"]
 4	[]	[]
 

@@ -97,11 +97,12 @@ public:
         return _index_meta.properties();
     }
 
-    static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,
-                                                       lucene::analysis::Analyzer* analyzer,
-                                                       const std::string& field_name,
-                                                       InvertedIndexQueryType query_type,
-                                                       bool drop_duplicates = true);
+    static void get_analyse_result(std::vector<std::string>& analyse_result,
+                                   lucene::util::Reader* reader,
+                                   lucene::analysis::Analyzer* analyzer,
+                                   const std::string& field_name, InvertedIndexQueryType query_type,
+                                   bool drop_duplicates = true);
+
     static std::unique_ptr<lucene::util::Reader> create_reader(InvertedIndexCtx* inverted_index_ctx,
                                                                const std::string& value);
     static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
@@ -153,6 +154,16 @@ private:
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
     void check_null_bitmap(const IndexSearcherPtr& index_searcher, bool& null_bitmap_already_read);
+
+    Status match_phrase_prefix_index_search(
+            OlapReaderStatistics* stats, RuntimeState* runtime_state, const std::wstring& field_ws,
+            const std::vector<std::string>& analyse_result, const IndexSearcherPtr& index_searcher,
+            const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
+    Status match_regexp_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                                     const std::wstring& field_ws, const std::string& pattern,
+                                     const IndexSearcherPtr& index_searcher,
+                                     const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

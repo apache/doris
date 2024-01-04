@@ -866,13 +866,9 @@ public class CreateMaterializedViewStmtTest {
             {
                 analyzer.getClusterName();
                 result = "default";
-                selectStmt.getAggInfo();
-                result = null;
                 selectStmt.getSelectList();
                 result = selectList;
                 selectStmt.analyze(analyzer);
-                selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
-                result = null;
             }
         };
 

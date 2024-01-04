@@ -216,7 +216,12 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
              """
 
         qt_sql_arr_orc_doris """ select * from ${table_names[i]} order by k1 limit 1; """
+        sql "sync"
+        sql "truncate table ${table_names[i]} "
     }
+
+    // here need truncate table for insert into same table with parquet file which data is not same with orc file,
+    // so select from parquet will fail
 
     
     for (int i = 0; i < 2; ++i) {
@@ -256,6 +261,8 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
                 "format" = "orc");"""
 
         qt_sql_arr_orc_doris """ select c_bool,c_bigint,c_decimalv3,c_datetimev2 from ${table_names[i]} order by k1 limit 1; """
+        sql "sync"
+        sql "truncate table ${table_names[i]} "
     }
 
     for (int i = 2; i < parquetFiles.size(); ++i) {

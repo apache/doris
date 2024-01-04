@@ -48,12 +48,14 @@ class MemTrackerLimiter;
 class MemTracker {
 public:
     struct Snapshot {
-        std::string type = "";
+        std::string type;
         std::string label;
-        std::string parent_label = "";
+        std::string parent_label;
         int64_t limit = 0;
         int64_t cur_consumption = 0;
         int64_t peak_consumption = 0;
+
+        bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
     };
 
     struct TrackerGroup {

@@ -85,7 +85,7 @@ public:
     Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
                                  const FlushContext* ctx = nullptr) override;
 
-    RowsetSharedPtr build() override;
+    Status build(RowsetSharedPtr& rowset) override;
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
@@ -125,6 +125,14 @@ public:
     bool is_doing_segcompaction() const override { return _is_doing_segcompaction; }
 
     Status wait_flying_segcompaction() override;
+
+    std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override {
+        return _context.partial_update_info;
+    }
+
+    bool is_partial_update() override {
+        return _context.partial_update_info && _context.partial_update_info->is_partial_update;
+    }
 
 private:
     Status _do_add_block(const vectorized::Block* block,

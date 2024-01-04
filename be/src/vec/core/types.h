@@ -35,6 +35,7 @@ class BitmapValue;
 class HyperLogLog;
 struct decimal12_t;
 struct uint24_t;
+struct StringRef;
 
 template <typename T>
 class QuantileState;

@@ -22,6 +22,7 @@ public enum StatisticalType {
     AGG_NODE,
     ANALYTIC_EVAL_NODE,
     ASSERT_NUM_ROWS_NODE,
+    CTE_SCAN_NODE,
     BROKER_SCAN_NODE,
     NESTED_LOOP_JOIN_NODE,
     EMPTY_SET_NODE,
@@ -54,4 +55,5 @@ public enum StatisticalType {
     METADATA_SCAN_NODE,
     JDBC_SCAN_NODE,
     TEST_EXTERNAL_TABLE,
+    GROUP_COMMIT_SCAN_NODE
 }

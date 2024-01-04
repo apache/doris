@@ -61,6 +61,9 @@ public:
 
     uint64_t size() const { return _size; }
 
+    // used for be ut
+    uint32_t data_page_num() const { return _primary_key_index_builder->data_page_num(); }
+
     Slice min_key() { return Slice(_min_key.data(), _min_key.size() - _seq_col_length); }
     Slice max_key() { return Slice(_max_key.data(), _max_key.size() - _seq_col_length); }
 

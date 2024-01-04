@@ -18,6 +18,9 @@
 package org.apache.doris.regression.suite
 
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.DebugPoint
+import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
 import org.slf4j.Logger

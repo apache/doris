@@ -87,6 +87,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
+    _scanner_opened = true;
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
@@ -159,7 +160,7 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-        if (_scanner_initialized) {
+        if (_scanner_opened) {
             // update scanner metrics
             for (const auto& metric : get_statistics(env)) {
                 std::vector<std::string> type_and_name = split(metric.first, ":");
@@ -196,8 +197,8 @@ Status JniConnector::close() {
         _closed = true;
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
-            LOG(FATAL) << "Failed to release jni resource: "
-                       << JniUtil::GetJniExceptionMsg(env).to_string();
+            LOG(WARNING) << "Failed to release jni resource: "
+                         << JniUtil::GetJniExceptionMsg(env).to_string();
         }
     }
     return Status::OK();
@@ -233,7 +234,6 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     _jni_scanner_get_statistics =
             env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
-    _scanner_initialized = true;
     env->DeleteLocalRef(jni_scanner_obj);
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();

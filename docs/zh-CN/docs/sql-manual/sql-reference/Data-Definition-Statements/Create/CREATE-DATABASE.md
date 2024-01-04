@@ -59,6 +59,14 @@ CREATE DATABASE [IF NOT EXISTS] db_name
   - `iceberg.hive.metastore.uris` ：hive metastore 服务地址;
   - `iceberg.catalog.type`： 默认为 `HIVE_CATALOG`；当前仅支持 `HIVE_CATALOG`，后续会支持更多 Iceberg catalog 类型。
 
+- 如果要为db下的table指定默认的副本分布策略，需要指定`replication_allocation`（table的`replication_allocation`属性优先级会高于db）
+
+  ```sql
+  PROPERTIES (
+    "replication_allocation" = "tag.location.default:3"
+  )
+  ```
+
 ### Example
 
 1. 新建数据库 db_test

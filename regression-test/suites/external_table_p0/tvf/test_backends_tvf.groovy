@@ -16,7 +16,7 @@
 // under the License.
 
 // This suit test the `backends` tvf
-suite("test_backends_tvf") {
+suite("test_backends_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
     assertEquals(24, table[0].size)
@@ -58,4 +58,13 @@ suite("test_backends_tvf") {
             MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
             HeartbeatFailureCounter, NodeRole from backends();
     """
+
+
+    // test exception
+    test {
+        sql """ select * from backends("backendId" = "10003"); """
+
+        // check exception
+        exception "backends table-valued-function does not support any params"
+    }
 }

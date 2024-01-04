@@ -31,6 +31,10 @@ public class UserPropertyProcNode implements ProcNodeInterface {
             .add("Key").add("Value")
             .build();
 
+    public static final ImmutableList<String> ALL_USER_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("User").add("Properties")
+            .build();
+
     private Auth auth;
     private UserIdentity userIdent;
 

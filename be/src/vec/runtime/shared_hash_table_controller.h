@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -38,7 +39,6 @@ class BitmapFilterFuncBase;
 namespace vectorized {
 
 class Arena;
-class Block;
 
 struct SharedRuntimeFilterContext {
     std::shared_ptr<MinMaxFuncBase> minmax_func;

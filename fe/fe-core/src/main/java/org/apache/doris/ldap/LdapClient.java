@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
@@ -63,7 +64,8 @@ public class LdapClient {
 
         private void setLdapTemplateNoPool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
+            String url = "ldap://" + NetUtils
+                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
@@ -74,7 +76,8 @@ public class LdapClient {
 
         private void setLdapTemplatePool(String ldapPassword) {
             LdapContextSource contextSource = new LdapContextSource();
-            String url = "ldap://" + LdapConfig.ldap_host + ":" + LdapConfig.ldap_port;
+            String url = "ldap://" + NetUtils
+                    .getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port);
 
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);

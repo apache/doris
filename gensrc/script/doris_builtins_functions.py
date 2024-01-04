@@ -88,7 +88,7 @@ visible_functions = {
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']]
+        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -133,24 +133,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
 
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_LARGEINT', 'LARGEINT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATE', 'DATE'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATEV2', 'DATEV2'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_FLOAT', 'FLOAT'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'DECIMALV2'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL32', 'DECIMAL32'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL64', 'DECIMAL64'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_TINYINT'], ''],
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_SMALLINT'], ''],
@@ -240,7 +223,7 @@ visible_functions = {
         [['array_position'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
-        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY'], ''],
+        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY<T>'], '', ['T']],
         [['array_distinct'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
         [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
         [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
@@ -461,7 +444,7 @@ visible_functions = {
         [['array_apply'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT', 'VARCHAR', 'SMALLINT'], ''],
         [['array_apply'], 'ARRAY_INT',      ['ARRAY_INT', 'VARCHAR', 'INT'], ''],
         [['array_apply'], 'ARRAY_BIGINT',   ['ARRAY_BIGINT', 'VARCHAR', 'BIGINT'],   ''],
-        [['array_apply'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT', 'VARCHAR', 'ARRAY_LARGEINT'], ''],
+        [['array_apply'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT', 'VARCHAR', 'LARGEINT'], ''],
         [['array_apply'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT', 'VARCHAR', 'FLOAT'],  ''],
         [['array_apply'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE', 'VARCHAR', 'DOUBLE'], ''],
         [['array_apply'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2', 'VARCHAR', 'DECIMALV2'], ''],
@@ -469,7 +452,7 @@ visible_functions = {
         [['array_apply'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64', 'VARCHAR', 'DECIMAL64'], ''],
         [['array_apply'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'VARCHAR', 'DECIMAL128'], ''],
         [['array_apply'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME', 'VARCHAR', 'DATETIME'], ''],
-        [['array_apply'], 'ARRAY_DATE',      ['ARRAY_DATE', 'DATE', 'DATE'], ''],
+        [['array_apply'], 'ARRAY_DATE',      ['ARRAY_DATE', 'VARCHAR', 'DATE'], ''],
         [['array_apply'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', 'VARCHAR', 'DATETIMEV2'], ''],
         [['array_apply'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', 'VARCHAR', 'DATEV2'], ''],
 
@@ -740,6 +723,7 @@ visible_functions = {
         [['array_pushfront'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushfront'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['array_pushback'], 'ARRAY<T>',    ['ARRAY<T>', 'T'], 'ALWAYS_NULLABLE', ['T']],
         [['array_pushback'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -801,7 +785,7 @@ visible_functions = {
         [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
         [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
-        [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+        [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
 
         # reverse function for string builtin
@@ -837,15 +821,15 @@ visible_functions = {
         [['unix_timestamp'], 'INT', ['DATEV2'], ''],
         [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['unix_timestamp'], 'INT', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-        [['from_unixtime'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
-        [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['from_unixtime'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['from_unixtime'], 'VARCHAR', ['BIGINT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['from_unixtime'], 'VARCHAR', ['BIGINT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['from_microsecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['from_millisecond'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['from_second'], 'DATETIMEV2', ['BIGINT'], 'ALWAYS_NULLABLE'],
-        [['second_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
-        [['millisecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
-        [['microsecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['second_timestamp'], 'BIGINT', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
+        [['millisecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
+        [['microsecond_timestamp'], 'BIGINT', ['DATETIMEV2'], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'DEPEND_ON_ARGUMENT'],
         [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'DEPEND_ON_ARGUMENT'],
         [['curtime', 'current_time'], 'TIME', [], 'ALWAYS_NOT_NULLABLE'],
@@ -903,8 +887,6 @@ visible_functions = {
         [['datediff'], 'INT', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
         [['timediff'], 'TIME', ['DATETIME', 'DATETIME'], 'ALWAYS_NULLABLE'],
 
-        [['str_to_date'], 'DATETIME', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['str_to_date'], 'DATETIME', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date'], 'DATE', ['DATETIME'], 'ALWAYS_NULLABLE'],
@@ -1068,6 +1050,8 @@ visible_functions = {
         [['datediff'], 'INT', ['DATEV2', 'DATEV2'], ''],
         [['timediff'], 'TIMEV2', ['DATEV2', 'DATEV2'], ''],
 
+        [['str_to_date'], 'DATETIMEV2', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['str_to_date'], 'DATETIMEV2', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATETIMEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date_format'], 'VARCHAR', ['DATEV2', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['date', 'to_date', 'datev2', 'to_datev2'], 'DATEV2', ['DATETIMEV2'], 'ALWAYS_NULLABLE'],
@@ -1430,6 +1414,9 @@ visible_functions = {
         [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['nullif'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['is_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+        [['is_not_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+
         [['ifnull', 'nvl'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'TINYINT', ['TINYINT', 'TINYINT'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 'CUSTOM'],
@@ -1520,7 +1507,6 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
-        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1778,7 +1764,8 @@ visible_functions = {
         [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
+        [['json_extract'], 'STRING', ['STRING', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
         [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
@@ -1848,10 +1835,7 @@ visible_functions = {
 
     # quantile_function
     "quantile" : [
-        [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['to_quantile_state'], 'QUANTILE_STATE', ['DOUBLE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['FLOAT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_quantile_state'], 'QUANTILE_STATE', ['BIGINT', 'FLOAT'], 'ALWAYS_NOT_NULLABLE'],
         [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'], 'ALWAYS_NOT_NULLABLE']
     ],
 
@@ -1898,6 +1882,13 @@ visible_functions = {
         [['sm3sum'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['sm3'], 'VARCHAR', ['STRING'], ''],
         [['sm3sum'], 'VARCHAR', ['STRING', '...'], ''],
+
+        [['sha'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha'], 'VARCHAR', ['STRING'], ''],
+        [['sha1'], 'VARCHAR', ['VARCHAR'], ''],
+        [['sha1'], 'VARCHAR', ['STRING'], ''],
+        [['sha2'], 'VARCHAR', ['VARCHAR', 'INT'], ''],
+        [['sha2'], 'VARCHAR', ['STRING', 'INT'], ''],
     ],
 
     # geo functions

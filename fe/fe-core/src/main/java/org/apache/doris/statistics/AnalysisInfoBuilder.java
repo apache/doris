@@ -23,6 +23,8 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
+import org.apache.logging.log4j.core.util.CronExpression;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,9 +33,9 @@ public class AnalysisInfoBuilder {
     private long jobId;
     private long taskId;
     private List<Long> taskIds;
-    private String catalogName;
-    private String dbName;
-    private String tblName;
+    private long catalogId;
+    private long dbId;
+    private long tblId;
     private Map<String, Set<String>> colToPartitions;
     private Set<String> partitionNames;
     private String colName;
@@ -44,7 +46,7 @@ public class AnalysisInfoBuilder {
     private AnalysisType analysisType;
     private int maxBucketNum;
     private int samplePercent;
-    private int sampleRows;
+    private long sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
     private long timeCostInMs;
@@ -54,6 +56,13 @@ public class AnalysisInfoBuilder {
     private boolean externalTableLevelTask;
     private boolean partitionOnly;
     private boolean samplingPartition;
+    private boolean isAllPartition;
+    private long partitionCount;
+    private CronExpression cronExpression;
+    private boolean forceFull;
+    private boolean usingSqlForPartitionColumn;
+    private long tblUpdateTime;
+    private boolean emptyJob;
 
     public AnalysisInfoBuilder() {
     }
@@ -62,9 +71,9 @@ public class AnalysisInfoBuilder {
         jobId = info.jobId;
         taskId = info.taskId;
         taskIds = info.taskIds;
-        catalogName = info.catalogName;
-        dbName = info.dbName;
-        tblName = info.tblName;
+        catalogId = info.catalogId;
+        dbId = info.dbId;
+        tblId = info.tblId;
         colToPartitions = info.colToPartitions;
         partitionNames = info.partitionNames;
         colName = info.colName;
@@ -85,6 +94,13 @@ public class AnalysisInfoBuilder {
         externalTableLevelTask = info.externalTableLevelTask;
         partitionOnly = info.partitionOnly;
         samplingPartition = info.samplingPartition;
+        isAllPartition = info.isAllPartition;
+        partitionCount = info.partitionCount;
+        cronExpression = info.cronExpression;
+        forceFull = info.forceFull;
+        usingSqlForPartitionColumn = info.usingSqlForPartitionColumn;
+        tblUpdateTime = info.tblUpdateTime;
+        emptyJob = info.emptyJob;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -102,18 +118,18 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setCatalogName(String catalogName) {
-        this.catalogName = catalogName;
+    public AnalysisInfoBuilder setCatalogId(long catalogId) {
+        this.catalogId = catalogId;
         return this;
     }
 
-    public AnalysisInfoBuilder setDbName(String dbName) {
-        this.dbName = dbName;
+    public AnalysisInfoBuilder setDBId(long dbId) {
+        this.dbId = dbId;
         return this;
     }
 
-    public AnalysisInfoBuilder setTblName(String tblName) {
-        this.tblName = tblName;
+    public AnalysisInfoBuilder setTblId(long tblId) {
+        this.tblId = tblId;
         return this;
     }
 
@@ -167,7 +183,7 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfoBuilder setSampleRows(int sampleRows) {
+    public AnalysisInfoBuilder setSampleRows(long sampleRows) {
         this.sampleRows = sampleRows;
         return this;
     }
@@ -217,37 +233,47 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
-    public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, taskIds, catalogName, dbName, tblName, colToPartitions, partitionNames,
-                colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
-                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition);
+    public AnalysisInfoBuilder setAllPartition(boolean isAllPartition) {
+        this.isAllPartition = isAllPartition;
+        return this;
     }
 
-    public AnalysisInfoBuilder copy() {
-        return new AnalysisInfoBuilder()
-                .setJobId(jobId)
-                .setTaskId(taskId)
-                .setTaskIds(taskIds)
-                .setCatalogName(catalogName)
-                .setDbName(dbName)
-                .setTblName(tblName)
-                .setColToPartitions(colToPartitions)
-                .setColName(colName)
-                .setIndexId(indexId)
-                .setJobType(jobType)
-                .setAnalysisMode(analysisMode)
-                .setAnalysisMethod(analysisMethod)
-                .setAnalysisType(analysisType)
-                .setSamplePercent(samplePercent)
-                .setSampleRows(sampleRows)
-                .setPeriodTimeInMs(periodTimeInMs)
-                .setMaxBucketNum(maxBucketNum)
-                .setMessage(message)
-                .setLastExecTimeInMs(lastExecTimeInMs)
-                .setTimeCostInMs(timeCostInMs)
-                .setState(state)
-                .setScheduleType(scheduleType)
-                .setExternalTableLevelTask(externalTableLevelTask);
+    public AnalysisInfoBuilder setPartitionCount(long partitionCount) {
+        this.partitionCount = partitionCount;
+        return this;
     }
+
+    public AnalysisInfoBuilder setCronExpression(CronExpression cronExpression) {
+        this.cronExpression = cronExpression;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setForceFull(boolean forceFull) {
+        this.forceFull = forceFull;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setUsingSqlForPartitionColumn(boolean usingSqlForPartitionColumn) {
+        this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setTblUpdateTime(long tblUpdateTime) {
+        this.tblUpdateTime = tblUpdateTime;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setEmptyJob(boolean emptyJob) {
+        this.emptyJob = emptyJob;
+        return this;
+    }
+
+    public AnalysisInfo build() {
+        return new AnalysisInfo(jobId, taskId, taskIds, catalogId, dbId, tblId, colToPartitions, partitionNames,
+                colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
+                externalTableLevelTask, partitionOnly, samplingPartition, isAllPartition, partitionCount,
+                cronExpression, forceFull, usingSqlForPartitionColumn, tblUpdateTime, emptyJob);
+    }
+
 }

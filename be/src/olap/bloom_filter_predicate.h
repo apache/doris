@@ -113,12 +113,13 @@ private:
             for (uint16_t i = 0; i < size; i++) {
                 uint16_t idx = is_dense_column ? i : sel[i];
                 if constexpr (is_nullable) {
-                    if (!null_map[idx] &&
-                        _specific_filter->find_crc32_hash(get_cell_value(pred_col_data[idx]))) {
+                    if (!null_map[idx] && _specific_filter->find_olap_engine_crc32(
+                                                  get_cell_value(pred_col_data[idx]))) {
                         sel[new_size++] = idx;
                     }
                 } else {
-                    if (_specific_filter->find_crc32_hash(get_cell_value(pred_col_data[idx]))) {
+                    if (_specific_filter->find_olap_engine_crc32(
+                                get_cell_value(pred_col_data[idx]))) {
                         sel[new_size++] = idx;
                     }
                 }

@@ -83,11 +83,6 @@ void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_segment_zone_map() {
-    _segment_zone_map.pass_all = true;
-}
-
-template <PrimitiveType Type>
 Status TypedZoneMapIndexWriter<Type>::flush() {
     // Update segment zone map.
     if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {

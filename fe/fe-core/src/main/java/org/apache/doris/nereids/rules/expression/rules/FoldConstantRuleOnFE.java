@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
@@ -510,8 +509,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     private Optional<Expression> preProcess(Expression expression) {
-        if (expression instanceof PropagateNullable && !(expression instanceof NullableAggregateFunction)
-                && argsHasNullLiteral(expression)) {
+        if (expression instanceof AggregateFunction) {
+            return Optional.of(expression);
+        }
+        if (expression instanceof PropagateNullable && argsHasNullLiteral(expression)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!allArgsIsAllLiteral(expression)) {

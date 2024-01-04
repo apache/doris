@@ -31,6 +31,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace arrow {
 class RecordBatch;
@@ -75,13 +76,21 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MemoryScratchSink::send(RuntimeState* state, Block* block, bool eos) {
-    if (nullptr == block || 0 == block->rows()) {
+Status MemoryScratchSink::send(RuntimeState* state, Block* input_block, bool eos) {
+    if (nullptr == input_block || 0 == input_block->rows()) {
         return Status::OK();
     }
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(
-            convert_to_arrow_batch(*block, _arrow_schema, arrow::default_memory_pool(), &result));
+    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+    // failed, just return the error status
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       *input_block, &block));
+    std::shared_ptr<arrow::Schema> block_arrow_schema;
+    // After expr executed, use recaculated schema as final schema
+    RETURN_IF_ERROR(convert_block_arrow_schema(block, &block_arrow_schema));
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, block_arrow_schema, arrow::default_memory_pool(),
+                                           &result));
     _queue->blocking_put(result);
     return Status::OK();
 }

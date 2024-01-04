@@ -122,7 +122,6 @@ Status DataDir::init() {
                                        "check file exist failed");
     }
 
-    update_trash_capacity();
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity_and_create_shards(),
@@ -507,15 +506,22 @@ Status DataDir::load() {
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
                     rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
-            if (!commit_txn_status && !commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
-                LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
-                             << " to tablet: " << rowset_meta->tablet_id()
-                             << " for txn: " << rowset_meta->txn_id();
-            } else {
+            if (commit_txn_status || commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
                 LOG(INFO) << "successfully to add committed rowset: " << rowset_meta->rowset_id()
                           << " to tablet: " << rowset_meta->tablet_id()
                           << " schema hash: " << rowset_meta->tablet_schema_hash()
                           << " for txn: " << rowset_meta->txn_id();
+            } else if (commit_txn_status.is<ErrorCode::INTERNAL_ERROR>()) {
+                LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id()
+                             << " for txn: " << rowset_meta->txn_id()
+                             << " error: " << commit_txn_status;
+                return commit_txn_status;
+            } else {
+                LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
+                             << " to tablet: " << rowset_meta->tablet_id()
+                             << " for txn: " << rowset_meta->txn_id()
+                             << " error: " << commit_txn_status;
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
@@ -603,12 +609,23 @@ void DataDir::remove_pending_ids(const std::string& id) {
     _pending_path_ids.erase(id);
 }
 
-// gc unused tablet schemahash dir
-void DataDir::perform_path_gc_by_tablet() {
+void DataDir::perform_path_gc() {
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _check_path_cv.wait(
-            lck, [this] { return _stop_bg_worker || !_all_tablet_schemahash_paths.empty(); });
+    _check_path_cv.wait(lck, [this] {
+        return _stop_bg_worker || !_all_tablet_schemahash_paths.empty() ||
+               !_all_check_paths.empty();
+    });
     if (_stop_bg_worker) {
+        return;
+    }
+
+    _perform_path_gc_by_tablet();
+    _perform_path_gc_by_rowsetid();
+}
+
+// gc unused tablet schemahash dir
+void DataDir::_perform_path_gc_by_tablet() {
+    if (_all_tablet_schemahash_paths.empty()) {
         return;
     }
     LOG(INFO) << "start to path gc by tablet schemahash.";
@@ -652,12 +669,10 @@ void DataDir::perform_path_gc_by_tablet() {
     LOG(INFO) << "finished one time path gc by tablet.";
 }
 
-void DataDir::perform_path_gc_by_rowsetid() {
+void DataDir::_perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
-    _check_path_cv.wait(lck, [this] { return _stop_bg_worker || !_all_check_paths.empty(); });
-    if (_stop_bg_worker) {
+    if (_all_check_paths.empty()) {
         return;
     }
     LOG(INFO) << "start to path gc by rowsetid.";
@@ -815,7 +830,12 @@ Status DataDir::update_capacity() {
 
 void DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
-    _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    try {
+        _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    } catch (const std::filesystem::filesystem_error& e) {
+        LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
+        return;
+    }
     disks_trash_used_capacity->set_value(_trash_used_bytes);
     LOG(INFO) << "path: " << _path << " trash capacity: " << _trash_used_bytes;
 }

@@ -53,7 +53,6 @@ suite("streamLoad_action") {
         // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
     }
 
-
     // stream load 100 rows
     def rowCount = 100
     // range: [0, rowCount)

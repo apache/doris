@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -24,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -75,7 +77,7 @@ class FilterEstimationTest {
         Statistics expected = filterEstimation.estimate(or, stat);
         Assertions.assertTrue(
                 Precision.equals(expected.getRowCount(), 750,
-                         0.01));
+                        0.01));
     }
 
     // a > 500 and b < 100
@@ -132,12 +134,12 @@ class FilterEstimationTest {
         Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
                 .setNdv(500)
-                .setIsUnknown(true);
+                .setIsUnknown(false);
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(notIn, stat);
-        Assertions.assertTrue(Precision.equals(666.666, expected.getRowCount(), 0.01));
+        Assertions.assertTrue(Precision.equals(1000, expected.getRowCount(), 0.01));
     }
 
     /**
@@ -165,7 +167,6 @@ class FilterEstimationTest {
         ColumnStatistic aStatsEst = result.findColumnStatistics(a);
         Assertions.assertEquals(100, aStatsEst.minValue);
         Assertions.assertEquals(200, aStatsEst.maxValue);
-        Assertions.assertEquals(1.0, aStatsEst.selectivity);
         Assertions.assertEquals(10, aStatsEst.ndv);
     }
 
@@ -198,7 +199,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
-        Assertions.assertEquals(51, expected.getRowCount(), 0.1);
+        Assertions.assertEquals(51.9, expected.getRowCount(), 0.1);
     }
 
     // a > 500 and b < 100 or a > c
@@ -418,7 +419,9 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1)
-                .setMaxValue(10);
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10)
+                .setMaxExpr(new IntLiteral(10));
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
@@ -467,22 +470,19 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1000)
-                .setMaxValue(10000)
-                .setSelectivity(1.0);
+                .setMaxValue(10000);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(200)
-                .setSelectivity(1.0);
+                .setMaxValue(200);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -504,7 +504,7 @@ class FilterEstimationTest {
      * filter range has intersection with (c.min, c.max)
      *      rows = 100
      *     a primary key, a.ndv reduced by 1/4
-     *     b normal field, b.ndv=20 =>
+     *     b normal field, b.ndv=20
      *     c.ndv = 10/40 * c.ndv
      */
     @Test
@@ -524,22 +524,19 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(100)
-                .setSelectivity(1.0);
+                .setMaxValue(100);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(20)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(40)
-                .setSelectivity(1.0);
+                .setMaxValue(40);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -554,25 +551,21 @@ class FilterEstimationTest {
         Assertions.assertEquals(100, statsA.maxValue);
 
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(15.6, statsB.ndv, 0.1);
+        Assertions.assertEquals(20, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
-        Assertions.assertEquals(1.0, statsB.selectivity);
 
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(10, statsC.ndv);
         Assertions.assertEquals(10, statsC.minValue);
         Assertions.assertEquals(20, statsC.maxValue);
-        Assertions.assertEquals(1.0, statsC.selectivity);
     }
 
 
     /**
      *  test filter estimation, c > 300, where 300 is out of c's range (0,200)
      *  after filter
-     *     c.selectivity=a.selectivity=b.selectivity = 0
      *     c.ndv=a.ndv=b.ndv=0
-     *     a.ndv = b.ndv = 0
      */
 
     @Test
@@ -587,23 +580,23 @@ class FilterEstimationTest {
                 .setNdv(1000)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
-                .setMinValue(10000)
-                .setMaxValue(1000)
-                .setSelectivity(1.0);
+                .setMinValue(1000)
+                .setMaxValue(10000)
+                .setCount(1000);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setCount(1000);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setNdv(100)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(200)
-                .setSelectivity(1.0);
+                .setCount(1000);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -616,8 +609,8 @@ class FilterEstimationTest {
         Assertions.assertEquals(0, statsB.ndv);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
         Assertions.assertEquals(0, statsC.ndv);
-        Assertions.assertTrue(Double.isNaN(statsC.minValue));
-        Assertions.assertTrue(Double.isNaN(statsC.maxValue));
+        Assertions.assertTrue(Double.isInfinite(statsC.minValue));
+        Assertions.assertTrue(Double.isInfinite(statsC.maxValue));
     }
 
     /**
@@ -660,22 +653,19 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(100)
-                .setSelectivity(1.0);
+                .setMaxValue(100);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setNdv(20)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(40)
-                .setSelectivity(1.0);
+                .setMaxValue(40);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -690,7 +680,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
+        Assertions.assertEquals(5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -732,7 +722,6 @@ class FilterEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(100)
-                .setSelectivity(1.0)
                 .setCount(100);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setCount(100)
@@ -740,16 +729,14 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setCount(100)
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(40)
-                .setSelectivity(1.0);
+                .setMaxValue(40);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -767,7 +754,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(5, statsA.ndv, 0.1);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(4.5, statsB.ndv, 0.1);
+        Assertions.assertEquals(5, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(2, statsC.ndv);
@@ -804,7 +791,6 @@ class FilterEstimationTest {
                 .setNumNulls(0)
                 .setMinValue(0)
                 .setMaxValue(100)
-                .setSelectivity(1.0)
                 .setCount(100);
         ColumnStatisticBuilder builderB = new ColumnStatisticBuilder()
                 .setCount(100)
@@ -812,16 +798,14 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(500)
-                .setSelectivity(1.0);
+                .setMaxValue(500);
         ColumnStatisticBuilder builderC = new ColumnStatisticBuilder()
                 .setCount(100)
                 .setNdv(40)
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(0)
-                .setMaxValue(40)
-                .setSelectivity(1.0);
+                .setMaxValue(40);
         slotToColumnStat.put(a, builderA.build());
         slotToColumnStat.put(b, builderB.build());
         slotToColumnStat.put(c, builderC.build());
@@ -836,7 +820,7 @@ class FilterEstimationTest {
         Assertions.assertEquals(75, statsA.ndv);
         Assertions.assertEquals(0, statsA.minValue);
         Assertions.assertEquals(100, statsA.maxValue);
-        Assertions.assertEquals(19.9, statsB.ndv, 0.1);
+        Assertions.assertEquals(20, statsB.ndv, 0.1);
         Assertions.assertEquals(0, statsB.minValue);
         Assertions.assertEquals(500, statsB.maxValue);
         Assertions.assertEquals(30, statsC.ndv);
@@ -853,7 +837,6 @@ class FilterEstimationTest {
                 .setNumNulls(0)
                 .setMaxValue(100)
                 .setMinValue(0)
-                .setSelectivity(1.0)
                 .setCount(100);
         DoubleLiteral begin = new DoubleLiteral(40.0);
         DoubleLiteral end = new DoubleLiteral(50.0);
@@ -881,7 +864,6 @@ class FilterEstimationTest {
                 .setNumNulls(0)
                 .setMaxValue(to.getDouble())
                 .setMinValue(from.getDouble())
-                .setSelectivity(1.0)
                 .setCount(100);
         DateLiteral mid = new DateLiteral("1999-01-01");
         GreaterThan greaterThan = new GreaterThan(a, mid);
@@ -890,5 +872,42 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(greaterThan, stats);
         Assertions.assertEquals(result.getRowCount(), 10, 0.1);
+    }
+
+    @Test
+    public void testIsNull() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(10)
+                .setMaxValue(100)
+                .setMinValue(0)
+                .setCount(100);
+        IsNull isNull = new IsNull(a);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(isNull, stats);
+        Assertions.assertEquals(result.getRowCount(), 10);
+    }
+
+    @Test
+    public void testIsNotNull() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setAvgSizeByte(4)
+                .setNumNulls(10)
+                .setMaxValue(100)
+                .setMinValue(0)
+                .setCount(100);
+        IsNull isNull = new IsNull(a);
+        Not not = new Not(isNull);
+        Statistics stats = new Statistics(100, new HashMap<>());
+        stats.addColumnStats(a, builder.build());
+        FilterEstimation filterEstimation = new FilterEstimation();
+        Statistics result = filterEstimation.estimate(not, stats);
+        Assertions.assertEquals(result.getRowCount(), 90);
     }
 }

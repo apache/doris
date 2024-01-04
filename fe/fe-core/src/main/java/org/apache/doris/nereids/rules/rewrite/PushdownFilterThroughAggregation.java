@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.HashSet;
@@ -63,17 +64,18 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
             Set<Expression> filterPredicates = Sets.newHashSet();
             filter.getConjuncts().forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
-                if (canPushDownSlots.containsAll(conjunctSlots)) {
+                // NOTICE: filter not contain slot should not be pushed. e.g. 'a' = 'b'
+                if (!conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     filterPredicates.add(conjunct);
                 }
             });
-            if (pushDownPredicates.size() == 0) {
+            if (pushDownPredicates.isEmpty()) {
                 return null;
             }
             Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, aggregate.child(0));
-            aggregate = (LogicalAggregate<Plan>) aggregate.withChildren(bottomFilter);
+            aggregate = aggregate.withChildren(ImmutableList.of(bottomFilter));
             return PlanUtils.filterOrSelf(filterPredicates, aggregate);
         }).toRule(RuleType.PUSHDOWN_PREDICATE_THROUGH_AGGREGATION);
     }

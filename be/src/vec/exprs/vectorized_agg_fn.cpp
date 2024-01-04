@@ -69,7 +69,6 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
           _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
           _intermediate_slot_desc(nullptr),
           _output_slot_desc(nullptr),
-          _exec_timer(nullptr),
           _merge_timer(nullptr),
           _expr_timer(nullptr) {
     bool nullable = true;
@@ -163,7 +162,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (argument_types[0]->is_nullable()) {
             return Status::InternalError("Agg state function input type must be not nullable");
         }
-        if (argument_types[0]->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+        if (argument_types[0]->get_type_as_type_descriptor().type !=
+            PrimitiveType::TYPE_AGG_STATE) {
             return Status::InternalError(
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
@@ -179,7 +179,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         "Union function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
-            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Union function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
@@ -232,7 +232,6 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -240,7 +239,6 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena* arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
@@ -248,7 +246,6 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
@@ -256,7 +253,6 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
@@ -264,7 +260,6 @@ Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena* arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
-    SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
 }

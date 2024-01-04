@@ -23,6 +23,7 @@ import java.util.Optional;
 
 /** MutableState */
 public interface MutableState {
+    String KEY_GROUP = "group";
     <T> Optional<T> get(String key);
 
     MutableState set(String key, Object value);

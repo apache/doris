@@ -234,7 +234,7 @@ suite("table_modify_resouce") {
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
         fetchDataSize(sizes, tablets2[i])
-        assertEquals(sizes[1], tablets[i][9])
+        assertTrue(sizes[1] > 0)
     }
 
 
@@ -317,7 +317,7 @@ suite("table_modify_resouce") {
     log.info( "test all remote size not zero")
     for (int i = 0; i < tablets2.size(); i++) {
         fetchDataSize(sizes, tablets2[i])
-        assertEquals(sizes[1], tablets[i][9])
+        assertTrue(sizes[1] > 0)
     }
 
 

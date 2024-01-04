@@ -95,6 +95,7 @@ jobs:
           
           for pipeline in ${trigger_pipelines}
           do
+            same_build_sign="false"
             echo "-----------------------------------------------------------------"
             running_builds_command="curl -s -X GET ${teamcity_url}/app/rest/builds\?locator\=buildType\:${pipeline}\,branch:pull/${pull_request_num}\,running:true"
             echo "${running_builds_command}" 

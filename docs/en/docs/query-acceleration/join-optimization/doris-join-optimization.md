@@ -1,5 +1,5 @@
 ---
-{ 'title': 'Doris Join optimization principle', 'language': 'en' }
+{ 'title': 'Doris Join Optimization Principle', 'language': 'en' }
 ---
 
 <!--
@@ -48,7 +48,7 @@ As a distributed MPP database, data shuffle needs to be performed during the Joi
 
     When Hash Join is performed, the corresponding Hash value can be calculated through the Join column, and Hash bucketing can be performed.
 
-    Its network overhead is: T(R) + T(N), but it can only support Hash Join, because it also calculates buckets according to the conditions of Join.
+    Its network overhead is: T(S) + T(R), but it can only support Hash Join, because it also calculates buckets according to the conditions of Join.
 
     ![image-20220523151902368](/images/join/image-20220523151902368.png)
 

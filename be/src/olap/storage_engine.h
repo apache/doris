@@ -30,6 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -138,7 +139,7 @@ public:
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
+    bool notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
 
     Status execute_task(EngineTask* task);
 
@@ -184,18 +185,6 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    void create_cumulative_compaction(TabletSharedPtr best_tablet,
-                                      std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
-    void create_base_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<BaseCompaction>& base_compaction);
-
-    void create_full_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<FullCompaction>& full_compaction);
-
-    void create_single_replica_compaction(
-            TabletSharedPtr best_tablet,
-            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-            CompactionType compaction_type);
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
     bool should_fetch_from_peer(int64_t tablet_id);
@@ -343,6 +332,8 @@ private:
     void _gc_binlogs(int64_t tablet_id, int64_t version);
 
     void _async_publish_callback();
+
+    void _process_async_publish();
 
     Status _persist_broken_paths();
 
@@ -495,7 +486,7 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _async_publish_mutex;
+    std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
 

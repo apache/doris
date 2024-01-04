@@ -7,7 +7,7 @@
 {"no": 5, "item": {"id": 5, "city": "guangzhou","code":2345675}}
 {"no": 5, "item": {"id": 5, "city": ["guangzhou"],"code":2345675}}
 {"no": 5, "item": {"id": 5, "city": {"guangzhou":1},"code":2345675}}
-{"no": 5, "item": {"id": 5, "city": ["guangzhou","code":2345675]]}
+{"no": 5, "item": {"id": 5, "city": '"guangzhou","code":2345675]]}
 {"no": 5, "item": {"id": 5, "city": ["guangzhou","code":2345675}}
 {"no": 5, "item": {"id": 5, "city": {"guangzhou","code":2345675}}
 {"no": 5, "item": {"id": 5, "city": {"guangzhou":1,"code":2345675}}}

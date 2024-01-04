@@ -61,7 +61,7 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |```array<Type>```|```ArrayList<Type>```|
 |```map<Type1,Type2>```|```HashMap<Type1,Type2>```|
 
-* Array/Map types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
+* Array/Map types can nested other types, Eg: In Doris: ```array<array<int>>``` corresponds to JAVA UDF Argument Type: ```ArrayList<ArrayList<Integer>>```, and so on.
 ## Write UDF functions
 
 This section mainly introduces how to develop a Java UDF. Samples for the Java version are provided under `samples/doris-demo/java-udf-demo/` for your reference, Check it out [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/java-udf-demo)

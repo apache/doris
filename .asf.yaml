@@ -58,7 +58,6 @@ github:
           - Build Broker
           - Build Documents
           - BE UT (Clang)
-          - ShellCheck
           - clickbench (benchmark)
           - BE UT (macOS)
           - Build Third Party Libraries (Linux)

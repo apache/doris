@@ -116,7 +116,6 @@ void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWrit
 
     auto& data =
             const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num));
-
     std::string buffer(data.getSizeInBytes(), '0');
     data.write_to(const_cast<char*>(buffer.data()));
     ostr.write(buffer.c_str(), buffer.size());

@@ -28,9 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
 ```
-   
+
+*The version of jdk installed using brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+
 **Dependency description:**
 1. Java, Maven, etc. can be downloaded separately for easy management
     - Mac recommend [Zulu JDK8](https://www.azul.com/downloads/?version=java-8-lts&os=macos&package=jdk#zulu)
@@ -122,6 +124,23 @@ echo 'ulimit -n 65536' >>~/.zshrc
 cd $DORIS_HOME
 sh build.sh
 ```
+## Compilation Error with Higher Version of Node.js
+
+During the compilation process, errors may occur due to a higher version of Node.js.
+
+- opensslErrorStack: [ 'error:03000086:digital envelope routines::initialization error' ]
+  - library: 'digital envelope routines'
+  - reason: 'unsupported'
+  - code: 'ERR_OSSL_EVP_UNSUPPORTED'
+
+For more information and a possible solution, you can refer to this [Stack Overflow post](https://stackoverflow.com/questions/74726224/opensslerrorstack-error03000086digital-envelope-routinesinitialization-e).
+
+
+```shell
+## Instruct Node.js to use an older version of the OpenSSL provider.
+export NODE_OPTIONS=--openssl-legacy-provider
+```
+
 
 ## Configure Debug environment
 

@@ -20,21 +20,19 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_promo_sk = promotion.p_promo_sk)
-------------------------------------PhysicalProject
---------------------------------------filter((((cast(p_channel_dmail as VARCHAR(*)) = 'Y') OR (cast(p_channel_email as VARCHAR(*)) = 'Y')) OR (cast(p_channel_tv as VARCHAR(*)) = 'Y')))
-----------------------------------------PhysicalOlapScan[promotion]
-------------------------------------PhysicalDistribute
---------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_moy = 11)(date_dim.d_year = 1999))
---------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------------PhysicalDistribute
+----------------------------filter((customer_address.ca_gmt_offset = -7.00))
+------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[customer]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+--------------------------------------PhysicalProject
+----------------------------------------hashJoin[INNER_JOIN](store_sales.ss_promo_sk = promotion.p_promo_sk)
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
 ----------------------------------------------PhysicalProject
@@ -43,6 +41,14 @@ PhysicalResultSink
 ------------------------------------------------PhysicalProject
 --------------------------------------------------filter((store.s_gmt_offset = -7.00))
 ----------------------------------------------------PhysicalOlapScan[store]
+------------------------------------------PhysicalDistribute
+--------------------------------------------PhysicalProject
+----------------------------------------------filter((((cast(p_channel_dmail as VARCHAR(*)) = 'Y') OR (cast(p_channel_email as VARCHAR(*)) = 'Y')) OR (cast(p_channel_tv as VARCHAR(*)) = 'Y')))
+------------------------------------------------PhysicalOlapScan[promotion]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_moy = 11)(date_dim.d_year = 1999))
+--------------------------------------------PhysicalOlapScan[date_dim]
 ----------PhysicalDistribute
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute

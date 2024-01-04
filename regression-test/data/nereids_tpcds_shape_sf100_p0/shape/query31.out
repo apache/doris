@@ -8,14 +8,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales]
---------------------PhysicalDistribute
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 ----------------------PhysicalProject
-------------------------filter(d_qoy IN (1, 2, 3)(ss.d_year = 2000))
---------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[store_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(d_qoy IN (1, 2, 3)(ss.d_year = 2000))
+----------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[customer_address]
@@ -44,7 +45,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------PhysicalQuickSort
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](ws1.ca_county = ws3.ca_county)(if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL))
+--------------hashJoin[INNER_JOIN](ws1.ca_county = ws3.ca_county)(if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------filter((ws3.d_year = 2000)(ws3.d_qoy = 3))
@@ -55,7 +56,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter((ss3.d_year = 2000)(ss3.d_qoy = 3))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------hashJoin[INNER_JOIN](ws1.ca_county = ws2.ca_county)(if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL))
+--------------------hashJoin[INNER_JOIN](ws1.ca_county = ws2.ca_county)(if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))
 ----------------------hashJoin[INNER_JOIN](ss1.ca_county = ws1.ca_county)
 ------------------------hashJoin[INNER_JOIN](ss1.ca_county = ss2.ca_county)
 --------------------------PhysicalDistribute

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.planner.PlanNodeId;
 
 import com.google.common.collect.ImmutableList;
 
@@ -69,5 +70,13 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
 
     public int arity() {
         return children.size();
+    }
+
+    /**
+     * used for PhysicalPlanTranslator only
+     * @return PlanNodeId
+     */
+    public PlanNodeId translatePlanNodeId() {
+        return id.toPlanNodeId();
     }
 }

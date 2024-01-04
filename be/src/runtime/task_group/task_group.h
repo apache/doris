@@ -31,31 +31,34 @@
 
 namespace doris {
 
-namespace pipeline {
-class PipelineTask;
-}
-
 class TPipelineWorkloadGroup;
 class MemTrackerLimiter;
+
+namespace pipeline {
+class PipelineTask;
+} // namespace pipeline
 
 namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
+class ScanTaskQueue;
 
+template <typename QueueType>
 class TaskGroupEntity {
 public:
-    explicit TaskGroupEntity(taskgroup::TaskGroup* ts) : _tg(ts) {}
-    void push_back(pipeline::PipelineTask* task);
+    explicit TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type);
+    ~TaskGroupEntity();
+
     uint64_t vruntime_ns() const { return _vruntime_ns; }
 
-    pipeline::PipelineTask* take();
+    QueueType* task_queue();
 
     void incr_runtime_ns(uint64_t runtime_ns);
 
     void adjust_vruntime_ns(uint64_t vruntime_ns);
 
-    size_t task_size() const { return _queue.size(); }
+    size_t task_size() const;
 
     uint64_t cpu_share() const;
 
@@ -63,14 +66,29 @@ public:
 
     uint64_t task_group_id() const;
 
+    void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
+
 private:
-    // TODO pipeline use MLFQ
-    std::queue<pipeline::PipelineTask*> _queue;
-    taskgroup::TaskGroup* _tg;
+    QueueType* _task_queue;
+
     uint64_t _vruntime_ns = 0;
+    taskgroup::TaskGroup* _tg;
+
+    std::string _type;
+
+    // Because updating cpu share of entity requires locking the task queue(pipeline task queue or
+    // scan task queue) contains that entity, we kept version and cpu share in entity for
+    // independent updates.
+    int64_t _version;
+    uint64_t _cpu_share;
 };
 
-using TGEntityPtr = TaskGroupEntity*;
+// TODO llj tg use PriorityTaskQueue to replace std::queue
+using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
+using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
+
+using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue>;
+using TGSTEntityPtr = TaskGroupScanTaskEntity*;
 
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
@@ -81,11 +99,16 @@ class TaskGroup : public std::enable_shared_from_this<TaskGroup> {
 public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
 
-    TaskGroupEntity* task_entity() { return &_task_entity; }
+    TaskGroupPipelineTaskEntity* task_entity() { return &_task_entity; }
+    TGSTEntityPtr local_scan_task_entity() { return &_local_scan_entity; }
+
+    int64_t version() const { return _version; }
 
     uint64_t cpu_share() const { return _cpu_share.load(); }
 
     uint64_t id() const { return _id; }
+
+    std::string name() const { return _name; };
 
     bool enable_memory_overcommit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
@@ -103,8 +126,6 @@ public:
 
     void check_and_update(const TaskGroupInfo& tg_info);
 
-    void update_cpu_share_unlock(const TaskGroupInfo& tg_info);
-
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
     void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
@@ -119,12 +140,12 @@ private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
-    std::atomic<uint64_t> _cpu_share;
+    int64_t _version;
     int64_t _memory_limit; // bytes
     bool _enable_memory_overcommit;
-    int64_t _version;
-    TaskGroupEntity _task_entity;
-
+    std::atomic<uint64_t> _cpu_share;
+    TaskGroupPipelineTaskEntity _task_entity;
+    TaskGroupScanTaskEntity _local_scan_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
 };
 

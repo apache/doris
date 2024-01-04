@@ -230,6 +230,12 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 
+    //Cannot use '\' as the last character, return NULL
+    if (path_string.back() == '\\') {
+        document->SetNull();
+        return document;
+    }
+
 #ifdef USE_LIBCPP
     std::string s(path_string);
     auto tok = get_json_token(s);
@@ -815,7 +821,7 @@ struct FunctionJsonExtractImpl {
     }
 
     static void execute(const std::vector<const ColumnString*>& data_columns,
-                        ColumnString& result_column, size_t input_rows_count) {
+                        ColumnString& result_column, NullMap& null_map, size_t input_rows_count) {
         rapidjson::Document document;
         rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
         rapidjson::StringBuffer buf;
@@ -835,11 +841,16 @@ struct FunctionJsonExtractImpl {
                 }
             }
 
-            // write value as string
-            buf.Clear();
-            writer.Reset(buf);
-            value.Accept(writer);
-            result_column.insert_data(buf.GetString(), buf.GetSize());
+            if (value.IsNull()) {
+                null_map[row] = 1;
+                result_column.insert_default();
+            } else {
+                // write value as string
+                buf.Clear();
+                writer.Reset(buf);
+                value.Accept(writer);
+                result_column.insert_data(buf.GetString(), buf.GetSize());
+            }
         }
     }
 };
@@ -876,6 +887,37 @@ public:
         Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
                       input_rows_count);
         block.get_by_position(result).column = std::move(result_column);
+        return Status::OK();
+    }
+};
+
+template <typename Impl>
+class FunctionJsonNullable : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionJsonNullable<Impl>>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto result_column = ColumnString::create();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
+        std::vector<const ColumnString*> data_columns;
+        for (int i = 0; i < arguments.size(); i++) {
+            column_ptrs.push_back(
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const());
+            data_columns.push_back(assert_cast<const ColumnString*>(column_ptrs.back().get()));
+        }
+        Impl::execute(data_columns, *assert_cast<ColumnString*>(result_column.get()),
+                      null_map->get_data(), input_rows_count);
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
         return Status::OK();
     }
 };
@@ -1474,7 +1516,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
-    factory.register_function<FunctionJson<FunctionJsonExtractImpl>>();
+    factory.register_function<FunctionJsonNullable<FunctionJsonExtractImpl>>();
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();

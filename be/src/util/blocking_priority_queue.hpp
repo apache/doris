@@ -42,7 +42,9 @@ public:
               _max_element(max_elements),
               _upgrade_counter(0),
               _total_get_wait_time(0),
-              _total_put_wait_time(0) {}
+              _total_put_wait_time(0),
+              _get_waiting(0),
+              _put_waiting(0) {}
 
     // Get an element from the queue, waiting indefinitely (or until timeout) for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
@@ -55,17 +57,10 @@ public:
         bool wait_successful = false;
 #if !defined(USE_BTHREAD_SCANNER)
         if (timeout_ms > 0) {
-            wait_successful = _get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms),
-                                               [this] { return _shutdown || !_queue.empty(); });
-        } else {
-            _get_cv.wait(unique_lock, [this] { return _shutdown || !_queue.empty(); });
-            wait_successful = true;
-        }
-#else
-        if (timeout_ms > 0) {
-            wait_successful = true;
             while (!(_shutdown || !_queue.empty())) {
-                if (_get_cv.wait_for(unique_lock, timeout_ms * 1000) != 0) {
+                ++_get_waiting;
+                if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms)) ==
+                    std::cv_status::timeout) {
                     // timeout
                     wait_successful = _shutdown || !_queue.empty();
                     break;
@@ -73,6 +68,26 @@ public:
             }
         } else {
             while (!(_shutdown || !_queue.empty())) {
+                ++_get_waiting;
+                _get_cv.wait(unique_lock);
+            }
+            wait_successful = true;
+        }
+#else
+        if (timeout_ms > 0) {
+            wait_successful = true;
+            while (!(_shutdown || !_queue.empty())) {
+                ++_get_waiting;
+                if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms)) ==
+                    std::cv_status::timeout) {
+                    // timeout
+                    wait_successful = _shutdown || !_queue.empty();
+                    break;
+                }
+            }
+        } else {
+            while (!(_shutdown || !_queue.empty())) {
+                ++_get_waiting;
                 _get_cv.wait(unique_lock);
             }
             wait_successful = true;
@@ -95,7 +110,11 @@ public:
                 *out = _queue.top();
                 _queue.pop();
                 ++_upgrade_counter;
-                _put_cv.notify_one();
+                if (_put_waiting > 0) {
+                    --_put_waiting;
+                    unique_lock.unlock();
+                    _put_cv.notify_one();
+                }
                 return true;
             } else {
                 assert(_shutdown);
@@ -131,7 +150,11 @@ public:
             _queue.pop();
             ++_upgrade_counter;
             _total_get_wait_time += timer.elapsed_time();
-            _put_cv.notify_one();
+            if (_put_waiting > 0) {
+                --_put_waiting;
+                unique_lock.unlock();
+                _put_cv.notify_one();
+            }
             return true;
         }
 
@@ -145,6 +168,7 @@ public:
         timer.start();
         std::unique_lock unique_lock(_lock);
         while (!(_shutdown || _queue.size() < _max_element)) {
+            ++_put_waiting;
             _put_cv.wait(unique_lock);
         }
         _total_put_wait_time += timer.elapsed_time();
@@ -154,7 +178,11 @@ public:
         }
 
         _queue.push(val);
-        _get_cv.notify_one();
+        if (_get_waiting > 0) {
+            --_get_waiting;
+            unique_lock.unlock();
+            _get_cv.notify_one();
+        }
         return true;
     }
 
@@ -163,8 +191,11 @@ public:
         std::unique_lock unique_lock(_lock);
         if (_queue.size() < _max_element && !_shutdown) {
             _queue.push(val);
-            unique_lock.unlock();
-            _get_cv.notify_one();
+            if (_get_waiting > 0) {
+                --_get_waiting;
+                unique_lock.unlock();
+                _get_cv.notify_one();
+            }
             return true;
         }
         return false;
@@ -204,6 +235,8 @@ private:
     int _upgrade_counter;
     std::atomic<uint64_t> _total_get_wait_time;
     std::atomic<uint64_t> _total_put_wait_time;
+    size_t _get_waiting;
+    size_t _put_waiting;
 };
 
 } // namespace doris

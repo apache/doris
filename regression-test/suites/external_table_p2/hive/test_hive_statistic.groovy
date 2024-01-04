@@ -30,226 +30,230 @@ suite("test_hive_statistic", "p2") {
             );
         """
         logger.info("catalog " + catalog_name + " created")
+
+        // Test analyze table without init.
+        sql """analyze table ${catalog_name}.tpch_1000_parquet.region with sync"""
+
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
         sql """analyze table `statistics` with sync"""
         def result = sql """show column stats `statistics` (lo_quantity)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_quantity")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "46.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "50")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_quantity")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "46.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "50")
 
         result = sql """show column stats `statistics` (lo_orderkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_orderkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "98")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_orderkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "98")
 
         result = sql """show column stats `statistics` (lo_linenumber)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_linenumber")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "7.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "1")
-        assertTrue(result[0][7] == "7")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_linenumber")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "7.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "1")
+        assertEquals(result[0][7], "7")
 
         result = sql """show column stats `statistics` (lo_custkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_custkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "67423")
-        assertTrue(result[0][7] == "2735521")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_custkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "67423")
+        assertEquals(result[0][7], "2735521")
 
         result = sql """show column stats `statistics` (lo_partkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_partkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "100.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "2250")
-        assertTrue(result[0][7] == "989601")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_partkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "2250")
+        assertEquals(result[0][7], "989601")
 
         result = sql """show column stats `statistics` (lo_suppkey)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_suppkey")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "100.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "4167")
-        assertTrue(result[0][7] == "195845")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_suppkey")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "4167")
+        assertEquals(result[0][7], "195845")
 
         result = sql """show column stats `statistics` (lo_orderdate)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_orderdate")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "19920221")
-        assertTrue(result[0][7] == "19980721")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_orderdate")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "19920221")
+        assertEquals(result[0][7], "19980721")
 
         result = sql """show column stats `statistics` (lo_orderpriority)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_orderpriority")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "5.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "888.8000000000001")
-        assertTrue(result[0][5] == "8.8")
-        assertTrue(result[0][6] == "'1-URGENT'")
-        assertTrue(result[0][7] == "'5-LOW'")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_orderpriority")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "880.0")
+        assertEquals(result[0][5], "8.8")
+        assertEquals(result[0][6], "'1-URGENT'")
+        assertEquals(result[0][7], "'5-LOW'")
 
         result = sql """show column stats `statistics` (lo_shippriority)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_shippriority")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "1.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "0")
-        assertTrue(result[0][7] == "0")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_shippriority")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "1.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "0")
+        assertEquals(result[0][7], "0")
 
         result = sql """show column stats `statistics` (lo_extendedprice)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_extendedprice")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "100.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "104300")
-        assertTrue(result[0][7] == "9066094")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_extendedprice")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "104300")
+        assertEquals(result[0][7], "9066094")
 
         result = sql """show column stats `statistics` (lo_ordtotalprice)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_ordtotalprice")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "26.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "3428256")
-        assertTrue(result[0][7] == "36771805")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_ordtotalprice")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "26.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "3428256")
+        assertEquals(result[0][7], "36771805")
 
         result = sql """show column stats `statistics` (lo_discount)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_discount")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "11.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "0")
-        assertTrue(result[0][7] == "10")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_discount")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "11.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "0")
+        assertEquals(result[0][7], "10")
 
         result = sql """show column stats `statistics` (lo_revenue)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_revenue")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "100.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "101171")
-        assertTrue(result[0][7] == "8703450")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_revenue")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "101171")
+        assertEquals(result[0][7], "8703450")
 
         result = sql """show column stats `statistics` (lo_supplycost)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_supplycost")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "100.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "58023")
-        assertTrue(result[0][7] == "121374")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_supplycost")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "100.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "58023")
+        assertEquals(result[0][7], "121374")
 
         result = sql """show column stats `statistics` (lo_tax)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_tax")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "9.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "0")
-        assertTrue(result[0][7] == "8")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_tax")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "9.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "0")
+        assertEquals(result[0][7], "8")
 
         result = sql """show column stats `statistics` (lo_commitdate)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_commitdate")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "95.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "404.0")
-        assertTrue(result[0][5] == "4.0")
-        assertTrue(result[0][6] == "19920515")
-        assertTrue(result[0][7] == "19981016")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_commitdate")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "95.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "400.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "19920515")
+        assertEquals(result[0][7], "19981016")
 
         result = sql """show column stats `statistics` (lo_shipmode)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_shipmode")
-        assertTrue(result[0][1] == "100.0")
-        assertTrue(result[0][2] == "7.0")
-        assertTrue(result[0][3] == "0.0")
-        assertTrue(result[0][4] == "425.21")
-        assertTrue(result[0][5] == "4.21")
-        assertTrue(result[0][6] == "'AIR'")
-        assertTrue(result[0][7] == "'TRUCK'")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_shipmode")
+        assertEquals(result[0][1], "100.0")
+        assertEquals(result[0][2], "7.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "421.0")
+        assertEquals(result[0][5], "4.21")
+        assertEquals(result[0][6], "'AIR'")
+        assertEquals(result[0][7], "'TRUCK'")
 
         sql """ALTER TABLE statistics MODIFY COLUMN lo_shipmode SET STATS ('row_count'='6001215')"""
         result = sql "show column stats `statistics` (lo_shipmode)"
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "lo_shipmode")
-        assertTrue(result[0][1] == "6001215.0")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "lo_shipmode")
+        assertEquals(result[0][1], "6001215.0")
 
         sql """drop stats statistics"""
         result = sql """show column stats statistics"""
-        assertTrue(result.size() == 0)
+        assertEquals(result.size(), 0)
 
         sql """analyze database `statistics` with sync"""
         result = sql """show table stats statistics"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][2], "100")
 
         result = sql """show table cached stats statistics"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "100")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][2], "100")
 
         sql """drop stats statistics"""
         result = sql """show column cached stats statistics"""
-        assertTrue(result.size() == 0)
+        assertEquals(result.size(), 0)
 
         sql """use multi_catalog"""
         sql """analyze table logs1_parquet (log_time) with sync"""
         def ctlId
         def dbId
         def tblId
-        result = sql """show proc '/catalogs'"""
+        result = sql """show catalogs"""
 
         for (int i = 0; i < result.size(); i++) {
             if (result[i][1] == catalog_name) {
@@ -270,7 +274,7 @@ suite("test_hive_statistic", "p2") {
         }
 
         result = sql """select * from internal.__internal_schema.column_statistics where id = '${tblId}--1-log_time'"""
-        assertTrue(result.size() == 1)
+        assertEquals(result.size(), 1)
         def id = result[0][0]
         def catalog_id = result[0][1]
         def db_id = result[0][2]
@@ -286,9 +290,48 @@ suite("test_hive_statistic", "p2") {
         sql """insert into internal.__internal_schema.column_statistics values ('$id', '$catalog_id', '$db_id', '$tbl_id', '$idx_id', '$col_id', NULL, $count, $ndv, $null_count, '', '', '$data_size_in_bytes', '$update_time')"""
 
         result = sql """show column stats logs1_parquet (log_time)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][6] == "N/A")
-        assertTrue(result[0][7] == "N/A")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][6], "N/A")
+        assertEquals(result[0][7], "N/A")
+
+	sql """use tpch1_parquet;"""
+	sql """drop stats region"""
+	sql """alter table region modify column r_comment set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='330.0', 'min_value'='ges. thinly even pinto beans ca', 'max_value'='uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl');"""
+	sql """alter table region modify column r_name set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='34.0', 'min_value'='AFRICA', 'max_value'='MIDDLE EAST');"""
+	sql """alter table region modify column r_regionkey set stats ('row_count'='5.0', 'ndv'='5.0', 'num_nulls'='0.0', 'data_size'='20.0', 'min_value'='0', 'max_value'='4');"""
+        result = sql """show column stats region(r_regionkey)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_regionkey")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "20.0")
+        assertEquals(result[0][5], "4.0")
+        assertEquals(result[0][6], "0")
+        assertEquals(result[0][7], "4")
+
+        result = sql """show column stats region(r_comment)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_comment")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "330.0")
+        assertEquals(result[0][5], "66.0")
+        assertEquals(result[0][6], "\'ges. thinly even pinto beans ca\'")
+        assertEquals(result[0][7], "\'uickly special accounts cajole carefully blithely close requests. carefully final asymptotes haggle furiousl\'")
+
+        result = sql """show column stats region(r_name)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "r_name")
+        assertEquals(result[0][1], "5.0")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "0.0")
+        assertEquals(result[0][4], "34.0")
+        assertEquals(result[0][5], "6.8")
+        assertEquals(result[0][6], "\'AFRICA\'")
+        assertEquals(result[0][7], "\'MIDDLE EAST\'")
+
         sql """drop catalog ${catalog_name}"""
     }
 }

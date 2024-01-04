@@ -91,8 +91,7 @@ public:
 
     void shutdown();
 
-    void update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                             taskgroup::TaskGroupPtr task_group);
+    TaskQueue* task_queue() const { return _task_queue.get(); }
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

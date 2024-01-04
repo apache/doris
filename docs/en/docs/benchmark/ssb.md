@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Star-Schema-Benchmark",
+    "title": "Star Schema Benchmark",
     "language": "en"
 }
 ---
@@ -67,7 +67,7 @@ On the SQL test with standard SSB, the overall performance of Apache Doris 1.2.0
 | customer       | 3,000,000      | Customer Information        |
 | part           | 1,400,000      | Parts Information          |
 | supplier       | 200,000        | Supplier Information        |
-| date           | 2,556          | Date                        |
+| dates          | 2,556          | Date                        |
 | lineorder_flat | 600,037,902    | Wide Table after Data Flattening |
 
 ## 4. Test Results
@@ -169,7 +169,7 @@ With the `-s 100` parameter, the resulting dataset size is:
 | customer  | 3,000,000 | 277M | 1           |
 | part      | 1,400,000 | 116M | 1           |
 | supplier  | 200,000   | 17M  | 1           |
-| date      | 2,556             | 228K | 1           |
+| dates     | 2,556     | 228K | 1           |
 
 ### 7.3 Create Table
 
@@ -283,7 +283,7 @@ We use the following command to complete all data import of SSB test set and SSB
 select count(*) from part;
 select count(*) from customer;
 select count(*) from supplier;
-select count(*) from date;
+select count(*) from dates;
 select count(*) from lineorder;
 select count(*) from lineorder_flat;
 ```
@@ -297,7 +297,7 @@ The amount of data should be consistent with the number of rows of generated dat
 | customer       | 3,000,000 | 277 MB      | 138.247 MB                |
 | part           | 1,400,000 | 116 MB      | 12.759 MB                 |
 | supplier       | 200,000   | 17 MB       | 9.143 MB                  |
-| date           | 2,556             | 228 KB      | 34.276 KB                 |
+| dates          | 2,556     | 228 KB      | 34.276 KB                 |
 
 ### 7.6 Query Test
 

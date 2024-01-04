@@ -27,15 +27,12 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
 @Description(name = "bitmap_xor", value = "a _FUNC_ b - Compute the symmetric"
         + " union of two or more input bitmaps, return the new bitmap")
 public class BitmapXorUDF extends GenericUDF {
-    private static final Logger LOG = LogManager.getLogger(BitmapXorUDF.class);
     private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
 
@@ -66,9 +63,8 @@ public class BitmapXorUDF extends GenericUDF {
             BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
             bitmapValue0.xor(bitmapValue1);
-            return BitmapValueUtil.serializeToBytes(bitmapValue1);
+            return BitmapValueUtil.serializeToBytes(bitmapValue0);
         } catch (IOException ioException) {
-            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }

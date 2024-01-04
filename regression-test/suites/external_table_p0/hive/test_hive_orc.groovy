@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_orc", "all_types") {
+suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_docker_hive") {
     // Ensure that all types are parsed correctly
     def select_top50 = {
         qt_select_top50 """select * from orc_all_types order by int_col desc limit 50;"""
@@ -66,15 +66,25 @@ suite("test_hive_orc", "all_types") {
         qt_only_partition_col """select count(p1_col), count(p2_col) from orc_all_types;"""
     }
 
+    // decimals
+    def decimals = {
+        qt_decimals1 """select * from orc_decimal_table order by id;"""
+        qt_decimals2 """select * from orc_decimal_table where id = 3 order by id;"""
+        qt_decimals3 """select * from orc_decimal_table where id < 3 order by id;"""
+        qt_decimals4 """select * from orc_decimal_table where id > 3 order by id;"""
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "hive_test_orc"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 
@@ -84,6 +94,7 @@ suite("test_hive_orc", "all_types") {
             search_in_int()
             search_mix()
             only_partition_col()
+            decimals()
 
             sql """drop catalog if exists ${catalog_name}"""
 
@@ -91,7 +102,7 @@ suite("test_hive_orc", "all_types") {
             sql """
                 create catalog if not exists ${catalog_name} properties (
                     "type"="hms",
-                    'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
                 );
             """
             sql """use `${catalog_name}`.`default`"""
@@ -101,3 +112,4 @@ suite("test_hive_orc", "all_types") {
         }
     }
 }
+

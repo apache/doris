@@ -93,7 +93,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         for (Frontend fe : env.getFrontends(null /* all */)) {
-
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());

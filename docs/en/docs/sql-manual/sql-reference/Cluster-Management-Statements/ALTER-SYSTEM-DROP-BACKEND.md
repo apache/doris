@@ -36,8 +36,15 @@ This statement is used to delete the BACKEND node (administrator only!)
 
 grammar:
 
+- Find backend through host and port
+
 ```sql
 ALTER SYSTEM DROP BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...]
+````
+- Find backend through backend_id
+
+```sql
+ALTER SYSTEM DROP BACKEND "id1","id2"...;
 ````
 
 illustrate:
@@ -52,6 +59,10 @@ illustrate:
 
     ```sql
     ALTER SYSTEM DROP BACKEND "host1:port", "host2:port";
+    ````
+
+    ```sql
+    ALTER SYSTEM DROP BACKEND "ids1", "ids2";
     ````
 
 ### Keywords

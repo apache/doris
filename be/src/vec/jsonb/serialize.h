@@ -43,10 +43,10 @@ public:
     // batch rows
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst);
+                               Block& dst, const std::vector<std::string>& default_values);
     // single row
     static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
                                const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst);
+                               Block& dst, const std::vector<std::string>& default_values);
 };
 } // namespace doris::vectorized

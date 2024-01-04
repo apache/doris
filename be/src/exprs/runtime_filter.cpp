@@ -171,6 +171,10 @@ RuntimeFilterType get_type(int filter_type) {
     }
     case PFilterType::MINMAX_FILTER:
         return RuntimeFilterType::MINMAX_FILTER;
+    case PFilterType::MIN_FILTER:
+        return RuntimeFilterType::MIN_FILTER;
+    case PFilterType::MAX_FILTER:
+        return RuntimeFilterType::MAX_FILTER;
     default:
         return RuntimeFilterType::UNKNOWN_FILTER;
     }
@@ -183,6 +187,10 @@ PFilterType get_type(RuntimeFilterType type) {
         return PFilterType::IN_FILTER;
     case RuntimeFilterType::BLOOM_FILTER:
         return PFilterType::BLOOM_FILTER;
+    case RuntimeFilterType::MIN_FILTER:
+        return PFilterType::MIN_FILTER;
+    case RuntimeFilterType::MAX_FILTER:
+        return PFilterType::MAX_FILTER;
     case RuntimeFilterType::MINMAX_FILTER:
         return PFilterType::MINMAX_FILTER;
     case RuntimeFilterType::IN_OR_BLOOM_FILTER:
@@ -406,6 +414,8 @@ public:
             _context.hybrid_set.reset(create_set(_column_return_type));
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func.reset(create_minmax_filter(_column_return_type));
             break;
@@ -488,6 +498,8 @@ public:
             _context.hybrid_set->insert(data);
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func->insert(data);
             break;
@@ -531,6 +543,8 @@ public:
             _context.hybrid_set->insert_fixed_len(data, offsets, number);
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func->insert_fixed_len(data, offsets, number);
             break;
@@ -658,6 +672,8 @@ public:
             }
             break;
         }
+        case RuntimeFilterType::MIN_FILTER:
+        case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
             _context.minmax_func->merge(wrapper->_context.minmax_func.get(), _pool);
             break;
@@ -1301,7 +1317,21 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     if (desc->type == TRuntimeFilterType::BLOOM) {
         _runtime_filter_type = RuntimeFilterType::BLOOM_FILTER;
     } else if (desc->type == TRuntimeFilterType::MIN_MAX) {
-        _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
+        if (desc->__isset.min_max_type) {
+            switch (desc->min_max_type) {
+            case TMinMaxRuntimeFilterType::MIN:
+                _runtime_filter_type = RuntimeFilterType::MIN_FILTER;
+                break;
+            case TMinMaxRuntimeFilterType::MAX:
+                _runtime_filter_type = RuntimeFilterType::MAX_FILTER;
+                break;
+            case TMinMaxRuntimeFilterType::MIN_MAX:
+                _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
+                break;
+            }
+        } else {
+            _runtime_filter_type = RuntimeFilterType::MINMAX_FILTER;
+        }
     } else if (desc->type == TRuntimeFilterType::IN) {
         _runtime_filter_type = RuntimeFilterType::IN_FILTER;
     } else if (desc->type == TRuntimeFilterType::IN_OR_BLOOM) {
@@ -1415,6 +1445,8 @@ Status IRuntimeFilter::create_wrapper(QueryContext* query_ctx,
         DCHECK(param->request->has_bloom_filter());
         return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
     }
+    case PFilterType::MIN_FILTER:
+    case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
         return (*wrapper)->assign(&param->request->minmax_filter());
@@ -1456,6 +1488,8 @@ Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, Obje
         DCHECK(param->request->has_bloom_filter());
         return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
     }
+    case PFilterType::MIN_FILTER:
+    case PFilterType::MAX_FILTER:
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
         return (*wrapper)->assign(&param->request->minmax_filter());
@@ -1541,7 +1575,9 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
         DCHECK(data != nullptr);
         request->mutable_bloom_filter()->set_filter_length(*len);
         request->mutable_bloom_filter()->set_always_true(false);
-    } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER) {
+    } else if (real_runtime_filter_type == RuntimeFilterType::MINMAX_FILTER ||
+               real_runtime_filter_type == RuntimeFilterType::MIN_FILTER ||
+               real_runtime_filter_type == RuntimeFilterType::MAX_FILTER) {
         auto minmax_filter = request->mutable_minmax_filter();
         to_protobuf(minmax_filter);
     } else {
@@ -1684,8 +1720,7 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     void* min_data = nullptr;
     void* max_data = nullptr;
     _wrapper->get_minmax_filter_desc(&min_data, &max_data);
-    DCHECK(min_data != nullptr);
-    DCHECK(max_data != nullptr);
+    DCHECK(min_data != nullptr && max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));
 
     switch (_wrapper->column_type()) {
@@ -1876,6 +1911,43 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
             auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
             container.push_back(wrapper);
         }
+        break;
+    }
+    case RuntimeFilterType::MIN_FILTER: {
+        // create min filter
+        vectorized::VExprSPtr min_pred;
+        TExprNode min_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE, min_pred,
+                                              &min_pred_node));
+        vectorized::VExprSPtr min_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_min(),
+                                       min_literal));
+        min_pred->add_child(probe_ctx->root());
+        min_pred->add_child(min_literal);
+        container.push_back(
+                vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
+        vectorized::VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+        probe_ctxs.push_back(new_probe_ctx);
+        break;
+    }
+    case RuntimeFilterType::MAX_FILTER: {
+        vectorized::VExprSPtr max_pred;
+        // create max filter
+        TExprNode max_pred_node;
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
+                                              &max_pred_node));
+        vectorized::VExprSPtr max_literal;
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(), _context.minmax_func->get_max(),
+                                       max_literal));
+        max_pred->add_child(probe_ctx->root());
+        max_pred->add_child(max_literal);
+        container.push_back(
+                vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
+
+        vectorized::VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+        probe_ctxs.push_back(new_probe_ctx);
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {

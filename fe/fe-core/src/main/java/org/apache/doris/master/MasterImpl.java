@@ -491,6 +491,9 @@ public class MasterImpl {
             // not remove the task from queue and be will retry
             return;
         }
+        if (request.isSetTableIdToDeltaNumRows()) {
+            publishVersionTask.setTableIdToDeltaNumRows(request.getTableIdToDeltaNumRows());
+        }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
                                   publishVersionTask.getTaskType(),
                                   publishVersionTask.getSignature());
@@ -507,7 +510,11 @@ public class MasterImpl {
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);
         }
-
+        if (request.isSetReportVersion()) {
+            long reportVersion = request.getReportVersion();
+            Env.getCurrentSystemInfo().updateBackendReportVersion(
+                    task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+        }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
     }
 

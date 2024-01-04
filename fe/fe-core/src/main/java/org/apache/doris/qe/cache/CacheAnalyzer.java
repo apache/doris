@@ -607,7 +607,7 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         cacheTable.table = node.getTargetTable();
         cacheTable.partitionNum = node.getReadPartitionNum();
-        cacheTable.latestTime = cacheTable.table.getLastUpdateTime();
+        cacheTable.latestTime = cacheTable.table.getUpdateTime();
         return cacheTable;
     }
 

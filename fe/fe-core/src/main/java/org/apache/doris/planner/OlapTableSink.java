@@ -104,6 +104,8 @@ public class OlapTableSink extends DataSink {
 
     private boolean isStrictMode = false;
 
+    private boolean loadToSingleTablet;
+
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
             boolean singleReplicaLoad) {
         this.dstTable = dstTable;
@@ -126,6 +128,7 @@ public class OlapTableSink extends DataSink {
                     "if load_to_single_tablet set to true," + " the olap table must be with random distribution");
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
+        this.loadToSingleTablet = loadToSingleTablet;
         tDataSink = new TDataSink(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlapTableSink(tSink);
 
@@ -166,6 +169,16 @@ public class OlapTableSink extends DataSink {
 
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
+        for (Long partitionId : partitionIds) {
+            Partition partition = dstTable.getPartition(partitionId);
+            if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
+                throw new UserException(
+                        "table's index number not equal with partition's index number. table's index number="
+                                + dstTable.getIndexIdToMeta().size() + ", partition's index number="
+                                + partition.getMaterializedIndices(IndexExtState.ALL).size());
+            }
+        }
+
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
 
         tSink.setTableId(dstTable.getId());
@@ -325,6 +338,11 @@ public class OlapTableSink extends DataSink {
                         tPartition.setNumBuckets(index.getTablets().size());
                     }
                     tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
+                    if (loadToSingleTablet) {
+                        int tabletIndex = Env.getCurrentEnv().getSingleTabletLoadRecorderMgr()
+                                .getCurrentLoadTabletIndex(dbId, table.getId(), partitionId);
+                        tPartition.setLoadTabletIdx(tabletIndex);
+                    }
                     partitionParam.addToPartitions(tPartition);
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
@@ -355,6 +373,11 @@ public class OlapTableSink extends DataSink {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
                             index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                     tPartition.setNumBuckets(index.getTablets().size());
+                }
+                if (loadToSingleTablet) {
+                    int tabletIndex = Env.getCurrentEnv().getSingleTabletLoadRecorderMgr()
+                            .getCurrentLoadTabletIndex(dbId, table.getId(), partition.getId());
+                    tPartition.setLoadTabletIdx(tabletIndex);
                 }
                 partitionParam.addToPartitions(tPartition);
                 partitionParam.setDistributedColumns(getDistColumns(partition.getDistributionInfo()));

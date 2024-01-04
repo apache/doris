@@ -262,10 +262,10 @@ public:
     }
 
 private:
-    void _init_short_circuit_for_probe() override {
+    void _init_short_circuit_for_probe() {
         _short_circuit_for_probe =
-                (_short_circuit_for_null_in_probe_side &&
-                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+                (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                 !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
@@ -274,7 +274,7 @@ private:
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
-        _short_circuit_for_probe_and_additional_data =
+        _empty_right_table_need_probe_dispose =
                 (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);
@@ -292,6 +292,10 @@ private:
 
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _store_null_in_hash_table;
+
+    // In right anti join, if the probe side is not nullable and the build side is nullable,
+    // we need to convert the probe column to nullable.
+    std::vector<ColumnPtr> _temp_probe_nullable_columns;
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
@@ -421,6 +425,7 @@ private:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     size_t _build_bf_cardinality = 0;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris

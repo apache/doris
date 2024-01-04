@@ -367,6 +367,7 @@ public:
                 return "QuantileState";
             default:
                 LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
+                __builtin_unreachable();
                 break;
             }
         }

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "upper",
+    "title": "UPPER",
     "language": "en"
 }
 ---

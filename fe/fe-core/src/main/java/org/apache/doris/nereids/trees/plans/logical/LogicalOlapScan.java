@@ -38,12 +38,14 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -118,19 +120,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 Maps.newHashMap(), Optional.empty());
     }
 
-    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier,
+    public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
             List<String> hints, Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, ImmutableList.of(),
+                table.getPartitionIds(), false, tabletIds,
                 -1, false, PreAggStatus.on(), ImmutableList.of(), hints, Maps.newHashMap(),
                 tableSample);
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions,
-            List<String> hints, Optional<TableSample> tableSample) {
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 // must use specifiedPartitions here for prune partition by sql like 'select * from t partition p1'
-                specifiedPartitions, false, ImmutableList.of(),
+                specifiedPartitions, false, tabletIds,
                 -1, false, PreAggStatus.on(), specifiedPartitions, hints, Maps.newHashMap(),
                 tableSample);
     }
@@ -157,7 +159,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         this.manuallySpecifiedPartitions = ImmutableList.copyOf(specifiedPartitions);
         this.selectedPartitionIds = selectedPartitionIds.stream()
                 .filter(partitionId -> this.getTable().getPartition(partitionId) != null)
-                .filter(partitionId -> this.getTable().getPartition(partitionId).hasData())
                 .collect(Collectors.toList());
         this.hints = Objects.requireNonNull(hints, "hints can not be null");
         this.cacheSlotWithSlotName = Objects.requireNonNull(cacheSlotWithSlotName,
@@ -308,6 +309,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             cacheSlotWithSlotName.put(Pair.of(selectedIndexId, col.getName()), slot);
             return slot;
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        relationIdSet.add(relationId);
+        return relationIdSet;
     }
 
     /**

@@ -111,7 +111,8 @@ public:
                std::string compaction_policy = "size_based",
                int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
-               int64_t time_series_compaction_time_threshold_seconds = 3600);
+               int64_t time_series_compaction_time_threshold_seconds = 3600,
+               int64_t time_series_compaction_empty_rowsets_threshold = 5);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -191,8 +192,6 @@ public:
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
-    const std::vector<RowsetMetaSharedPtr> delete_predicates() const;
-    bool version_for_delete_predicate(const Version& version);
 
     std::string full_name() const;
 
@@ -255,6 +254,12 @@ public:
     int64_t time_series_compaction_time_threshold_seconds() const {
         return _time_series_compaction_time_threshold_seconds;
     }
+    void set_time_series_compaction_empty_rowsets_threshold(int64_t empty_rowsets_threshold) {
+        _time_series_compaction_empty_rowsets_threshold = empty_rowsets_threshold;
+    }
+    int64_t time_series_compaction_empty_rowsets_threshold() const {
+        return _time_series_compaction_empty_rowsets_threshold;
+    }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -307,6 +312,7 @@ private:
     int64_t _time_series_compaction_goal_size_mbytes = 0;
     int64_t _time_series_compaction_file_count_threshold = 0;
     int64_t _time_series_compaction_time_threshold_seconds = 0;
+    int64_t _time_series_compaction_empty_rowsets_threshold = 0;
 
     mutable std::shared_mutex _meta_lock;
 };
@@ -345,7 +351,6 @@ public:
     // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
     // for specific usage during this periods to avoid conflicts
     constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
-    constexpr static inline uint64_t TEMP_VERSION_FOR_DELETE_SIGN = 1;
 
     /**
      * 

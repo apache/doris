@@ -103,7 +103,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr()
-                    .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, true);
+                    .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, eventTime, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

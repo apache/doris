@@ -16,69 +16,53 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
-<<<<<<< HEAD
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+--------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
-------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalProject
-=======
---------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalOlapScan[store_sales]
-----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalDistribute
->>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
---------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
 ------------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
-------------------------------filter((customer_address.ca_gmt_offset = -6.00))
---------------------------------PhysicalOlapScan[customer_address]
+------------------------------PhysicalProject
+--------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+----------------------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)
-----------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
-<<<<<<< HEAD
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+--------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
-------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalProject
-=======
---------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalDistribute
->>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
---------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
@@ -89,33 +73,25 @@ PhysicalResultSink
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)
-----------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
-<<<<<<< HEAD
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[web_sales]
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
+--------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
-------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalProject
-=======
---------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalOlapScan[web_sales]
-----------------------------------PhysicalDistribute
-------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 2))
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
-------------------------------------PhysicalDistribute
->>>>>>> 46f5988245 ([fix](Nereids) set operation children output order not same (#24060))
---------------------------------------PhysicalOlapScan[item]
+----------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))

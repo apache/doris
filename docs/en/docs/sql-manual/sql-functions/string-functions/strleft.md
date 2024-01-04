@@ -1,6 +1,6 @@
 ---
 {
-    "title": "strleft",
+    "title": "STRLEFT",
     "language": "en"
 }
 ---

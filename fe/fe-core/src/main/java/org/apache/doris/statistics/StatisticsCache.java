@@ -24,16 +24,17 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,9 +42,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class StatisticsCache {
 
@@ -59,7 +60,6 @@ public class StatisticsCache {
 
     private final ColumnStatisticsCacheLoader columnStatisticsCacheLoader = new ColumnStatisticsCacheLoader();
     private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
-    private final TableStatisticsCacheLoader tableStatisticsCacheLoader = new TableStatisticsCacheLoader();
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
@@ -75,20 +75,12 @@ public class StatisticsCache {
                     .executor(threadPool)
                     .buildAsync(histogramCacheLoader);
 
-    private final AsyncLoadingCache<StatisticsCacheKey, Optional<TableStatistic>> tableStatisticsCache =
-            Caffeine.newBuilder()
-                    .maximumSize(Config.stats_cache_size)
-                    .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-                    .executor(threadPool)
-                    .buildAsync(tableStatisticsCacheLoader);
-
     {
         threadPool.submit(() -> {
             while (true) {
                 try {
                     columnStatisticsCacheLoader.removeExpiredInProgressing();
                     histogramCacheLoader.removeExpiredInProgressing();
-                    tableStatisticsCacheLoader.removeExpiredInProgressing();
                 } catch (Throwable t) {
                     // IGNORE
                 }
@@ -141,25 +133,21 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public Optional<TableStatistic> getTableStatistics(long catalogId, long dbId, long tableId) {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().internalSession) {
-            return Optional.empty();
-        }
-        StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tableId);
-        try {
-            CompletableFuture<Optional<TableStatistic>> f = tableStatisticsCache.get(k);
-            if (f.isDone()) {
-                return f.get();
-            }
-        } catch (Exception e) {
-            LOG.warn("Unexpected exception while returning Histogram", e);
-        }
-        return Optional.empty();
-    }
-
     public void invalidate(long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
+    }
+
+    public void syncInvalidate(long tblId, long idxId, String colName) {
+        StatisticsCacheKey cacheKey = new StatisticsCacheKey(tblId, idxId, colName);
+        columnStatisticsCache.synchronous().invalidate(cacheKey);
+        TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
+        request.key = GsonUtils.GSON.toJson(cacheKey);
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
+            if (StatisticsUtil.isMaster(frontend)) {
+                continue;
+            }
+            invalidateStats(frontend, request);
+        }
     }
 
     public void updateColStatsCache(long tblId, long idxId, String colName, ColumnStatistic statistic) {
@@ -172,14 +160,6 @@ public class StatisticsCache {
 
     public void refreshColStatsSync(long catalogId, long dbId, long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName));
-    }
-
-    public void invalidateTableStats(long catalogId, long dbId, long tblId) {
-        tableStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(catalogId, dbId, tblId));
-    }
-
-    public void refreshTableStatsSync(long catalogId, long dbId, long tblId) {
-        tableStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId));
     }
 
     public void refreshHistogramSync(long tblId, long idxId, String colName) {
@@ -221,13 +201,13 @@ public class StatisticsCache {
         }
         for (ResultRow r : recentStatsUpdatedCols) {
             try {
-                long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
-                long idxId = Long.parseLong(r.getColumnValue("idx_id"));
-                String colId = r.getColumnValue("col_id");
+                StatsId statsId = new StatsId(r);
+                long tblId = statsId.tblId;
+                long idxId = statsId.idxId;
+                String colId = statsId.colId;
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(tblId, idxId, colId);
                 final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                c.loadPartitionStats(tblId, idxId, colId);
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);
@@ -235,67 +215,70 @@ public class StatisticsCache {
         }
     }
 
-    public void syncLoadColStats(long tableId, long idxId, String colName) {
+    /**
+     * Return false if the log of corresponding stats load is failed.
+     */
+    public boolean syncLoadColStats(long tableId, long idxId, String colName) {
         List<ResultRow> columnResults = StatisticsRepository.loadColStats(tableId, idxId, colName);
         final StatisticsCacheKey k =
                 new StatisticsCacheKey(tableId, idxId, colName);
         final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
         if (c == ColumnStatistic.UNKNOWN) {
-            return;
+            return false;
         }
         putCache(k, c);
+        if (ColumnStatistic.UNKNOWN == c) {
+            return false;
+        }
         TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
-        updateFollowerStatsCacheRequest.colStats = GsonUtils.GSON.toJson(c);
+        updateFollowerStatsCacheRequest.statsRows = columnResults.stream().map(GsonUtils.GSON::toJson).collect(
+                Collectors.toList());
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
-            if (frontend.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
-                // Doesn't need to send request to current node.
+            if (StatisticsUtil.isMaster(frontend)) {
                 continue;
             }
-            TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
-                    frontend.getRpcPort());
-            FrontendService.Client client = null;
-            try {
-                client = ClientPool.frontendPool.borrowObject(address);
-                client.updateStatsCache(updateFollowerStatsCacheRequest);
-            } catch (Throwable t) {
-                LOG.warn("Failed to sync stats to follower: {}", address, t);
-            } finally {
-                if (client != null) {
-                    ClientPool.frontendPool.returnObject(address, client);
-                }
+            sendStats(frontend, updateFollowerStatsCacheRequest);
+        }
+        return true;
+    }
+
+    @VisibleForTesting
+    public void sendStats(Frontend frontend, TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest) {
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
+                frontend.getRpcPort());
+        FrontendService.Client client = null;
+        try {
+            client = ClientPool.frontendPool.borrowObject(address);
+            client.updateStatsCache(updateFollowerStatsCacheRequest);
+        } catch (Throwable t) {
+            LOG.warn("Failed to sync stats to follower: {}", address, t);
+        } finally {
+            if (client != null) {
+                ClientPool.frontendPool.returnObject(address, client);
             }
         }
+    }
 
+    @VisibleForTesting
+    public void invalidateStats(Frontend frontend, TInvalidateFollowerStatsCacheRequest request) {
+        TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
+        FrontendService.Client client = null;
+        try {
+            client = ClientPool.frontendPool.borrowObject(address);
+            client.invalidateStatsCache(request);
+        } catch (Throwable t) {
+            LOG.warn("Failed to sync invalidate to follower: {}", address, t);
+        } finally {
+            if (client != null) {
+                ClientPool.frontendPool.returnObject(address, client);
+            }
+        }
     }
 
     public void putCache(StatisticsCacheKey k, ColumnStatistic c) {
-        CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>() {
-
-            @Override
-            public Optional<ColumnStatistic> get() throws InterruptedException, ExecutionException {
-                return Optional.of(c);
-            }
-
-            @Override
-            public boolean isDone() {
-                return true;
-            }
-
-            @Override
-            public boolean complete(Optional<ColumnStatistic> value) {
-                return true;
-            }
-
-            @Override
-            public Optional<ColumnStatistic> join() {
-                return Optional.of(c);
-            }
-        };
-        if (c.isUnKnown) {
-            return;
-        }
+        CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>();
+        f.obtrudeValue(Optional.of(c));
         columnStatisticsCache.put(k, f);
     }
-
 }

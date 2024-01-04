@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <functional>
 #include <ostream>
 
@@ -341,59 +342,52 @@ void DorisMetrics::_update() {
 }
 
 // get num of thread of doris_be process
-// from /proc/pid/task
+// from /proc/self/task
 void DorisMetrics::_update_process_thread_num() {
-    int64_t pid = getpid();
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/task/";
-
-    int64_t count = 0;
-    auto cb = [&count](const io::FileInfo& file) -> bool {
-        count += 1;
-        return true;
-    };
-    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to count thread num: " << st;
-        process_thread_num->set_value(0);
+    std::error_code ec;
+    std::filesystem::directory_iterator dict_iter("/proc/self/task/", ec);
+    if (ec) {
+        LOG(WARNING) << "failed to count thread num: " << ec.message();
+        process_fd_num_used->set_value(0);
         return;
     }
+    int64_t count =
+            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
+                std::error_code error_code;
+                return entry.is_regular_file(error_code) && !error_code;
+            });
 
     process_thread_num->set_value(count);
 }
 
 // get num of file descriptor of doris_be process
 void DorisMetrics::_update_process_fd_num() {
-    int64_t pid = getpid();
-
     // fd used
-    std::stringstream ss;
-    ss << "/proc/" << pid << "/fd/";
-    int64_t count = 0;
-    auto cb = [&count](const io::FileInfo& file) -> bool {
-        count += 1;
-        return true;
-    };
-    Status st = io::global_local_filesystem()->iterate_directory(ss.str(), cb);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to count fd: " << st;
+    std::error_code ec;
+    std::filesystem::directory_iterator dict_iter("/proc/self/fd/", ec);
+    if (ec) {
+        LOG(WARNING) << "failed to count fd: " << ec.message();
         process_fd_num_used->set_value(0);
         return;
     }
+    int64_t count =
+            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
+                std::error_code error_code;
+                return entry.is_regular_file(error_code) && !error_code;
+            });
+
     process_fd_num_used->set_value(count);
 
     // fd limits
-    std::stringstream ss2;
-    ss2 << "/proc/" << pid << "/limits";
-    FILE* fp = fopen(ss2.str().c_str(), "r");
+    FILE* fp = fopen("/proc/self/limits", "r");
     if (fp == nullptr) {
         char buf[64];
-        LOG(WARNING) << "open " << ss2.str() << " failed, errno=" << errno
+        LOG(WARNING) << "open /proc/self/limits failed, errno=" << errno
                      << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
-    // /proc/pid/limits
+    // /proc/self/limits
     // Max open files            65536                65536                files
     int64_t values[2];
     size_t line_buf_size = 0;

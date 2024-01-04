@@ -470,6 +470,16 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         tablet_meta_info.time_series_compaction_time_threshold_seconds);
                 need_to_save = true;
             }
+            if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
+                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
+                }
+                tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
+                        tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
+                need_to_save = true;
+            }
             if (tablet_meta_info.__isset.replica_id) {
                 tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
             }
@@ -1528,18 +1538,26 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         std::map<TTabletId, TVersion> succ_tablets;
         // partition_id, tablet_id, publish_version
         std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
+        std::map<TTableId, int64_t> table_id_to_num_delta_rows;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             succ_tablets.clear();
             error_tablet_ids.clear();
+            table_id_to_num_delta_rows.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablets, &discontinuous_version_tablets);
+                                                 &succ_tablets, &discontinuous_version_tablets,
+                                                 &table_id_to_num_delta_rows);
             status = StorageEngine::instance()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+                // there are too many missing versions, it has been be added to async
+                // publish task, so no need to retry here.
+                if (discontinuous_version_tablets.empty()) {
+                    break;
+                }
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
                 if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
@@ -1562,10 +1580,10 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                         .tag("retry_time", retry_time)
                         .error(status);
                 ++retry_time;
-                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
-        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {
+        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !discontinuous_version_tablets.empty() &&
+            !is_task_timeout) {
             continue;
         }
 
@@ -1591,12 +1609,14 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet != nullptr) {
-                        tablet->publised_count++;
-                        if (tablet->publised_count % 10 == 0) {
-                            StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", publised:" << tablet->publised_count;
+                        if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                            tablet->publised_count++;
+                            if (tablet->publised_count % 10 == 0) {
+                                StorageEngine::instance()->submit_compaction_task(
+                                        tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", publised:" << tablet->publised_count;
+                            }
                         }
                     } else {
                         LOG(WARNING) << "trigger compaction failed, tablet_id:" << tablet_id;
@@ -1620,7 +1640,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         finish_task_request.__set_succ_tablets(succ_tablets);
         finish_task_request.__set_error_tablet_ids(
                 std::vector<TTabletId>(error_tablet_ids.begin(), error_tablet_ids.end()));
-
+        finish_task_request.__set_table_id_to_delta_num_rows(table_id_to_num_delta_rows);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
@@ -1880,9 +1900,10 @@ void CloneTaskPool::_clone_worker_thread_callback() {
             LOG_INFO("successfully clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id);
+            ++_s_report_version;
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         }
-
+        finish_task_request.__set_report_version(_s_report_version);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
@@ -1920,6 +1941,10 @@ void StorageMediumMigrateTaskPool::_storage_medium_migrate_worker_thread_callbac
         if (status.ok()) {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
             status = _env->storage_engine()->execute_task(&engine_task);
+        }
+        // fe should ignore this err
+        if (status.is<FILE_ALREADY_EXIST>()) {
+            status = Status::OK();
         }
         if (!status.ok()) {
             LOG_WARNING("failed to migrate storage medium")
@@ -1983,8 +2008,9 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-        return Status::InternalError("tablet is already on specified path {}",
-                                     tablet->data_dir()->path());
+        LOG_WARNING("tablet is already on specified path").tag("path", tablet->data_dir()->path());
+        return Status::Error<FILE_ALREADY_EXIST, false>("tablet is already on specified path: {}",
+                                                        tablet->data_dir()->path());
     }
 
     // check local disk capacity
@@ -1993,7 +2019,6 @@ Status StorageMediumMigrateTaskPool::_check_migrate_request(const TStorageMedium
         return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
                                      (*dest_store)->path(), tablet_size);
     }
-
     return Status::OK();
 }
 

@@ -503,7 +503,7 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
-    size_t _offset_days = 0;
+    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
@@ -557,6 +557,8 @@ private:
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
+    bool _is_dict_cols_converted;
+    bool _has_complex_type = false;
 };
 
 class ORCFileInputStream : public orc::InputStream {

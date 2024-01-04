@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
@@ -31,13 +31,13 @@ import java.util.Map;
  * local
  */
 public class Local extends TableValuedFunction {
-    public Local(TVFProperties properties) {
+    public Local(Properties properties) {
         super("local", properties);
     }
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE, getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, getArgumentsTypes());
     }
 
     @Override

@@ -33,7 +33,7 @@ The system operation logs of Doris's FE and BE nodes are at INFO level by defaul
 
 >Enable DEBUG log may cause a large number of logs to be generated, **Please be careful to open it in production environment**.
 
-## Enable FE Debug log
+## Enable FE Debug Log
 
 The Debug level log of FE can be turned on by modifying the configuration file, or it can be turned on at runtime through the interface or API.
 
@@ -101,7 +101,7 @@ The Debug level log of FE can be turned on by modifying the configuration file, 
 
    The `del_verbose` parameter specifies the package or class name for which to turn off Debug logging.
 
-## Enable BE Debug log
+## Enable BE Debug Log
 
 BE's Debug log currently only supports modifying and restarting the BE node through the configuration file to take effect.
 

@@ -18,19 +18,25 @@
 #include "olap/memtable_flush_executor.h"
 
 #include <gen_cpp/olap_file.pb.h>
-#include <stddef.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <ostream>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/memtable.h"
-#include "util/stopwatch.hpp"
-#include "util/time.h"
+#include "olap/rowset/rowset_writer.h"
+#include "util/doris_metrics.h"
+#include "util/metrics.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(flush_thread_pool_thread_num, MetricUnit::NOUNIT);
+
+bvar::Adder<int64_t> g_flush_task_num("memtable_flush_task_num");
 
 class MemtableFlushTask final : public Runnable {
 public:
@@ -38,9 +44,11 @@ public:
                       int64_t submit_task_time)
             : _flush_token(flush_token),
               _memtable(std::move(memtable)),
-              _submit_task_time(submit_task_time) {}
+              _submit_task_time(submit_task_time) {
+        g_flush_task_num << 1;
+    }
 
-    ~MemtableFlushTask() override = default;
+    ~MemtableFlushTask() override { g_flush_task_num << -1; }
 
     void run() override {
         _flush_token->_flush_memtable(_memtable.get(), _submit_task_time);
@@ -144,10 +152,11 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
     max_threads = data_dir_num * min_threads;
-    ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
-            .set_min_threads(min_threads)
-            .set_max_threads(max_threads)
-            .build(&_high_prio_flush_pool);
+    static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
+                              .set_min_threads(min_threads)
+                              .set_max_threads(max_threads)
+                              .build(&_high_prio_flush_pool));
+    _register_metrics();
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
@@ -176,6 +185,18 @@ Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* fl
         }
     }
     return Status::OK();
+}
+
+void MemTableFlushExecutor::_register_metrics() {
+    REGISTER_HOOK_METRIC(flush_thread_pool_queue_size,
+                         [this]() { return _flush_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(flush_thread_pool_thread_num,
+                         [this]() { return _flush_pool->num_threads(); })
+}
+
+void MemTableFlushExecutor::_deregister_metrics() {
+    DEREGISTER_HOOK_METRIC(flush_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(flush_thread_pool_thread_num);
 }
 
 } // namespace doris

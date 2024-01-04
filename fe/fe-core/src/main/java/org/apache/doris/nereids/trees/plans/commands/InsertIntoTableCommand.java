@@ -136,6 +136,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             throw new DdlException("txn does not exist: " + txn.getTxnId());
         }
         state.addTableIndexes(physicalOlapTableSink.getTargetTable());
+        if (physicalOlapTableSink.isPartialUpdate()) {
+            state.setSchemaForPartialUpdate(physicalOlapTableSink.getTargetTable());
+        }
 
         executor.setProfileType(ProfileType.LOAD);
 
@@ -157,6 +160,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return this.logicalQuery;
     }
 

@@ -141,7 +141,10 @@ struct AggregateFunctionBitmapData {
 
     void read(BufferReadable& buf) { DataTypeBitMap::deserialize_as_stream(value, buf); }
 
-    void reset() { is_first = true; }
+    void reset() {
+        is_first = true;
+        value.reset(); // it's better to call reset function by self firstly.
+    }
 
     BitmapValue& get() { return value; }
 };

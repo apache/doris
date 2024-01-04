@@ -39,6 +39,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -47,7 +48,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -63,8 +66,8 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final String DEFAULT_COLUMNS = "";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
@@ -72,7 +75,6 @@ public class ExportStmt extends StatementBase {
             .add(LoadStmt.EXEC_MEM_LIMIT)
             .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
-            .add(LoadStmt.TIMEOUT_PROPERTY)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -98,6 +100,8 @@ public class ExportStmt extends StatementBase {
 
     private Integer parallelism;
 
+    private Integer timeout;
+
     private String maxFileSize;
     private String deleteExistingFiles;
     private SessionVariable sessionVariables;
@@ -117,12 +121,17 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-        this.columns = DEFAULT_COLUMNS;
+        this.timeout = DEFAULT_TIMEOUT;
+
+        // The ExportStmt may be created in replay thread, there is no ConnectionContext
+        // in replay thread, so we need to clone session variable from default session variable.
         if (ConnectContext.get() != null) {
-            this.sessionVariables = ConnectContext.get().getSessionVariable();
+            this.sessionVariables = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                    ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
         } else {
-            this.sessionVariables = VariableMgr.getDefaultSessionVariable();
+            this.sessionVariables = VariableMgr.cloneSessionVariable(VariableMgr.getDefaultSessionVariable());
         }
+
     }
 
     public String getColumns() {
@@ -254,7 +263,7 @@ public class ExportStmt extends StatementBase {
             if (partitionStringNames == null) {
                 return;
             }
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             Table.TableType tblType = table.getType();
@@ -343,7 +352,14 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
+
+        // null means not specified
+        // "" means user specified zero columns
+        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        // check columns are exits
+        if (this.columns != null) {
+            checkColumns();
+        }
 
         // format
         this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
@@ -356,6 +372,15 @@ public class ExportStmt extends StatementBase {
         this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
         this.deleteExistingFiles = properties.getOrDefault(OutFileClause.PROP_DELETE_EXISTING_FILES, "");
 
+        // timeout
+        String timeoutString = properties.getOrDefault(LoadStmt.TIMEOUT_PROPERTY,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            this.timeout = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
+        }
+
         if (properties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(properties.get(LABEL));
         } else {
@@ -364,6 +389,24 @@ public class ExportStmt extends StatementBase {
             properties.put(LABEL, label);
         }
         label = properties.get(LABEL);
+    }
+
+    private void checkColumns() throws DdlException {
+        if (this.columns.isEmpty()) {
+            throw new DdlException("columns can not be empty");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
+        Table table = db.getTableOrDdlException(this.tblName.getTbl());
+        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
+                .collect(Collectors.toList());
+        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+
+        List<String> columnsSpecified = split.splitToList(this.columns.toLowerCase());
+        for (String columnName : columnsSpecified) {
+            if (!tableColumns.contains(columnName)) {
+                throw new DdlException("unknown column [" + columnName + "] in table [" + this.tblName.getTbl() + "]");
+            }
+        }
     }
 
     @Override
@@ -421,5 +464,9 @@ public class ExportStmt extends StatementBase {
 
     public Integer getParallelNum() {
         return parallelism;
+    }
+
+    public Integer getTimeout() {
+        return timeout;
     }
 }

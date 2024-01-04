@@ -57,7 +57,7 @@ The picture above shows how the Bucket Shuffle Join works. The SQL query is A ta
 Therefore, compared with Broadcast Join and Shuffle Join, Bucket shuffle join has obvious performance advantages. It reduces the time-consuming of data transmission between nodes and the memory cost of join. Compared with Doris's original join method, it has the following advantages
 
 * First of all, Bucket Shuffle Join reduces the network and memory cost which makes some join queries have better performance. Especially when FE can perform partition clipping and bucket clipping of the left table.
-* Secondly, unlike Colorate Join, it is not intrusive to the data distribution of tables, which is transparent to users. There is no mandatory requirement for the data distribution of the table, which is not easy to lead to the problem of data skew.
+* Secondly, unlike Colocate Join, it is not intrusive to the data distribution of tables, which is transparent to users. There is no mandatory requirement for the data distribution of the table, which is not easy to lead to the problem of data skew.
 * Finally, it can provide more optimization space for join reorder.
 
 ## Usage
@@ -70,7 +70,7 @@ Set session variable `enable_bucket_shuffle_join` to `true`, FE will automatical
 set enable_bucket_shuffle_join = true;
 ```
 
-In FE's distributed query planning, the priority order is Colorate Join -> Bucket Shuffle Join -> Broadcast Join -> Shuffle Join. However, if the user explicitly hints the type of join, for example: 
+In FE's distributed query planning, the priority order is Colocate Join -> Bucket Shuffle Join -> Broadcast Join -> Shuffle Join. However, if the user explicitly hints the type of join, for example: 
 
 ```
 select * from test join [shuffle] baseall on test.k1 = baseall.k1;
@@ -97,9 +97,9 @@ The join type indicates that the join method to be used is：`BUCKET_SHUFFLE`。
 
 In most scenarios, users only need to turn on the session variable by default to transparently use the performance improvement brought by this join method. However, if we understand the planning rules of Bucket Shuffle Join, we can use it to write more efficient SQL.
 
-* Bucket Shuffle Join only works when the join condition is equivalent. The reason is similar to Colorate Join. They all rely on hash to calculate the determined data distribution.
+* Bucket Shuffle Join only works when the join condition is equivalent. The reason is similar to Colocate Join. They all rely on hash to calculate the determined data distribution.
 * The bucket column of two tables is included in the equivalent join condition. When the bucket column of the left table is an equivalent join condition, it has a high probability of being planned as a Bucket Shuffle Join.
 * Because the hash values of different data types have different calculation results. Bucket Shuffle Join requires that the bucket column type of the left table and the equivalent join column type of the right table should be consistent, otherwise the corresponding planning cannot be carried out.
 * Bucket Shuffle Join only works on Doris native OLAP tables. For ODBC, MySQL, ES External Table, when they are used as left tables, they cannot be planned as Bucket Shuffle Join.
 * For partitioned tables, because the data distribution rules of each partition may be different, the Bucket Shuffle Join can only guarantee that the left table is a single partition. Therefore, in SQL execution, we need to use the `where` condition as far as possible to make the partition clipping policy effective.
-* If the left table is a colorate table, the data distribution rules of each partition are determined. So the bucket shuffle join can perform better on the colorate table.
+* If the left table is a colocate table, the data distribution rules of each partition are determined. So the bucket shuffle join can perform better on the colocate table.

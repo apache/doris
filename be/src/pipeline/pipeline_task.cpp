@@ -29,6 +29,7 @@
 #include "pipeline_fragment_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
+#include "runtime/query_statistics.h"
 #include "runtime/thread_context.h"
 #include "task_queue.h"
 #include "util/defer_op.h"
@@ -36,9 +37,6 @@
 
 namespace doris {
 class RuntimeState;
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
@@ -60,6 +58,10 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _fragment_context(fragment_context),
           _parent_profile(parent_profile) {
     _pipeline_task_watcher.start();
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
+    _collect_query_statistics_with_every_batch =
+            _pipeline->collect_query_statistics_with_every_batch();
 }
 
 void PipelineTask::_fresh_profile_counter() {
@@ -256,6 +258,10 @@ Status PipelineTask::execute(bool* eos) {
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
+            if (_data_state == SourceState::FINISHED ||
+                _collect_query_statistics_with_every_batch) {
+                RETURN_IF_ERROR(_collect_query_statistics());
+            }
             auto status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
@@ -280,6 +286,23 @@ Status PipelineTask::finalize() {
     }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
+}
+
+Status PipelineTask::_collect_query_statistics() {
+    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
+    if (_pipeline->is_root_pipeline()) {
+        // If the current fragment has only one instance, we can collect all of them;
+        // otherwise, we need to collect them based on the sender_id.
+        if (_state->num_per_fragment_instances() == 1) {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
+        } else {
+            _query_statistics->clear();
+            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
+                                                            _state->per_fragment_instance_idx()));
+        }
+    }
+    return Status::OK();
 }
 
 Status PipelineTask::try_close() {
@@ -376,7 +399,8 @@ std::string PipelineTask::debug_string() {
         _task_profile->pretty_print(&profile_ss, "");
         fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     }
-    fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
@@ -396,8 +420,8 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroup* PipelineTask::get_task_group() const {
-    return _fragment_context->get_task_group();
+taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
+    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

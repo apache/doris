@@ -27,13 +27,12 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -77,7 +76,28 @@ import java.util.stream.Collectors;
  * Base class for selecting materialized index rules.
  */
 public abstract class AbstractSelectMaterializedIndexRule {
-    protected boolean shouldSelectIndex(LogicalOlapScan scan) {
+    protected boolean shouldSelectIndexWithAgg(LogicalOlapScan scan) {
+        switch (scan.getTable().getKeysType()) {
+            case AGG_KEYS:
+            case UNIQUE_KEYS:
+            case DUP_KEYS:
+                // SelectMaterializedIndexWithAggregate(R1) run before SelectMaterializedIndexWithoutAggregate(R2)
+                // if R1 selects baseIndex and preAggStatus is off
+                // we should give a chance to R2 to check if some prefix-index can be selected
+                // so if R1 selects baseIndex and preAggStatus is off, we keep scan's index unselected in order to
+                // let R2 to get a chance to do its work
+                // at last, after R1, the scan may be the 4 status
+                // 1. preAggStatus is ON and baseIndex is selected, it means select baseIndex is correct.
+                // 2. preAggStatus is ON and some other Index is selected, this is correct, too.
+                // 3. preAggStatus is OFF, no index is selected, it means R2 could get a chance to run
+                // so we check the preAggStatus and if some index is selected to make sure R1 can be run only once
+                return scan.getPreAggStatus().isOn() && !scan.isIndexSelected();
+            default:
+                return false;
+        }
+    }
+
+    protected boolean shouldSelectIndexWithoutAgg(LogicalOlapScan scan) {
         switch (scan.getTable().getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
@@ -285,7 +305,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         @Override
         public PrefixIndexCheckResult visitComparisonPredicate(ComparisonPredicate cp, Map<ExprId, String> context) {
-            if (cp instanceof EqualTo || cp instanceof NullSafeEqual) {
+            if (cp instanceof EqualPredicate) {
                 return check(cp, context, PrefixIndexCheckResult::createEqual);
             } else {
                 return check(cp, context, PrefixIndexCheckResult::createNonEqual);
@@ -568,14 +588,6 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 return aggregateFunction.withChildren(mvNameToMvSlot.get(childrenName));
             }
             return visit(aggregateFunction, context);
-        }
-
-        @Override
-        public Expression visitAlias(Alias alias, Void context) {
-            if (mvNameToMvSlot.containsKey(alias.toSlot().toSql())) {
-                return mvNameToMvSlot.get(alias.toSlot().toSql());
-            }
-            return visit(alias, context);
         }
 
         @Override

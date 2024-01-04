@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -67,7 +68,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = 1;
+    static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
+    private final int beNumber;
 
     public CostModelV1() {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
@@ -86,8 +88,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 planCostV1 = (CostV1) planCost;
         return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
                 childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
-                childCostV1.getNetworkCost() + planCostV1.getNetworkCost(),
-                childCostV1.getPenalty() + planCostV1.getPenalty());
+                childCostV1.getNetworkCost() + planCostV1.getNetworkCost());
     }
 
     @Override
@@ -118,7 +119,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 costValue = (CostV1) storageLayerAggregate.getRelation().accept(this, context);
         // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
         return new CostV1(costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
-                costValue.getNetworkCost(), costValue.getPenalty());
+                costValue.getNetworkCost());
     }
 
     @Override
@@ -139,6 +140,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     }
 
     @Override
+    public Cost visitPhysicalOdbcScan(PhysicalOdbcScan physicalOdbcScan, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        return CostV1.ofCpu(statistics.getRowCount());
+    }
+
+    @Override
     public Cost visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
@@ -150,14 +157,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (physicalQuickSort.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -165,14 +172,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // TODO: consider two-phase sort and enforcer.
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
+
+        double childRowCount = childStatistics.getRowCount();
+        double rowCount = statistics.getRowCount();
         if (topN.getSortPhase().isGather()) {
             // Now we do more like two-phase sort, so penalise one-phase sort
-            statistics = statistics.withRowCount(statistics.getRowCount() * 100);
+            rowCount *= 100;
         }
-        return CostV1.of(
-                childStatistics.getRowCount(),
-                statistics.getRowCount(),
-                childStatistics.getRowCount());
+        return CostV1.of(childRowCount, rowCount, childRowCount);
     }
 
     @Override
@@ -186,9 +193,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
         return CostV1.of(
-            childStatistics.getRowCount(),
-            statistics.getRowCount(),
-            childStatistics.getRowCount());
+                childStatistics.getRowCount(),
+                statistics.getRowCount(),
+                childStatistics.getRowCount());
     }
 
     @Override
@@ -237,9 +244,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         // any
         return CostV1.of(
-                intputRowCount,
                 0,
-                0);
+                0,
+                intputRowCount * childStatistics.dataSizeFactor() * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumber);
     }
 
     @Override
@@ -287,30 +294,45 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         pattern2: (L join1 Agg1) join2 agg2
         in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
         */
-        double penalty = HEAVY_OPERATOR_PUNISH_FACTOR
-                * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
-        if (buildStats.getWidth() >= 2) {
-            //penalty for right deep tree
-            penalty += rightRowCount;
-        }
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
             return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                     0,
-                    leftRowCount + rightRowCount,
-                    penalty);
+                    leftRowCount + rightRowCount
+            );
         }
 
         if (context.isBroadcastJoin()) {
-            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
-            return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
+            // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
+            // currently we use the following factor as the penalty factor:
+            // build side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for building hash table, taken on rightRowCount
+            // probe side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for ProbeWhenBuildSideOutput effort and ProbeWhenSearchHashTableTime
+            //                    on the output rows, taken on outputRowCount()
+            double probeSideFactor = 1.0;
+            double buildSideFactor = ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
+            int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+            int totalInstanceNumber = parallelInstance * beNumber;
+            if (buildSideFactor <= 1.0) {
+                if (buildSideFactor <= 1.0) {
+                    if (buildStats.computeSize() < 1024 * 1024) {
+                        // no penalty to broadcast if build side is small
+                        buildSideFactor = 1.0;
+                    } else {
+                        // use totalInstanceNumber to the power of 2 as the default factor value
+                        buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+                    }
+                }
+            }
+            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
+            // will refine this in next generation cost model.
+            return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
-                    0,
                     0
             );
         }
         return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
-                0,
                 0
         );
     }

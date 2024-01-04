@@ -198,9 +198,9 @@ public:
                 status = execute_internal<ColumnString, true>(column, data_type, column_result);
             } else if (nested_which.is_int64()) {
                 status = execute_internal<ColumnInt64, true>(column, data_type, column_result);
-            } else if (which.is_float32()) {
+            } else if (nested_which.is_float32()) {
                 status = execute_internal<ColumnFloat32, true>(column, data_type, column_result);
-            } else if (which.is_float64()) {
+            } else if (nested_which.is_float64()) {
                 status = execute_internal<ColumnFloat64, true>(column, data_type, column_result);
             } else {
                 return type_error();

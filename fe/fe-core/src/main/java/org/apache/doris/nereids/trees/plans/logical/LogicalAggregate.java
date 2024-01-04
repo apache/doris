@@ -140,6 +140,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         return sourceRepeat;
     }
 
+    public boolean isDistinct() {
+        return outputExpressions.stream().allMatch(e -> e instanceof Slot)
+                && groupByExpressions.stream().allMatch(e -> e instanceof Slot);
+    }
+
     public boolean hasRepeat() {
         return sourceRepeat.isPresent();
     }

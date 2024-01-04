@@ -89,7 +89,7 @@ public class CostBasedRewriteJob implements RewriteJob {
         CascadesContext rootCtx = currentCtx.getRoot();
         if (rootCtx.getRewritePlan() instanceof LogicalCTEAnchor) {
             // set subtree rewrite cache
-            currentCtx.getStatementContext().getRewrittenCtePlan()
+            currentCtx.getStatementContext().getRewrittenCteProducer()
                     .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
             // Do Whole tree rewrite
             CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);

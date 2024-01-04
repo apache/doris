@@ -39,6 +39,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -1470,6 +1471,38 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
+
+        // test domain override
+        // 1. create a domain user
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = UserIdentity.ROOT;
+            }
+        };
+        UserIdentity domainUser = new UserIdentity("test_domain_user", "palo.domain1", true);
+        userDesc = new UserDesc(domainUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 2. create a normal user with same ip in domain
+        UserIdentity normalUser = new UserIdentity("test_domain_user", "10.1.1.1");
+        userDesc = new UserDesc(normalUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 3. run resolve
+        resolver.runAfterCatalogReady();
+        // 4. user grant to test that normal user is not overwrite by domain resolve
+        grantStmt = new GrantStmt(normalUser, null, new TablePattern("*", "*", "*"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
     }
 
     @Test
@@ -2217,5 +2250,107 @@ public class AuthTest {
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+    }
+
+    private void createUser(UserIdentity userIdentity) throws UserException {
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+    }
+
+    private void grant(GrantStmt grantStmt) throws UserException {
+        grantStmt.analyze(analyzer);
+        auth.grant(grantStmt);
+    }
+
+    private void revoke(RevokeStmt revokeStmt) throws UserException {
+        revokeStmt.analyze(analyzer);
+        auth.revoke(revokeStmt);
+    }
+
+    @Test
+    public void testShowViewPriv() throws UserException {
+        UserIdentity userIdentity = new UserIdentity("viewUser", "%");
+        createUser(userIdentity);
+        // `load_priv` and `select_priv` can not `show create view`
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV),
+                        new AccessPrivilegeWithCols(AccessPrivilege.LOAD_PRIV)));
+        grant(grantStmt);
+        Assert.assertFalse(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        // `SHOW_VIEW_PRIV` can `show create view`
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SHOW_VIEW_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.SHOW_VIEW_PRIV)));
+        revoke(revokeStmt);
+
+        // 'admin_priv' can `show create view`
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("*", "*", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("*", "*", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV)));
+        revoke(revokeStmt);
+
+        // 'create_priv' can `show create view`
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV)));
+        revoke(revokeStmt);
+
+        // 'alter_priv' can `show create view`
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALTER_PRIV)));
+        revoke(revokeStmt);
+
+        // 'drop_priv' can `show create view`
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
+        grant(grantStmt);
+        Assert.assertTrue(accessManager
+                .checkDbPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":viewdb", PrivPredicate.SHOW_VIEW));
+
+        revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
+                Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
+        revoke(revokeStmt);
+    }
+
+    @Test
+    public void testSetInitialRootPassword() {
+        // Skip set root password if `initial_root_password` set to empty string
+        auth.setInitialRootPassword("");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+        auth.setInitialRootPassword("invalidRootPassword");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Set initial root password
+        byte[] scrambled = MysqlPassword.makeScrambledPassword("validRootPassword");
+        auth.setInitialRootPassword(new String(scrambled));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
     }
 }

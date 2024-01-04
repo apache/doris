@@ -117,60 +117,60 @@ DELETE FROM table_name
 
 <version since="dev">
 
-4. use the result of `t2` join `t3` to romve rows from `t1`
+4. use the result of `t2` join `t3` to romve rows from `t1`,delete table only support unique key model
 
-```sql
--- create t1, t2, t3 tables
-CREATE TABLE t1
-  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
-UNIQUE KEY (id)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1', "function_column.sequence_col" = "c4");
-
-CREATE TABLE t2
-  (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1');
-
-CREATE TABLE t3
-  (id INT)
-DISTRIBUTED BY HASH (id)
-PROPERTIES('replication_num'='1');
-
--- insert data
-INSERT INTO t1 VALUES
-  (1, 1, '1', 1.0, '2000-01-01'),
-  (2, 2, '2', 2.0, '2000-01-02'),
-  (3, 3, '3', 3.0, '2000-01-03');
-
-INSERT INTO t2 VALUES
-  (1, 10, '10', 10.0, '2000-01-10'),
-  (2, 20, '20', 20.0, '2000-01-20'),
-  (3, 30, '30', 30.0, '2000-01-30'),
-  (4, 4, '4', 4.0, '2000-01-04'),
-  (5, 5, '5', 5.0, '2000-01-05');
-
-INSERT INTO t3 VALUES
-  (1),
-  (4),
-  (5);
-
--- remove rows from t1
-DELETE FROM t1
-  USING t2 INNER JOIN t3 ON t2.id = t3.id
-  WHERE t1.id = t2.id;
-```
-
-the expect result is only remove the row where id = 1 in table t1
-
-```
-+----+----+----+--------+------------+
-| id | c1 | c2 | c3     | c4         |
-+----+----+----+--------+------------+
-| 2  | 2  | 2  |    2.0 | 2000-01-02 |
-| 3  | 3  | 3  |    3.0 | 2000-01-03 |
-+----+----+----+--------+------------+
-```
+   ```sql
+   -- create t1, t2, t3 tables
+   CREATE TABLE t1
+     (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+   UNIQUE KEY (id)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1', "function_column.sequence_col" = "c4");
+   
+   CREATE TABLE t2
+     (id INT, c1 BIGINT, c2 STRING, c3 DOUBLE, c4 DATE)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1');
+   
+   CREATE TABLE t3
+     (id INT)
+   DISTRIBUTED BY HASH (id)
+   PROPERTIES('replication_num'='1');
+   
+   -- insert data
+   INSERT INTO t1 VALUES
+     (1, 1, '1', 1.0, '2000-01-01'),
+     (2, 2, '2', 2.0, '2000-01-02'),
+     (3, 3, '3', 3.0, '2000-01-03');
+   
+   INSERT INTO t2 VALUES
+     (1, 10, '10', 10.0, '2000-01-10'),
+     (2, 20, '20', 20.0, '2000-01-20'),
+     (3, 30, '30', 30.0, '2000-01-30'),
+     (4, 4, '4', 4.0, '2000-01-04'),
+     (5, 5, '5', 5.0, '2000-01-05');
+   
+   INSERT INTO t3 VALUES
+     (1),
+     (4),
+     (5);
+   
+   -- remove rows from t1
+   DELETE FROM t1
+     USING t2 INNER JOIN t3 ON t2.id = t3.id
+     WHERE t1.id = t2.id;
+   ```
+   
+   the expect result is only remove the row where id = 1 in table t1
+   
+   ```
+   +----+----+----+--------+------------+
+   | id | c1 | c2 | c3     | c4         |
+   +----+----+----+--------+------------+
+   | 2  | 2  | 2  |    2.0 | 2000-01-02 |
+   | 3  | 3  | 3  |    3.0 | 2000-01-03 |
+   +----+----+----+--------+------------+
+   ```
 
 </version>
 

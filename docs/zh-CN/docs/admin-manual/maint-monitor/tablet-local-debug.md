@@ -34,7 +34,7 @@ Doris线上运行过程中，因为各种原因，可能出现各种各样的bug
 
 可以通过 BE 日志确认 tablet id，然后通过以下命令获取信息（假设 tablet id 为 10020）。
 
-获获取 tablet 所在的 DbId/TableId/PartitionId 等信息。
+获取 tablet 所在的 DbId/TableId/PartitionId 等信息。
 
 ```
 mysql> show tablet 10020\G
@@ -52,7 +52,7 @@ PartitionName: tbl1
     DetailCmd: SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020';
 ```
 
-执行上一步中的 `DetailCmd` 获取 BackendId/SchemHash 等信息。
+执行上一步中的 `DetailCmd` 获取 BackendId/SchemaHash 等信息。
 
 ```
 mysql>  SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020'\G

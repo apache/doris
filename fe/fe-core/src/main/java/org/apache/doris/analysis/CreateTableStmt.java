@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -40,6 +41,7 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -49,6 +51,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -146,7 +149,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null, false);
+                distributionDesc, properties, extProperties, comment, null);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -161,7 +164,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops, false);
+                distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -175,8 +178,7 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList,
-            boolean isDynamicSchema) {
+            String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -193,12 +195,6 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
-        if (isDynamicSchema) {
-            if (properties == null) {
-                properties = Maps.newHashMap();
-            }
-            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
-        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;
@@ -325,7 +321,7 @@ public class CreateTableStmt extends DdlStmt {
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             enableDuplicateWithoutKeysByDefault =
-                                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+                    PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
         }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
@@ -623,9 +619,10 @@ public class CreateTableStmt extends DdlStmt {
         }
     }
 
-    private Map<String, String> rewriteReplicaAllocationProperties(Map<String, String> properties) {
+    private Map<String, String> rewriteReplicaAllocationProperties(Map<String, String> properties)
+            throws AnalysisException {
         if (Config.force_olap_table_replication_num <= 0) {
-            return properties;
+            return rewriteReplicaAllocationPropertiesByDatabase(properties);
         }
         // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
         // replication_allocation properties
@@ -649,6 +646,45 @@ public class CreateTableStmt extends DdlStmt {
                     String.valueOf(Config.force_olap_table_replication_num));
         }
         return newProperties;
+    }
+
+    private Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(Map<String, String> properties)
+            throws AnalysisException {
+        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            return properties;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(tableName.getCtl());
+        if (catalog == null) {
+            return properties;
+        }
+        DatabaseIf db = catalog.getDbNullable(tableName.getDb());
+        if (db == null) {
+            return properties;
+        }
+        // if db not have properties,not need rewrite
+        if (db.getDbProperties() == null) {
+            return properties;
+        }
+        Map<String, String> dbProperties = db.getDbProperties().getProperties();
+        if (dbProperties == null) {
+            return properties;
+        }
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return properties;
     }
 
     private void analyzeEngineName() throws AnalysisException {

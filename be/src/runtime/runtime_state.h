@@ -112,6 +112,7 @@ public:
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
+    // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
@@ -146,6 +147,10 @@ public:
         return _process_status;
     }
 
+    bool enable_faster_float_convert() const {
+        return _query_options.__isset.faster_float_convert && _query_options.faster_float_convert;
+    }
+
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
 
@@ -165,7 +170,8 @@ public:
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        LOG_WARNING("Task {} is cancelled, msg: {}", print_id(_fragment_instance_id),
+                    Status::Error<ErrorCode::CANCELLED>(msg));
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -341,10 +347,7 @@ public:
         return _query_options.__isset.skip_delete_bitmap && _query_options.skip_delete_bitmap;
     }
 
-    bool enable_page_cache() const {
-        return !config::disable_storage_page_cache &&
-               (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
-    }
+    bool enable_page_cache() const;
 
     int partitioned_hash_join_rows_threshold() const {
         if (!_query_options.__isset.partitioned_hash_join_rows_threshold) {

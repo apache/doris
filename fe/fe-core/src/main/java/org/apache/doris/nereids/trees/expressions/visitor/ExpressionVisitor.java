@@ -56,6 +56,8 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
+import org.apache.doris.nereids.trees.expressions.MatchPhrasePrefix;
+import org.apache.doris.nereids.trees.expressions.MatchRegexp;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -63,12 +65,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
@@ -116,6 +118,10 @@ public abstract class ExpressionVisitor<R, C>
         WindowFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
+
+    public R visitProperties(Properties properties, C context) {
+        return visit(properties, context);
+    }
 
     @Override
     public R visitAggregateFunction(AggregateFunction aggregateFunction, C context) {
@@ -403,15 +409,11 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitVirtualReference(VirtualSlotReference virtualSlotReference, C context) {
-        return visit(virtualSlotReference, context);
+        return visitSlotReference(virtualSlotReference, context);
     }
 
     public R visitVariableDesc(VariableDesc variableDesc, C context) {
         return visit(variableDesc, context);
-    }
-
-    public R visitTVFProperties(TVFProperties tvfProperties, C context) {
-        return visit(tvfProperties, context);
     }
 
     public R visitInterval(Interval interval, C context) {
@@ -452,6 +454,14 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitMatchPhrase(MatchPhrase matchPhrase, C context) {
         return visitMatch(matchPhrase, context);
+    }
+
+    public R visitMatchPhrasePrefix(MatchPhrasePrefix matchPhrasePrefix, C context) {
+        return visitMatch(matchPhrasePrefix, context);
+    }
+
+    public R visitMatchRegexp(MatchRegexp matchRegexp, C context) {
+        return visitMatch(matchRegexp, context);
     }
 
     /* ********************************************************************************************

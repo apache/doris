@@ -13,20 +13,21 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN](store_sales.ss_promo_sk = promotion.p_promo_sk)
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------------hashJoin[INNER_JOIN](store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[store_sales]
-----------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](store_sales.ss_cdemo_sk = customer_demographics.cd_demo_sk)
 ------------------------------PhysicalProject
---------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W')(cast(cd_education_status as VARCHAR(*)) = 'College')(cast(cd_gender as VARCHAR(*)) = 'F'))
-----------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------PhysicalOlapScan[store_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((customer_demographics.cd_gender = 'F')(customer_demographics.cd_marital_status = 'W')(customer_demographics.cd_education_status = 'College'))
+------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_year = 2001))
 --------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
+--------------------------filter(((promotion.p_channel_email = 'N') OR (promotion.p_channel_event = 'N')))
 ----------------------------PhysicalOlapScan[promotion]
 ------------------PhysicalDistribute
 --------------------PhysicalProject

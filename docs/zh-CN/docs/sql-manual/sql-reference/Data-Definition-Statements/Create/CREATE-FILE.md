@@ -45,7 +45,7 @@ CREATE FILE
 
 ```sql
 CREATE FILE "file_name" [IN database]
-        [properties]
+PROPERTIES("key"="value", ...)
 ```
 
 说明：

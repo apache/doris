@@ -197,3 +197,15 @@ end_time=$(date +%s)
 echo "End time: $(date)"
 
 echo "Finish load tpcds data, Time taken: $((end_time - start_time)) seconds"
+echo '============================================'
+echo "analyze database ${DB}"
+run_sql() {
+    echo "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+}
+start=$(date +%s)
+run_sql "analyze database ${DB} with sync;"
+end=$(date +%s)
+analyzeTime=$((end - start))
+echo "analyze database ${DB} with sync total time: ${analyzeTime} s"
+echo '============================================'

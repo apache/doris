@@ -139,6 +139,9 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
+    // Only for iceberg reader to sanitize invalid column names
+    void iceberg_sanitize(const std::vector<std::string>& read_columns);
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
@@ -240,8 +243,6 @@ private:
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
-    // should turn off filtering by page index and lazy read if having complex type
-    bool _has_complex_type = false;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;

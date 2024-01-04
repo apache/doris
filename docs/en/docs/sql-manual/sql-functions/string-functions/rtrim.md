@@ -1,6 +1,6 @@
 ---
 {
-    "title": "rtrim",
+    "title": "RTRIM",
     "language": "en"
 }
 ---

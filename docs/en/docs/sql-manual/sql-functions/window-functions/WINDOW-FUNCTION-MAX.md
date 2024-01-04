@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MAX",
+    "title": "WINDOW_FUNCTION_MAX",
     "language": "en"
 }
 ---

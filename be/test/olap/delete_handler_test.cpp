@@ -100,6 +100,7 @@ static void tear_down() {
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
+    request->partition_id = 10004;
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -185,6 +186,7 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
 
 static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10009;
+    request->partition_id = 10010;
     request->__set_version(1);
     request->tablet_schema.schema_hash = 270068376;
     request->tablet_schema.short_key_column_count = 2;
@@ -909,6 +911,16 @@ protected:
         tablet->add_rowset(rowset);
     }
 
+    std::vector<RowsetMetaSharedPtr> get_delete_predicates() {
+        std::vector<RowsetMetaSharedPtr> delete_preds;
+        for (auto&& rs_meta : tablet->tablet_meta()->_rs_metas) {
+            if (rs_meta->has_delete_predicate()) {
+                delete_preds.push_back(rs_meta);
+            }
+        }
+        return delete_preds;
+    }
+
     std::string _tablet_path;
     RowCursor _data_row_cursor;
     TabletSharedPtr tablet;
@@ -929,7 +941,7 @@ TEST_F(TestDeleteHandler, ValueWithQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    auto res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
     _delete_handler.finalize();
 }
@@ -942,7 +954,7 @@ TEST_F(TestDeleteHandler, ValueWithoutQuote) {
 
     add_delete_predicate(del_predicate, 2);
 
-    auto res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    auto res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
     _delete_handler.finalize();
 }
@@ -1016,7 +1028,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     add_delete_predicate(del_pred_4, 5);
 
     // Get delete conditions which version <= 5
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 5);
+    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 5);
     EXPECT_EQ(Status::OK(), res);
     _delete_handler.finalize();
 }
@@ -1048,7 +1060,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     add_delete_predicate(del_pred, 2);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
     // 构造一行测试数据
@@ -1133,7 +1145,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     add_delete_predicate(del_pred_3, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
     std::vector<string> data_str;
@@ -1196,7 +1208,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
+    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
     EXPECT_EQ(Status::OK(), res);
 
     // 构造一行测试数据

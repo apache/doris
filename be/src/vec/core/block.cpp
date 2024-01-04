@@ -172,6 +172,9 @@ void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
 
 void Block::clear_names() {
     index_by_name.clear();
+    for (auto& entry : data) {
+        entry.name.clear();
+    }
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {

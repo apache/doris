@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 
@@ -70,7 +71,7 @@ public abstract class JdbcClient {
     protected final ConcurrentHashMap<String, String> lowerTableToRealTable = new ConcurrentHashMap<>();
 
     private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
-    private final AtomicBoolean tableNamesLoaded = new AtomicBoolean(false);
+    private final ConcurrentHashMap<String, AtomicBoolean> tableNamesLoadedMap = new ConcurrentHashMap<>();
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -131,17 +132,18 @@ public abstract class JdbcClient {
             dataSource.setUrl(jdbcUrl);
             dataSource.setUsername(jdbcUser);
             dataSource.setPassword(password);
-            dataSource.setMinIdle(1);
-            dataSource.setInitialSize(1);
-            dataSource.setMaxActive(100);
-            dataSource.setTimeBetweenEvictionRunsMillis(600000);
-            dataSource.setMinEvictableIdleTimeMillis(300000);
+            dataSource.setMinIdle(Config.jdbc_min_pool_size > 0 ? 1 : 0);
+            dataSource.setInitialSize(Config.jdbc_min_pool_size);
+            dataSource.setMaxActive(Config.jdbc_max_pool_size);
+            dataSource.setTimeBetweenEvictionRunsMillis(Config.jdbc_max_idle_time * 2L);
+            dataSource.setMinEvictableIdleTimeMillis(Config.jdbc_max_idle_time);
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(5000);
+            dataSource.setMaxWait(Config.jdbc_max_wait_time);
+            dataSource.setKeepAlive(Config.jdbc_keep_alive);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
@@ -382,7 +384,8 @@ public abstract class JdbcClient {
     }
 
     private void loadTableNamesIfNeeded(String dbName) {
-        if (tableNamesLoaded.compareAndSet(false, true)) {
+        AtomicBoolean isLoaded = tableNamesLoadedMap.computeIfAbsent(dbName, k -> new AtomicBoolean(false));
+        if (isLoaded.compareAndSet(false, true)) {
             getTablesNameList(dbName);
         }
     }

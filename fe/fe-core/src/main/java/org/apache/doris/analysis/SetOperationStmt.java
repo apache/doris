@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -485,7 +486,7 @@ public class SetOperationStmt extends QueryStmt {
         List<Pair<Type, Boolean>> selectTypeWithNullable = operands.get(0).getQueryStmt().getResultExprs().stream()
                 .map(expr -> Pair.of(expr.getType(), expr.isNullable())).collect(Collectors.toList());
         for (int i = 1; i < operands.size(); i++) {
-            for (int j = 1; j < selectTypeWithNullable.size(); j++) {
+            for (int j = 0; j < selectTypeWithNullable.size(); j++) {
                 if (selectTypeWithNullable.get(j).first.isDecimalV2()
                         && operands.get(i).getQueryStmt().getResultExprs().get(j).getType().isDecimalV2()) {
                     selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV2Type(
@@ -497,6 +498,21 @@ public class SetOperationStmt extends QueryStmt {
                     selectTypeWithNullable.get(j).first = ScalarType.getAssignmentCompatibleDecimalV3Type(
                             (ScalarType) selectTypeWithNullable.get(j).first,
                             (ScalarType) operands.get(i).getQueryStmt().getResultExprs().get(j).getType());
+                }
+                if (selectTypeWithNullable.get(j).first.isStringType()
+                        && operands.get(i).getQueryStmt().getResultExprs().get(j).getType().isStringType()) {
+                    if (selectTypeWithNullable.get(j).first.getPrimitiveType() == PrimitiveType.STRING
+                            || operands.get(i).getQueryStmt().getResultExprs().get(j).getType().getPrimitiveType()
+                            == PrimitiveType.STRING) {
+                        selectTypeWithNullable.get(j).first = ScalarType.createStringType();
+                    } else if (selectTypeWithNullable.get(j).first.getLength() < 0
+                            || operands.get(i).getQueryStmt().getResultExprs().get(j).getType().getLength() < 0) {
+                        selectTypeWithNullable.get(j).first = ScalarType.createVarcharType();
+                    } else {
+                        int length = Math.max(selectTypeWithNullable.get(j).first.getLength(),
+                                operands.get(i).getQueryStmt().getResultExprs().get(j).getType().getLength());
+                        selectTypeWithNullable.get(j).first = ScalarType.createVarchar(length);
+                    }
                 }
             }
         }

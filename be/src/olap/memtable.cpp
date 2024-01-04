@@ -67,6 +67,7 @@ using namespace ErrorCode;
 MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
+                   PartialUpdateInfo* partial_update_info,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
                    const std::shared_ptr<MemTracker>& flush_mem_tracker)
         : _tablet(std::move(tablet)),
@@ -96,8 +97,11 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _num_columns = _tablet_schema->num_columns();
-    if (_tablet_schema->is_partial_update()) {
-        _num_columns = _tablet_schema->partial_input_column_size();
+    if (partial_update_info != nullptr) {
+        _is_partial_update = partial_update_info->is_partial_update;
+        if (_is_partial_update) {
+            _num_columns = partial_update_info->partial_update_input_columns.size();
+        }
     }
 }
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -201,7 +205,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
             _init_agg_functions(&target_block);
         }
         if (_tablet_schema->has_sequence_col()) {
-            if (_tablet_schema->is_partial_update()) {
+            if (_is_partial_update) {
                 // for unique key partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
                 for (size_t i = 0; i < cloneBlock.columns(); i++) {
@@ -374,7 +378,7 @@ void MemTable::_aggregate() {
     auto& block_data = in_block.get_columns_with_type_and_name();
     std::vector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
-    RowInBlock* prev_row;
+    RowInBlock* prev_row = nullptr;
     int row_pos = -1;
     //only init agg if needed
     for (int i = 0; i < _row_in_blocks.size(); i++) {
@@ -421,6 +425,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
@@ -430,18 +436,15 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }
 
 bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
-    if (_tablet_schema->is_partial_update()) {
-        auto update_columns_size = _tablet_schema->partial_input_column_size();
+    if (_is_partial_update) {
+        auto update_columns_size = _num_columns;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
         max_size = max_size > 1048576 ? max_size : 1048576;
     }
@@ -451,11 +454,6 @@ bool MemTable::need_flush() const {
 bool MemTable::need_agg() const {
     if (_keys_type == KeysType::AGG_KEYS) {
         auto max_size = config::write_buffer_size_for_agg;
-        if (_tablet_schema->is_partial_update()) {
-            auto update_columns_size = _tablet_schema->partial_input_column_size();
-            max_size = max_size * update_columns_size / _tablet_schema->num_columns();
-            max_size = max_size > 1048576 ? max_size : 1048576;
-        }
         return memory_usage() >= max_size;
     }
     return false;
@@ -530,7 +528,7 @@ Status MemTable::_do_flush() {
         // Unfold variant column
         RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     }
-    if (!_tablet_schema->is_partial_update()) {
+    if (!_is_partial_update) {
         ctx.generate_delete_bitmap = [this](size_t segment_id) {
             return _generate_delete_bitmap(segment_id);
         };

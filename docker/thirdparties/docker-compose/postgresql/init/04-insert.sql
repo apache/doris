@@ -2656,6 +2656,13 @@ insert into catalog_pg_test.test12 values
 insert into catalog_pg_test.test12 values
 (2, '980dd890-f7fe-4fff-999d-873516108b2e');
 
+insert into catalog_pg_test.test_all_types values
+(1, 'abc', 'def', '2022-10-11', 1, 2, 3, '2022-10-22 10:59:59', 34.123, cast(0 as bit), 12.123456, '10.16.10.14','10.16.10.14','ff:ff:ff:ff:ff:AA',
+'1010101010', cast(10 as bit(5)), 1, '{"id":1}', '(1,1)', '{1,1,1}', '(1,1),(2,2)', '(1,1),(2,2)', '(1,1),(2,2),(2,1)',
+'((1,1),(2,2),(2,1))', '<(0,0),1>'),
+(2, null, null, null, null, null, null, null, null, null, null, null, null, null,
+null, null, 2, null, null, null, null, null, null, null, null);
+
 INSERT INTO catalog_pg_test.wkb_test (location) SELECT ST_AsBinary(ST_GeomFromText('POLYGON((0 0,0 1,1 1,1 0,0 0))',4326));
 
 INSERT INTO catalog_pg_test.dt_test (ts_field, tzt_field)

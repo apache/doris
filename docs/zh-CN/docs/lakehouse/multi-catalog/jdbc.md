@@ -35,6 +35,13 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris、SAP HANA、Trino/Presto、OceanBase
 
+## 语法
+    
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## 参数说明
 
 | 参数                      | 必须 | 默认值  | 说明                                                                                          |
@@ -198,6 +205,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | FLOAT                                     | FLOAT          |                                                 |
 | DOUBLE                                    | DOUBLE         |                                                 |
 | DECIMAL                                   | DECIMAL        |                                                 |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | 如果p+1>38, 将使用Doris STRING类型        |
 | DATE                                      | DATE           |                                                 |
 | TIMESTAMP                                 | DATETIME       |                                                 |
 | DATETIME                                  | DATETIME       |                                                 |
@@ -588,6 +596,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
 :::
 
+### 查看 JDBC Catalog
+
+可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
+
+```sql
+SHOW CATALOGS;
+```
+
+通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### 删除 JDBC Catalog
+
+可以通过 DROP CATALOG 删除某个 Catalog：
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### 查询 JDBC Catalog
+
+1. 通过 SWITCH 切换当前会话生效的 Catalog：
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. 通过 USE 切换当前会话生效的 Database：
+
+    ```sql
+    USE <database_name>;
+    ```
+
+    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
+
+4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
 ## 常见问题
 
 1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse,SAP HANA,Trino/Presto,OceanBase 是否能够支持更多的数据库
@@ -621,13 +697,20 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     SET NAMES utf8mb4
     ```
 
-3. 读 MySQL 外表时，DateTime="0000:00:00 00:00:00"异常报错: "CAUSED BY: DataReadException: Zero date value prohibited"
+3. 读取 MySQL date/datetime 类型出现异常
 
-    这是因为JDBC中对于该非法的DateTime默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
-    
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+
+    这是因为JDBC中对于该非法的 Date/DateTime 默认处理为抛出异常，可以通过参数 `zeroDateTimeBehavior`控制该行为。
+
     可选参数为: `EXCEPTION`,`CONVERT_TO_NULL`,`ROUND`, 分别为：异常报错，转为NULL值，转为 "0001-01-01 00:00:00";
-    
-    可在url中添加: `"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?zeroDateTimeBehavior=convertToNull"`
+
+    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    这种情况下，JDBC 会把 0000-00-00 或者 0000-00-00 00:00:00 转换成 null，然后 Doris 会把当前 Catalog 的所有 Date/DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
 
 4. 读取 MySQL 外表或其他外表时，出现加载类失败
 
@@ -666,16 +749,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
 
-6. 查询MYSQL的数据库报OutOfMemoryError的错误
-
-    为减少内存的使用，在获取结果集时，每次仅获取batchSize的大小，这样一批一批的获取结果。而MYSQL默认是一次将结果全部加载到内存，
-    设置的按批获取无法生效，需要主动显示的在URL中指定:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true"
-
-7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
-
-    如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。
-
-8. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
+6. 使用JDBC查询MYSQL大数据量时，如果查询偶尔能够成功，偶尔会报如下错误，且出现该错误时MYSQL的连接被全部断开，无法连接到MYSQL SERVER，过段时间后mysql又恢复正常，但是之前的连接都没了：
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = [INTERNAL_ERROR]UdfRuntimeException: JDBC executor sql has error:
@@ -685,7 +759,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 
     出现上述现象时，可能是Mysql Server自身的内存或CPU资源被耗尽导致Mysql服务不可用，可以尝试增大Mysql Server的内存或CPU配置。
  
-9. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
+7. 使用JDBC查询MYSQL的过程中，如果发现和在MYSQL库的查询结果不一致的情况
 
     首先要先排查下查询字段中是字符串否存在有大小写情况。比如，Table中有一个字段c_1中有"aaa"和"AAA"两条数据，如果在初始化MYSQL数据库时未指定区分字符串
     大小写，那么MYSQL默认是不区分字符串大小写的，但是在Doris中是严格区分大小写的，所以会出现以下情况：
@@ -704,7 +778,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
     character-set-server=UTF-8 和 collation-server=utf8_bin。
 
-10. 读取 SQLServer 出现通信链路异常
+8. 读取 SQLServer 出现通信链路异常
 
     ```
     ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[CANCELLED][INTERNAL_ERROR]UdfRuntimeException: Initialize datasource failed:
@@ -715,24 +789,14 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `encrypt=false` ,如 `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
 
-11. 读取 MySQL datetime 类型出现异常
-
-    ```
-    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
-    CAUSED BY: SQLException: Zero date value prohibited
-    CAUSED BY: DataReadException: Zero date value prohibited
-    ```
-    
-    这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
-    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
-    这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
-
-12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
+9. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
 
-    从 2.0.2 版本起，可以将这个文件放置在BE的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
+    从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。
 
-13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+10. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
     
     可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
+
+    从 2.0.2 版本起，可以将这个文件放置在 FE 和 BE 的 `custom_lib/` 目录下（如不存在，手动创建即可），以防止升级集群时因为 lib 目录被替换而导致文件丢失。

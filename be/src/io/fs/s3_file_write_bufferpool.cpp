@@ -17,6 +17,7 @@
 
 #include "s3_file_write_bufferpool.h"
 
+#include <chrono>
 #include <cstring>
 
 #include "common/config.h"
@@ -40,7 +41,7 @@ void S3FileBuffer::on_finished() {
 // when there is memory preserved, directly write data to buf
 // TODO:(AlexYue): write to file cache otherwise, then we'll wait for free buffer
 // and to rob it
-void S3FileBuffer::append_data(const Slice& data) {
+Status S3FileBuffer::append_data(const Slice& data) {
     Defer defer {[&] { _size += data.get_size(); }};
     while (true) {
         // if buf is not empty, it means there is memory preserved for this buf
@@ -50,9 +51,14 @@ void S3FileBuffer::append_data(const Slice& data) {
         } else {
             // wait allocate buffer pool
             auto tmp = S3FileBufferPool::GetInstance()->allocate(true);
+            if (tmp->get_size() == 0) {
+                return Status::InternalError("Failed to allocate s3 writer buffer for {} seconds",
+                                             config::s3_writer_buffer_allocation_timeout_second);
+            }
             rob_buffer(tmp);
         }
     }
+    return Status::OK();
 }
 
 void S3FileBuffer::submit() {
@@ -81,13 +87,17 @@ void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write
 
 std::shared_ptr<S3FileBuffer> S3FileBufferPool::allocate(bool reserve) {
     std::shared_ptr<S3FileBuffer> buf = std::make_shared<S3FileBuffer>(_thread_pool);
+    int64_t timeout = config::s3_writer_buffer_allocation_timeout_second;
     // if need reserve then we must ensure return buf with memory preserved
     if (reserve) {
         {
             std::unique_lock<std::mutex> lck {_lock};
-            _cv.wait(lck, [this]() { return !_free_raw_buffers.empty(); });
-            buf->reserve_buffer(_free_raw_buffers.front());
-            _free_raw_buffers.pop_front();
+            _cv.wait_for(lck, std::chrono::seconds(timeout),
+                         [this]() { return !_free_raw_buffers.empty(); });
+            if (!_free_raw_buffers.empty()) {
+                buf->reserve_buffer(_free_raw_buffers.front());
+                _free_raw_buffers.pop_front();
+            }
         }
         return buf;
     }

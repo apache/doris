@@ -209,6 +209,9 @@ void ParquetReader::_close_internal() {
 }
 
 Status ParquetReader::_open_file() {
+    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+        return Status::EndOfFile("stop");
+    }
     if (_file_reader == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
@@ -291,6 +294,12 @@ void ParquetReader::_init_file_description() {
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
+    }
+}
+
+void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    if (_file_metadata != nullptr) {
+        _file_metadata->iceberg_sanitize(read_columns);
     }
 }
 
@@ -404,7 +413,7 @@ Status ParquetReader::set_fill_columns(
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
         PrimitiveType column_type = schema.get_column(read_col)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
-            _has_complex_type = true;
+            _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col);
@@ -438,7 +447,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat &&
+    if (!_lazy_read_ctx.has_complex_type && _enable_lazy_mat &&
         _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
@@ -501,9 +510,11 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
-        if (_read_row_groups.size() > 0) {
-            RETURN_IF_ERROR(_next_row_group_reader());
-        } else {
+        Status st = _next_row_group_reader();
+        if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
+            return st;
+        }
+        if (_current_group_reader == nullptr || _row_group_eof || st.is<ErrorCode::END_OF_FILE>()) {
             _current_group_reader.reset(nullptr);
             _row_group_eof = true;
             *read_rows = 0;
@@ -511,7 +522,6 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
             return Status::OK();
         }
     }
-    DCHECK(_current_group_reader != nullptr);
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
 
@@ -534,6 +544,13 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         Status batch_st =
                 _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+        if (batch_st.is<ErrorCode::END_OF_FILE>()) {
+            block->clear_column_data();
+            _current_group_reader.reset(nullptr);
+            *read_rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
         if (!batch_st.ok()) {
             return Status::InternalError("Read parquet file {} failed, reason = {}",
                                          _scan_range.path, batch_st.to_string());
@@ -730,6 +747,9 @@ bool ParquetReader::_has_page_index(const std::vector<tparquet::ColumnChunk>& co
 
 Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                                           std::vector<RowRange>& candidate_row_ranges) {
+    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+        return Status::EndOfFile("stop");
+    }
     SCOPED_RAW_TIMER(&_statistics.page_index_filter_time);
 
     std::function<void()> read_whole_row_group = [&]() {
@@ -737,7 +757,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
+    if (_lazy_read_ctx.has_complex_type || _lazy_read_ctx.conjuncts.empty() ||
         _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();

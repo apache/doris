@@ -153,6 +153,7 @@ public class PartitionRange {
         public boolean init(Type type, String str) {
             switch (type.getPrimitiveType()) {
                 case DATE:
+                case DATEV2:
                     try {
                         date = Date.from(
                                 LocalDate.parse(str, df10).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());

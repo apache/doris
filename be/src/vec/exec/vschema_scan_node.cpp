@@ -297,7 +297,8 @@ void VSchemaScanNode::debug_string(int indentation_level, std::stringstream* out
     }
 }
 
-Status VSchemaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+Status VSchemaScanNode::set_scan_ranges(RuntimeState* state,
+                                        const std::vector<TScanRangeParams>& scan_ranges) {
     return Status::OK();
 }
 

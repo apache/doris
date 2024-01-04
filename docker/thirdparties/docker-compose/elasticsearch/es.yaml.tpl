@@ -94,3 +94,7 @@ services:
 
 networks:
   doris--es:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.36.0.0/24

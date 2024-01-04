@@ -20,7 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -65,8 +65,8 @@ public class ResultFileSink extends DataSink {
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
         this(exchNodeId, outFileClause);
-        if (outFileClause.getHeaderType().equals(FeConstants.csv_with_names)
-                || outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
+        if (outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                || outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
             header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
         }
         headerType = outFileClause.getHeaderType();

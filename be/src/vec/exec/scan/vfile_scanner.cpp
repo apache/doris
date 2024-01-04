@@ -136,6 +136,8 @@ Status VFileScanner::prepare(
             ADD_TIMER(_parent->_scanner_profile, "FileScannerConvertOuputBlockTime");
     _empty_file_counter = ADD_COUNTER(_parent->_scanner_profile, "EmptyFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_parent->_scanner_profile, "FileNumber", TUnit::UNIT);
+    _has_fully_rf_file_counter =
+            ADD_COUNTER(_parent->_scanner_profile, "HasFullyRfFileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -175,7 +177,9 @@ Status VFileScanner::prepare(
 }
 
 Status VFileScanner::_process_conjuncts_for_dict_filter() {
-    for (auto& conjunct : _conjuncts) {
+    _slot_id_to_filter_conjuncts.clear();
+    _not_single_slot_filter_conjuncts.clear();
+    for (auto& conjunct : _push_down_conjuncts) {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto cur_expr = impl ? impl : conjunct->root();
@@ -199,6 +203,22 @@ Status VFileScanner::_process_conjuncts_for_dict_filter() {
         } else {
             _not_single_slot_filter_conjuncts.emplace_back(conjunct);
         }
+    }
+    return Status::OK();
+}
+
+Status VFileScanner::_process_late_arrival_conjuncts() {
+    if (_push_down_conjuncts.size() < _conjuncts.size()) {
+        _push_down_conjuncts.clear();
+        _push_down_conjuncts.resize(_conjuncts.size());
+        for (size_t i = 0; i != _conjuncts.size(); ++i) {
+            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
+        }
+        RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
+        _discard_conjuncts();
+    }
+    if (_applied_rf_num == _total_rf_num) {
+        COUNTER_UPDATE(_has_fully_rf_file_counter, 1);
     }
     return Status::OK();
 }
@@ -398,7 +418,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status VFileScanner::_fill_columns_from_path(size_t rows) {
-    for (auto& kv : *_partition_columns) {
+    for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
@@ -417,7 +437,7 @@ Status VFileScanner::_fill_missing_columns(size_t rows) {
     }
 
     SCOPED_TIMER(_fill_missing_columns_timer);
-    for (auto& kv : *_missing_columns) {
+    for (auto& kv : _missing_col_descs) {
         if (kv.second == nullptr) {
             // no default column, fill with null
             auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
@@ -638,7 +658,7 @@ Status VFileScanner::_get_next_reader() {
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size()) {
+        if (_next_range >= _ranges.size() || _should_stop) {
             _scanner_eof = true;
             _state->update_num_finished_scan_range(1);
             return Status::OK();
@@ -666,13 +686,13 @@ Status VFileScanner::_get_next_reader() {
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
-            if (_real_tuple_desc->table_desc()->table_type() ==
-                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
-                const MaxComputeTableDescriptor* mc_desc =
-                        static_cast<const MaxComputeTableDescriptor*>(
-                                _real_tuple_desc->table_desc());
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "max_compute") {
+                const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
+                        _real_tuple_desc->table_desc());
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
-                        mc_desc, _file_slot_descs, range, _state, _profile);
+                        mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
+                        range, _state, _profile);
                 init_status = mc_reader->init_reader(_colname_to_value_range);
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
@@ -703,12 +723,8 @@ Status VFileScanner::_get_next_reader() {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
             }
-            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
-                _push_down_conjuncts.resize(_conjuncts.size());
-                for (size_t i = 0; i != _conjuncts.size(); ++i) {
-                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-                }
-                _discard_conjuncts();
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
@@ -739,12 +755,8 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
-                _push_down_conjuncts.resize(_conjuncts.size());
-                for (size_t i = 0; i != _conjuncts.size(); ++i) {
-                    RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
-                }
-                _discard_conjuncts();
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "transactional_hive") {
@@ -850,9 +862,8 @@ Status VFileScanner::_get_next_reader() {
 }
 
 Status VFileScanner::_generate_fill_columns() {
-    _partition_columns.reset(
-            new std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>());
-    _missing_columns.reset(new std::unordered_map<std::string, VExprContextSPtr>());
+    _partition_col_descs.clear();
+    _missing_col_descs.clear();
 
     const TFileRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.columns_from_path && !_partition_slot_descs.empty()) {
@@ -869,8 +880,8 @@ Status VFileScanner::_generate_fill_columns() {
                 if (size == 4 && memcmp(data, "null", 4) == 0) {
                     data = TextConverter::NULL_STR;
                 }
-                _partition_columns->emplace(slot_desc->col_name(),
-                                            std::make_tuple(data, slot_desc));
+                _partition_col_descs.emplace(slot_desc->col_name(),
+                                             std::make_tuple(data, slot_desc));
             }
         }
     }
@@ -889,16 +900,11 @@ Status VFileScanner::_generate_fill_columns() {
                 return Status::InternalError("failed to find default value expr for slot: {}",
                                              slot_desc->col_name());
             }
-            _missing_columns->emplace(slot_desc->col_name(), it->second);
+            _missing_col_descs.emplace(slot_desc->col_name(), it->second);
         }
     }
 
-    RETURN_IF_ERROR(_cur_reader->set_fill_columns(*_partition_columns, *_missing_columns));
-    if (_cur_reader->fill_all_columns()) {
-        _partition_columns.reset(nullptr);
-        _missing_columns.reset(nullptr);
-    }
-    return Status::OK();
+    return _cur_reader->set_fill_columns(_partition_col_descs, _missing_col_descs);
 }
 
 Status VFileScanner::_init_expr_ctxes() {
@@ -1017,10 +1023,6 @@ Status VFileScanner::_init_expr_ctxes() {
     _is_dynamic_schema =
             _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
 
-    // TODO: It should can move to scan node to process.
-    if (!_conjuncts.empty()) {
-        _process_conjuncts_for_dict_filter();
-    }
     return Status::OK();
 }
 
@@ -1040,6 +1042,13 @@ Status VFileScanner::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::try_stop() {
+    VScanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 } // namespace doris::vectorized

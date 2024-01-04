@@ -186,7 +186,7 @@ export DB='tpch1'
 ```shell
 sh create-tpch-tables.sh
 ```
-或者复制 [create-tpch-tables.sql](https://github.com/apache/doris/tree/master/tools/tpch-tools/ddl/create-tpch-tables.sql) 中的建表语句，在 Doris 中执行。
+或者复制 [create-tpch-tables.sql](https://github.com/apache/doris/blob/master/tools/tpch-tools/ddl/create-tpch-tables-sf100.sql) 中的建表语句，在 Doris 中执行。
 
 
 ### 7.4 导入数据

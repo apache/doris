@@ -220,7 +220,7 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
-    pos += 2 * sizeof(array_size);
+    pos += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
         pos = get_keys().deserialize_and_insert_from_arena(pos);
@@ -432,14 +432,45 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+void ColumnMap::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnMap&>(column);
 
-    // Make a temp column array for reusing its replicate function
-    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
-    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
+    auto keys_array =
+            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable());
+
+    auto result_array = ColumnArray::create(res.keys_column->assume_mutable(),
+                                            res.offsets_column->assume_mutable());
+    keys_array->replicate(indices, target_size, result_array->assume_mutable_ref());
+
+    result_array = ColumnArray::create(res.values_column->assume_mutable(),
+                                       res.offsets_column->clone_empty());
+
+    auto values_array =
+            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable());
+
+    /// FIXME: To reuse the replicate of ColumnArray, the offsets column was replicated twice
+    values_array->replicate(indices, target_size, result_array->assume_mutable_ref());
+}
+
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
+
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
+    }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
 }
 
 void ColumnMap::reserve(size_t n) {
@@ -449,9 +480,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {

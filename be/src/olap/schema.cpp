@@ -180,6 +180,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_JSONB:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
             ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(
                     field.type());
@@ -200,7 +201,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
         ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
     default:
-        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
+        throw Exception(ErrorCode::SCHEMA_SCHEMA_FIELD_INVALID,
+                        fmt::format("Unexpected type when choosing predicate column, type={}",
+                                    int(field.type())));
     }
 
     if (field.is_nullable()) {

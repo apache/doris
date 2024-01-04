@@ -6,7 +6,7 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------filter((if(( not (avg_monthly_sales = 0.0000)), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1))
+------------filter((if(( not (avg_monthly_sales = 0.0000)), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort
 ------------------PhysicalDistribute
@@ -18,13 +18,14 @@ PhysicalResultSink
 ------------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-------------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales]
---------------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
 ----------------------------------------PhysicalProject
-------------------------------------------filter(((i_category IN ('Jewelry', 'Shoes', 'Electronics') AND i_class IN ('semi-precious', 'athletic', 'portable')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'rock', 'maternity'))))
---------------------------------------------PhysicalOlapScan[item]
+------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter(((i_category IN ('Jewelry', 'Shoes', 'Electronics') AND i_class IN ('semi-precious', 'athletic', 'portable')) OR (i_category IN ('Men', 'Music', 'Women') AND i_class IN ('accessories', 'rock', 'maternity'))))
+----------------------------------------------PhysicalOlapScan[item]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_year = 1999))

@@ -181,7 +181,7 @@ public class DateTimeLiteral extends DateLiteral {
 
     @Override
     public String toSql() {
-        return toString();
+        return String.format("'%s'", toString());
     }
 
     @Override

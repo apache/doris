@@ -230,7 +230,8 @@ public class ExportJob implements Writable {
         this.parallelNum = stmt.getParallelNum();
         this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
-        this.timeoutSecond = sessionVariables.getQueryTimeoutS();
+        this.timeoutSecond = stmt.getTimeout();
+        this.sessionVariables.setQueryTimeoutS(this.timeoutSecond);
 
         this.qualifiedUser = stmt.getQualifiedUser();
         this.userIdentity = stmt.getUserIdentity();
@@ -365,7 +366,11 @@ public class ExportJob implements Writable {
             }
             ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
             start += tabletsNum;
-            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null, tablets,
+            // Since export does not support the alias, here we pass the null value.
+            // we can not use this.tableRef.getAlias(),
+            // because the constructor of `Tableref` will convert this.tableRef.getAlias()
+            // into lower case when lower_case_table_names = 1
+            TableRef tblRef = new TableRef(this.tableRef.getName(), null, null, tablets,
                     this.tableRef.getTableSample(), this.tableRef.getCommonHints());
             ArrayList<TableRef> tableRefList = Lists.newArrayList();
             tableRefList.add(tblRef);

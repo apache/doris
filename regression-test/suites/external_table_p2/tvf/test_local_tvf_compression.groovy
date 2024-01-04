@@ -35,12 +35,14 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
     sql """set enable_nereids_planner=true"""
     sql """set enable_fallback_to_original_planner=false"""
 
+    def column_separator = ","
     String compress_type = "gz" 
     qt_gz_1 """
     select * from local(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5  limit 12;            
     """
     
@@ -49,6 +51,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") where c1="1" order by c1,c2,c3,c4,c5  limit 12;            
     """
 
@@ -60,6 +63,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 15;            
     """
     qt_bz2_2 """
@@ -67,6 +71,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") order by cast(c4 as date),c1 limit 15;            
     """
 
@@ -80,6 +85,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}FRAME") order by c1,c2,c3,c4,c5 limit 20;            
     """
     qt_lz4_2 """
@@ -87,6 +93,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}FRAME")  where c2!="abcsdasdsadsad"  order by cast(c1 as int),c2,c3  limit 20;            
     """
 
@@ -98,6 +105,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 12 ;            
     """
     qt_deflate_2 """ 
@@ -105,6 +113,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}") group by c4 order by c4 limit 12 ;            
     """ 
    
@@ -116,6 +125,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}block") order by c1,c2,c3,c4,c5  limit 22 ;            
     """    
     qt_snappy_2 """ 
@@ -123,6 +133,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator"="${column_separator}",
         "compress_type" ="${compress_type}block") where c2="abcd" order by c3 limit 22 ;            
     """
 
@@ -132,6 +143,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         select count(*) from local(
             "file_path" = "../be.out",
             "backend_id" = "${be_id}",
+            "column_separator"="${column_separator}",
             "format" = "csv")
         where c1 like "%FE type%";
         """
@@ -144,6 +156,7 @@ suite("test_local_tvf_compression", "p2,external,tvf,external_remote,external_re
         select count(*) from local(
             "file_path" = "./xx.out",
             "backend_id" = "${be_id}",
+            "column_separator"="${column_separator}",
             "format" = "csv")
         where c1 like "%FE type%";
         """

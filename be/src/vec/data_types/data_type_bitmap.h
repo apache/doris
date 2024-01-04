@@ -30,6 +30,7 @@
 #include "serde/data_type_bitmap_serde.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -57,7 +58,9 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::BitMap; }
 
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_OBJECT; }
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_OBJECT);
+    }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::OBJECT;
     }
@@ -90,7 +93,12 @@ public:
     bool can_be_inside_low_cardinality() const override { return false; }
 
     std::string to_string(const IColumn& column, size_t row_num) const override {
-        return "BitMap()";
+        auto result = check_column_const_set_readability(column, row_num);
+        ColumnPtr ptr = result.first;
+        row_num = result.second;
+
+        const auto& data = assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num);
+        return data.to_string();
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
@@ -105,8 +113,8 @@ public:
 
     static void deserialize_as_stream(BitmapValue& value, BufferReadable& buf);
 
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeBitMapSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeBitMapSerDe>(nesting_level);
     };
 };
 

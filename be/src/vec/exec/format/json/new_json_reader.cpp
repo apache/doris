@@ -320,7 +320,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_json_doc->IsArray()) {
         if (_json_doc->Size() == 0) {
             // may be passing an empty json, such as "[]"
-            return Status::InternalError("Empty first json line");
+            return Status::InternalError<false>("Empty first json line");
         }
         objectValue = &(*_json_doc)[0];
     } else {
@@ -351,7 +351,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status NewJsonReader::_get_range_params() {
     if (!_params.__isset.file_attributes) {
-        return Status::InternalError("BE cat get file_attributes");
+        return Status::InternalError<false>("BE cat get file_attributes");
     }
 
     // get line_delimiter
@@ -918,7 +918,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
             auto end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
             wbytes = end - tmp_buf;
         } else {
-            return Status::InternalError("It should not here.");
+            return Status::InternalError<false>("It should not here.");
         }
         str_value = tmp_buf;
         break;
@@ -1069,7 +1069,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         break;
     }
     default: {
-        return Status::NotSupported("no supported file reader type: {}", _params.file_type);
+        return Status::NotSupported<false>("no supported file reader type: {}", _params.file_type);
     }
     }
     return Status::OK();

@@ -167,7 +167,7 @@ Default：100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
-### `grpc_threadmgr_threads_nums`
+#### `grpc_threadmgr_threads_nums`
 
 Default: 4096
 
@@ -376,6 +376,18 @@ Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
 
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+
 ### Service
 
 #### `query_port`
@@ -383,6 +395,12 @@ Whether to enable the multi-tags function of a single BE
 Default：9030
 
 FE MySQL server port
+
+#### `arrow_flight_sql_port`
+
+Default：-1
+
+Arrow Flight SQL server port
 
 #### `frontend_address`
 
@@ -430,14 +448,6 @@ If set to ture, doris will establish an encrypted channel based on the SSL proto
 Default：1024
 
 Maximal number of connections per FE.
-
-#### `max_connection_scheduler_threads_num`
-
-Default：4096
-
-Maximal number of thread in connection-scheduler-pool.
-
-The current strategy is to apply for a separate thread for service when there is a request
 
 #### `check_java_version`
 
@@ -504,7 +514,7 @@ The number of threads responsible for Task events.
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FE starts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -547,7 +557,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hours）
+Default：3600  （1 hour）
 
 IsMutable：true
 
@@ -666,44 +676,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 10K
-
-#### `enable_tracing`
-
-Default：false
-
-IsMutable：false
-
-MasterOnly：false
-
-Whether to enable tracking
-
-If this configuration is enabled, you should also specify the trace_export_url.
-
-#### `trace_exporter`
-
-Default：zipkin
-
-IsMutable：false
-
-MasterOnly：false
-
-Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
-If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
-
-#### `trace_export_url`
-
-Default：`http://127.0.0.1:9411/api/v2/spans`
-
-IsMutable：false
-
-MasterOnly：false
-
-trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
-
-trace export to collector like: `http://127.0.0.1:4318/v1/traces`
+http header size configuration parameter, the default value is 1M.
 
 ### Query Engine
 
@@ -729,7 +702,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
 
 #### `dynamic_partition_enable`
 
@@ -757,13 +730,22 @@ Decide how often to check dynamic partition
 
 Default：4096
 
-IsMutable：false
+IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
-
+Use this parameter to set the partition name prefix for multi partition,Only multi partition takes effect, not dynamic partitions. The default prefix is "p_".
 </version>
+
+#### `multi_partition_name_prefix`
+
+Default：p_
+
+IsMutable：true
+
+MasterOnly：true
+
+Use this parameter to set the partition name prefix for multi partition, Only multi partition takes effect, not dynamic partitions.The default prefix is "p_".
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -1807,20 +1789,6 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing
 
-#### `recover_with_skip_missing_version`
-
-Default：disable
-
-IsMutable：true
-
-MasterOnly：true
-
-In some scenarios, there is an unrecoverable metadata problem in the cluster, and the visibleVersion of the data does not match be. In this case, it is still necessary to restore the remaining data (which may cause problems with the correctness of the data). This configuration is the same as` recover_with_empty_tablet` should only be used in emergency situations
-This configuration has three values:
-* disable : If an exception occurs, an error will be reported normally.
-* ignore_version: ignore the visibleVersion information recorded in fe partition, use replica version
-* ignore_all: In addition to ignore_version, when encountering no queryable replica, skip it directly instead of throwing an exception
-
 #### `min_clone_task_timeout_sec` `And max_clone_task_timeout_sec`
 
 Default：Minimum 3 minutes, maximum two hours
@@ -2619,23 +2587,23 @@ Whether to enable the quantile_state data type
 
 #### `enable_date_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
+FE will convert date/datetime to datev2/datetimev2(0) automatically.
 
 #### `enable_decimal_conversion`
 
-Default：false
+Default：true
 
 IsMutable：true
 
 MasterOnly：true
 
-If set to TRUE, FE will convert DecimalV2 to DecimalV3 automatically.
+FE will convert DecimalV2 to DecimalV3 automatically.
 
 #### `proxy_auth_magic_prefix`
 
@@ -2759,8 +2727,20 @@ Default：true
 
 Temporary configuration option. After it is enabled, a background thread will be started to automatically modify all olap tables to light schema change. The modification results can be viewed through the command `show convert_light_schema_change [from db]`, and the conversion results of all non-light schema change tables will be displayed.
 
+#### `disable_local_deploy_manager_drop_node`
+
+Default：true
+
+Forbid LocalDeployManager drop nodes to prevent errors in the cluster.info file from causing nodes to be dropped.
+
 #### `mysqldb_replace_name`
 
 Default: mysql
 
 To ensure compatibility with the MySQL ecosystem, Doris includes a built-in database called mysql. If this database conflicts with a user's own database, please modify this field to replace the name of the Doris built-in MySQL database with a different name.
+
+#### `max_auto_partition_num`
+
+Default value: 2000
+
+For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000.

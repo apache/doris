@@ -283,10 +283,9 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
         return res;
     }
-    RowsetSharedPtr new_rowset = rs_writer->build();
-    if (new_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("failed to build rowset when rename rowset id");
-    }
+    RowsetSharedPtr new_rowset;
+    RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
+                                   "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     org_rowset->remove();
@@ -433,10 +432,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                           << ref_tablet->tablet_id();
                 Version version(request.start_version, request.end_version);
                 const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, false);
-                if (rowset != nullptr) {
+                if (rowset && rowset->is_local()) {
                     consistent_rowsets.push_back(rowset);
                 } else {
-                    LOG(WARNING) << "failed to find version when do compaction snapshot. "
+                    LOG(WARNING) << "failed to find local version when do compaction snapshot. "
                                  << " tablet=" << request.tablet_id
                                  << " schema_hash=" << request.schema_hash
                                  << " version=" << version;

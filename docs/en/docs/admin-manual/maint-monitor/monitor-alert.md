@@ -230,7 +230,7 @@ Prometheus
 
 	Start Grafana with the following command
 
-	`nohuo ./bin/grafana-server &`
+	`nohup ./bin/grafana-server &`
 
 	This command runs Grafana in the background, and the access port is 8182 configured above.
 

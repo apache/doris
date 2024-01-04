@@ -119,15 +119,19 @@ public class JdbcMySQLClient extends JdbcClient {
         List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
         // if isLowerCaseTableNames == true, tableName is lower case
         // but databaseMetaData.getColumns() is case sensitive
+        String currentDbName = dbName;
+        String currentTableName = tableName;
         if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
+            currentDbName = getRealDatabaseName(dbName);
+            currentTableName = getRealTableName(dbName, tableName);
         }
+        String finalDbName = currentDbName;
+        String finalTableName = currentTableName;
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
-            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
+            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, finalDbName, finalTableName);
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
                 JdbcFieldSchema field = new JdbcFieldSchema();
@@ -140,7 +144,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 if (isDoris) {
-                    mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
+                    mapFieldtoType = getColumnsDataTypeUseQuery(finalDbName, finalTableName);
                     field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
                 }
                 field.setKey(primaryKeys.contains(field.getColumnName()));
@@ -162,7 +166,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
                 Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
@@ -265,6 +269,9 @@ public class JdbcMySQLClient extends JdbcClient {
             case "BIGINT":
                 return Type.BIGINT;
             case "DATE":
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME": {

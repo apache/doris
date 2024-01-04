@@ -94,9 +94,9 @@ suite("ds_rf57") {
         }
     }
     
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.57"
-    // File file = new File(outFile)
-    // file.write(getRuntimeFilters(plan))
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.57"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF2[cc_call_center_sk->[cs_call_center_sk],RF1[i_item_sk->[cs_item_sk],RF0[d_date_sk->[cs_sold_date_sk]", getRuntimeFilters(plan))
+    assertEquals("RF2[cc_call_center_sk->[cs_call_center_sk],RF1[i_item_sk->[cs_item_sk],RF0[d_date_sk->[cs_sold_date_sk]", getRuntimeFilters(plan))
 }

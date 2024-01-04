@@ -28,7 +28,27 @@ under the License.
 
 ### Description
 
+In Doris, the `SHOW COLLATION` command is used to display the character set collations available in the database. A collation is a set of rules that determine how data is sorted and compared. These rules affect the storage and retrieval of character data. Doris currently mainly supports the proofreading method utf8_general_ci.
+
+The `SHOW COLLATION` command returns the following fields:
+
+* Collation: The collation name
+* Charset: The character set
+* Id: The collation's ID
+* Default: Whether this is the default collation for the character set
+* Compiled: Whether the collation is compiled
+* Sortlen: Sort length
+
 ### Example
+
+```sql
+mysql> show collation;
++-----------------+---------+------+---------+----------+---------+
+| Collation       | Charset | Id   | Default | Compiled | Sortlen |
++-----------------+---------+------+---------+----------+---------+
+| utf8_general_ci | utf8    |   33 | Yes     | Yes      |       1 |
++-----------------+---------+------+---------+----------+---------+
+```
 
 ### Keywords
 
@@ -36,3 +56,4 @@ under the License.
 
 ### Best Practice
 
+Use the `SHOW COLLATION` command to give you an idea of the collations available in the database and their properties. This information can help ensure that your character data is sorted and compared as expected. If you have problems comparing or sorting characters, it can be helpful to check your collation settings to make sure they are what you expect.

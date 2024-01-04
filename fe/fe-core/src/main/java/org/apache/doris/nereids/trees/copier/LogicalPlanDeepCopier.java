@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -160,11 +161,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalOlapScan newOlapScan;
         if (olapScan.getManuallySpecifiedPartitions().isEmpty()) {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
-                    olapScan.getTable(), olapScan.getQualifier(), olapScan.getHints(), olapScan.getTableSample());
+                    olapScan.getTable(), olapScan.getQualifier(), olapScan.getSelectedTabletIds(),
+                    olapScan.getHints(), olapScan.getTableSample());
         } else {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                     olapScan.getTable(), olapScan.getQualifier(),
-                    olapScan.getManuallySpecifiedPartitions(), olapScan.getHints(), olapScan.getTableSample());
+                    olapScan.getManuallySpecifiedPartitions(), olapScan.getSelectedTabletIds(),
+                    olapScan.getHints(), olapScan.getTableSample());
         }
         newOlapScan.getOutput();
         context.putRelation(olapScan.getRelationId(), newOlapScan);
@@ -203,7 +206,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             return context.getRelationReplaceMap().get(fileScan.getRelationId());
         }
         LogicalFileScan newFileScan = new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
-                fileScan.getTable(), fileScan.getQualifier());
+                fileScan.getTable(), fileScan.getQualifier(), fileScan.getTableSample());
         updateReplaceMapWithOutput(fileScan, newFileScan, context.exprIdReplaceMap);
         context.putRelation(fileScan.getRelationId(), newFileScan);
         Set<Expression> conjuncts = fileScan.getConjuncts().stream()
@@ -234,6 +237,18 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         updateReplaceMapWithOutput(jdbcScan, newJdbcScan, context.exprIdReplaceMap);
         context.putRelation(jdbcScan.getRelationId(), newJdbcScan);
         return newJdbcScan;
+    }
+
+    @Override
+    public Plan visitLogicalOdbcScan(LogicalOdbcScan odbcScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(odbcScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(odbcScan.getRelationId());
+        }
+        LogicalOdbcScan newOdbcScan = new LogicalOdbcScan(StatementScopeIdGenerator.newRelationId(),
+                odbcScan.getTable(), odbcScan.getQualifier());
+        updateReplaceMapWithOutput(odbcScan, newOdbcScan, context.exprIdReplaceMap);
+        context.putRelation(odbcScan.getRelationId(), newOdbcScan);
+        return newOdbcScan;
     }
 
     @Override
@@ -460,4 +475,5 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             replaceMap.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
         }
     }
+
 }

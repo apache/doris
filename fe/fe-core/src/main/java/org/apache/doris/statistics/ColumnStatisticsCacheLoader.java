@@ -17,9 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.qe.InternalQueryExecutionException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
@@ -27,33 +27,46 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy;
 
 public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatisticsCacheLoader.class);
 
+    private static final ThreadPoolExecutor singleThreadPool = ThreadPoolManager.newDaemonFixedThreadPool(
+            StatisticConstants.RETRY_LOAD_THREAD_POOL_SIZE,
+            StatisticConstants.RETRY_LOAD_QUEUE_SIZE, "STATS_RELOAD",
+            true,
+            new DiscardOldestPolicy());
+
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
         // Load from statistics table.
-        Optional<ColumnStatistic> columnStatistic = loadFromStatsTable(key.tableId,
-                key.idxId, key.colName);
+        Optional<ColumnStatistic> columnStatistic = loadFromStatsTable(key);
         if (columnStatistic.isPresent()) {
             return columnStatistic;
         }
         // Load from data source metadata
         try {
-            TableIf table = Env.getCurrentEnv().getCatalogMgr().getCatalog(key.catalogId)
-                    .getDbOrMetaException(key.dbId).getTableOrMetaException(key.tableId);
+            TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
             columnStatistic = table.getColumnStatistic(key.colName);
         } catch (Exception e) {
-            LOG.warn(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
+            LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
                     key.catalogId, key.dbId, key.tableId), e);
         }
         return columnStatistic;
     }
 
-    private Optional<ColumnStatistic> loadFromStatsTable(long tableId, long idxId, String colName) {
-        List<ResultRow> columnResults = StatisticsRepository.loadColStats(tableId, idxId, colName);
+    private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
+        List<ResultRow> columnResults = null;
+        try {
+            columnResults = StatisticsRepository.loadColStats(key.tableId, key.idxId, key.colName);
+        } catch (InternalQueryExecutionException e) {
+            LOG.info("Failed to load stats for table {} column {}. Reason:{}",
+                    key.tableId, key.colName, e.getMessage());
+            return Optional.empty();
+        }
         ColumnStatistic columnStatistics;
         try {
             columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);

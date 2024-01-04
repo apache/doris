@@ -3,8 +3,8 @@
 1	\N
 2	{}
 3	{"  33,amory  ":2, " bet ":20, " cler ":26}
-4	{"k3":23, NULL:20, "k4":NULL}
-5	{NULL:NULL}
+4	{"k3":23, null:20, "k4":null}
+5	{null:null}
 
 -- !select_count --
 4

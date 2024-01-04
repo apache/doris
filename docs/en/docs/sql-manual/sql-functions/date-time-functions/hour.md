@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hour",
+    "title": "HOUR",
     "language": "en"
 }
 ---

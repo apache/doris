@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalogs_tvf") {
+suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
     List<List<Object>> table =  sql """ select * from catalogs(); """
     assertTrue(table.size() > 0)
     assertEquals(5, table[0].size)
@@ -68,4 +68,12 @@ suite("test_catalogs_tvf") {
     qt_create """ select CatalogName,CatalogType,Property,Value from catalogs() where CatalogName in ("catalog_test_es00","catalog_test_hive00") and Property="type" order by Value"""
     
     sql """ drop catalog catalog_test_es00 """
+
+    // test exception
+    test {
+        sql """ select * from catalogs("Host" = "127.0.0.1"); """
+
+        // check exception
+        exception "catalogs table-valued-function does not support any params"
+    }
 }

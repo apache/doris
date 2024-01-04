@@ -206,7 +206,11 @@ public class ExportExportingTask extends MasterTask {
             // cancel all executor
             if (isFailed) {
                 for (int idx = 0; idx < parallelNum; ++idx) {
-                    job.getStmtExecutor(idx).cancel();
+                    //if tablet version changed, we don't need to execute task, so stmtExecutor is null,
+                    //and there is no need to cancel it.
+                    if (null != job.getStmtExecutor(idx)) {
+                        job.getStmtExecutor(idx).cancel();
+                    }
                 }
             }
             exportExecPool.shutdownNow();

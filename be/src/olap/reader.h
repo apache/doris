@@ -90,6 +90,12 @@ class TabletReader {
     };
 
 public:
+    struct ReadSource {
+        std::vector<RowSetSplits> rs_splits;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // Fill delete predicates with `rs_splits`
+        void fill_delete_predicates();
+    };
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
@@ -101,6 +107,11 @@ public:
                     rs_splits[0].rs_reader->rowset()->rowset_meta()->num_rows() == 0 &&
                     rs_splits[1].rs_reader->rowset()->start_version() == 2 &&
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
+        }
+
+        void set_read_source(ReadSource read_source) {
+            rs_splits = std::move(read_source.rs_splits);
+            delete_predicates = std::move(read_source.delete_predicates);
         }
 
         TabletSharedPtr tablet;
@@ -126,9 +137,9 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
 
+        std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
-        std::vector<RowSetSplits> rs_splits;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;

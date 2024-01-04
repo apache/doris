@@ -209,6 +209,11 @@ public class Replica implements Writable {
         return this.backendId;
     }
 
+    // just for ut
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
     public long getDataSize() {
         return dataSize;
     }
@@ -435,9 +440,9 @@ public class Replica implements Writable {
 
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
-            if (lastFailedVersion > this.lastFailedVersion) {
+            if (lastFailedVersion > this.lastFailedVersion || lastFailedVersion < 0) {
                 this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedTimestamp = System.currentTimeMillis();
+                this.lastFailedTimestamp = lastFailedVersion > 0 ? System.currentTimeMillis() : -1L;
             }
 
             this.lastSuccessVersion = this.version;
@@ -504,10 +509,6 @@ public class Replica implements Writable {
             return false;
         }
         return true;
-    }
-
-    public void setLastFailedVersion(long lastFailedVersion) {
-        this.lastFailedVersion = lastFailedVersion;
     }
 
     public void setState(ReplicaState replicaState) {

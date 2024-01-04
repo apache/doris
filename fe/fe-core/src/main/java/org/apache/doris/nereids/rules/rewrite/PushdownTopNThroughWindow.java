@@ -59,7 +59,7 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 return topn.withChildren(newWindow.get());
-            }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_WINDOW),
+            }).toRule(RuleType.PUSH_TOP_N_THROUGH_WINDOW),
 
             // topn -> projection -> window
             logicalTopN(logicalProject(logicalWindow())).then(topn -> {
@@ -79,7 +79,7 @@ public class PushdownTopNThroughWindow implements RewriteRuleFactory {
                     return topn;
                 }
                 return topn.withChildren(project.withChildren(newWindow.get()));
-            }).toRule(RuleType.PUSHDOWN_TOP_N_THROUGH_PROJECTION_WINDOW)
+            }).toRule(RuleType.PUSH_TOP_N_THROUGH_PROJECT_WINDOW)
         );
     }
 

@@ -26,7 +26,7 @@ under the License.
 
 # Partition Cache
 
-## Demand scenario
+## Demand Scenarios
 
 In most data analysis scenarios, write less and read more. Data is written once and read frequently. For example, the dimensions and indicators involved in a report are calculated at one time in the early morning, but there are hundreds or even thousands of times every day. page access, so it is very suitable for caching the result set. In data analysis or BI applications, the following business scenarios exist:
 
@@ -50,7 +50,7 @@ This partitioned caching strategy can solve the above problems, giving priority 
 - Implemented two caching strategies, SQLCache and PartitionCache, the latter has a finer cache granularity
 - Use consistent hashing to solve the problem of BE nodes going online and offline. The caching algorithm in BE is an improved LRU
 
-## SQLCache
+## SQL Cache
 
 SQLCache stores and retrieves the cache according to the SQL signature, the partition ID of the queried table, and the latest version of the partition. The combination of the three determines a cached data set. If any one changes, such as SQL changes, such as query fields or conditions are different, or the version changes after the data is updated, the cache will not be hit.
 
@@ -58,7 +58,7 @@ If multiple tables are joined, use the latest updated partition ID and the lates
 
 SQLCache is more suitable for T+1 update scenarios. Data is updated in the early morning. The results obtained from the BE for the first query are put into the cache, and subsequent identical queries are obtained from the cache. Real-time update data can also be used, but there may be a problem of low hit rate. You can refer to the following PartitionCache.
 
-## PartitionCache
+## Partition Cache
 
 ### Design Principles
 
@@ -147,13 +147,13 @@ Partition cache is suitable for partitioning by date, some partitions are update
 
 Partition fields can also be other fields, but need to ensure that only a small number of partition updates.
 
-### Some restrictions
+### Some Restrictions
 
 - Only OlapTable is supported, other tables such as MySQL have no version information and cannot sense whether the data is updated
 - Only supports grouping by partition field, does not support grouping by other fields, grouping by other fields, the grouped data may be updated, which will cause the cache to be invalid
 - Only the first half of the result set, the second half of the result set and all cache hits are supported, and the result set is not supported to be divided into several parts by the cached data
 
-## How to use
+## How to Use
 
 > NOTE:
 >
@@ -180,7 +180,7 @@ MySQL [(none)]> set [global] enable_sql_cache=true;
 
 Note: global is a global variable, not referring to the current session variable
 
-### Enable PartitionCache
+### Enable Partition Cache
 
 Make sure cache_enable_partition_mode=true in fe.conf (default is true)
 
@@ -234,7 +234,7 @@ Partition average data size = cache_memory_total / cache_partition_total
 
 Other monitoring: You can view the CPU and memory indicators of the BE node, the Query Percentile and other indicators in the Query statistics from Grafana, and adjust the Cache parameters to achieve business goals.
 
-### Optimization parameters
+### Optimization Parameters
 
 The configuration item cache_result_max_row_count of FE, the maximum number of rows in the cache for the query result set, FE configuration item cache_result_max_data_size, the maximum data size of the query result set put into the cache, can be adjusted according to the actual situation, but it is recommended not to set it too large to avoid taking up too much memory, and the result set exceeding this size will not be cached.
 
