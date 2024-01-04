@@ -32,7 +32,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv6StringToNum
+ * scalar function ipv6_string_to_num
  */
 public class Ipv6StringToNum extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -42,13 +42,13 @@ public class Ipv6StringToNum extends ScalarFunction
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
 
     public Ipv6StringToNum(Expression arg0) {
-        super("ipv6stringtonum", arg0);
+        super("ipv6_string_to_num", arg0);
     }
 
     @Override
     public Ipv6StringToNum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv6stringtonum accept 1 args, but got %s (%s)",
+                "ipv6_string_to_num accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new Ipv6StringToNum(children.get(0));

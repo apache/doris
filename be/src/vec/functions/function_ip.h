@@ -464,15 +464,19 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         }
 
         if (null_map && (*null_map)[i]) {
-            std::fill_n(&vec_res[out_offset], offset_inc, 0);
-            src_offset = src_next_offset;
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            if (exception_mode == IPStringToNumExceptionMode::Throw) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
+            } else if (exception_mode == IPStringToNumExceptionMode::Default) {
+                std::fill_n(&vec_res[out_offset], offset_inc, 0);
+            } else {
+                std::fill_n(&vec_res[out_offset], offset_inc, 0);
                 (*vec_null_map_to)[i] = true;
                 if constexpr (std::is_same_v<ToColumn, ColumnString>) {
                     auto* column_string = assert_cast<ColumnString*>(col_res.get());
                     column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
                 }
             }
+            src_offset = src_next_offset;
             continue;
         }
 
@@ -541,10 +545,10 @@ template <IPStringToNumExceptionMode exception_mode>
 class FunctionIPv6StringToNum : public IFunction {
 public:
     static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
-                                         ? "ipv6stringtonum"
+                                         ? "ipv6_string_to_num"
                                          : (exception_mode == IPStringToNumExceptionMode::Default
-                                                    ? "ipv6stringtonumordefault"
-                                                    : "ipv6stringtonumornull");
+                                                    ? "ipv6_string_to_num_or_default"
+                                                    : "ipv6_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNum<exception_mode>>();
@@ -569,7 +573,7 @@ public:
             return make_nullable(result_type);
         }
 
-        return arguments[0]->is_nullable() ? make_nullable(result_type) : result_type;
+        return result_type;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -577,11 +581,14 @@ public:
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
+
         if (column->is_nullable()) {
             const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
             column = column_nullable->get_nested_column_ptr();
-            null_map_column = column_nullable->get_null_map_column_ptr();
-            null_map = &column_nullable->get_null_map_data();
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                null_map_column = column_nullable->get_null_map_column_ptr();
+                null_map = &column_nullable->get_null_map_data();
+            }
         }
 
         auto col_res = convertToIPv6<exception_mode, ColumnString>(column, null_map);

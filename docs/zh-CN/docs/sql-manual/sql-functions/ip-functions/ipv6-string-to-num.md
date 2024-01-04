@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv6StringToNum
+## IPV6_STRING_TO_NUM
 
 <version since="dev">
 
-IPv6StringToNum
+IPV6_STRING_TO_NUM
 
 </version>
 
@@ -34,7 +34,7 @@ IPv6StringToNum
 
 #### Syntax
 
-`VARCHAR IPv6StringToNum(VARCHAR ipv6_string)`
+`VARCHAR IPV6_STRING_TO_NUM(VARCHAR ipv6_string)`
 
 IPv6NumToString 的反向函数，它接受一个 IP 地址字符串并返回二进制格式的 IPv6 地址。
 如果输入字符串包含有效的 IPv4 地址，则返回其等效的 IPv6 地址。
@@ -45,26 +45,26 @@ IPv6NumToString 的反向函数，它接受一个 IP 地址字符串并返回二
 
 ### example
 ```
-mysql> select hex(ipv6stringtonum('1111::ffff'));
-+------------------------------------+
-| hex(ipv6stringtonum('1111::ffff')) |
-+------------------------------------+
-| 1111000000000000000000000000FFFF   |
-+------------------------------------+
+mysql> select hex(ipv6_string_to_num('1111::ffff'));
++---------------------------------------+
+| hex(ipv6_string_to_num('1111::ffff')) |
++---------------------------------------+
+| 1111000000000000000000000000FFFF      |
++---------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> select hex(ipv6stringtonum('192.168.0.1'));
-+-------------------------------------+
-| hex(ipv6stringtonum('192.168.0.1')) |
-+-------------------------------------+
-| 00000000000000000000FFFFC0A80001    |
-+-------------------------------------+
+mysql> select hex(ipv6_string_to_num('192.168.0.1'));
++----------------------------------------+
+| hex(ipv6_string_to_num('192.168.0.1')) |
++----------------------------------------+
+| 00000000000000000000FFFFC0A80001       |
++----------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> select hex(ipv6stringtonum('notaaddress'));
+mysql> select hex(ipv6_string_to_num('notaaddress'));
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Invalid IPv6 value
 ```
 
 ### keywords
 
-IPV6STRINGTONUM, IP
+IPV6_STRING_TO_NUM, IP

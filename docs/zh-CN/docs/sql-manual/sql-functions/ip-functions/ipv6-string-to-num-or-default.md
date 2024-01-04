@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv6StringToNumOrDefault
+## IPV6_STRING_TO_NUM_OR_DEFAULT
 
 <version since="dev">
 
-IPv6StringToNumOrDefault
+IPV6_STRING_TO_NUM_OR_DEFAULT
 
 </version>
 
@@ -34,7 +34,7 @@ IPv6StringToNumOrDefault
 
 #### Syntax
 
-`VARCHAR IPv6StringToNumOrDefault(VARCHAR ipv6_string)`
+`VARCHAR IPV6_STRING_TO_NUM_OR_DEFAULT(VARCHAR ipv6_string)`
 
 IPv6NumToString 的反向函数，它接受一个 IP 地址字符串并返回二进制格式的 IPv6 地址。
 如果输入字符串包含有效的 IPv4 地址，则返回其等效的 IPv6 地址。
@@ -45,31 +45,31 @@ IPv6NumToString 的反向函数，它接受一个 IP 地址字符串并返回二
 
 ### example
 ```
-mysql> select hex(ipv6stringtonumordefault('1111::ffff'));
-+---------------------------------------------+
-| hex(ipv6stringtonumordefault('1111::ffff')) |
-+---------------------------------------------+
-| 1111000000000000000000000000FFFF            |
-+---------------------------------------------+
+mysql> select hex(ipv6_string_to_num_or_default('1111::ffff'));
++--------------------------------------------------+
+| hex(ipv6_string_to_num_or_default('1111::ffff')) |
++--------------------------------------------------+
+| 1111000000000000000000000000FFFF                 |
++--------------------------------------------------+
 1 row in set (0.01 sec)
 
-mysql> select hex(ipv6stringtonumordefault('192.168.0.1'));
-+----------------------------------------------+
-| hex(ipv6stringtonumordefault('192.168.0.1')) |
-+----------------------------------------------+
-| 00000000000000000000FFFFC0A80001             |
-+----------------------------------------------+
+mysql> select hex(ipv6_string_to_num_or_default('192.168.0.1'));
++---------------------------------------------------+
+| hex(ipv6_string_to_num_or_default('192.168.0.1')) |
++---------------------------------------------------+
+| 00000000000000000000FFFFC0A80001                  |
++---------------------------------------------------+
 1 row in set (0.02 sec)
 
-mysql> select hex(ipv6stringtonumordefault('notaaddress'));
-+----------------------------------------------+
-| hex(ipv6stringtonumordefault('notaaddress')) |
-+----------------------------------------------+
-| 00000000000000000000000000000000             |
-+----------------------------------------------+
+mysql> select hex(ipv6_string_to_num_or_default('notaaddress'));
++---------------------------------------------------+
+| hex(ipv6_string_to_num_or_default('notaaddress')) |
++---------------------------------------------------+
+| 00000000000000000000000000000000                  |
++---------------------------------------------------+
 1 row in set (0.02 sec)
 ```
 
 ### keywords
 
-IPV6STRINGTONUMORDEFAULT, IP
+IPV6_STRING_TO_NUM_OR_DEFAULT, IP
