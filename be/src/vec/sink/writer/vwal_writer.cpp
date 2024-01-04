@@ -38,8 +38,6 @@ VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id,
 VWalWriter::~VWalWriter() {}
 
 Status VWalWriter::init() {
-    RETURN_IF_ERROR(_wal_manager->create_wal_writer(_wal_id, _wal_writer));
-    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WalStatus::CREATE);
 #ifndef BE_TEST
     if (config::group_commit_wait_replay_wal_finish) {
         std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
@@ -50,6 +48,8 @@ Status VWalWriter::init() {
         }
     }
 #endif
+    RETURN_IF_ERROR(_create_wal_writer(_wal_id, _wal_writer));
+    _wal_manager->add_wal_queue(_tb_id, _wal_id);
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
         if (slot_desc.col_unique_id < 0) {
@@ -82,6 +82,14 @@ Status VWalWriter::close() {
     if (_wal_writer != nullptr) {
         RETURN_IF_ERROR(_wal_writer->finalize());
     }
+    return Status::OK();
+}
+
+Status VWalWriter::_create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer) {
+    std::string wal_path;
+    RETURN_IF_ERROR(_wal_manager->get_wal_path(wal_id, wal_path));
+    wal_writer = std::make_shared<WalWriter>(wal_path);
+    RETURN_IF_ERROR(wal_writer->init());
     return Status::OK();
 }
 } // namespace vectorized

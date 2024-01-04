@@ -19,6 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "gutil/strings/split.h"
 #include "http/action/http_stream.h"
 #include "http/action/stream_load.h"
 #include "http/ev_http_server.h"
@@ -33,12 +34,11 @@
 #include "runtime/plan_fragment_executor.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/exec/format/wal/wal_reader.h"
 
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {
     _http_stream_action = std::make_shared<HttpStreamAction>(exec_env);
 }
 WalTable::~WalTable() {}
@@ -63,7 +63,8 @@ void WalTable::_pick_relay_wals() {
         if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
                          << ", wal=" << it->first << ", retry_num=" << wal_info->get_retry_num();
-            auto st = _rename_to_tmp_path(it->first);
+            auto st = _exec_env->wal_mgr()->rename_to_tmp_path(it->first, _table_id,
+                                                               wal_info->get_wal_id());
             if (!st.ok()) {
                 LOG(WARNING) << "rename " << it->first << " fail"
                              << ",st:" << st.to_string();
@@ -124,7 +125,7 @@ Status WalTable::_relay_wal_one_by_one() {
         }
     }
     for (auto delete_wal_info : need_delete_wals) {
-        auto st = _delete_wal(delete_wal_info->get_wal_id());
+        auto st = _exec_env->wal_mgr()->delete_wal(_table_id, delete_wal_info->get_wal_id());
         if (!st.ok()) {
             LOG(WARNING) << "fail to delete wal " << delete_wal_info->get_wal_path();
         }
@@ -151,33 +152,6 @@ Status WalTable::replay_wals() {
                << ", wal size=" << _replay_wal_map.size();
     _pick_relay_wals();
     RETURN_IF_ERROR(_relay_wal_one_by_one());
-    return Status::OK();
-}
-
-Status WalTable::_rename_to_tmp_path(const std::string wal) {
-    io::Path wal_path = wal;
-    std::list<std::string> path_element;
-    for (int i = 0; i < 3; ++i) {
-        if (!wal_path.has_parent_path()) {
-            return Status::InternalError("parent path is not enough when rename " + wal);
-        }
-        path_element.push_front(wal_path.filename().string());
-        wal_path = wal_path.parent_path();
-    }
-    wal_path.append(_exec_env->wal_mgr()->tmp);
-    for (auto path : path_element) {
-        wal_path.append(path);
-    }
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_path.parent_path(), &exists));
-    if (!exists) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_path.parent_path()));
-    }
-    auto res = std::rename(wal.c_str(), wal_path.string().c_str());
-    if (res < 0) {
-        return Status::InternalError("rename fail on path " + wal);
-    }
-    LOG(INFO) << "rename wal from " << wal << " to " << wal_path.string();
     return Status::OK();
 }
 
@@ -217,10 +191,9 @@ Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
 
 Status WalTable::_replay_wal_internal(const std::string& wal) {
     LOG(INFO) << "Start replay wal for db=" << _db_id << ", table=" << _table_id << ", wal=" << wal;
-    std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
-    RETURN_IF_ERROR(_parse_wal_path(wal, pair));
-    auto wal_id = pair->first;
-    auto label = pair->second;
+    int64_t wal_id = 0;
+    std::string label = "";
+    RETURN_IF_ERROR(_parse_wal_path(wal, wal_id, label));
 #ifndef BE_TEST
     if (!config::group_commit_wait_replay_wal_finish) {
         auto st = _try_abort_txn(_db_id, wal_id);
@@ -228,22 +201,18 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
             LOG(WARNING) << "abort txn " << wal_id << " fail";
         }
     }
-    RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
 #endif
     RETURN_IF_ERROR(_replay_one_txn_with_stremaload(wal_id, wal, label));
     return Status::OK();
 }
 
-Status WalTable::_parse_wal_path(const std::string& wal,
-                                 std::shared_ptr<std::pair<int64_t, std::string>>& pair) {
-    std::vector<std::string> path_element;
-    doris::vectorized::WalReader::string_split(wal, "/", path_element);
-    auto pos = path_element[path_element.size() - 1].find("_");
+Status WalTable::_parse_wal_path(const std::string& wal, int64_t& wal_id, std::string& label) {
+    io::Path wal_path = wal;
+    auto file_name = wal_path.filename().string();
+    auto pos = file_name.find("_");
     try {
-        int64_t wal_id = std::strtoll(path_element[path_element.size() - 1].substr(0, pos).c_str(),
-                                      NULL, 10);
-        auto label = path_element[path_element.size() - 1].substr(pos + 1);
-        pair = std::make_shared<std::pair<int64_t, std::string>>(std::make_pair(wal_id, label));
+        wal_id = std::strtoll(file_name.substr(0, pos).c_str(), NULL, 10);
+        label = file_name.substr(pos + 1);
     } catch (const std::invalid_argument& e) {
         return Status::InvalidArgument("Invalid format, {}", e.what());
     }
@@ -251,44 +220,39 @@ Status WalTable::_parse_wal_path(const std::string& wal,
 }
 
 Status WalTable::_construct_sql_str(const std::string& wal, const std::string& label,
-                                    std::string& sql_str, std::vector<size_t>& index_vector) {
+                                    std::string& sql_str) {
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
-    std::vector<std::string> column_id_element;
-    doris::vectorized::WalReader::string_split(columns, ",", column_id_element);
+    std::vector<std::string> column_id_vector =
+            strings::Split(columns, ",", strings::SkipWhitespace());
+    std::map<int64_t, std::string> column_info_map;
+    RETURN_IF_ERROR(_get_column_info(_db_id, _table_id, column_info_map));
     std::stringstream ss_name;
-    std::stringstream ss_id;
-    int index_raw = 0;
-    for (auto column_id_str : column_id_element) {
+    for (auto column_id_str : column_id_vector) {
         try {
             int64_t column_id = std::strtoll(column_id_str.c_str(), NULL, 10);
-            auto it = _column_id_info_map.find(column_id);
-            if (it != _column_id_info_map.end()) {
-                ss_name << "`" << it->second->first << "`,";
-                ss_id << "c" << std::to_string(it->second->second) << ",";
-                index_vector.emplace_back(index_raw);
+            auto it = column_info_map.find(column_id);
+            if (it != column_info_map.end()) {
+                ss_name << "`" << it->second << "`,";
             }
-            index_raw++;
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid format, {}", e.what());
         }
     }
     auto name = ss_name.str().substr(0, ss_name.str().size() - 1);
-    auto id = ss_id.str().substr(0, ss_id.str().size() - 1);
     std::stringstream ss;
     ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label << " ("
-       << name << ") select " << id << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
+       << name << ") select " << name << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
        << std::to_string(_table_id) << "\")";
     sql_str = ss.str().data();
+    LOG(INFO) << "sql_str:" << sql_str;
     return Status::OK();
 }
 
 Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
                                      const std::string& label) {
     std::string sql_str;
-    std::vector<size_t> index_vector;
-    RETURN_IF_ERROR(_construct_sql_str(wal, label, sql_str, index_vector));
-    _exec_env->wal_mgr()->add_wal_column_index(wal_id, index_vector);
+    RETURN_IF_ERROR(_construct_sql_str(wal, label, sql_str));
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->sql_str = sql_str;
     ctx->wal_id = wal_id;
@@ -310,7 +274,6 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
             st = ctx->status;
         }
     }
-    _exec_env->wal_mgr()->erase_wal_column_index(wal_id);
     LOG(INFO) << "relay wal id=" << wal_id << ",st=" << st.to_string();
     return st;
 }
@@ -339,9 +302,6 @@ void WalTable::stop() {
     do {
         {
             std::lock_guard<std::mutex> lock(_replay_wal_lock);
-            if (!this->_stop.load()) {
-                this->_stop.store(true);
-            }
             if (_replay_wal_map.empty() && _replaying_queue.empty()) {
                 break;
             }
@@ -355,10 +315,11 @@ void WalTable::stop() {
 
 size_t WalTable::size() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
-    return _replay_wal_map.size();
+    return _replay_wal_map.size() + _replaying_queue.size();
 }
 
-Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
+Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
+                                  std::map<int64_t, std::string>& column_info_map) {
     TGetColumnInfoRequest request;
     request.__set_db_id(db_id);
     request.__set_table_id(tb_id);
@@ -378,32 +339,21 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
             return status;
         }
         std::vector<TColumnInfo> column_element = result.columns;
-        int64_t column_index = 1;
-        _column_id_info_map.clear();
         for (auto column : column_element) {
             auto column_name = column.column_name;
             auto column_id = column.column_id;
-            std::shared_ptr<ColumnInfo> column_pair =
-                    std::make_shared<ColumnInfo>(std::make_pair(column_name, column_index));
-            _column_id_info_map.emplace(column_id, column_pair);
-            column_index++;
+            column_info_map.emplace(column_id, column_name);
         }
     }
     return status;
 }
 
 Status WalTable::_read_wal_header(const std::string& wal_path, std::string& columns) {
-    std::shared_ptr<doris::WalReader> wal_reader;
-    RETURN_IF_ERROR(_exec_env->wal_mgr()->create_wal_reader(wal_path, wal_reader));
+    std::shared_ptr<doris::WalReader> wal_reader = std::make_shared<WalReader>(wal_path);
+    RETURN_IF_ERROR(wal_reader->init());
     uint32_t version = 0;
     RETURN_IF_ERROR(wal_reader->read_header(version, columns));
     RETURN_IF_ERROR(wal_reader->finalize());
-    return Status::OK();
-}
-
-Status WalTable::_delete_wal(int64_t wal_id) {
-    RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
-    RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
     return Status::OK();
 }
 

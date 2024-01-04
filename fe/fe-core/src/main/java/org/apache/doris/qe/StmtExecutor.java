@@ -983,7 +983,6 @@ public class StmtExecutor {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
-
         if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
                 prepareStmt = new PrepareStmt(parsedStmt,
@@ -1022,7 +1021,6 @@ public class StmtExecutor {
                         "enable_unified_load=true, should be insert stmt");
             }
         }
-
         if (parsedStmt instanceof QueryStmt
                 || (parsedStmt instanceof InsertStmt && !((InsertStmt) parsedStmt).needLoadManager())
                 || parsedStmt instanceof CreateTableAsSelectStmt

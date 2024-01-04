@@ -330,6 +330,10 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
         }
+        auto columns = _src_block_ptr->get_columns_with_type_and_name();
+        for (auto column : columns) {
+            LOG(INFO) << "column:" << column.name << ",nullable:" << column.column->is_nullable();
+        }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
@@ -882,7 +886,7 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
-            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
