@@ -1269,7 +1269,7 @@ Spark load scheduler run interval, default 60 seconds
 
 #### `async_loading_load_task_pool_size`
 
-Default：10
+Default：12
 
 IsMutable：false
 

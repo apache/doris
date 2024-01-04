@@ -1270,7 +1270,7 @@ Spark 负载调度程序运行间隔,默认 60 秒
 
 #### `async_loading_load_task_pool_size`
 
-默认值：10
+默认值：12
 
 是否可以动态配置：false
 

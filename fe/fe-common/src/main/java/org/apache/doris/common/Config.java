@@ -641,7 +641,7 @@ public class Config extends ConfigBase {
             "The loading load task executor pool size. "
                     + "This pool size limits the max running loading load tasks.",
             "Currently, it only limits the loading load task of broker load."})
-    public static int async_loading_load_task_pool_size = 10;
+    public static int async_loading_load_task_pool_size = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "和 `tablet_create_timeout_second` 含义相同，但是是用于 Delete 操作的。",
