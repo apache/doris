@@ -294,6 +294,9 @@ public:
         return Status::NotSupported("read_by_rowids not implement");
     }
 
+    virtual Status read_by_ranges(const ordinal_t* ordinals, const size_t* counts,
+                                  size_t num_ranges, vectorized::MutableColumnPtr& dst);
+
     virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(
@@ -523,6 +526,9 @@ public:
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status read_by_ranges(const ordinal_t* ordinals, const size_t* counts, size_t num_ranges,
                           vectorized::MutableColumnPtr& dst) override;
 
     Status seek_to_first() override {

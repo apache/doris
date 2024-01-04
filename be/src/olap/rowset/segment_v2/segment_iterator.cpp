@@ -1786,6 +1786,20 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     return Status::OK();
 }
 
+Status SegmentIterator::_read_columns_by_ranges(const std::vector<ColumnId>& column_ids,
+                                                vectorized::MutableColumns& column_block,
+                                                const ordinal_t* ordinals, const size_t* counts,
+                                                size_t num_ranges) {
+    if (num_ranges > 0) {
+        for (auto cid : column_ids) {
+            auto& column = column_block[cid];
+            RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_ranges(
+                    ordinals, counts, num_ranges, column));
+        }
+    }
+    return Status::OK();
+}
+
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
@@ -1861,6 +1875,9 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
  */
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
+    if (config::enable_read_columns_batch_range) {
+        return _read_columns_by_index_batch(nrows_read_limit, nrows_read, set_block_rowid);
+    }
     SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
 
     nrows_read = _range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
@@ -1926,6 +1943,43 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     }
 
     return Status::OK();
+}
+
+Status SegmentIterator::_read_columns_by_index_batch(uint32_t nrows_read_limit,
+                                                     uint32_t& nrows_read, bool set_block_rowid) {
+    SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
+    std::vector<ordinal_t> ordinals;
+    std::vector<size_t> counts;
+    do {
+        uint32_t range_from;
+        uint32_t range_to;
+        bool has_next_range =
+                _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
+        if (!has_next_range) {
+            break;
+        }
+        if (_cur_rowid == 0 || _cur_rowid != range_from) {
+            _cur_rowid = range_from;
+            _opts.stats->block_first_read_seek_num += 1;
+        }
+        ordinals.push_back(_cur_rowid);
+        size_t rows_to_read = range_to - range_from;
+        counts.push_back(rows_to_read);
+        _cur_rowid += rows_to_read;
+        if (set_block_rowid) {
+            // Here use std::iota is better performance than for-loop, maybe for-loop is not vectorized
+            auto start = _block_rowids.data() + nrows_read;
+            auto end = start + rows_to_read;
+            std::iota(start, end, range_from);
+            nrows_read += rows_to_read;
+        } else {
+            nrows_read += rows_to_read;
+        }
+        // if _opts.read_orderby_key_reverse is true, only read one range for fast reverse purpose
+    } while (nrows_read < nrows_read_limit && !_opts.read_orderby_key_reverse);
+
+    return _read_columns_by_ranges(_first_read_column_ids, _current_return_columns, ordinals.data(),
+                                   counts.data(), ordinals.size());
 }
 
 void SegmentIterator::_replace_version_col(size_t num_rows) {

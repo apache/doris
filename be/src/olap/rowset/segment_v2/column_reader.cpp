@@ -688,6 +688,23 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
     }
 }
 
+Status ColumnIterator::read_by_ranges(const ordinal_t* ordinals, const size_t* counts,
+                                      size_t num_ranges, vectorized::MutableColumnPtr& dst) {
+    size_t total_num = 0;
+    for (size_t i = 0; i < num_ranges; ++i) {
+        total_num += counts[i];
+    }
+    dst->reserve(total_num);
+    for (size_t i = 0; i < num_ranges; ++i) {
+        RETURN_IF_ERROR(seek_to_ordinal(ordinals[i]));
+        size_t num_read = counts[i];
+        bool has_null = false;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, &has_null));
+        DCHECK(num_read == counts[i]);
+    }
+    return Status::OK();
+}
+
 ///====================== MapFileColumnIterator ============================////
 MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
                                              OffsetFileColumnIterator* offsets_iterator,
@@ -993,6 +1010,55 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
         DCHECK(num_read == 1);
     }
     return Status::OK();
+}
+
+Status ArrayFileColumnIterator::read_by_ranges(const ordinal_t* ordinals, const size_t* counts,
+                                               size_t num_ranges,
+                                               vectorized::MutableColumnPtr& dst) {
+    const auto* column_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+    auto column_offsets_ptr = column_array->get_offsets_column().assume_mutable();
+    std::vector<ordinal_t> item_ordinals;
+    item_ordinals.reserve(num_ranges);
+    std::vector<size_t> item_counts;
+    item_counts.reserve(num_ranges);
+    for (size_t i = 0; i < num_ranges; ++i) {
+        {
+            RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ordinals[i]));
+            ordinal_t offset = 0;
+            RETURN_IF_ERROR(_peek_one_offset(&offset));
+            item_ordinals.push_back(offset);
+        }
+
+        size_t num_read = counts[i];
+        bool offsets_has_null = false;
+        ssize_t start = column_offsets_ptr->size();
+        RETURN_IF_ERROR(
+                _offset_iterator->next_batch(&num_read, column_offsets_ptr, &offsets_has_null));
+        DCHECK(num_read == counts[i]);
+        auto& column_offsets =
+                static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
+        RETURN_IF_ERROR(_calculate_offsets(start, column_offsets));
+        size_t num_items = column_offsets.get_data().back() -
+                           column_offsets.get_data()[start - 1]; // -1 is valid
+        item_counts.push_back(num_items);
+    }
+
+    if (dst->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(
+                    _null_iterator->read_by_ranges(ordinals, counts, num_ranges, null_map_ptr));
+        } else {
+            null_map_ptr->insert_many_defaults(num_ranges);
+        }
+    }
+
+    auto column_items_ptr = column_array->get_data().assume_mutable();
+    return _item_iterator->read_by_ranges(item_ordinals.data(), item_counts.data(),
+                                          item_ordinals.size(), column_items_ptr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

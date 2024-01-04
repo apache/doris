@@ -1236,6 +1236,8 @@ DECLARE_mInt64(enable_debug_log_timeout_secs);
 
 DECLARE_mBool(enable_column_type_check);
 
+DECLARE_mBool(enable_read_columns_batch_range);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

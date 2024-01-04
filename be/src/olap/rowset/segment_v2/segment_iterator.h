@@ -216,8 +216,14 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        vectorized::MutableColumns& column_block, size_t nrows);
+    [[nodiscard]] Status _read_columns_by_ranges(const std::vector<ColumnId>& column_ids,
+                                                 vectorized::MutableColumns& column_block,
+                                                 const ordinal_t* ordinals, const size_t* counts,
+                                                 size_t num_ranges);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                 bool set_block_rowid);
+    [[nodiscard]] Status _read_columns_by_index_batch(uint32_t nrows_read_limit,
+                                                      uint32_t& nrows_read, bool set_block_rowid);
     void _replace_version_col(size_t num_rows);
     void _init_current_block(vectorized::Block* block,
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
