@@ -99,7 +99,7 @@ private:
         void on_closed(brpc::StreamId id) override;
 
         bool is_closed() { return _is_closed.load(); }
-        
+
         bool is_eos() { return _is_eos.load(); }
 
         Status close_wait(int64_t timeout_ms) {
@@ -112,11 +112,11 @@ private:
             if (ret != 0) {
                 return Status::InternalError(
                         "stream close_wait timeout, load_id={}, be_id={}, error={}",
-                        print_id(_load_id), _dst_id, ret);
+                        _load_id.to_string(), _dst_id, ret);
             }
             if (!_is_eos.load()) {
                 return Status::InternalError("stream closed without eos, load_id={} be_id={}",
-                                             print_id(_load_id), _dst_id);
+                                             _load_id.to_string(), _dst_id);
             }
             return Status::OK();
         };
