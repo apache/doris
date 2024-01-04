@@ -491,8 +491,8 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->add_wal_path(db_id, tb_id, wal_id,
-                                                                    import_label, _wal_base_path));
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
+            db_id, tb_id, wal_id, import_label, _wal_base_path));
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
             tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
@@ -515,7 +515,7 @@ bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
         }
     }
     if (pre_allocated < available_bytes) {
-        Status st = wal_mgr->update_wal_dir_pre_allocated(_wal_base_path, pre_allocated, true);
+        Status st = wal_mgr->update_wal_dir_pre_allocated(_wal_base_path, pre_allocated, 0);
         if (!st.ok()) {
             LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
         }

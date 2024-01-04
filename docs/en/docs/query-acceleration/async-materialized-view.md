@@ -213,4 +213,5 @@ The materialized view itself is also a Table, so it can be directly queried
 select * FROM mv1;
 ```
 
-### Transparent rewriting
+### Query rewriting by materialized view
+can be viewed [Query rewriting by materialized view](async-materialized-view/query-rewrite-summary-and-desc.md)

@@ -214,3 +214,4 @@ select * FROM mv1;
 ```
 
 ### 透明改写
+查询透明改写概述和能力可查看 [查询透明改写概述和能力](async-materialized-view/query-rewrite-summary-and-desc.md)

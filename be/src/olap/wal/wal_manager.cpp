@@ -232,8 +232,8 @@ void WalManager::print_wal_status_queue() {
     LOG(INFO) << ss.str();
 }
 
-Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                                const std::string& label, std::string& base_path) {
+Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
+                                   const std::string& label, std::string& base_path) {
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
@@ -286,11 +286,6 @@ Status WalManager::create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>&
     LOG(INFO) << "create wal " << wal_path;
     wal_writer = std::make_shared<WalWriter>(wal_path);
     RETURN_IF_ERROR(wal_writer->init());
-    {
-        // TODO no use, should remove it
-        std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
-        _wal_id_to_writer_map.emplace(wal_id, wal_writer);
-    }
     return Status::OK();
 }
 
@@ -431,8 +426,8 @@ Status WalManager::delete_wal(int64_t wal_id, size_t block_queue_pre_allocated) 
             _wal_path_map.erase(wal_id);
         }
     }
-    RETURN_IF_ERROR(update_wal_dir_pre_allocated(_get_base_wal_path(wal_path),
-                                                 block_queue_pre_allocated, false));
+    RETURN_IF_ERROR(update_wal_dir_pre_allocated(_get_base_wal_path(wal_path), 0,
+                                                 block_queue_pre_allocated));
     return Status::OK();
 }
 
@@ -481,10 +476,11 @@ Status WalManager::update_wal_dir_used(const std::string& wal_dir, size_t used) 
     return _wal_dirs_info->update_wal_dir_used(wal_dir, used);
 }
 
-Status WalManager::update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
-                                                bool is_add_pre_allocated) {
-    return _wal_dirs_info->update_wal_dir_pre_allocated(wal_dir, pre_allocated,
-                                                        is_add_pre_allocated);
+Status WalManager::update_wal_dir_pre_allocated(const std::string& wal_dir,
+                                                size_t increase_pre_allocated,
+                                                size_t decrease_pre_allocated) {
+    return _wal_dirs_info->update_wal_dir_pre_allocated(wal_dir, increase_pre_allocated,
+                                                        decrease_pre_allocated);
 }
 
 Status WalManager::_update_wal_dir_info_thread() {

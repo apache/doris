@@ -454,7 +454,7 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
     IndexStreamSharedPtr index_stream;
 
     int64_t index_id = header.index_id();
-    DBUG_EXECUTE_IF("TabletStream.add_segment.unknown_indexid",
+    DBUG_EXECUTE_IF("TabletStream._append_data.unknown_indexid",
                     { index_id = UNKNOWN_ID_FOR_TEST; });
     auto it = _index_streams_map.find(index_id);
     if (it == _index_streams_map.end()) {
@@ -547,6 +547,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
 }
 
 void LoadStream::on_idle_timeout(StreamId id) {
+    LOG(WARNING) << "closing load stream on idle timeout, load_id=" << print_id(_load_id);
     brpc::StreamClose(id);
 }
 
