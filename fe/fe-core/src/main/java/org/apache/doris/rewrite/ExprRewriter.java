@@ -133,10 +133,6 @@ public class ExprRewriter {
         rules = Lists.newArrayList(rule);
     }
 
-    public List<ExprRewriteRule> getRules() {
-        return rules;
-    }
-
     public void setInfoMVRewriter(Set<TupleId> disableTuplesMVRewriter, ExprSubstitutionMap mvSMap,
             ExprSubstitutionMap aliasSMap) {
         for (ExprRewriteRule rule : rules) {

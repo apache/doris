@@ -245,10 +245,8 @@ public class DeleteStmt extends DdlStmt {
             binaryPredicate.setChild(1, binaryPredicate.getChild(1).castTo(binaryPredicate.getChild(0).getType()));
             binaryPredicate.analyze(analyzer);
 
-            ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
-            FoldConstantsRule foldConstantsRule = (FoldConstantsRule) exprRewriter.getRules().get(0);
             Expr rightChild = binaryPredicate.getChild(1);
-            Expr rewrittenExpr = foldConstantsRule.apply(rightChild, analyzer, null);
+            Expr rewrittenExpr = FoldConstantsRule.INSTANCE.apply(rightChild, analyzer, null);
             if (rightChild != rewrittenExpr) {
                 binaryPredicate.setChild(1, rewrittenExpr);
             }
