@@ -224,7 +224,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     // Step 5.2: check data capacity
-    uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(), 0); // NOLINT(bugprone-fold-init-type)
+    uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(),
+                                          0); // NOLINT(bugprone-fold-init-type)
     if (!local_tablet->can_add_binlog(total_size)) {
         LOG(WARNING) << "failed to add binlog, no enough space, total_size=" << total_size
                      << ", tablet=" << local_tablet->tablet_id();

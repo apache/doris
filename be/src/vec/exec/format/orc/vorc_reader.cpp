@@ -1917,8 +1917,10 @@ Status OrcReader::on_string_dicts_loaded(
                 auto data_type = slot_desc->get_data_type_ptr();
                 if (data_type->is_nullable()) {
                     temp_block.insert(
-                            {ColumnNullable::create(std::move(dict_value_column), // NOLINT(bugprone-use-after-move)
-                                                    ColumnUInt8::create(dict_value_column_size, 0)),
+                            {ColumnNullable::create(
+                                     std::move(
+                                             dict_value_column), // NOLINT(bugprone-use-after-move)
+                                     ColumnUInt8::create(dict_value_column_size, 0)),
                              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                              ""});
                 } else {
