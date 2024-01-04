@@ -203,7 +203,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             // upload
             std::string remote_path = dest_path + '/' + local_file;
             std::string local_path = src_path + '/' + local_file;
-            RETURN_IF_ERROR(upload_with_checksum(*_remote_fs, local_path, local_path, md5sum));
+            RETURN_IF_ERROR(upload_with_checksum(*_remote_fs, local_path, remote_path, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
