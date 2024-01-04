@@ -2452,7 +2452,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexName = ctx.indexName.getText();
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
-        String indexType = ctx.indexType != null ? ctx.indexType.getText() : null;
+        String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
     }
