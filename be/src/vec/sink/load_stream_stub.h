@@ -63,6 +63,7 @@
 #include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
@@ -110,12 +111,12 @@ private:
             int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
             if (ret != 0) {
                 return Status::InternalError(
-                        "stream close_wait timeout, load_id={}, be_id={}, error={}", _load_id,
-                        _dst_id, ret);
+                        "stream close_wait timeout, load_id={}, be_id={}, error={}",
+                        print_id(_load_id), _dst_id, ret);
             }
             if (!_is_eos.load()) {
                 return Status::InternalError("stream closed without eos, load_id={} be_id={}",
-                                             _load_id, _dst_id);
+                                             print_id(_load_id), _dst_id);
             }
             return Status::OK();
         };
