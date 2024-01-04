@@ -146,16 +146,18 @@ suite("partition_mv_rewrite") {
         ${mv_def_sql}
         """
 
-    def job_name = getJobName(db, "mv_10086");
+    def mv_name = "mv_10086"
+
+    def job_name = getJobName(db, mv_name);
     waitingMTMVTaskFinished(job_name)
 
     explain {
         sql("${all_partition_sql}")
-        contains "mv_10086"
+        contains("${mv_name}(${mv_name})")
     }
     explain {
         sql("${partition_sql}")
-        contains "mv_10086"
+        contains("${mv_name}(${mv_name})")
     }
     // partition is invalid, so can not use partition 2023-10-17 to rewrite
     sql """
@@ -167,14 +169,10 @@ suite("partition_mv_rewrite") {
     // only can use valid partition
     explain {
         sql("${all_partition_sql}")
-        check { result ->
-            return !result.split("MaterializedViewRewriteSuccessAndChose")[1].contains("mv_10086")
-        }
+        notContains("${mv_name}(${mv_name})")
     }
     explain {
         sql("${partition_sql}")
-        check { result ->
-            return result.split("MaterializedViewRewriteSuccessAndChose")[1].contains("mv_10086")
-        }
+        contains("${mv_name}(${mv_name})")
     }
 }

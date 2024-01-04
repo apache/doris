@@ -140,9 +140,7 @@ suite("inner_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            check {
-                result -> return result.split("MaterializedViewRewriteSuccessAndChose")[1].contains("${mv_name}")
-            }
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -161,9 +159,7 @@ suite("inner_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            check {
-                result -> return !result.split("MaterializedViewRewriteSuccessAndChose")[1].contains("${mv_name}")
-            }
+            notContains("${mv_name}(${mv_name})")
         }
     }
 
