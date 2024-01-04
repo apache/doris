@@ -106,7 +106,7 @@ bool get_null_presence(const ColumnsWithTypeAndName& args) {
 
 inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run) {
+        size_t input_rows_count, bool dry_run) const {
     bool executed = false;
     RETURN_IF_ERROR(default_implementation_for_nulls(context, block, args, result, input_rows_count,
                                                      dry_run, &executed));
@@ -123,7 +123,7 @@ inline Status PreparedFunctionImpl::_execute_skipped_constant_deal(
 
 Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) {
+        size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     ColumnNumbers args_expect_const = get_arguments_that_are_always_constant();
 
@@ -187,7 +187,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
 
 Status PreparedFunctionImpl::default_implementation_for_nulls(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run, bool* executed) {
+        size_t input_rows_count, bool dry_run, bool* executed) const {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
         return Status::OK();
@@ -226,13 +226,12 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         *executed = true;
         return Status::OK();
     }
-    *executed = false;
     return Status::OK();
 }
 
 Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
-        size_t input_rows_count, bool dry_run) {
+        size_t input_rows_count, bool dry_run) const {
     bool executed = false;
 
     RETURN_IF_ERROR(default_implementation_for_constant_arguments(
@@ -246,7 +245,7 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
 
 Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
                                      const ColumnNumbers& args, size_t result,
-                                     size_t input_rows_count, bool dry_run) {
+                                     size_t input_rows_count, bool dry_run) const {
     return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
                                                    dry_run);
 }

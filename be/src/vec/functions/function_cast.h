@@ -1458,7 +1458,6 @@ protected:
         return wrapper_function(context, block, arguments, result, input_rows_count);
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
@@ -1822,11 +1821,10 @@ private:
     }
 
     WrapperType create_unsupport_wrapper(const String error_msg) const {
-        LOG(WARNING) << error_msg;
         return [error_msg](FunctionContext* /*context*/, Block& /*block*/,
                            const ColumnNumbers& /*arguments*/, const size_t /*result*/,
                            size_t /*input_rows_count*/) {
-            return Status::InvalidArgument(error_msg);
+            return Status::InternalError(error_msg);
         };
     }
 
@@ -1913,10 +1911,16 @@ private:
                        const size_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
 
-            const ColumnArray* from_col_array =
-                    check_and_get_column<ColumnArray>(from_column.get());
+            const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
 
             if (from_col_array) {
+                if (from_col_array->get_data_ptr()->only_null()) {
+                    block.get_by_position(result).column =
+                            block.get_by_position(result).type->create_column_const(
+                                    from_column->size(), Null());
+                    return Status::OK();
+                }
+
                 /// create columns for converting nested column containing original and result columns
                 ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),
                                                           from_nested_type, ""};
@@ -2428,7 +2432,6 @@ protected:
         return type;
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 
 private:

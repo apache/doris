@@ -80,7 +80,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run) = 0;
+                           size_t result, size_t input_rows_count, bool dry_run) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -88,7 +88,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) final;
+                   size_t result, size_t input_rows_count, bool dry_run = false) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -106,7 +106,7 @@ public:
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, size_t result,
-                                        size_t input_rows_count) {
+                                        size_t input_rows_count) const {
         return execute_impl(context, block, arguments, result, input_rows_count);
     }
 
@@ -136,17 +136,18 @@ protected:
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, size_t result,
-                                            size_t input_rows_count, bool dry_run, bool* executed);
+                                            size_t input_rows_count, bool dry_run,
+                                            bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& args, size_t result,
                                                          size_t input_rows_count, bool dry_run,
-                                                         bool* executed);
+                                                         bool* executed) const;
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
                                                    const ColumnNumbers& arguments, size_t result,
-                                                   size_t input_rows_count, bool dry_run);
+                                                   size_t input_rows_count, bool dry_run) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
                                           const ColumnNumbers& args, size_t result,
-                                          size_t input_rows_count, bool dry_run);
+                                          size_t input_rows_count, bool dry_run) const;
 };
 
 /// Function with known arguments and return type.
@@ -173,7 +174,7 @@ public:
 
     /// TODO: make const
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run = false) {
+                           size_t result, size_t input_rows_count, bool dry_run = false) const {
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
@@ -506,7 +507,7 @@ protected:
     }
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) final {
+                                size_t input_rows_count) const final {
         return function->execute_impl_dry_run(context, block, arguments, result, input_rows_count);
     }
     bool use_default_implementation_for_nulls() const final {
