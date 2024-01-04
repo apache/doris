@@ -2385,8 +2385,10 @@ void SegmentIterator::_update_max_row(const vectorized::Block* block) {
     _estimate_row_size = false;
     auto avg_row_size = block->bytes() / block->rows();
 
-    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
-    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
+    if (avg_row_size > 0) {
+        int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
+        _opts.block_row_max = std::min(std::max(1, block_row_max), _opts.block_row_max);
+    }
 }
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
