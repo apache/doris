@@ -121,30 +121,39 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void unregisterJob(Long jobId) throws JobException {
+        checkJobExist(jobId);
+        T dropJob = jobMap.get(jobId);
+        dropJob(dropJob, dropJob.getJobName());
+    }
+
+    public void unregisterJob(String jobName, boolean ifExists) throws JobException {
+        T dropJob = null;
+        for (T job : jobMap.values()) {
+            if (job.getJobName().equals(jobName)) {
+                dropJob = job;
+            }
+        }
+        if (dropJob == null && ifExists) {
+            return;
+        }
+        dropJob(dropJob, jobName);
+    }
+
+    private void dropJob(T dropJob, String jobName) throws JobException {
+        if (dropJob == null) {
+            throw new JobException("job not exist, jobName:" + jobName);
+        }
+        //is job status is running, we need to stop it and cancel all running task
+        if (dropJob.getJobStatus().equals(JobStatus.RUNNING)) {
+            dropJob.updateJobStatus(JobStatus.STOPPED);
+        }
         writeLock();
         try {
-            checkJobExist(jobId);
-            jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
-            jobMap.get(jobId).cancelAllTasks();
-            jobMap.get(jobId).logFinalOperation();
-            jobMap.get(jobId).onUnRegister();
-            jobMap.remove(jobId);
+            dropJob.logFinalOperation();
+            jobMap.remove(dropJob.getJobId());
         } finally {
             writeUnlock();
         }
-    }
-
-    public void unregisterJob(String jobName) throws JobException {
-        for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName)) {
-                try {
-                    unregisterJob(a.getJobId());
-                } catch (JobException e) {
-                    throw new JobException("unregister job error, jobName:" + jobName);
-                }
-            }
-        }
-
     }
 
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
@@ -157,10 +166,6 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
-                    if (jobStatus.equals(JobStatus.STOPPED)) {
-                        unregisterJob(a.getJobId());
-                        return;
-                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
                     throw new JobException("unregister job error, jobName:" + jobName);
@@ -247,6 +252,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (null == job) {
             return;
         }
+        jobMap.remove(replayJob.getJobId());
         job.onReplayEnd(replayJob);
     }
 
@@ -377,7 +383,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         for (InsertJob loadJob : unfinishedLoadJob) {
             try {
-                unregisterJob(loadJob.getJobId());
+                alterJobStatus(loadJob.getJobId(), JobStatus.STOPPED);
             } catch (JobException e) {
                 log.warn("Fail to cancel job, its label: {}", loadJob.getLabelName());
             }

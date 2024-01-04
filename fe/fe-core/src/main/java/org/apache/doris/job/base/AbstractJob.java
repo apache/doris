@@ -258,7 +258,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (newJobStatus.equals(JobStatus.FINISHED)) {
             this.finishTimeMs = System.currentTimeMillis();
         }
-        if (JobStatus.PAUSED.equals(newJobStatus)) {
+        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
             cancelAllTasks();
         }
         jobStatus = newJobStatus;
