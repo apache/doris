@@ -1418,6 +1418,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
 
+    // NOTE: try_close is now a virtual function of DataSink
     // will make the last batch of request-> close_wait will wait this finished.
     static_cast<void>(try_close(_state, exec_status));
 

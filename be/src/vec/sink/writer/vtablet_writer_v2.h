@@ -202,7 +202,8 @@ private:
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
 
     std::mutex _close_mutex;
-    bool _is_closed = false;
+    // _is_closed now belongs to AsyncResultWriter
+    // bool _is_closed = false;
     // Save the status of close() method
     Status _close_status;
 

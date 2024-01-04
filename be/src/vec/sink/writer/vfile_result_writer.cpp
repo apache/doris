@@ -23,11 +23,13 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <mutex>
 #include <ostream>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
@@ -35,6 +37,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
@@ -43,6 +46,7 @@
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
+#include "util/runtime_profile.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/uid_util.h"
@@ -55,6 +59,7 @@
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 #include "vec/sink/vresult_sink.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris::vectorized {
 
@@ -85,7 +90,13 @@ Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     if (_file_opts->delete_existing_files) {
         RETURN_IF_ERROR(_delete_dir());
     }
-    return _create_next_file_writer();
+
+    auto status = _create_next_file_writer();
+    if (status.ok()) {
+        _is_opened = true;
+    }
+
+    return status;
 }
 
 void VFileResultWriter::_init_profile(RuntimeProfile* parent_profile) {
@@ -419,7 +430,26 @@ Status VFileResultWriter::_delete_dir() {
     return Status::OK();
 }
 
-Status VFileResultWriter::close(Status) {
+Status VFileResultWriter::try_close(RuntimeState* state, Status /*status*/) {
+    std::unique_lock<std::mutex> lock(_m);
+    _is_closed = true;
+    if (!_is_opened) {
+        return Status::OK();
+    }
+
+    if (state->enable_pipeline_exec()) {
+        // 对于 pipeline，只需要让 process_block 线程继续工作就可以了
+        // notify process_block to flush all data
+        _cv.notify_one();
+    }
+
+    // 对于非 pipeline，执行到 try_close 的时候一定已经是 eos 之后了
+    // 所以直接返回就行了
+
+    return Status::OK();
+}
+
+Status VFileResultWriter::close(Status /*status*/) {
     // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
     // must be outside the `_close_file_writer()`.
     // because `_close_file_writer()` may be called in deconstructor,
@@ -429,7 +459,15 @@ Status VFileResultWriter::close(Status) {
         COUNTER_SET(_written_rows_counter, _written_rows);
         SCOPED_TIMER(_writer_close_timer);
     }
-    return _close_file_writer(true);
+
+    auto ret = _close_file_writer(true);
+
+    std::unique_lock<std::mutex> lock(_m);
+    _is_closed = true;
+    _cv.notify_one();
+    LOG_INFO("async AsyncResultWriter closed");
+
+    return ret;
 }
 
 } // namespace doris::vectorized

@@ -98,7 +98,7 @@ protected:
 
     void _return_free_block(std::unique_ptr<Block>);
 
-private:
+protected:
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
 
@@ -112,6 +112,8 @@ private:
     bool _eos = false;
     bool _need_normal_close = true;
     bool _writer_thread_closed = false;
+    bool _is_closed = false;
+    bool _is_opened = false;
 
     // Used by pipelineX
     pipeline::AsyncWriterDependency* _dependency;
