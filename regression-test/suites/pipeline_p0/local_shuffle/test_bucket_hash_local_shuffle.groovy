@@ -55,11 +55,22 @@ suite("test_bucket_hash_local_shuffle") {
             );
             """
         sql """ insert into store_returns values(1, 1),(1, 2),(3, 2),(100, 2),(12130, 2)"""
-        qt_sql """ select /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false)*/ count(*)
+        qt_bucket_shuffle_join """ select /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false)*/ count(*)
                       from store_sales
                       join date_dim on ss_sold_date_sk = d_date_sk
                       left join store_returns on sr_ticket_number=ss_ticket_number and ss_item_sk=sr_item_sk where sr_ticket_number is null """
+        qt_colocate_join """ select /*+SET_VAR(disable_join_reorder=true,ignore_storage_data_distribution=false)*/ count(*)
+                      from store_sales
+                      join date_dim on ss_sold_date_sk = d_date_sk
+                      left join store_returns on sr_ticket_number=ss_ticket_number and ss_item_sk=sr_item_sk where sr_ticket_number is null """
+        qt_analytic """ select /*+SET_VAR(ignore_storage_data_distribution=false)*/ max(ss_sold_date_sk)
+                                OVER (PARTITION BY ss_ticket_number, ss_item_sk) from (select *
+                                                      from store_sales
+                                                      join date_dim on ss_sold_date_sk = d_date_sk) result """
     } finally {
+        sql """ DROP TABLE IF EXISTS store_sales """
+        sql """ DROP TABLE IF EXISTS date_dim """
+        sql """ DROP TABLE IF EXISTS store_returns """
     }
 }
 
