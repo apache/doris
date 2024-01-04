@@ -1680,11 +1680,11 @@ public:
             std::function<Monotonicity(const IDataType&, const Field&, const Field&)>;
 
     FunctionCast(const char* name_, MonotonicityForRange&& monotonicity_for_range_,
-                 const DataTypes& argument_types_, const DataTypePtr& return_type_)
+                 DataTypes argument_types_, DataTypePtr return_type_)
             : name(name_),
               monotonicity_for_range(monotonicity_for_range_),
-              argument_types(argument_types_),
-              return_type(return_type_) {}
+              argument_types(std::move(argument_types_)),
+              return_type(std::move(return_type_)) {}
 
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
@@ -1693,8 +1693,7 @@ public:
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
         return std::make_shared<PreparedFunctionCast>(
-                prepare_unpack_dictionaries(context, get_argument_types()[0], get_return_type()),
-                name);
+                prepare_remove_nullable(context, get_argument_types()[0], get_return_type()), name);
     }
 
     String get_name() const override { return name; }
@@ -1907,7 +1906,7 @@ private:
 
         /// Prepare nested type conversion
         const auto nested_function =
-                prepare_unpack_dictionaries(context, from_nested_type, to_nested_type);
+                prepare_remove_nullable(context, from_nested_type, to_nested_type);
 
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -2176,7 +2175,7 @@ private:
             const DataTypePtr& from_element_type = from_element_types[i];
             const DataTypePtr& to_element_type = to_element_types[i];
             element_wrappers.push_back(
-                    prepare_unpack_dictionaries(context, from_element_type, to_element_type));
+                    prepare_remove_nullable(context, from_element_type, to_element_type));
         }
         return element_wrappers;
     }
@@ -2242,35 +2241,8 @@ private:
         };
     }
 
-    WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
-                                            const DataTypePtr& to_type) const {
-        const auto& from_nested = from_type;
-        const auto& to_nested = to_type;
-
-        if (from_type->is_null_literal()) {
-            if (!to_nested->is_nullable()) {
-                return create_unsupport_wrapper("Cannot convert NULL to a non-nullable type");
-            }
-
-            return [](FunctionContext* context, Block& block, const ColumnNumbers&,
-                      const size_t result, size_t input_rows_count) {
-                auto& res = block.get_by_position(result);
-                res.column = res.type->create_column_const_with_default_value(input_rows_count)
-                                     ->convert_to_full_column_if_const();
-                return Status::OK();
-            };
-        }
-
-        bool skip_not_null_check = false;
-        auto wrapper =
-                prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
-
-        return wrapper;
-    }
-
     WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
-                                        const DataTypePtr& to_type,
-                                        bool skip_not_null_check) const {
+                                        const DataTypePtr& to_type) const {
         /// Determine whether pre-processing and/or post-processing must take place during conversion.
         bool result_is_nullable = to_type->is_nullable();
 

@@ -274,7 +274,6 @@ public:
     size_t size_of_value_if_fixed() const override {
         return null_map->size_of_value_if_fixed() + nested_column->size_of_value_if_fixed();
     }
-    bool only_null() const override { return nested_column->is_dummy(); }
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)nested_column) = other; }

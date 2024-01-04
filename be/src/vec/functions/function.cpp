@@ -55,17 +55,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
-        if (!elem.type->is_nullable()) {
-            continue;
-        }
-
-        bool is_const = is_column_const(*elem.column);
-        /// Const Nullable that are NULL.
-        if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
-            return block.get_by_position(result).type->create_column_const(input_rows_count,
-                                                                           Null());
-        }
-        if (is_const) {
+        if (!elem.type->is_nullable() || is_column_const(*elem.column)) {
             continue;
         }
 
@@ -200,6 +190,15 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         size_t input_rows_count, bool dry_run, bool* executed) {
     *executed = false;
     if (args.empty() || !use_default_implementation_for_nulls()) {
+        return Status::OK();
+    }
+
+    if (std::ranges::any_of(args, [&block](const auto& elem) {
+            return block.get_by_position(elem).column->only_null();
+        })) {
+        block.get_by_position(result).column =
+                block.get_by_position(result).type->create_column_const(input_rows_count, Null());
+        *executed = true;
         return Status::OK();
     }
 

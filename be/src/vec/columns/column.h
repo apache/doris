@@ -603,9 +603,6 @@ public:
     // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
-    /// It's a special kind of column, that contain single value, but is not a ColumnConst.
-    virtual bool is_dummy() const { return false; }
-
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear

@@ -117,7 +117,6 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
-    bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
