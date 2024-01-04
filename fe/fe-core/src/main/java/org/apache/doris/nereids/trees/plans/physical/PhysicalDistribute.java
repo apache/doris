@@ -166,4 +166,11 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         return new PhysicalDistribute<>(distributionSpec, groupExpression,
                 null, physicalProperties, statistics, child());
     }
+
+    @Override
+    public String shapeInfo() {
+        StringBuilder builder = new StringBuilder("PhysicalDistribute");
+        builder.append("[").append(getDistributionSpec().shapeInfo()).append("]");
+        return builder.toString();
+    }
 }
