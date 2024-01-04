@@ -477,8 +477,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE
-            = "materialized_view_rewrite_enable_contain_foreign_table";
+    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+            = "materialized_view_rewrite_enable_contain_external_table";
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
@@ -1480,11 +1480,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE, needForward = true,
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainForeignTable = false;
+    public boolean materializedViewRewriteEnableContainExternalTable = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3208,8 +3208,8 @@ public class SessionVariable implements Serializable, Writable {
         return enableMaterializedViewRewrite;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainForeignTable() {
-        return materializedViewRewriteEnableContainForeignTable;
+    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
+        return materializedViewRewriteEnableContainExternalTable;
     }
 
     public boolean isIgnoreStorageDataDistribution() {
