@@ -1011,7 +1011,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_csv "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
@@ -1039,7 +1039,7 @@ suite("test_stream_load", "p0") {
         out = process.text
         json2pc = parseJson(out)
         log.info("test chunked transfer result: ${out}".toString())
-
+        sql "sync"
         qt_sql_chunked_transfer_json "select * from ${tableName16} order by k1"
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
