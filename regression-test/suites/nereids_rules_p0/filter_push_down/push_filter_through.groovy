@@ -19,6 +19,10 @@ suite("push_filter_through") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
+    sql "set disable_join_reorder=true"
+    sql 'set be_number_for_test=3'
+    sql "SET ignore_shape_nodes='PhysicalDistribute[DistributionSpecGather], PhysicalDistribute[DistributionSpecHash],PhysicalProject'"
+    sql "set enable_fold_nondeterministic_fn=false"
 
     // push filter through alias
     qt_filter_project_alias""" 
@@ -59,9 +63,27 @@ suite("push_filter_through") {
     qt_filter_join_inner"""
     explain shape plan select * from t1 inner join t2 on t1.id = t2.id and t1.msg = "";
     """
+    // push filter through inner join with and cond
+    qt_filter_join_inner"""
+    explain shape plan select * from t1 inner join t2 on t1.id = t2.id where t1.id = 1 and t2.id = 2;
+    """
+
+    // push filter through inner join with or cond
+    qt_filter_join_inner"""
+    explain shape plan select * from t1 inner join t2 on t1.id = t2.id where t1.id = 1 or t2.id = 2;
+    """
     // push filter through left join
     qt_filter_join_left"""
     explain shape plan select * from t1 left outer join t2 on t1.id = t2.id where t1.id = 1;
+    """
+    // push filter through left join with and cond
+    qt_filter_join_left"""
+    explain shape plan select * from t1 left outer join t2 on t1.id = t2.id where t1.id = 1 and t2.id = 2;
+    """
+
+    // push filter through left join with or cond
+    qt_filter_join_left"""
+    explain shape plan select * from t1 left outer join t2 on t1.id = t2.id where t1.id = 1 or t2.id = 2;
     """
     // push filter through right join
     qt_filter_join_right"""
@@ -71,10 +93,21 @@ suite("push_filter_through") {
     qt_filter_join_full"""
     explain shape plan select * from t1 full outer join t2 on t1.id = t2.id where t1.id = 1;
     """
+    // push filter through full join with and cond
+    qt_filter_join_left"""
+    explain shape plan select * from t1 full outer join t2 on t1.id = t2.id where t1.id = 1 and t2.id = 2;
+    """
+
+    // push filter through full join with or cond
+    qt_filter_join_left"""
+    explain shape plan select * from t1 full outer join t2 on t1.id = t2.id where t1.id = 1 or t2.id = 2;
+    """
     // push filter through cross join
     qt_filter_join_cross"""
     explain shape plan select * from t1 cross join t2 where t1.id = 1;
     """
+    
+    
     // push filter through left anti join
     qt_filter_join_left_anti"""
     explain shape plan select * from t1 left anti join t2 on t1.id = t2.id where t1.id = 1;
@@ -113,7 +146,7 @@ suite("push_filter_through") {
     from t1
     inner join t2 on t1.id = t2.id
     left join t3 on t1.id = t3.id
-    where t1.id = 1;
+    where t1.id = 1 and t2.id = 2 or t3.id = 2;
     """
 
     // Push filter through multiple left joins
@@ -123,7 +156,7 @@ suite("push_filter_through") {
     from t1
     left join t2 on t1.id = t2.id
     left join t3 on t1.id = t3.id
-    where t1.id = 1;
+    where t1.id = 1 and t2.id > 1 or t3.id < 4;
     """
 
     // Push filter through multiple outer joins
@@ -178,7 +211,7 @@ suite("push_filter_through") {
     """
     // Push filter to subquery with constant
     qt_filter_aggregation_filtered_part_key"""
-    select * from (select count(), now() as c from t1 group by id) t where c > 10;
+    select * from (select count(), rand() as c from t1 group by id) t where c > 10;
     """
     // Push filter to subquery with alias
     qt_filter_aggregation_filtered_part_key"""
@@ -202,19 +235,19 @@ suite("push_filter_through") {
     """
     // Push filter through UNION with constant
     qt_push_filter_union"""
-    explain shape plan select id from ( select cast(now() as int) as id UNION select id from t2) t where id = 2;
+    explain shape plan select id from ( select cast(rand() as int) as id UNION select id from t2) t where id = 2;
     """
     // Push filter through UNION ALL with constant
     qt_push_filter_union_all"""
-    explain shape plan select id from ( select cast(now() as int) as id UNION ALL select id from t2) t where id = 2;
+    explain shape plan select id from ( select cast(rand() as int) as id UNION ALL select id from t2) t where id = 2 or id = 3;
     """
     // Push filter through INTERSECT with constant
     qt_push_filter_intersect"""
-    explain shape plan select id from ( select cast(now() as int) as id INTERSECT select id from t2) t where id = 2;
+    explain shape plan select id from ( select cast(rand() as int) as id INTERSECT select id from t2) t where id = 2 or id = 3;
     """
     // Push filter through EXCEPT with constant
     qt_push_filter_except"""
-    explain shape plan select id from ( select cast(now() as int) as id, msg from t1 EXCEPT select id, msg from t2) t where id = 2;
+    explain shape plan select id from ( select cast(rand() as int) as id, msg from t1 EXCEPT select id, msg from t2) t where id = 2 and msg = '';
     """
 
      qt_push_filter_except"""
@@ -241,6 +274,6 @@ suite("push_filter_through") {
     qt_filter_multi_window"""
     explain shape plan SELECT ROW_NUMBER() OVER (PARTITION BY id + msg) AS row_num,
      ROW_NUMBER() OVER (PARTITION BY id order by id) AS row_num2
-    from t1 WHERE msg = "";
+    from t1 WHERE msg = "" or id = 2;
     """
 }
