@@ -128,6 +128,7 @@ Status StreamSinkFileWriter::finalize() {
                          << ", reason: " << st;
         }
     }
+    DBUG_EXECUTE_IF("StreamSinkFileWriter.finalize.finalize_failed", { ok = false; });
     if (!ok) {
         std::stringstream ss;
         for (auto& stream : _streams) {
