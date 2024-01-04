@@ -26,8 +26,8 @@ suite("test_time_series_compaction_polciy", "p0") {
     def trigger_cumulative_compaction_on_tablets = { String[][] tablets ->
         for (String[] tablet : tablets) {
             String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            times = 1
+            String backend_id = tablet[2]
+            int times = 1
             
             String compactionStatus;
             do{
@@ -51,8 +51,8 @@ suite("test_time_series_compaction_polciy", "p0") {
             do {
                 Thread.sleep(1000)
                 String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                String backend_id = tablet[2]
+                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
@@ -67,7 +67,7 @@ suite("test_time_series_compaction_polciy", "p0") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             def compactionStatusUrlIndex = 18
-            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            def (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
             logger.info("Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
