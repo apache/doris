@@ -103,7 +103,7 @@ CREATE MATERIALIZED VIEW mv1
             l_suppkey;
 ```
 
-具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
+具体的语法可查看[CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ### 查看物化视图元信息
 
@@ -111,9 +111,9 @@ CREATE MATERIALIZED VIEW mv1
 select * from mv_infos("database"="tpch") where Name="mv1";
 ```
 
-物化视图独有的特性可以通过[mv_infos()](../sql-manual/sql-functions/table-functions/mv_infos.md)查看
+物化视图独有的特性可以通过[mv_infos()](../../sql-manual/sql-functions/table-functions/mv_infos.md)查看
 
-和table相关的属性，仍通过[SHOW TABLES](../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)来查看
+和table相关的属性，仍通过[SHOW TABLES](../../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)来查看
 
 ### 刷新物化视图
 
@@ -129,7 +129,7 @@ SHOW PARTITIONS FROM mv1;
 REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 ```
 
-具体的语法可查看[REFRESH MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
+具体的语法可查看[REFRESH MATERIALIZED VIEW](../../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
 
 ### 任务管理
 
@@ -142,7 +142,7 @@ task用来描述具体的一次刷新信息，例如刷新用的时间，刷新�
 select * from jobs("type"="mv") order by CreateTime;
 ```
 
-具体的语法可查看[jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
+具体的语法可查看[jobs("type"="mv")](../../sql-manual/sql-functions/table-functions/jobs.md)
 
 #### 暂停物化视图job定时调度
 
@@ -152,7 +152,7 @@ PAUSE MATERIALIZED VIEW JOB ON mv1;
 
 可以暂停物化视图的定时调度
 
-具体的语法可查看[PAUSE MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
+具体的语法可查看[PAUSE MATERIALIZED VIEW JOB](../../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
 
 #### 恢复物化视图job定时调度
 
@@ -162,7 +162,7 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 
 可以恢复物化视图的定时调度
 
-具体的语法可查看[RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
+具体的语法可查看[RESUME MATERIALIZED VIEW JOB](../../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
 #### 查看物化视图的task
 
@@ -170,7 +170,7 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 select * from tasks("type"="mv");
 ```
 
-具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
+具体的语法可查看[tasks("type"="mv")](../../sql-manual/sql-functions/table-functions/tasks.md)
 
 #### 取消物化视图的task
 
@@ -180,7 +180,7 @@ CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 
 可以取消本次task的运行
 
-具体的语法可查看[CANCEL MATERIALIZED VIEW TASK](../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
+具体的语法可查看[CANCEL MATERIALIZED VIEW TASK](../../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
 
 ### 修改物化视图
 
@@ -189,7 +189,7 @@ CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 ```
 
-修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
+修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
 
 物化视图本身也是一个 Table，所以 Table 相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法来修改。
 
@@ -201,17 +201,9 @@ DROP MATERIALIZED VIEW mv1;
 
 物化视图有专门的删除语法，不能通过drop table来删除，
 
-具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
+具体的语法可查看[DROP MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
 
 ## 物化视图的使用
 
-### 直接查看物化视图的数据
+请参阅 [查询异步物化视图](./query-async-materialized-view.md)
 
-物化视图本身也是一个 Table，所以可以直接查询
-
-```sql
-select * FROM mv1;
-```
-
-### 透明改写
-查询透明改写概述和能力可查看 [查询透明改写概述和能力](async-materialized-view/query-rewrite-summary-and-desc.md)
