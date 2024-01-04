@@ -235,10 +235,10 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
     filter_column->get_data() = std::move(other_conjunct_filter);
     auto result_column_id = output_block->columns();
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
-    const uint8_t* __restrict filter_column_ptr =
-            assert_cast<const ColumnUInt8*>(
-                    output_block->get_by_position(result_column_id).column.get())
-                    ->get_data()
+    uint8_t* __restrict filter_column_ptr =
+            assert_cast<ColumnUInt8&>(
+                    output_block->get_by_position(result_column_id).column->assume_mutable_ref())
+                    .get_data()
                     .data();
 
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
@@ -278,40 +278,53 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto new_filter_column = ColumnUInt8::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
 
-        if (is_mark_join) {
-            auto mark_column =
-                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
-            ColumnFilterHelper helper(*mark_column);
+        for (size_t i = 0; i < row_count; ++i) {
+            bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
 
-            for (size_t i = 0; i < row_count; ++i) {
-                filter_map[i] = true;
-                if (has_null_in_build_side &&
-                    (_build_indexs[i] != 0) ^ (JoinOpType == TJoinOp::LEFT_SEMI_JOIN)) {
-                    helper.insert_null();
-                } else {
-                    helper.insert_value(filter_column_ptr[i]);
-                }
-            }
-        } else {
+            // _build_indexs[i] == 0 means the end of this probe index
+            // if a probe row not matched with any build row, we need output a false value into mark column
             if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-                for (size_t i = 0; i < row_count; ++i) {
+                if (_build_indexs[i] == 0) {
+                    filter_map[i] = is_mark_join && not_matched_before;
+                    filter_column_ptr[i] = false;
+                } else {
                     if (filter_column_ptr[i]) {
-                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                        filter_map[i] = not_matched_before;
                         _parent->_last_probe_match = _probe_indexs[i];
                     } else {
                         filter_map[i] = false;
                     }
                 }
             } else {
-                for (size_t i = 0; i < row_count; ++i) {
-                    if (_build_indexs[i]) {
-                        filter_map[i] = false;
-                        if (filter_column_ptr[i]) {
-                            _parent->_last_probe_match = _probe_indexs[i];
-                        }
+                if (_build_indexs[i] == 0) {
+                    if (not_matched_before) {
+                        filter_map[i] = true;
+                    } else if (is_mark_join) {
+                        filter_map[i] = true;
+                        filter_column_ptr[i] = false;
                     } else {
-                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                        filter_map[i] = false;
                     }
+                } else {
+                    filter_map[i] = false;
+                    if (filter_column_ptr[i]) {
+                        _parent->_last_probe_match = _probe_indexs[i];
+                    }
+                }
+            }
+        }
+
+        if (is_mark_join) {
+            auto mark_column =
+                    output_block->get_by_position(orig_columns - 1).column->assume_mutable();
+            ColumnFilterHelper helper(*mark_column);
+            for (size_t i = 0; i < row_count; ++i) {
+                bool mathced = filter_column_ptr[i] &&
+                               (_build_indexs[i] != 0) == (JoinOpType == TJoinOp::LEFT_SEMI_JOIN);
+                if (has_null_in_build_side && !mathced) {
+                    helper.insert_null();
+                } else {
+                    helper.insert_value(mathced);
                 }
             }
         }
