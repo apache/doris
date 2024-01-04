@@ -122,6 +122,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
+    public static final String ENABLE_MARKJOIN_BROADCAST_ONLY = "enable_markjoin_broadcast_only";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
@@ -533,6 +534,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_MARKJOIN_BROADCAST_ONLY)
+    public boolean enableMarkJoinBroadcastOnly = true;
+
     @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
     public boolean enableExchangeNodeParallelMerge = false;
 
@@ -922,6 +926,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setCboNetWeight(double cboNetWeight) {
         this.cboNetWeight = cboNetWeight;
+    }
+
+    public boolean isEnableMarkJoinBroadcastOnly() {
+        return enableMarkJoinBroadcastOnly;
     }
 
     @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
