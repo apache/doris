@@ -23,15 +23,15 @@ package org.apache.doris.nereids.trees.plans;
  * Hints for the right child of join are supported currently.
  * Left input and right input of join could have different hints for further extension.
  */
-public enum JoinHint {
-    NONE(JoinHintType.NONE, JoinHintType.NONE),
-    BROADCAST_RIGHT(JoinHintType.NONE, JoinHintType.BROADCAST),
-    SHUFFLE_RIGHT(JoinHintType.NONE, JoinHintType.SHUFFLE);
+public enum DistributeType {
+    NONE(JoinDistributeType.NONE, JoinDistributeType.NONE),
+    BROADCAST_RIGHT(JoinDistributeType.NONE, JoinDistributeType.BROADCAST),
+    SHUFFLE_RIGHT(JoinDistributeType.NONE, JoinDistributeType.SHUFFLE);
 
     /**
      * Join hint type for single join input plan.
      */
-    public enum JoinHintType {
+    public enum JoinDistributeType {
         // No join hint.
         NONE,
         // Shuffle join hint.
@@ -40,26 +40,26 @@ public enum JoinHint {
         BROADCAST,
     }
 
-    private final JoinHintType leftHint;
-    private final JoinHintType rightHint;
+    private final JoinDistributeType leftHint;
+    private final JoinDistributeType rightHint;
 
-    JoinHint(JoinHintType leftHint, JoinHintType rightHint) {
+    DistributeType(JoinDistributeType leftHint, JoinDistributeType rightHint) {
         this.leftHint = leftHint;
         this.rightHint = rightHint;
     }
 
-    public JoinHintType getLeftHint() {
+    public JoinDistributeType getLeftHint() {
         return leftHint;
     }
 
-    public JoinHintType getRightHint() {
+    public JoinDistributeType getRightHint() {
         return rightHint;
     }
 
     /**
      * Create join hint from join right child's join hint type.
      */
-    public static JoinHint fromRightPlanHintType(JoinHintType hintType) {
+    public static DistributeType fromRightPlanHintType(JoinDistributeType hintType) {
         switch (hintType) {
             case SHUFFLE:
                 return SHUFFLE_RIGHT;

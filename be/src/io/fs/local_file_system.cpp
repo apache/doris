@@ -39,6 +39,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
+#include "olap/data_dir.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
@@ -60,8 +61,11 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
                                          const FileWriterOptions* opts) {
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
-        ::close(fd);
-        fd = -1;
+        // spare '.testfile' to make bad disk checker happy
+        if (file.filename().compare(kTestFilePath)) {
+            ::close(fd);
+            fd = -1;
+        }
     });
     if (-1 == fd) {
         return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
@@ -186,7 +190,7 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
                 try {
                     *dir_size += std::filesystem::file_size(entry);
                 } catch (const std::exception& e) {
-                    LOG(INFO) << "{}", e.what();
+                    LOG(INFO) << "failed to get file size, err: {}", e.what();
                 }
             }
         }

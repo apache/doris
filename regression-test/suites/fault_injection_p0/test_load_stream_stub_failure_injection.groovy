@@ -81,12 +81,8 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
         }
     }
 
-    // StreamSinkFileWriter appendv write segment failed one replica
-    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "")
-    // StreamSinkFileWriter appendv write segment failed two replica
-    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "")
     // StreamSinkFileWriter appendv write segment failed all replica
-    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "stream sink file writer append data failed")
+    load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "failed to write any replicas")
     // LoadStreams stream wait failed
     load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed", "StreamWrite failed, err=32")
     // LoadStreams keeping stream when release

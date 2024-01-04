@@ -42,12 +42,11 @@ public:
     size_t get_limit();
     void set_limit(size_t limit);
     void set_used(size_t used);
-    // TODO increase_pre_allocated and decrease_pre_allocated
-    void set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated);
+    void set_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
     size_t available();
     Status update_wal_dir_limit(size_t limit = -1);
     Status update_wal_dir_used(size_t used = -1);
-    Status update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated = true);
+    void update_wal_dir_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
 
 private:
     std::string _wal_dir;
@@ -70,8 +69,8 @@ public:
     Status update_all_wal_dir_limit();
     Status update_wal_dir_used(std::string wal_dir, size_t used = -1);
     Status update_all_wal_dir_used();
-    Status update_wal_dir_pre_allocated(std::string wal_dir, size_t pre_allocated,
-                                        bool is_add_pre_allocated);
+    Status update_wal_dir_pre_allocated(std::string wal_dir, size_t increase_pre_allocated,
+                                        size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
 
 private:
