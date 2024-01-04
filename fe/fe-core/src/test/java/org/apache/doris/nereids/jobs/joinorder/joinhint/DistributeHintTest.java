@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class JoinHintTest extends TPCHTestBase {
+public class DistributeHintTest extends TPCHTestBase {
 
     private int used = 0;
     private int unused = 0;
