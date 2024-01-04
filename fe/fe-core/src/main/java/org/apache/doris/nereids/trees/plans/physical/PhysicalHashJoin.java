@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -47,7 +46,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -188,7 +186,6 @@ public class PhysicalHashJoin<
             }
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
 
         // if rf built between plan nodes containing cte both, for example both src slot and target slot are from cte,
         // or two sub-queries both containing cte, disable this rf since this kind of cross-cte rf will make one side
@@ -239,7 +236,7 @@ public class PhysicalHashJoin<
         if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
         if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
