@@ -115,7 +115,7 @@ suite("test_time_series_compaction_polciy", "p0") {
     sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
     sql """ INSERT INTO ${tableName} VALUES (100, "andy", "andy love apple", 100); """
     
-    qt_sql """ select count() from ${tableName} """
+    qt_sql_1 """ select count() from ${tableName} """
 
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
     String[][] tablets = sql """ show tablets from ${tableName}; """
@@ -148,8 +148,9 @@ suite("test_time_series_compaction_polciy", "p0") {
     rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 22)
 
-    qt_sql """ select count() from ${tableName}"""
-    qt_sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
+    qt_sql_2 """ select count() from ${tableName}"""
+    sql """ alter table ${tableName} set ("time_series_compaction_file_count_threshold"="10")"""
+    sql """sync"""
     // trigger cumulative compactions for all tablets in ${tableName}
     trigger_cumulative_compaction_on_tablets.call(tablets)
 
@@ -159,5 +160,5 @@ suite("test_time_series_compaction_polciy", "p0") {
     // after cumulative compaction, there is only 11 rowset.
     rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11)
-    qt_sql """ select count() from ${tableName}"""
+    qt_sql_3 """ select count() from ${tableName}"""
 }
