@@ -96,10 +96,10 @@ public:
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink(OperatorBuilderPtr& sink_operator);
+    Status set_sink_builder(OperatorBuilderPtr& sink_operator_builder);
     Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
-    OperatorBuilderBase* sink() { return _sink.get(); }
+    OperatorBuilderBase* get_sink_builder() { return _sink_builder.get(); }
     DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
@@ -148,7 +148,7 @@ public:
         }
     }
     void init_data_distribution() {
-        set_data_distribution(operatorXs.front()->get_local_exchange_type());
+        set_data_distribution(operatorXs.front()->required_data_distribution());
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;
@@ -185,7 +185,7 @@ private:
     void _init_profile();
 
     OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink;            // put block to sink
+    OperatorBuilderPtr _sink_builder;    // put block to sink
 
     std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;

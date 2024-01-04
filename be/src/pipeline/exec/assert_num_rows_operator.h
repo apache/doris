@@ -33,7 +33,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
+class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
             : StreamingOperator(operator_builder, node) {}
@@ -57,7 +57,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         return {ExchangeType::PASSTHROUGH};
     }
 

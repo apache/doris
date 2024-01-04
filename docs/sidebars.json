@@ -91,7 +91,8 @@
                                 "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
-                                "data-operate/import/import-way/load-json-format"
+                                "data-operate/import/import-way/load-json-format",
+                                "data-operate/import/import-way/group-commit-manual"
                             ]
                         },
                         {

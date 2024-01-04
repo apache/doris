@@ -149,7 +149,7 @@ public:
     QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
     bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    segment_v2::CompressionTypePB& compression_type() { return _compression_type; }
+    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
 protected:
     friend class BlockSerializer<VDataStreamSender>;
@@ -320,6 +320,11 @@ public:
     bool is_receiver_eof() const { return _receiver_status.is<ErrorCode::END_OF_FILE>(); }
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
+
+    auto local_recvr() {
+        DCHECK(is_local());
+        return _local_recvr;
+    }
 
 protected:
     bool _recvr_is_valid() {

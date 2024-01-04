@@ -174,7 +174,7 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_DOWNLOAD="https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz"
 BOOST_NAME=boost_1_81_0.tar.gz
 BOOST_SOURCE=boost_1_81_0
 BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
@@ -484,6 +484,12 @@ LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
 LIBDEFLATE_SOURCE=libdeflate-1.19
 LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
 
+# streamvbyte
+STREAMVBYTE_DOWNLOAD="https://github.com/lemire/streamvbyte/archive/refs/tags/v1.0.0.tar.gz"
+STREAMVBYTE_NAME=streamvbyte-1.0.0.tar.gz
+STREAMVBYTE_SOURCE=streamvbyte-1.0.0
+STREAMVBYTE_MD5SUM="f334219db5a832b6dae3589a56a29563"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -555,6 +561,7 @@ export TP_ARCHIVES=(
     'DRAGONBOX'
     'AVX2NEON'
     'LIBDEFLATE'
+    'STREAMVBYTE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

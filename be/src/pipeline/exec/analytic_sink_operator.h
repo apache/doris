@@ -38,7 +38,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
+class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -107,7 +107,7 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
@@ -115,7 +115,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return DataSinkOperatorX<AnalyticSinkLocalState>::get_local_exchange_type();
+        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
 private:

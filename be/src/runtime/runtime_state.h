@@ -255,7 +255,11 @@ public:
 
     void set_wal_id(int64_t wal_id) { _wal_id = wal_id; }
 
-    int64_t wal_id() { return _wal_id; }
+    int64_t wal_id() const { return _wal_id; }
+
+    void set_content_length(size_t content_length) { _content_length = content_length; }
+
+    size_t content_length() const { return _content_length; }
 
     const std::string& import_label() { return _import_label; }
 
@@ -393,9 +397,13 @@ public:
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
+            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+                return segment_v2::CompressionTypePB::SNAPPY;
+            } else {
+                return segment_v2::CompressionTypePB::NO_COMPRESSION;
             }
         }
-        return segment_v2::CompressionTypePB::SNAPPY;
+        return segment_v2::CompressionTypePB::NO_COMPRESSION;
     }
 
     bool skip_storage_engine_merge() const {
@@ -482,6 +490,22 @@ public:
     bool enable_hash_join_early_start_probe() const {
         return _query_options.__isset.enable_hash_join_early_start_probe &&
                _query_options.enable_hash_join_early_start_probe;
+    }
+
+    bool enable_parallel_scan() const {
+        return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    int parallel_scan_max_scanners_count() const {
+        return _query_options.__isset.parallel_scan_max_scanners_count
+                       ? _query_options.parallel_scan_max_scanners_count
+                       : 0;
+    }
+
+    int64_t parallel_scan_min_rows_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_rows_per_scanner
+                       ? _query_options.parallel_scan_min_rows_per_scanner
+                       : 0;
     }
 
     int repeat_max_num() const {
@@ -639,6 +663,7 @@ private:
     std::string _load_dir;
     int64_t _load_job_id;
     int64_t _wal_id = -1;
+    size_t _content_length = 0;
 
     // mini load
     int64_t _normal_row_number;

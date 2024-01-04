@@ -181,7 +181,7 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
-    [[nodiscard]] virtual DataDistribution get_local_exchange_type() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
@@ -271,10 +271,15 @@ public:
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 
+    [[nodiscard]] const RowDescriptor* output_row_descriptor() {
+        return _output_row_descriptor.get();
+    }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state);
+    [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
+                                                          vectorized::Block* block,
+                                                          SourceState& source_state);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -286,6 +291,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
+    friend class VScanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
@@ -347,6 +353,10 @@ public:
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
     Dependency* dependency() override { return _dependency; }
+
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
 
 protected:
     DependencyType* _dependency = nullptr;
@@ -481,7 +491,7 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution get_local_exchange_type() const {
+    virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
@@ -607,6 +617,10 @@ public:
     virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     Dependency* dependency() override { return _dependency; }
+
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
 
 protected:
     DependencyType* _dependency = nullptr;

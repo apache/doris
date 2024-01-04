@@ -19,12 +19,11 @@ suite("test_workload_sched_policy") {
 
     sql "set experimental_enable_nereids_planner = false;"
 
-    sql "drop workload schedule policy if exists full_policy_policy;"
-    sql "drop workload schedule policy if exists set_action_policy;"
-    sql "drop workload schedule policy if exists move_action_policy;"
     sql "drop workload schedule policy if exists test_cancel_policy;"
-    sql "drop workload schedule policy if exists test_set_var_policy;"
-    sql "drop workload schedule policy if exists test_set_var_policy2;"
+    sql "drop workload schedule policy if exists move_action_policy;"
+    sql "drop workload schedule policy if exists set_action_policy;"
+    sql "drop workload schedule policy if exists fe_policy;"
+    sql "drop workload schedule policy if exists be_policy;"
 
     // 1 create cancel policy
     sql "create workload schedule policy test_cancel_policy " +
@@ -33,18 +32,27 @@ suite("test_workload_sched_policy") {
 
     // 2 create cancel policy
     sql "create workload schedule policy move_action_policy " +
-            "conditions(username='root') " +
+            "conditions(query_time > 10) " +
             "actions(move_query_to_group 'normal');"
 
     // 3 create set policy
     sql "create workload schedule policy set_action_policy " +
-            "conditions(query_time > 10, username='root') " +
+            "conditions(username='root') " +
             "actions(set_session_variable 'workload_group=normal');"
 
-    // 4 create policy with property
-    sql "create workload schedule policy full_policy_policy " +
-            "conditions(query_time > 10, username='root') " +
+    // 4 create policy run in fe
+    sql "create workload schedule policy fe_policy " +
+            "conditions(username='root') " +
             "actions(set_session_variable 'workload_group=normal') " +
+            "properties( " +
+            "'enabled' = 'false', " +
+            "'priority'='10' " +
+            ");"
+
+    // 5 create policy run in be
+    sql "create workload schedule policy be_policy " +
+            "conditions(query_time > 10) " +
+            "actions(cancel_query) " +
             "properties( " +
             "'enabled' = 'false', " +
             "'priority'='10' " +
@@ -53,70 +61,71 @@ suite("test_workload_sched_policy") {
     qt_select_policy_tvf "select name,condition,action,priority,enabled,version from workload_schedule_policy() order by name;"
 
     // test_alter
-    sql "alter workload schedule policy full_policy_policy properties('priority'='2', 'enabled'='false');"
+    sql "alter workload schedule policy fe_policy properties('priority'='2', 'enabled'='false');"
 
     // create failed check
-    try {
+    test {
         sql "create workload schedule policy failed_policy " +
                 "conditions(abc > 123) actions(cancel_query);"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("invalid metric name"))
+
+        exception "invalid metric name"
     }
 
-    try {
+    test {
         sql "create workload schedule policy failed_policy " +
                 "conditions(query_time > 123) actions(abc);"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("invalid action type"))
+
+        exception "invalid action type"
     }
 
-    try {
-        sql "alter workload schedule policy full_policy_policy properties('priority'='abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("invalid priority property value"))
+    test {
+        sql "alter workload schedule policy fe_policy properties('priority'='abc');"
+
+        exception "invalid priority property value"
     }
 
-    try {
-        sql "alter workload schedule policy full_policy_policy properties('enabled'='abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("invalid enabled property value"))
+    test {
+        sql "alter workload schedule policy fe_policy properties('enabled'='abc');"
+
+        exception "invalid enabled property value"
     }
 
-    try {
-        sql "alter workload schedule policy full_policy_policy properties('priority'='10000');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("priority can only between"))
+    test {
+        sql "alter workload schedule policy fe_policy properties('priority'='10000');"
+
+        exception "priority can only between"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
-                "conditions (username = 'root')" +
+                "conditions (query_time > 0)" +
                 "actions(cancel_query, move_query_to_group 'normal');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not exist in one policy at same time"))
+
+        exception "can not exist in one policy at same time"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
-                "conditions (username = 'root') " +
+                "conditions (query_time > 0) " +
                 "actions(cancel_query, cancel_query);"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("duplicate action in one policy"))
+
+        exception "duplicate action in one policy"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
                 "conditions (username = 'root') " +
                 "actions(set_session_variable 'workload_group=normal', set_session_variable 'workload_group=abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("duplicate set_session_variable action args one policy"))
+
+        exception "duplicate set_session_variable action args one policy"
     }
 
     // drop
-    sql "drop workload schedule policy full_policy_policy;"
-    sql "drop workload schedule policy set_action_policy;"
-    sql "drop workload schedule policy move_action_policy;"
     sql "drop workload schedule policy test_cancel_policy;"
+    sql "drop workload schedule policy move_action_policy;"
+    sql "drop workload schedule policy set_action_policy;"
+    sql "drop workload schedule policy fe_policy;"
+    sql "drop workload schedule policy be_policy;"
 
     qt_select_policy_tvf_after_drop "select name,condition,action,priority,enabled,version from workload_schedule_policy() order by name;"
 
@@ -158,10 +167,6 @@ suite("test_workload_sched_policy") {
 
     sql "ADMIN SET FRONTEND CONFIG ('workload_sched_policy_interval_ms' = '10000');"
 
-    sql "drop workload schedule policy if exists full_policy_policy;"
-    sql "drop workload schedule policy if exists set_action_policy;"
-    sql "drop workload schedule policy if exists move_action_policy;"
-    sql "drop workload schedule policy if exists test_cancel_policy;"
     sql "drop workload schedule policy if exists test_set_var_policy;"
     sql "drop workload schedule policy if exists test_set_var_policy2;"
 

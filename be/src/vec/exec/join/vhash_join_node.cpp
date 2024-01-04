@@ -692,7 +692,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         // data from data.
         while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side) &&
                (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
-            block.clear_column_data();
+            release_block_memory(block, 1);
             RETURN_IF_CANCELLED(state);
             {
                 SCOPED_TIMER(_build_get_next_timer);
@@ -824,7 +824,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           state, arg.hash_table->size()));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
-                                  RETURN_IF_ERROR(_runtime_filter_slots->publish());
+                                  RETURN_IF_ERROR(_runtime_filter_slots->publish(true));
                                   return Status::OK();
                               }},
                     *_hash_table_variants);

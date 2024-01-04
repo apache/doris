@@ -152,8 +152,7 @@ void InvertedIndexReader::get_analyse_result(std::vector<std::string>& analyse_r
 
     while (token_stream->next(&token)) {
         if (token.termLength<char>() != 0) {
-            analyse_result.emplace_back(
-                    std::string(token.termBuffer<char>(), token.termLength<char>()));
+            analyse_result.emplace_back(token.termBuffer<char>(), token.termLength<char>());
         }
     }
 
@@ -188,7 +187,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         if (!dir) {
             dir = new DorisCompoundReader(
-                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
                     index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
@@ -256,12 +255,17 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             inverted_index_ctx->char_filter_map =
                     get_parser_char_filter_map_from_properties(_index_meta.properties());
             auto analyzer = create_analyzer(inverted_index_ctx.get());
+            auto lowercase = get_parser_lowercase_from_properties(_index_meta.properties());
+            if (lowercase == "true") {
+                analyzer->set_lowercase(true);
+            } else if (lowercase == "false") {
+                analyzer->set_lowercase(false);
+            }
             auto reader = create_reader(inverted_index_ctx.get(), search_str);
             inverted_index_ctx->analyzer = analyzer.get();
             get_analyse_result(analyse_result, reader.get(), analyzer.get(), column_name,
                                query_type);
         }
-
         if (analyse_result.empty()) {
             auto msg = fmt::format(
                     "token parser result is empty for query, "

@@ -498,7 +498,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `max_base_compaction_threads`
 
 * 类型：int32
-* 描述：Base Compaction线程池中线程数量的最大值。
+* 描述：Base Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
 * 默认值：4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -639,14 +639,14 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * 类型：int32
-* 描述：Cumulative Compaction线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Cumulative Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `enable_segcompaction`
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：true
+* 默认值：false
 
 #### `segcompaction_batch_size`
 
@@ -712,8 +712,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * 类型：int32
-* 描述：Single Replica Compaction 线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Single Replica Compaction 线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `update_replica_infos_interval_seconds`
 
@@ -1533,3 +1533,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
 * 默认值: true
+
+#### `group_commit_wal_path`
+
+* 描述:  group commit 存放 WAL 文件的目录，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 默认在用户配置的`storage_root_path`的各个目录下创建一个名为`wal`的目录。配置示例：
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 10000

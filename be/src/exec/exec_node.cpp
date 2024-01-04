@@ -561,6 +561,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();

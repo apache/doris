@@ -14,10 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -27,6 +28,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/local_file_system.h"
+#include "olap/options.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
@@ -42,12 +44,10 @@
 namespace doris {
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
-extern Status k_stream_load_plan_status;
-extern std::string k_request_line;
+extern Status k_stream_load_exec_status;
 
 ExecEnv* _env = nullptr;
-std::string wal_dir = "./wal_test";
-std::string tmp_dir = "./wal_test/tmp";
+std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 
 class WalManagerTest : public testing::Test {
 public:
@@ -63,9 +63,9 @@ public:
         _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_stream_load_executor = StreamLoadExecutor::create_shared(_env);
+        _env->_store_paths = {StorePath(std::filesystem::current_path(), 0)};
         _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
         k_stream_load_begin_result = TLoadTxnBeginResult();
-        k_stream_load_plan_status = Status::OK();
     }
     void TearDown() override {
         static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
@@ -78,17 +78,15 @@ public:
     void prepare() { static_cast<void>(io::global_local_filesystem()->create_directory(wal_dir)); }
 
     void createWal(const std::string& wal_path) {
-        std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes =
-                std::make_shared<std::atomic_size_t>(0);
-        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
-        auto wal_writer = WalWriter(wal_path, _all_wal_disk_bytes, cv);
+        auto wal_writer = WalWriter(wal_path);
         static_cast<void>(wal_writer.init());
         static_cast<void>(wal_writer.finalize());
     }
 };
 
 TEST_F(WalManagerTest, recovery_normal) {
-    k_request_line = "{\"Status\": \"Success\",    \"Message\": \"Test\"}";
+    _env->wal_mgr()->wal_limit_test_bytes = 1099511627776;
+    k_stream_load_exec_status = Status::OK();
 
     std::string db_id = "1";
     int64_t tb_1_id = 1;
@@ -122,5 +120,94 @@ TEST_F(WalManagerTest, recovery_normal) {
     ASSERT_TRUE(!std::filesystem::exists(wal_101));
     ASSERT_TRUE(!std::filesystem::exists(wal_200));
     ASSERT_TRUE(!std::filesystem::exists(wal_201));
+}
+
+TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
+    auto wal_mgr = WalManager::create_shared(_env, config::group_commit_wal_path);
+    static_cast<void>(wal_mgr->init());
+    _env->set_wal_mgr(wal_mgr);
+
+    // 1T
+    size_t available_bytes = 1099511627776;
+    size_t wal_limit_bytes;
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "0%";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 0);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "5%";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    wal_limit_bytes = available_bytes * 0.05;
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "50%";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    wal_limit_bytes = available_bytes * 0.5;
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "200%";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    wal_limit_bytes = available_bytes * 2;
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "-10%";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "0";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 0);
+
+    // 1M
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "1048576";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1048576);
+
+    // 1G
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "1073741824";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1073741824);
+
+    // 100G
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "107374182400";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 107374182400);
+
+    // 1M
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "1M";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1048576);
+
+    // 1G
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "1G";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1073741824);
+
+    // 100G
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "100G";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 107374182400);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "-1024";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
+
+    _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
+    config::group_commit_wal_max_disk_limit = "-1M";
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_dirs_info(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
 }
 } // namespace doris

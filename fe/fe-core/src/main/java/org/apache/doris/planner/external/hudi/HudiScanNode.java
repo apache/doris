@@ -132,7 +132,14 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    public static void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof HudiSplit) {
+            setHudiParams(rangeDesc, (HudiSplit) split);
+        }
+    }
+
+    public void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();

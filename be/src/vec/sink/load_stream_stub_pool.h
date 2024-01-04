@@ -68,8 +68,6 @@ namespace doris {
 
 class LoadStreamStub;
 
-namespace stream_load {
-
 class LoadStreamStubPool;
 
 using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
@@ -78,7 +76,7 @@ class LoadStreams {
 public:
     LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool);
 
-    void release();
+    void release(Status status);
 
     Streams& streams() { return _streams; }
 
@@ -118,5 +116,4 @@ private:
     std::unordered_map<std::pair<UniqueId, int64_t>, std::shared_ptr<LoadStreams>> _pool;
 };
 
-} // namespace stream_load
 } // namespace doris

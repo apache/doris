@@ -150,7 +150,7 @@ Field DataTypeDecimal<T>::get_default() const {
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     if constexpr (IsDecimalV2<T>) {
-        auto col = ColumnDecimal128::create(0, scale);
+        auto col = ColumnDecimal128V2::create(0, scale);
         return col;
     } else {
         return ColumnType::create(0, scale);
@@ -166,11 +166,12 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
-    if (precision_value < min_decimal_precision() ||
-        precision_value > max_decimal_precision<Decimal256>()) {
+    auto max_precision =
+            use_v2 ? max_decimal_precision<Decimal128V2>() : max_decimal_precision<Decimal256>();
+    if (precision_value < min_decimal_precision() || precision_value > max_precision) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Wrong precision {}, min: {}, max: {}", precision_value,
-                               min_decimal_precision(), max_decimal_precision<Decimal256>());
+                               min_decimal_precision(), max_precision);
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
@@ -181,15 +182,15 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
     }
 
     if (use_v2) {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(precision_value, scale_value);
+        return std::make_shared<DataTypeDecimal<Decimal128V2>>(precision_value, scale_value);
     }
 
     if (precision_value <= max_decimal_precision<Decimal32>()) {
         return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
     } else if (precision_value <= max_decimal_precision<Decimal64>()) {
         return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
-    } else if (precision_value <= max_decimal_precision<Decimal128I>()) {
-        return std::make_shared<DataTypeDecimal<Decimal128I>>(precision_value, scale_value);
+    } else if (precision_value <= max_decimal_precision<Decimal128V3>()) {
+        return std::make_shared<DataTypeDecimal<Decimal128V3>>(precision_value, scale_value);
     }
     return std::make_shared<DataTypeDecimal<Decimal256>>(precision_value, scale_value);
 }
@@ -205,12 +206,12 @@ Decimal64 DataTypeDecimal<Decimal64>::get_scale_multiplier(UInt32 scale) {
 }
 
 template <>
-Decimal128 DataTypeDecimal<Decimal128>::get_scale_multiplier(UInt32 scale) {
+Decimal128V2 DataTypeDecimal<Decimal128V2>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
+Decimal128V3 DataTypeDecimal<Decimal128V3>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
@@ -228,11 +229,11 @@ Decimal64 DataTypeDecimal<Decimal64>::get_max_digits_number(UInt32 digit_count) 
     return common::max_i64(digit_count);
 }
 template <>
-Decimal128 DataTypeDecimal<Decimal128>::get_max_digits_number(UInt32 digit_count) {
+Decimal128V2 DataTypeDecimal<Decimal128V2>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i128(digit_count);
 }
 template <>
-Decimal128I DataTypeDecimal<Decimal128I>::get_max_digits_number(UInt32 digit_count) {
+Decimal128V3 DataTypeDecimal<Decimal128V3>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i128(digit_count);
 }
 template <>
@@ -243,8 +244,8 @@ Decimal256 DataTypeDecimal<Decimal256>::get_max_digits_number(UInt32 digit_count
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;
-template class DataTypeDecimal<Decimal128>;
-template class DataTypeDecimal<Decimal128I>;
+template class DataTypeDecimal<Decimal128V2>;
+template class DataTypeDecimal<Decimal128V3>;
 template class DataTypeDecimal<Decimal256>;
 
 } // namespace doris::vectorized

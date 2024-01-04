@@ -23,7 +23,7 @@ suite("outer_join") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -224,7 +224,7 @@ suite("outer_join") {
     def query2_0 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 10"
+            "where lineitem.L_LINENUMBER > 0"
     order_qt_query2_0_before "${query2_0}"
     check_not_match(mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
@@ -361,4 +361,43 @@ suite("outer_join") {
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
+
+    // self join test
+    def mv8_0 = """
+    select 
+    a.o_orderkey,
+    count(distinct a.o_orderstatus) num1,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority in (1,2) AND a.o_orderdate >= '2023-12-08' AND b.o_orderdate <= '2023-12-09' THEN a.o_shippriority-b.o_custkey ELSE 0 END) num4,
+    AVG(a.o_totalprice) num5,
+    MAX(b.o_totalprice) num6,
+    MIN(a.o_totalprice) num7
+    from
+    orders a
+    left outer join orders b
+    on a.o_orderkey = b.o_orderkey
+    and a.o_custkey = b.o_custkey
+    group by a.o_orderkey;
+    """
+    def query8_0 = """
+    select 
+    a.o_orderkey,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority in (1,2) AND a.o_orderdate >= '2023-12-08' AND b.o_orderdate <= '2023-12-09' THEN a.o_shippriority-b.o_custkey ELSE 0 END) num4,
+    AVG(a.o_totalprice) num5,
+    MAX(b.o_totalprice) num6,
+    MIN(a.o_totalprice) num7
+    from
+    orders a
+    left outer join orders b
+    on a.o_orderkey = b.o_orderkey
+    and a.o_custkey = b.o_custkey
+    group by a.o_orderkey;
+    """
+    order_qt_query8_0_before "${query8_0}"
+    check_rewrite(mv8_0, query8_0, "mv8_0")
+    order_qt_query8_0_after "${query8_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
 }

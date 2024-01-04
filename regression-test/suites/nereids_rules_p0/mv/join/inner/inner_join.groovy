@@ -23,7 +23,7 @@ suite("inner_join") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -239,7 +239,7 @@ suite("inner_join") {
     def query2_0 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 10"
+            "where lineitem.L_LINENUMBER > 0"
     order_qt_query2_0_before "${query2_0}"
     check_rewrite(mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
@@ -393,17 +393,17 @@ suite("inner_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
 
-    // filter inside + inner + right
+    // filter inside + left + right
     def mv7_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey " +
             "from lineitem " +
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate "
     def query7_0 = "select l_partkey, l_suppkey, l_shipdate " +
             "from (select l_shipdate, l_orderkey, l_partkey, l_suppkey " +
-            "from lineitem where l_partkey in (3, 4)) t1  " +
+            "from lineitem where l_partkey in (2, 3, 4)) t1  " +
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where l_partkey = 3"
+            "where l_partkey = 2"
     order_qt_query7_0_before "${query7_0}"
     check_rewrite(mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
@@ -417,8 +417,8 @@ suite("inner_join") {
     def query10_0 = "select orders.O_CUSTKEY " +
             "from orders " +
             "inner join lineitem on orders.O_ORDERKEY = lineitem.L_ORDERKEY " +
-            "WHERE lineitem.L_LINENUMBER > 10 AND orders.O_CUSTKEY = 5 AND " +
-            "orders.O_SHIPPRIORITY = 1"
+            "WHERE lineitem.L_LINENUMBER > 0 AND orders.O_CUSTKEY = 1 AND " +
+            "orders.O_SHIPPRIORITY = 2"
     order_qt_query10_0_before "${query10_0}"
     check_not_match(mv10_0, query10_0, "mv10_0")
     order_qt_query10_0_after "${query10_0}"

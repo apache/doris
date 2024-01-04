@@ -23,7 +23,7 @@ suite("aggregate_with_roll_up") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -42,7 +42,11 @@ suite("aggregate_with_roll_up") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(o_orderdate) (
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
+    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -73,7 +77,10 @@ suite("aggregate_with_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(l_shipdate) (
+    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -131,6 +138,26 @@ suite("aggregate_with_roll_up") {
         sql"""
         CREATE MATERIALIZED VIEW ${mv_name} 
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            contains "(${mv_name})"
+        }
+    }
+
+    def check_rewrite_with_mv_partition = { mv_sql, query_sql, mv_name, partition_column ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (${partition_column})
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
@@ -220,6 +247,41 @@ suite("aggregate_with_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
 
+    def mv13_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey, 
+            sum(o_totalprice) as sum_total, 
+            max(o_totalprice) as max_total, 
+            min(o_totalprice) as min_total, 
+            count(*) as count_all, 
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic 
+            from lineitem 
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate 
+            group by 
+            l_shipdate, 
+            o_orderdate, 
+            l_partkey, 
+            l_suppkey;
+    """
+    def query13_1 = """
+            select t1.l_partkey, t1.l_suppkey, o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 10 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from (select * from lineitem where l_shipdate = '2023-12-11') t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate, 
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query13_1_before "${query13_1}"
+    check_not_match(mv13_1, query13_1, "mv13_1")
+    order_qt_query13_1_after "${query13_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_1"""
+
+
     // filter inside + right + use roll up dimension
     def mv14_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, " +
             "sum(o_totalprice) as sum_total, " +
@@ -283,7 +345,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query15_0_before "${query15_0}"
-    check_rewrite(mv15_0, query15_0, "mv15_0")
+    check_rewrite_with_mv_partition(mv15_0, query15_0, "mv15_0", "l_shipdate")
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
@@ -375,7 +437,7 @@ suite("aggregate_with_roll_up") {
             "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
             "from lineitem t1 " +
             "left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where o_orderdate = '2023-12-11' and l_partkey = 2 " +
+            "where o_orderdate = '2023-12-11' and l_partkey = 3 " +
             "group by " +
             "l_shipdate, " +
             "l_suppkey"

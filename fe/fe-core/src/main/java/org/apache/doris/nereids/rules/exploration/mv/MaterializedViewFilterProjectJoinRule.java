@@ -38,7 +38,7 @@ public class MaterializedViewFilterProjectJoinRule extends AbstractMaterializedV
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter(logicalProject(logicalJoin(any(), any()))).thenApplyMulti(ctx -> {
+                logicalFilter(logicalProject(logicalJoin(any(), any()))).thenApplyMultiNoThrow(ctx -> {
                     LogicalFilter<LogicalProject<LogicalJoin<Plan, Plan>>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_FILTER_PROJECT_JOIN));

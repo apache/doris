@@ -90,6 +90,9 @@ Doris倒排索引的功能简要介绍如下：
     - ignore_above：控制字符串是否建索引。
       - 长度超过 ignore_above 设置的字符串不会被索引。对于字符串数组，ignore_above 将分别应用于每个数组元素，长度超过 ignore_above 的字符串元素将不被索引。
       - 默认为 256 字节
+    - lower_case: 是否将分词进行小写转换，从而在匹配的时候实现忽略大小写
+      - true: 转换小写
+      - false：不转换小写
   - COMMENT 是可选的，用于指定注释
 
 ```sql

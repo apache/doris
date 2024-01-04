@@ -50,6 +50,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
+import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisManager;
@@ -1829,6 +1830,7 @@ public class DatabaseTransactionMgr {
 
     private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1888,6 +1890,10 @@ public class DatabaseTransactionMgr {
                 } // end for indices
                 long version = partitionCommitInfo.getVersion();
                 long versionTime = partitionCommitInfo.getVersionTime();
+                if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION
+                        && version > Partition.PARTITION_INIT_VERSION) {
+                    analysisManager.setNewPartitionLoaded(tableId);
+                }
                 partition.updateVisibleVersionAndTime(version, versionTime);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("transaction state {} set partition {}'s version to [{}]",
@@ -1895,7 +1901,6 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
         tableIdToTotalNumDeltaRows
@@ -2072,7 +2077,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    protected void cleanLabel(String label) {
+    protected void cleanLabel(String label, boolean isReplay) {
         Set<Long> removedTxnIds = Sets.newHashSet();
         writeLock();
         try {
@@ -2113,11 +2118,14 @@ public class DatabaseTransactionMgr {
             // So that we can keep consistency in meta image
             finalStatusTransactionStateDequeShort.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
             finalStatusTransactionStateDequeLong.removeIf(txn -> removedTxnIds.contains(txn.getTransactionId()));
+
+            if (!isReplay) {
+                CleanLabelOperationLog log = new CleanLabelOperationLog(dbId, label);
+                Env.getCurrentEnv().getEditLog().logCleanLabel(log);
+            }
         } finally {
             writeUnlock();
         }
-        LOG.info("clean {} labels on db {} with label '{}' in database transaction mgr.", removedTxnIds.size(), dbId,
-                label);
     }
 
     public long getTxnNumByStatus(TransactionStatus status) {

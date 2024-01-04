@@ -47,4 +47,10 @@ suite ("testBitmapUnionInQuery") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from user_tags group by user_id having a>1 order by a;"
+
+    explain {
+        sql("select user_id, bitmap_count(bitmap_union(to_bitmap(tag_id))) a from user_tags group by user_id having a>1 order by a;")
+        contains "(user_tags_mv)"
+    }
+    qt_select_mv "select user_id, bitmap_count(bitmap_union(to_bitmap(tag_id))) a from user_tags group by user_id having a>1 order by a;"
 }

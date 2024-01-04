@@ -102,9 +102,9 @@ using STRING = std::string;
 using DOUBLE = double;
 using FLOAT = float;
 
-inline auto DECIMAL = Decimal128::double_to_decimal;
+inline auto DECIMAL = Decimal128V2::double_to_decimal;
 inline auto DECIMALFIELD = [](double v) {
-    return DecimalField<Decimal128>(Decimal128::double_to_decimal(v), 9);
+    return DecimalField<Decimal128V2>(Decimal128V2::double_to_decimal(v), 9);
 };
 
 using DATETIME = std::string;
@@ -315,8 +315,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 const auto& expect_data =
                         any_cast<typename ReturnType::FieldType>(data_set[i].second);
 
-                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
-                    const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
+                if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
+                    const auto& column_data = field.get<DecimalField<Decimal128V2>>().get_value();
                     EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
                     const ColumnBitmap* bitmap_col = nullptr;

@@ -52,6 +52,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -65,7 +66,6 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
@@ -673,7 +673,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
                     AbstractJob job = (AbstractJob) journal.getData();
-                    Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
+                    Env.getCurrentEnv().getJobManager().replayEndJob(job);
                     break;
                 }
                 /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
@@ -1133,6 +1133,11 @@ public class EditLog {
                     env.getAlterInstance().processAlterMTMV(alterMtmv, true);
                     break;
                 }
+                case OperationType.OP_INSERT_OVERWRITE: {
+                    final InsertOverwriteLog insertOverwriteLog = (InsertOverwriteLog) journal.getData();
+                    env.getInsertOverwriteManager().replayInsertOverwriteLog(insertOverwriteLog);
+                    break;
+                }
                 case OperationType.OP_ALTER_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
@@ -1345,30 +1350,6 @@ public class EditLog {
 
     public void logRecoverTable(RecoverInfo info) {
         logEdit(OperationType.OP_RECOVER_TABLE, info);
-    }
-
-    public void logLoadStart(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_START, job);
-    }
-
-    public void logLoadEtl(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_ETL, job);
-    }
-
-    public void logLoadLoading(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_LOADING, job);
-    }
-
-    public void logLoadQuorum(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_QUORUM, job);
-    }
-
-    public void logLoadCancel(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_CANCEL, job);
-    }
-
-    public void logLoadDone(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -1644,7 +1625,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logDeleteJob(AbstractJob job) {
+    public void logEndJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
@@ -1985,6 +1966,11 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
+
+    }
+
+    public void logInsertOverwrite(InsertOverwriteLog log) {
+        logEdit(OperationType.OP_INSERT_OVERWRITE, log);
     }
 
     public String getNotReadyReason() {

@@ -36,7 +36,7 @@ public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRu
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(any(), any()).thenApplyMulti(ctx -> {
+                logicalJoin(any(), any()).thenApplyMultiNoThrow(ctx -> {
                     LogicalJoin<Plan, Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN));

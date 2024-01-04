@@ -55,4 +55,13 @@ public class MTMVTaskContext {
     public boolean isComplete() {
         return isComplete;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVTaskContext{"
+                + "triggerMode=" + triggerMode
+                + ", partitions=" + partitions
+                + ", isComplete=" + isComplete
+                + '}';
+    }
 }

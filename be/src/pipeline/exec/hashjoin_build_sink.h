@@ -37,7 +37,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
+class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
@@ -48,24 +48,18 @@ class HashJoinBuildSinkOperatorX;
 
 class SharedHashTableDependency final : public Dependency {
 public:
+    using SharedState = HashJoinSharedState;
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableDependency", true, query_ctx) {}
+            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
     ~SharedHashTableDependency() override = default;
 };
 
-class HashJoinBuildSinkDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    HashJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "HashJoinBuildSinkDependency", true, query_ctx) {}
-    ~HashJoinBuildSinkDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
+    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -86,7 +80,6 @@ public:
     void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
-    Dependency* dependency() override { return _shared_hash_table_dependency.get(); }
 
 protected:
     void _hash_table_init(RuntimeState* state);
@@ -156,7 +149,7 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {

@@ -225,7 +225,7 @@ public class ResourceTagQueryTest {
         Assert.assertTrue(connectContext.isResourceTagsSet());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(error.contains("have no queryable replicas"));
+        Assert.assertTrue(error.contains("no queryable replicas"));
 
         // set [0, 1, 2] backends' tag to zone1, so that at least 1 replica can be queried.
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
@@ -320,7 +320,7 @@ public class ResourceTagQueryTest {
         queryStr = "explain select * from test_prop.tbl2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("have no queryable replicas"));
+        Assert.assertTrue(explainString.contains("no queryable replicas"));
 
         // The priority of table is higher than db,should same with table
         String createTableStr3 = "create table test_prop.tbl3\n"

@@ -108,6 +108,13 @@ public class ShowLoadStmt extends ShowStmt {
         return states;
     }
 
+    public org.apache.doris.load.loadv2.JobState getStateV2() {
+        if (Strings.isNullOrEmpty(stateValue)) {
+            return null;
+        }
+        return org.apache.doris.load.loadv2.JobState.valueOf(stateValue);
+    }
+
     public boolean isAccurateMatch() {
         return isAccurateMatch;
     }

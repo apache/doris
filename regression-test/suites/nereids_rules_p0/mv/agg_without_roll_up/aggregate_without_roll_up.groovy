@@ -23,7 +23,7 @@ suite("aggregate_without_roll_up") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
     sql "SET global enable_auto_analyze = false"
 
     sql """
@@ -43,11 +43,15 @@ suite("aggregate_without_roll_up") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(o_orderdate) (
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
+    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
-    )
+    );
     """
 
     sql """
@@ -74,7 +78,11 @@ suite("aggregate_without_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(l_shipdate) (
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
+    )
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -100,7 +108,8 @@ suite("aggregate_without_roll_up") {
     )
     """
 
-    sql """ insert into lineitem values
+    sql """
+    insert into lineitem values
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
@@ -185,7 +194,7 @@ suite("aggregate_without_roll_up") {
             "min(o_totalprice), " +
             "count(*) " +
             "from orders " +
-            "where o_shippriority in (9.5, 10.5)" +
+            "where o_shippriority in (1, 2)" +
             "group by " +
             "o_shippriority, " +
             "o_comment "
@@ -636,7 +645,7 @@ suite("aggregate_without_roll_up") {
             "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
             "from lineitem t1 " +
             "left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where l_shipdate = '2023-12-11' and l_suppkey = 2 " +
+            "where l_shipdate = '2023-12-11' and l_suppkey = 3 " +
             "group by " +
             "l_shipdate, " +
             "l_suppkey"
@@ -653,7 +662,7 @@ suite("aggregate_without_roll_up") {
     def query18_1 = "select l_linenumber, sum(o_totalprice) as sum_alias " +
             "from lineitem " +
             "inner join orders on l_orderkey = o_orderkey " +
-            "where o_custkey = 2 and l_linenumber = 3 " +
+            "where o_custkey = 2 and l_linenumber = 4 " +
             "group by l_linenumber, o_custkey "
     order_qt_query18_1_before "${query18_1}"
     check_rewrite(mv18_1, query18_1, "mv18_1")
@@ -668,7 +677,7 @@ suite("aggregate_without_roll_up") {
     def query18_2 = "select lineitem.l_linenumber, sum(o_totalprice) as sum_alias " +
             "from lineitem " +
             "inner join orders on lineitem.l_orderkey = orders.o_orderkey " +
-            "where o_custkey = 2 and l_suppkey= 4 " +
+            "where o_custkey = 2 and l_suppkey= 3 " +
             "group by lineitem.l_linenumber, orders.o_custkey "
     order_qt_query18_2_before "${query18_2}"
     check_not_match(mv18_2, query18_2, "mv18_2")

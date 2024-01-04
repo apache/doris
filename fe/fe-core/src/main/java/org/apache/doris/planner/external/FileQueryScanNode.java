@@ -34,16 +34,12 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.hudi.HudiScanNode;
-import org.apache.doris.planner.external.hudi.HudiSplit;
-import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
-import org.apache.doris.planner.external.paimon.PaimonScanNode;
-import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -260,6 +256,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
+    // Set some parameters of scan to support different types of file data sources
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -315,7 +315,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
-            TFileType locationType = getLocationType(fileSplit.getPath().toString());
+            TFileType locationType;
+            if (fileSplit instanceof IcebergSplit
+                    && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+                locationType = TFileType.FILE_BROKER;
+            } else {
+                locationType = getLocationType(fileSplit.getPath().toString());
+            }
 
             TScanRangeLocations curLocations = newLocations();
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -353,17 +359,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
 
-            // external data lake table
-            if (fileSplit instanceof IcebergSplit) {
-                // TODO: extract all data lake split to factory
-                IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
-            } else if (fileSplit instanceof PaimonSplit) {
-                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
-            } else if (fileSplit instanceof HudiSplit) {
-                HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
-            } else if (fileSplit instanceof MaxComputeSplit) {
-                MaxComputeScanNode.setScanParams(rangeDesc, (MaxComputeSplit) fileSplit);
-            }
+            setScanParams(rangeDesc, fileSplit);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();
@@ -472,6 +468,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TFileType getLocationType(String location) throws UserException;
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
+
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());

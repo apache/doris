@@ -26,7 +26,6 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
@@ -104,13 +103,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 logger.debug(currentClassName + " this group is already rewritten so skip");
                 continue;
             }
-            MTMV mtmv = materializationContext.getMTMV();
-            MTMVCache mtmvCache = getCacheFromMTMV(mtmv);
-            if (mtmvCache == null) {
-                logger.warn(currentClassName + " mv cache is null so return");
-                return rewriteResults;
-            }
-            List<StructInfo> viewStructInfos = extractStructInfo(mtmvCache.getLogicalPlan(), cascadesContext);
+            List<StructInfo> viewStructInfos = extractStructInfo(materializationContext.getMvPlan(),
+                    cascadesContext);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one
                 logger.warn(currentClassName + " the num of view struct info is more then one so return");
@@ -142,12 +136,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 LogicalCompatibilityContext compatibilityContext =
                         LogicalCompatibilityContext.from(queryToViewTableMapping, queryToViewSlotMapping,
                                 queryStructInfo, viewStructInfo);
-                List<Expression> pulledUpExpressions = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
+                ComparisonResult comparisonResult = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                         compatibilityContext);
-                if (pulledUpExpressions == null) {
+                if (comparisonResult.isInvalid()) {
                     logger.debug(currentClassName + " graph logical is not equals so continue");
                     continue;
                 }
+                // TODO: Use set of list? And consider view expr
+                List<Expression> pulledUpExpressions = ImmutableList.copyOf(comparisonResult.getQueryExpressions());
                 // set pulled up expression to queryStructInfo predicates and update related predicates
                 if (!pulledUpExpressions.isEmpty()) {
                     queryStructInfo.addPredicates(pulledUpExpressions);
@@ -200,7 +196,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 CascadesContext rewrittenPlanContext =
                         CascadesContext.initContext(cascadesContext.getStatementContext(), rewrittenPlan,
                                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
                 rewrittenPlan = rewrittenPlanContext.getRewritePlan();
                 logger.debug(currentClassName + "rewrite by materialized view success");
                 rewriteResults.add(rewrittenPlan);
@@ -287,17 +283,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         return !relatedTalbeValidSet.isEmpty()
                 && relatedTalbeValidSet.containsAll(relatedTableSelectedPartitionToCheck);
-    }
-
-    private MTMVCache getCacheFromMTMV(MTMV mtmv) {
-        MTMVCache cache;
-        try {
-            cache = mtmv.getOrGenerateCache();
-        } catch (AnalysisException analysisException) {
-            logger.warn(this.getClass().getSimpleName() + " get mtmv cache analysisException", analysisException);
-            return null;
-        }
-        return cache;
     }
 
     /**

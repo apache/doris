@@ -38,6 +38,8 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Sets;
+
 import java.util.List;
 import java.util.Set;
 
@@ -77,12 +79,7 @@ public class MTMVPlanUtil {
     }
 
     private static Set<BaseTableInfo> getBaseViews(Plan plan) {
-        TableCollectorContext collectorContext =
-                new TableCollector.TableCollectorContext(
-                        com.google.common.collect.Sets.newHashSet(TableType.VIEW));
-        plan.accept(TableCollector.INSTANCE, collectorContext);
-        List<TableIf> collectedTables = collectorContext.getCollectedTables();
-        return transferTableIfToInfo(collectedTables);
+        return Sets.newHashSet();
     }
 
     private static Set<BaseTableInfo> transferTableIfToInfo(List<TableIf> tables) {

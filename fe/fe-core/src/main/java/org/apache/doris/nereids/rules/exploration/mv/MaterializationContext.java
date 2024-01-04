@@ -51,6 +51,8 @@ public class MaterializationContext {
     // generate form mv scan plan
     private ExpressionMapping mvExprToMvScanExprMapping;
     private boolean available = true;
+    // the mv plan from cache at present, record it to make sure query rewrite by mv is right when cache change.
+    private Plan mvPlan;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -81,6 +83,8 @@ public class MaterializationContext {
                         mtmvCache.getMvOutputExpressions(),
                         mtmvCache.getLogicalPlan()),
                 mvScanPlan.getExpressions());
+        // copy the plan from cache, which the plan in cache may change
+        this.mvPlan = mtmvCache.getLogicalPlan();
     }
 
     public Set<GroupId> getMatchedGroups() {
@@ -117,6 +121,10 @@ public class MaterializationContext {
 
     public boolean isAvailable() {
         return available;
+    }
+
+    public Plan getMvPlan() {
+        return mvPlan;
     }
 
     /**

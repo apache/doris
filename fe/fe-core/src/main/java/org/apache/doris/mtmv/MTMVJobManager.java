@@ -37,7 +37,11 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
@@ -63,7 +67,6 @@ public class MTMVJobManager implements MTMVHookService {
         MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
-        job.setComment(mtmv.getName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
         job.setJobConfig(getJobConfig(mtmv));
@@ -167,23 +170,11 @@ public class MTMVJobManager implements MTMVHookService {
      * @throws MetaNotFoundException
      */
     @Override
-    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
-        MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
-        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
-        if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
-            throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
-        }
-        try {
-            MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
-                    info.isComplete());
-            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId(), mtmvTaskContext);
-
-        } catch (JobException e) {
-            e.printStackTrace();
-            throw new DdlException(e.getMessage());
-        }
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
+                info.isComplete());
+        Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
     }
 
     @Override
@@ -199,6 +190,35 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void alterTable(Table table) {
 
+    }
+
+    @Override
+    public void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.PAUSED);
+    }
+
+    @Override
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.RUNNING);
+    }
+
+    @Override
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        job.cancelTaskById(info.getTaskId());
+    }
+
+    private MTMVJob getJobByTableNameInfo(TableNameInfo info) throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDb());
+        MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getTbl(), TableType.MATERIALIZED_VIEW);
+        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
+                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
+        if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+            throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
+        }
+        return jobs.get(0);
     }
 
 }

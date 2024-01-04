@@ -83,15 +83,28 @@ public class LeadingHint extends Hint {
         super(hintName);
         this.originalString = originalString;
         int level = 0;
+        Stack<Boolean> brace = new Stack<>();
+        String lastParameter = "";
         for (String parameter : parameters) {
             if (parameter.equals("{")) {
-                ++level;
+                if (lastParameter.equals("}")) {
+                    level += 2;
+                    brace.push(true);
+                } else {
+                    ++level;
+                    brace.push(false);
+                }
             } else if (parameter.equals("}")) {
-                level--;
+                if (brace.pop().equals(true)) {
+                    level -= 2;
+                } else {
+                    level--;
+                }
             } else {
                 tablelist.add(parameter);
                 levellist.add(level);
             }
+            lastParameter = parameter;
         }
     }
 

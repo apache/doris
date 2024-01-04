@@ -22,6 +22,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -45,8 +46,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _shared_hash_table_dependency = dependency_sptr();
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
 
@@ -119,7 +119,7 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
 
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+        if (auto* bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
         }
     }
@@ -491,6 +491,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                        (*local_state._shared_state->build_block).bytes());
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
+
+        const bool use_global_rf =
+                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
         auto ret = std::visit(
                 Overload {[&](std::monostate&) -> Status {
                               LOG(FATAL) << "FATAL: uninited hash table";
@@ -498,7 +501,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                           },
                           [&](auto&& arg) -> Status {
                               vectorized::ProcessRuntimeFilterBuild runtime_filter_build_process;
-                              return runtime_filter_build_process(state, arg, &local_state);
+                              return runtime_filter_build_process(state, arg, &local_state,
+                                                                  use_global_rf);
                           }},
                 *local_state._shared_state->hash_table_variants);
         if (!ret.ok()) {
@@ -528,6 +532,10 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         DCHECK(_shared_hash_table_context != nullptr);
         CHECK(_shared_hash_table_context->signaled);
 
+        if (!_shared_hash_table_context->status.ok()) {
+            return _shared_hash_table_context->status;
+        }
+
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",
                 print_id(
@@ -547,6 +555,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         _shared_hash_table_context->hash_table_variants));
 
         local_state._shared_state->build_block = _shared_hash_table_context->block;
+        const bool use_global_rf =
+                local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -560,15 +570,16 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                     return Status::OK();
                                 }
                                 local_state._runtime_filter_slots =
-                                        std::make_shared<VRuntimeFilterSlots>(
-                                                _build_expr_ctxs, _runtime_filter_descs);
+                                        std::make_shared<VRuntimeFilterSlots>(_build_expr_ctxs,
+                                                                              _runtime_filter_descs,
+                                                                              use_global_rf);
 
                                 RETURN_IF_ERROR(local_state._runtime_filter_slots->init(
                                         state, arg.hash_table->size()));
                                 RETURN_IF_ERROR(
                                         local_state._runtime_filter_slots->copy_from_shared_context(
                                                 _shared_hash_table_context));
-                                RETURN_IF_ERROR(local_state._runtime_filter_slots->publish());
+                                RETURN_IF_ERROR(local_state._runtime_filter_slots->publish(true));
                                 return Status::OK();
                             }},
                     *local_state._shared_state->hash_table_variants);

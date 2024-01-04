@@ -92,6 +92,9 @@ The features for inverted index is as follows:
     - ignore_above: Controls whether strings are indexed.
       - Strings longer than the ignore_above setting will not be indexed. For arrays of strings, ignore_above will be applied for each array element separately and string elements longer than ignore_above will not be indexed.
       - default value is 256 bytes.
+    - lower_case: Whether to convert tokens to lowercase, thereby achieving case-insensitive matching.
+      - true: Convert to lowercase
+      - false: Do not convert to lowercase 
   - COMMENT is optional
 
 ```sql
