@@ -64,8 +64,6 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     auto columns = block->get_columns_with_type_and_name();
     CHECK(columns.size() == _tuple_descriptor->slots().size());
     for (auto slot_desc : _tuple_descriptor->slots()) {
-        LOG(INFO) << "name:" << slot_desc->col_name() << ",column id:" << slot_desc->col_unique_id()
-                  << ",nullable:" << slot_desc->is_nullable();
         auto pos = _column_pos_map[slot_desc->col_unique_id()];
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
         if (column_ptr != nullptr && slot_desc->is_nullable()) {
@@ -87,7 +85,6 @@ Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     uint32_t version = 0;
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(version, col_ids));
-    LOG(INFO) << "version:" << version << ",col_ids:" << col_ids;
     std::vector<std::string> column_id_vector =
             strings::Split(col_ids, ",", strings::SkipWhitespace());
     try {

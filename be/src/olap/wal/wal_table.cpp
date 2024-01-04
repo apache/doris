@@ -245,7 +245,6 @@ Status WalTable::_construct_sql_str(const std::string& wal, const std::string& l
        << name << ") select " << name << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
        << std::to_string(_table_id) << "\")";
     sql_str = ss.str().data();
-    LOG(INFO) << "sql_str:" << sql_str;
     return Status::OK();
 }
 

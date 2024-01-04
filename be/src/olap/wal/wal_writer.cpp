@@ -43,7 +43,7 @@ Status WalWriter::init() {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
     }
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
-    LOG(INFO) << "create wal " << wal_path;
+    LOG(INFO) << "create wal " << _file_name;
     return Status::OK();
 }
 
