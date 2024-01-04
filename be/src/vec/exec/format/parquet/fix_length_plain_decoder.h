@@ -51,6 +51,8 @@ public:
 protected:
     template <bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
+    /*template <typename Numeric, bool has_filter>
+    Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);*/
 
     template <bool has_filter>
     Status _decode_string(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector);
@@ -93,6 +95,40 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_values(MutableColumnPtr& dor
     } else {
         return _decode_numeric<has_filter>(doris_column, select_vector);
     }
+
+    /*size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
+    if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
+        return Status::IOError("Out-of-bounds access in parquet data decoder");
+    }
+
+    if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
+        return _decode_string<has_filter>(doris_column, select_vector);
+    } else {
+        TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+        switch (logical_type) {
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                \
+    case NUMERIC_TYPE:                                                                         \
+        if constexpr (PhysicalType == tparquet::Type::INT32) {                                 \
+            return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector); \
+        } else if constexpr (PhysicalType == tparquet::Type::INT64) {                          \
+            return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector); \
+        } else if constexpr (PhysicalType == tparquet::Type::FLOAT) {                          \
+            return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector); \
+        } else if constexpr (PhysicalType == tparquet::Type::DOUBLE) {                         \
+            return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector); \
+        } else {                                                                               \
+            break;                                                                             \
+        }
+            FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
+            break;
+        default:
+            break;
+        }
+        return Status::InvalidArgument("Can't decode parquet to doris logical type {}",
+                                    getTypeName(logical_type));
+    }*/
+
+    //return Status::InvalidArgument("Can't decode parquet physical type");
 }
 
 template <tparquet::Type::type PhysicalType>
@@ -103,14 +139,37 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& dor
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            std::vector<StringRef> string_values;
+            /*std::vector<StringRef> string_values;
             string_values.reserve(run_length);
             for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _data->data + _offset;
                 string_values.emplace_back(buf_start, _type_length);
                 _offset += _type_length;
             }
-            doris_column->insert_many_strings(&string_values[0], run_length);
+            doris_column->insert_many_strings(&string_values[0], run_length);*/
+            auto* column_string = assert_cast<ColumnString*>(doris_column.get());
+            auto& chars = column_string->get_chars();
+            auto& offsets = column_string->get_offsets();
+            size_t bytes_size = chars.size();
+
+            // copy blob
+            size_t data_size = run_length * _type_length;
+            size_t old_size = chars.size();
+            chars.resize(old_size + data_size);
+            memcpy(chars.data() + old_size, _data->data, data_size);
+
+            // copy offsets
+            offsets.resize(offsets.size() + run_length);
+            auto* offsets_data = offsets.data() + offsets.size() - run_length;
+
+            int i = 0;
+            for (; i < run_length; i++) {
+                bytes_size += _type_length;
+                *(offsets_data++) = bytes_size;
+            }
+
+            //doris_column->insert_many_strings_fixed_length<_type_length>(&string_values[0], run_length);
+            _offset += data_size;
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
@@ -132,12 +191,15 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_string(MutableColumnPtr& dor
 
 template <tparquet::Type::type PhysicalType>
 template <bool has_filter>
+//template <typename Numeric, bool has_filter>
 Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& doris_column,
                                                             ColumnSelectVector& select_vector) {
     auto& column_data = reinterpret_cast<ColumnVector<Int8>&>(*doris_column).get_data();
+    //auto& column_data = reinterpret_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index +
                        _type_length * (select_vector.num_values() - select_vector.num_filtered()));
+    //column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
@@ -146,10 +208,12 @@ Status FixLengthPlainDecoder<PhysicalType>::_decode_numeric(MutableColumnPtr& do
                    run_length * _type_length);
             _offset += run_length * _type_length;
             data_index += run_length * _type_length;
+            //data_index += run_length;
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
             data_index += run_length * _type_length;
+            //data_index += run_length;
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {

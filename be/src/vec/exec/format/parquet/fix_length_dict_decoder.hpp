@@ -54,17 +54,6 @@ public:
             assert_cast<ColumnDictI32&>(*doris_column)
                     .insert_many_dict_data(&dict_items[0], dict_items.size());
         }
-        if (doris_column->is_column_dictionary()) {
-            ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
-            if (dict_column.dict_size() == 0) {
-                std::vector<StringRef> dict_items;
-                dict_items.reserve(_dict_items.size());
-                for (int i = 0; i < _dict_items.size(); ++i) {
-                    dict_items.emplace_back((char*)(&_dict_items[i]), _type_length);
-                }
-                dict_column.insert_many_dict_data(&dict_items[0], dict_items.size());
-            }
-        }
         _indexes.resize(non_null_size);
         _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
 

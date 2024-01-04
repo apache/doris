@@ -124,9 +124,8 @@ struct ConvertParams {
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
-    size_t start_idx = 0;
 
-    void init(FieldSchema* field_schema_, cctz::time_zone* ctz_, size_t start_idx_ = 0) {
+    void init(FieldSchema* field_schema_, cctz::time_zone* ctz_) {
         field_schema = field_schema_;
         if (ctz_ != nullptr) {
             ctz = ctz_;
@@ -165,7 +164,6 @@ struct ConvertParams {
             t.from_unixtime(0, *ctz);
             offset_days = t.day() == 31 ? -1 : 0;
         }
-        start_idx = start_idx_;
     }
 
     template <typename DecimalPrimitiveType>
@@ -221,7 +219,7 @@ struct ColumnConvert {
     }
 
 public:
-    ConvertParams* _convert_params = nullptr;
+    std::unique_ptr<ConvertParams> _convert_params;
 };
 
 template <tparquet::Type::type parquet_physical_type, typename dst_type>
@@ -233,11 +231,12 @@ struct NumberToNumberConvert : public ColumnConvert {
         size_t rows = src_col->size();
         auto& src_data = static_cast<const ColumnType*>(src_col.get())->get_data();
 
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
         auto& data = static_cast<ColumnVector<dst_type>&>(*dst_col.get()).get_data();
         for (int i = 0; i < rows; i++) {
             dst_type value = static_cast<dst_type>(src_data[i]);
-            data[_convert_params->start_idx + i] = value;
+            data[start_idx + i] = value;
         }
 
         return Status::OK();
@@ -288,12 +287,13 @@ public:
         size_t rows = src_col->size() / sizeof(ParquetInt96);
         auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 x = ParquetInt96_data[i];
-            auto& num = data[_convert_params->start_idx + i];
+            auto& num = data[start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             int64_t micros = x.to_timestamp_micros();
             value.from_unixtime(micros / 1000000, *_convert_params->ctz);
@@ -309,14 +309,15 @@ public:
         convert_null(src_col, dst_col);
 
         size_t rows = src_col->size();
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
 
         auto src_data = static_cast<const ColumnVector<int64_t>*>(src_col.get())->get_data().data();
         auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
-            auto& num = data[_convert_params->start_idx + i];
+            auto& num = data[start_idx + i];
             auto& value = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(num);
             value.from_unixtime(x / _convert_params->second_mask, *_convert_params->ctz);
             value.set_microsecond((x % _convert_params->second_mask) *
@@ -332,21 +333,104 @@ public:
         convert_null(src_col, dst_col);
 
         size_t rows = src_col->size();
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->reserve(start_idx + rows);
 
         auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
         auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
-            auto& value = reinterpret_cast<DateV2Value<DateV2ValueType>&>(
-                    data[_convert_params->start_idx + i]);
             int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
-            value = date_dict[date_value];
+            data.push_back_without_reserve(date_dict[date_value].to_date_int_val());
         }
 
         return Status::OK();
     }
+};
+
+template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+class FixedStringToDecimal : public ColumnConvert {
+public:
+    FixedStringToDecimal(int32_t type_length) : ColumnConvert(), _type_length(type_length) {}
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        convert_null(src_col, dst_col);
+
+#define M(FixedTypeLength, ValueCopyType) \
+    case FixedTypeLength:                 \
+        return _convert_internal<FixedTypeLength, ValueCopyType>(src_col, dst_col);
+
+#define APPLY_FOR_DECIMALS() \
+    M(1, int64_t)            \
+    M(2, int64_t)            \
+    M(3, int64_t)            \
+    M(4, int64_t)            \
+    M(5, int64_t)            \
+    M(6, int64_t)            \
+    M(7, int64_t)            \
+    M(8, int64_t)            \
+    M(9, int128_t)           \
+    M(10, int128_t)          \
+    M(11, int128_t)          \
+    M(12, int128_t)          \
+    M(13, int128_t)          \
+    M(14, int128_t)          \
+    M(15, int128_t)          \
+    M(16, int128_t)
+
+        switch (_type_length) {
+            APPLY_FOR_DECIMALS()
+        default:
+            LOG(FATAL) << "__builtin_unreachable";
+            __builtin_unreachable();
+        }
+        return Status::OK();
+#undef APPLY_FOR_DECIMALS
+#undef M
+    }
+
+    template <int fixed_type_length, typename ValueCopyType>
+    Status _convert_internal(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
+        size_t rows = src_col->size();
+        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
+        auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
+        auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
+
+        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        for (int i = 0; i < rows; i++) {
+            size_t len = offset[i] - offset[i - 1];
+            if (len == 0) {
+                continue;
+            }
+            // When Decimal in parquet is stored in byte arrays, binary and fixed,
+            // the unscaled number must be encoded as two's complement using big-endian byte order.
+            ValueCopyType value = 0;
+            //memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], fixed_type_length);
+            memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], sizeof(value));
+            //memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
+            value = BitUtil::big_endian_to_host(value);
+            value = value >> ((sizeof(value) - fixed_type_length) * 8);
+            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
+                value *= scale_params.scale_factor;
+            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
+                value /= scale_params.scale_factor;
+            } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
+                // do nothing
+            } else {
+                LOG(FATAL) << "__builtin_unreachable";
+                __builtin_unreachable();
+            }
+            auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
+            v = (DecimalType)value;
+        }
+
+        return Status::OK();
+    }
+
+private:
+    int32_t _type_length;
 };
 
 template <typename DecimalType, typename ValueCopyType, DecimalScaleParams::ScaleType ScaleType>
@@ -359,7 +443,8 @@ public:
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
         auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
 
         auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
@@ -380,13 +465,14 @@ public:
                 LOG(FATAL) << "__builtin_unreachable";
                 __builtin_unreachable();
             }
-            auto& v = reinterpret_cast<DecimalType&>(data[_convert_params->start_idx + i]);
+            auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
         }
 
         return Status::OK();
     }
 };
+
 template <typename NumberType, typename DecimalPhysicalType, typename ValueCopyType,
           DecimalScaleParams::ScaleType ScaleType>
 class NumberToDecimal : public ColumnConvert {
@@ -397,7 +483,8 @@ public:
         size_t rows = src_col->size();
         auto* src_data =
                 static_cast<const ColumnVector<NumberType>*>(src_col.get())->get_data().data();
-        dst_col->resize(_convert_params->start_idx + rows);
+        size_t start_idx = dst_col->size();
+        dst_col->resize(start_idx + rows);
 
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto* data =
@@ -410,7 +497,7 @@ public:
             } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
                 value /= scale_params.scale_factor;
             }
-            data[_convert_params->start_idx + i] = (DecimalPhysicalType)value;
+            data[start_idx + i] = (DecimalPhysicalType)value;
         }
         return Status::OK();
     }
@@ -494,8 +581,11 @@ public:
 
 inline Status get_converter(tparquet::Type::type parquet_physical_type, PrimitiveType show_type,
                             std::shared_ptr<const IDataType> dst_data_type,
-                            std::unique_ptr<ColumnConvert>* converter,
-                            ConvertParams* convert_params) {
+                            std::unique_ptr<ColumnConvert>* converter, FieldSchema* field_schema,
+                            cctz::time_zone* ctz) {
+    std::unique_ptr<ParquetConvert::ConvertParams> convert_params =
+            std::make_unique<ParquetConvert::ConvertParams>();
+    convert_params->init(field_schema, ctz);
     auto dst_type = remove_nullable(dst_data_type)->get_type_id();
     switch (dst_type) {
 #define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                          \
@@ -588,35 +678,19 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
         convert_params->init_decimal_converter<PRIMARY_TYPE>(dst_data_type);                      \
         DecimalScaleParams& scale_params = convert_params->decimal_scale;                         \
         if (tparquet::Type::FIXED_LEN_BYTE_ARRAY == parquet_physical_type) {                      \
-            size_t string_length = convert_params->field_schema->parquet_schema.type_length;      \
-            if (string_length <= 8) {                                                             \
-                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                    \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
-                                                             DecimalScaleParams::SCALE_UP>>();    \
-                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {           \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
-                                                             DecimalScaleParams::SCALE_DOWN>>();  \
-                } else {                                                                          \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int64_t,               \
-                                                             DecimalScaleParams::NO_SCALE>>();    \
-                }                                                                                 \
-            } else if (string_length <= 16) {                                                     \
-                if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                    \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
-                                                             DecimalScaleParams::SCALE_UP>>();    \
-                } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {           \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
-                                                             DecimalScaleParams::SCALE_DOWN>>();  \
-                } else {                                                                          \
-                    *converter =                                                                  \
-                            std::make_unique<StringToDecimal<DECIMAL_TYPE, int128_t,              \
-                                                             DecimalScaleParams::NO_SCALE>>();    \
-                }                                                                                 \
+            int32_t string_length = convert_params->field_schema->parquet_schema.type_length;     \
+            if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {                        \
+                *converter = std::make_unique<                                                    \
+                        FixedStringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_UP>>(        \
+                        string_length);                                                           \
+            } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {               \
+                *converter = std::make_unique<                                                    \
+                        FixedStringToDecimal<DECIMAL_TYPE, DecimalScaleParams::SCALE_DOWN>>(      \
+                        string_length);                                                           \
+            } else {                                                                              \
+                *converter = std::make_unique<                                                    \
+                        FixedStringToDecimal<DECIMAL_TYPE, DecimalScaleParams::NO_SCALE>>(        \
+                        string_length);                                                           \
             }                                                                                     \
         } else if (tparquet::Type::BYTE_ARRAY == parquet_physical_type) {                         \
             convert_params->init_decimal_converter<PRIMARY_TYPE>(dst_data_type);                  \
@@ -671,7 +745,7 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
                                     tparquet::to_string(parquet_physical_type),
                                     getTypeName(dst_type));
     }
-    (*converter)->_convert_params = convert_params;
+    (*converter)->_convert_params = std::move(convert_params);
     return Status::OK();
 }
 
