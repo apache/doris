@@ -70,7 +70,6 @@ Status SingleReplicaCompaction::prepare_compact() {
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    _tablet->set_clone_occurred(false);
     if (_input_rowsets.size() == 1) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
     }
@@ -103,13 +102,6 @@ Status SingleReplicaCompaction::execute_compact_impl() {
     if (!lock_base.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
-    }
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -390,7 +382,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     // then it will try to clone from BE 2, but it will find the file 1 already exist, but file 1 with same
     // name may have different versions.
     VLOG_DEBUG << "single replica compaction begin to download files, remote path="
-               << remote_url_prefix << " local_path=" << local_path;
+               << _mask_token(remote_url_prefix) << " local_path=" << local_path;
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(local_path));
     RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(local_path));
 
@@ -437,7 +429,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
         if (data_dir->reach_capacity_limit(file_size)) {
-            return Status::InternalError("Disk reach capacity limit");
+            return Status::Error<EXCEEDED_LIMIT>(
+                    "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                    file_size);
         }
 
         total_file_size += file_size;
@@ -448,11 +442,11 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
 
         std::string local_file_path = local_path + file_name;
 
-        LOG(INFO) << "single replica compaction begin to download file from: " << remote_file_url
-                  << " to: " << local_file_path << ". size(B): " << file_size
-                  << ", timeout(s): " << estimate_timeout;
+        LOG(INFO) << "single replica compaction begin to download file from: "
+                  << _mask_token(remote_file_url) << " to: " << local_file_path
+                  << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -462,7 +456,8 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
             uint64_t local_file_size = std::filesystem::file_size(local_file_path);
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
@@ -525,8 +520,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
                 LOG(WARNING) << "version not found in cloned tablet meta when do single compaction";
                 return Status::InternalError("version not found in cloned tablet meta");
             }
-            res = RowsetFactory::create_rowset(_tablet->tablet_schema(), _tablet->tablet_path(),
-                                               output_rs_meta, &_output_rowset);
+            res = _tablet->create_rowset(output_rs_meta, &_output_rowset);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to init rowset. version=" << output_version;
                 return res;
@@ -587,6 +581,11 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;
+}
+
+std::string SingleReplicaCompaction::_mask_token(const std::string& str) {
+    std::regex pattern("token=[\\w|-]+");
+    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

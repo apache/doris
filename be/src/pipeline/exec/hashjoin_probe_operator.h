@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class HashJoinProbeOperator final : public StatefulOperator<HashJoinProbeOperatorBuilder> {
+class HashJoinProbeOperator final : public StatefulOperator<vectorized::HashJoinNode> {
 public:
     HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
@@ -163,17 +163,17 @@ public:
                 SourceState& source_state) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return ExchangeType::NOOP;
+            return {ExchangeType::NOOP};
         }
         return _is_broadcast_join
-                       ? ExchangeType::PASSTHROUGH
+                       ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                           _join_distribution == TJoinDistributionType::COLOCATE
-                                  ? ExchangeType::BUCKET_HASH_SHUFFLE
-                                  : ExchangeType::HASH_SHUFFLE);
+                                  ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
+                                                     _partition_exprs)
+                                  : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
 private:

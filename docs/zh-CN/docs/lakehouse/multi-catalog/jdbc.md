@@ -157,6 +157,108 @@ set enable_odbc_transcation = true;
 
 ## 使用指南
 
+### 查看 JDBC Catalog
+
+可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
+
+```sql
+SHOW CATALOGS;
+```
+
+通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### 删除 JDBC Catalog
+
+可以通过 DROP CATALOG 删除某个 Catalog：
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### 查询 JDBC Catalog
+
+1. 通过 SWITCH 切换当前会话生效的 Catalog：
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. 通过 USE 切换当前会话生效的 Database：
+
+    ```sql
+    USE <database_name>;
+    ```
+
+    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
+
+4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
+### SQL 透传
+
+在 Doris 2.0.3 之前的版本中，用户只能通过 JDBC Catalog 进行查询操作（SELECT）。
+在 Doris 2.0.4 版本之后，用户可以通过 `CALL` 命令，对 JDBC 数据源进行 DDL 和 DML 操作。
+
+```
+CALL EXECUTE_STMT("catalog_name", "raw_stmt_string");
+```
+
+`EXECUTE_STMT()` 过程有两个参数：
+
+- Catalog Name：目前仅支持 Jdbc Catalog。
+- 执行语句：目前仅支持 DDL 和 DML 语句。并且需要直接使用 JDBC 数据源对应的语法。
+
+```
+CALL EXECUTE_STMT("jdbc_catalog", "insert into db1.tbl1 values(1,2), (3, 4)");
+
+CALL EXECUTE_STMT(jdbc_catalog", "delete from db1.tbl1 where k1 = 2");
+
+CALL EXECUTE_STMT(jdbc_catalog", "create table dbl1.tbl2 (k1 int)");
+```
+
+#### 原理和限制
+
+通过 `CALL EXECUTE_STMT()` 命令，Doris 会直接将用户编写的 SQL 语句发送给 Catalog 对应的 JDBC 数据源进行执行。因此，这个操作有如下限制：
+
+- SQL 语句必须是数据源对应的语法，Doris 不会做语法和语义检查。
+- SQL 语句中引用的表名建议是全限定名，即 `db.tbl` 这种格式。如果未指定 db，则会使用 JDBC Catalog 的 JDBC url 中指定的 db 名称。
+- SQL 语句中不可引用 JDBC 数据源之外的库表，也不可以引用 Doris 的库表。但可以引用在 JDBC 数据源内的，但是没有同步到 Doris JDBC Catalog 的库表。
+- 执行 DML 语句，无法获取插入、更新或删除的行数，只能获取命令是否执行成功。
+- 只有对 Catalog 有 LOAD 权限的用户，才能执行这个命令。
+
+## 支持的数据源
+
 ### MySQL
 
 #### 创建示例
@@ -600,76 +702,8 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 ```
 
 :::tip
- Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
+ Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#mysql) 与 [Oracle](#oracle)
 :::
-
-### 查看 JDBC Catalog
-
-可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
-
-```sql
-SHOW CATALOGS;
-```
-
-通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
-
-```sql
-SHOW CREATE CATALOG <catalog_name>;
-```
-
-### 删除 JDBC Catalog
-
-可以通过 DROP CATALOG 删除某个 Catalog：
-
-```sql
-DROP CATALOG <catalog_name>;
-```
-
-### 查询 JDBC Catalog
-
-1. 通过 SWITCH 切换当前会话生效的 Catalog：
-
-    ```sql
-    SWITCH <catalog_name>;
-    ```
-
-2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
-
-    ```sql
-    SHOW DATABASES FROM <catalog_name>;
-    ```
-
-    ```sql
-    SHOW DATABASES;
-    ```
-
-3. 通过 USE 切换当前会话生效的 Database：
-
-    ```sql
-    USE <database_name>;
-    ```
-
-    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
-
-4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
-
-    ```sql
-    SHOW TABLES FROM <catalog_name>.<database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES FROM <database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES;
-    ```
-
-5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
-
-    ```sql
-    SELECT * FROM <table_name>;
-    ```
 
 ## JDBC Driver 列表
 

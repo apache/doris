@@ -69,6 +69,7 @@
 namespace doris {
 class DeltaWriterV2;
 class LoadStreamStub;
+class LoadStreams;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -76,10 +77,6 @@ class TDataSink;
 class TExpr;
 class TabletSchema;
 class TupleDescriptor;
-
-namespace stream_load {
-class LoadStreams;
-}
 
 namespace vectorized {
 
@@ -109,7 +106,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
     Status append_block(Block& block) override;
 
@@ -126,7 +123,7 @@ private:
 
     Status _open_streams(int64_t src_id);
 
-    Status _open_streams_to_backend(int64_t dst_id, ::doris::stream_load::LoadStreams& streams);
+    Status _open_streams_to_backend(int64_t dst_id, LoadStreams& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
@@ -142,6 +139,8 @@ private:
 
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                            Streams& streams);
+
+    Status _failed_reason(int64_t tablet_id);
 
     Status _close_load(const Streams& streams);
 
@@ -213,15 +212,13 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     std::unordered_set<int64_t> _opened_partitions;
 
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_for_node;
     std::unordered_map<int64_t, std::vector<PTabletID>> _indexes_from_node;
 
-    std::unordered_map<int64_t, std::shared_ptr<::doris::stream_load::LoadStreams>>
-            _streams_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreams>> _streams_for_node;
 
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;

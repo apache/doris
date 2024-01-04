@@ -52,16 +52,16 @@ namespace doris {
     } while (0)
 
 class Cache;
+class LRUCachePolicy;
 
 enum LRUCacheType {
     SIZE,  // The capacity of cache is based on the size of cache entry.
     NUMBER // The capacity of cache is based on the number of cache entry.
 };
 
-// Create a new cache with a specified name and capacity.
-// This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16);
+static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
+static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 16;
+static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
 
 class CacheKey {
 public:
@@ -268,8 +268,10 @@ struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
-        DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
+        if (bytes != 0) { // DummyLRUCache bytes always equal to 0
+            THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
+            DorisMetrics::instance()->lru_cache_memory_bytes->increment(-bytes);
+        }
         ::free(this);
     }
 };
@@ -335,6 +337,7 @@ public:
     }
 
     // Like Cache methods, but with an extra "hash" parameter.
+    // Must call release on the returned handle pointer.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           MemTrackerLimiter* tracker,
@@ -394,13 +397,6 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity = 0);
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards,
-                             CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
-    // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
@@ -419,7 +415,28 @@ public:
     size_t get_total_capacity() override { return _total_capacity; };
 
 private:
+    // LRUCache can only be created and managed with LRUCachePolicy.
+    friend class LRUCachePolicy;
+
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards, uint32_t element_count_capacity);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards,
+                             CacheValueTimeExtractor cache_value_time_extractor,
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity);
+
     void update_cache_metrics() const;
+
+    static std::string lru_cache_type_string(LRUCacheType type) {
+        switch (type) {
+        case LRUCacheType::SIZE:
+            return "size";
+        case LRUCacheType::NUMBER:
+            return "number";
+        default:
+            LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
+        }
+    }
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
@@ -447,6 +464,26 @@ private:
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
     std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
     std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
+};
+
+// Compatible with ShardedLRUCache usage, but will not actually cache.
+class DummyLRUCache : public Cache {
+public:
+    // Must call release on the returned handle pointer.
+    Handle* insert(const CacheKey& key, void* value, size_t charge,
+                   void (*deleter)(const CacheKey& key, void* value),
+                   CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) override;
+    Handle* lookup(const CacheKey& key) override { return nullptr; };
+    void release(Handle* handle) override;
+    void erase(const CacheKey& key) override {};
+    void* value(Handle* handle) override;
+    Slice value_slice(Handle* handle) override;
+    uint64_t new_id() override { return 0; };
+    int64_t prune() override { return 0; };
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override { return 0; };
+    int64_t mem_consumption() override { return 0; };
+    int64_t get_usage() override { return 0; };
+    size_t get_total_capacity() override { return 0; };
 };
 
 } // namespace doris

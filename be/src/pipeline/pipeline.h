@@ -30,14 +30,9 @@
 #include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 
-namespace doris {
-namespace pipeline {
-class PipelineFragmentContext;
-} // namespace pipeline
-} // namespace doris
-
 namespace doris::pipeline {
 
+class PipelineFragmentContext;
 class Pipeline;
 
 using PipelinePtr = std::shared_ptr<Pipeline>;
@@ -50,8 +45,9 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 
 public:
     Pipeline() = delete;
-    explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(context) {
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
+                      std::weak_ptr<PipelineFragmentContext> context)
+            : _pipeline_id(pipeline_id), _context(context), _num_tasks(num_tasks) {
         _init_profile();
     }
 
@@ -100,10 +96,10 @@ public:
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink(OperatorBuilderPtr& sink_operator);
+    Status set_sink_builder(OperatorBuilderPtr& sink_operator_builder);
     Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
-    OperatorBuilderBase* sink() { return _sink.get(); }
+    OperatorBuilderBase* get_sink_builder() { return _sink_builder.get(); }
     DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
@@ -126,23 +122,70 @@ public:
         return _collect_query_statistics_with_every_batch;
     }
 
-    bool need_to_local_shuffle() const { return _need_to_local_shuffle; }
-    void set_need_to_local_shuffle(bool need_to_local_shuffle) {
-        _need_to_local_shuffle = need_to_local_shuffle;
+    static bool is_hash_exchange(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
-    void init_need_to_local_shuffle_by_source() {
-        set_need_to_local_shuffle(operatorXs.front()->need_to_local_shuffle());
+
+    bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
+        if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
+            target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
+            return true;
+        } else if (operatorXs.front()->ignore_data_hash_distribution()) {
+            if (_data_distribution.distribution_type ==
+                        target_data_distribution.distribution_type &&
+                (_data_distribution.partition_exprs.empty() ||
+                 target_data_distribution.partition_exprs.empty())) {
+                return true;
+            }
+            return _data_distribution.distribution_type !=
+                           target_data_distribution.distribution_type ||
+                   _data_distribution.partition_exprs != target_data_distribution.partition_exprs;
+        } else {
+            return _data_distribution.distribution_type !=
+                           target_data_distribution.distribution_type &&
+                   !(is_hash_exchange(_data_distribution.distribution_type) &&
+                     is_hash_exchange(target_data_distribution.distribution_type));
+        }
     }
+    void init_data_distribution() {
+        set_data_distribution(operatorXs.front()->required_data_distribution());
+    }
+    void set_data_distribution(const DataDistribution& data_distribution) {
+        _data_distribution = data_distribution;
+    }
+    const DataDistribution& data_distribution() const { return _data_distribution; }
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
+    void incr_created_tasks() { _num_tasks_created++; }
+    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void set_num_tasks(int num_tasks) {
+        _num_tasks = num_tasks;
+        for (auto& op : operatorXs) {
+            op->set_parallel_tasks(_num_tasks);
+        }
+    }
+    int num_tasks() const { return _num_tasks; }
+
+    std::string debug_string() {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
+                       _num_tasks, _num_tasks_created);
+        for (size_t i = 0; i < operatorXs.size(); i++) {
+            fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
+        }
+        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        return fmt::to_string(debug_string_buffer);
+    }
+
 private:
     void _init_profile();
 
     OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink;            // put block to sink
+    OperatorBuilderPtr _sink_builder;    // put block to sink
 
     std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
@@ -193,12 +236,14 @@ private:
     bool _is_root_pipeline = false;
     bool _collect_query_statistics_with_every_batch = false;
 
-    // If source operator meets one of all conditions below:
-    // 1. is scan operator with Hash Bucket
-    // 2. is exchange operator with Hash/BucketHash partition
-    // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
-    // because data already be partitioned by storage/shuffling.
-    bool _need_to_local_shuffle = true;
+    // Input data distribution of this pipeline. We do local exchange when input data distribution
+    // does not match the target data distribution.
+    DataDistribution _data_distribution {ExchangeType::NOOP};
+
+    // How many tasks should be created ?
+    int _num_tasks = 1;
+    // How many tasks are already created?
+    int _num_tasks_created = 0;
 };
 
 } // namespace doris::pipeline

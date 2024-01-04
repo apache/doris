@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import filelock
 import json
 import jsonpickle
 import os
@@ -22,10 +23,8 @@ import os.path
 import utils
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
-LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH")
-if not LOCAL_DORIS_PATH:
-    LOCAL_DORIS_PATH = "/tmp/doris"
-
+LOCAL_DORIS_PATH = os.getenv("LOCAL_DORIS_PATH", "/tmp/doris")
+DORIS_SUBNET_START = int(os.getenv("DORIS_SUBNET_START", 128))
 LOCAL_RESOURCE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "resource")
 DOCKER_RESOURCE_PATH = os.path.join(DOCKER_DORIS_PATH, "resource")
@@ -59,23 +58,49 @@ def get_status_path(cluster_name):
     return os.path.join(get_cluster_path(cluster_name), "status")
 
 
+def get_all_cluster_names():
+    if not os.path.exists(LOCAL_DORIS_PATH):
+        return []
+    else:
+        return [
+            subdir for subdir in os.listdir(LOCAL_DORIS_PATH)
+            if os.path.isdir(os.path.join(LOCAL_DORIS_PATH, subdir))
+        ]
+
+
+def lock_network():
+    return filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock"))
+
+
 def gen_subnet_prefix16():
     used_subnet = utils.get_docker_subnets_prefix16()
-    if os.path.exists(LOCAL_DORIS_PATH):
-        for cluster_name in os.listdir(LOCAL_DORIS_PATH):
-            try:
-                cluster = Cluster.load(cluster_name)
-                used_subnet[cluster.subnet] = True
-            except:
-                pass
+    for cluster_name in get_all_cluster_names():
+        try:
+            cluster = Cluster.load(cluster_name)
+            used_subnet[cluster.subnet] = True
+        except:
+            pass
 
-    for i in range(128, 192):
+    for i in range(DORIS_SUBNET_START, 192):
         for j in range(256):
             subnet = "{}.{}".format(i, j)
             if not used_subnet.get(subnet, False):
                 return subnet
 
     raise Exception("Failed to gen subnet")
+
+
+def get_master_fe_endpoint(cluster_name):
+    master_fe_ip_file = get_cluster_path(cluster_name) + "/status/master_fe_ip"
+    if os.path.exists(master_fe_ip_file):
+        with open(master_fe_ip_file, "r") as f:
+            return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+    try:
+        cluster = Cluster.load(cluster_name)
+        return "{}:{}".format(
+            cluster.get_node(Node.TYPE_FE, 1).get_ip(), FE_QUERY_PORT)
+    except:
+        return ""
 
 
 class NodeMeta(object):
@@ -379,12 +404,14 @@ class Cluster(object):
 
     @staticmethod
     def new(name, image, fe_config, be_config, be_disks, coverage_dir):
-        subnet = gen_subnet_prefix16()
-        cluster = Cluster(name, subnet, image, fe_config, be_config, be_disks,
-                          coverage_dir)
-        os.makedirs(cluster.get_path(), exist_ok=True)
-        os.makedirs(get_status_path(name), exist_ok=True)
-        return cluster
+        with filelock.FileLock(os.path.join(LOCAL_DORIS_PATH, "lock")):
+            subnet = gen_subnet_prefix16()
+            cluster = Cluster(name, subnet, image, fe_config, be_config,
+                              be_disks, coverage_dir)
+            os.makedirs(cluster.get_path(), exist_ok=True)
+            os.makedirs(get_status_path(name), exist_ok=True)
+            cluster._save_meta()
+            return cluster
 
     @staticmethod
     def load(name):

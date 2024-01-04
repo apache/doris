@@ -18,10 +18,10 @@
 #pragma once
 
 #include <common/multi_version.h>
-#include <stddef.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -51,9 +51,6 @@ struct RuntimeFilterTimerQueue;
 namespace taskgroup {
 class TaskGroupManager;
 }
-namespace stream_load {
-class LoadStreamStubPool;
-} // namespace stream_load
 namespace io {
 class S3FileBufferPool;
 class FileCacheFactory;
@@ -63,6 +60,7 @@ class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 } // namespace segment_v2
 
+class WorkloadSchedPolicyMgr;
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -80,6 +78,7 @@ class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
+class LoadStreamStubPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -101,6 +100,7 @@ class StoragePageCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
+class DummyLRUCache;
 class CacheManager;
 class WalManager;
 
@@ -112,6 +112,12 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+#ifdef CLOUD_MODE
+    using Engine = CloudStorageEngine; // TODO(plat1ko)
+#else
+    using Engine = StorageEngine;
+#endif
+
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
@@ -147,6 +153,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
+    WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -162,31 +169,16 @@ public:
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
-    ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
         return _buffered_reader_prefetch_thread_pool.get();
     }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+    ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
 
-    void set_serial_download_cache_thread_token() {
-        _serial_download_cache_thread_token =
-                download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
-    }
-    ThreadPoolToken* get_serial_download_cache_thread_token() {
-        return _serial_download_cache_thread_token.get();
-    }
-    void init_download_cache_buf();
-    void init_download_cache_required_components();
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
-    char* get_download_cache_buf(ThreadPoolToken* token) {
-        if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
-            return nullptr;
-        }
-        return _download_cache_buf_map[token].get();
-    }
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -238,11 +230,13 @@ public:
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
     }
+    void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
+    void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
+        this->_dummy_lru_cache = dummy_lru_cache;
+    }
 
 #endif
-    stream_load::LoadStreamStubPool* load_stream_stub_pool() {
-        return _load_stream_stub_pool.get();
-    }
+    LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
 
     vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
@@ -267,6 +261,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
         return _global_block_scheduler;
@@ -315,21 +310,17 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
-
-    // Threadpool used to download cache from remote storage
-    std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
-    // A token used to submit download cache task serially
-    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
     // Pool used by fragment manager to send profile or status to FE coordinator
     std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
-    // ThreadPoolToken -> buffer
-    std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
+    // Pool to use a new thread to release object
+    std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
+
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
@@ -357,11 +348,12 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
-    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
 
     std::mutex _frontends_lock;
+    // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
 
@@ -380,6 +372,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
 
     // used for query with group cpu hard limit
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
@@ -389,6 +382,8 @@ private:
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+
+    WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 };
 
 template <>

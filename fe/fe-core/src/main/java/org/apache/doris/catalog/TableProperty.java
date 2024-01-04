@@ -97,6 +97,9 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionTimeThresholdSeconds
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
 
+    private long timeSeriesCompactionEmptyRowsetsThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -132,6 +135,7 @@ public class TableProperty implements Writable {
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
                 buildDisableAutoCompaction();
+                buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 break;
             default:
                 break;
@@ -276,6 +280,17 @@ public class TableProperty implements Writable {
 
     public long timeSeriesCompactionTimeThresholdSeconds() {
         return timeSeriesCompactionTimeThresholdSeconds;
+    }
+
+    public TableProperty buildTimeSeriesCompactionEmptyRowsetsThreshold() {
+        timeSeriesCompactionEmptyRowsetsThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionEmptyRowsetsThreshold() {
+        return timeSeriesCompactionEmptyRowsetsThreshold;
     }
 
     public TableProperty buildMinLoadReplicaNum() {
@@ -462,6 +477,9 @@ public class TableProperty implements Writable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
+    // In order to ensure that unique tables without the `enable_unique_key_merge_on_write` property specified
+    // before version 2.1 still maintain the merge-on-read implementation after the upgrade, we will keep
+    // the default value here as false.
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
@@ -525,7 +543,8 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction();
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

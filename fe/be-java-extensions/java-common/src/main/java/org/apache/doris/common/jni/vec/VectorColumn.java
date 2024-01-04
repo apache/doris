@@ -1034,6 +1034,9 @@ public class VectorColumn {
     public int appendBytesAndOffset(byte[] src, int offset, int length) {
         int startOffset = childColumns[0].appendBytes(src, offset, length);
         reserve(appendIndex + 1);
+        if (startOffset + length < 0) {
+            throw new RuntimeException("String overflow, offset=" + startOffset + ", length=" + length);
+        }
         OffHeap.putInt(null, offsets + 4L * appendIndex, startOffset + length);
         return appendIndex++;
     }
@@ -1068,6 +1071,9 @@ public class VectorColumn {
                 bytes = new byte[0];
             }
             int startOffset = childColumns[0].appendBytes(bytes, 0, bytes.length);
+            if (startOffset + bytes.length < 0) {
+                throw new RuntimeException("Binary overflow, offset=" + startOffset + ", length=" + bytes.length);
+            }
             OffHeap.putInt(null, offsets + 4L * appendIndex, startOffset + bytes.length);
             appendIndex++;
         }
@@ -1102,6 +1108,9 @@ public class VectorColumn {
             childColumns[0].appendValue(v);
         }
         reserve(appendIndex + 1);
+        if (startOffset + length < 0) {
+            throw new RuntimeException("Array overflow, offset=" + startOffset + ", length=" + length);
+        }
         OffHeap.putLong(null, offsets + 8L * appendIndex, startOffset + length);
         return appendIndex++;
     }
@@ -1158,6 +1167,9 @@ public class VectorColumn {
             childColumns[1].appendValue(v);
         }
         reserve(appendIndex + 1);
+        if (startOffset + length < 0) {
+            throw new RuntimeException("Map overflow, offset=" + startOffset + ", length=" + length);
+        }
         OffHeap.putLong(null, offsets + 8L * appendIndex, startOffset + length);
         return appendIndex++;
     }

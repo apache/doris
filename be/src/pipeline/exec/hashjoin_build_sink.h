@@ -37,7 +37,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
+class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
@@ -48,24 +48,18 @@ class HashJoinBuildSinkOperatorX;
 
 class SharedHashTableDependency final : public Dependency {
 public:
+    using SharedState = HashJoinSharedState;
     ENABLE_FACTORY_CREATOR(SharedHashTableDependency);
     SharedHashTableDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "SharedHashTableDependency", true, query_ctx) {}
+            : Dependency(id, node_id, "SharedHashTableBuildDependency", true, query_ctx) {}
     ~SharedHashTableDependency() override = default;
 };
 
-class HashJoinBuildSinkDependency final : public Dependency {
-public:
-    using SharedState = HashJoinSharedState;
-    HashJoinBuildSinkDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "HashJoinBuildSinkDependency", true, query_ctx) {}
-    ~HashJoinBuildSinkDependency() override = default;
-};
-
 class HashJoinBuildSinkLocalState final
-        : public JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState> {
+        : public JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(HashJoinBuildSinkLocalState);
+    using Base = JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
     using Parent = HashJoinBuildSinkOperatorX;
     HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~HashJoinBuildSinkLocalState() override = default;
@@ -86,7 +80,6 @@ public:
     void add_hash_buckets_filled_info(const std::string& info) const {
         _profile->add_info_string("HashTableFilledBuckets", info);
     }
-    Dependency* dependency() override { return _shared_hash_table_dependency.get(); }
 
 protected:
     void _hash_table_init(RuntimeState* state);
@@ -116,6 +109,7 @@ protected:
     bool _build_side_ignore_null = false;
     std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
+    std::vector<int> _build_col_ids;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -135,7 +129,7 @@ class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+                               const DescriptorTbl& descs, bool use_global_rf);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -155,15 +149,18 @@ public:
                                               ._should_build_hash_table;
     }
 
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
-        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || _is_broadcast_join) {
-            return ExchangeType::NOOP;
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        } else if (_is_broadcast_join) {
+            return _child_x->ignore_data_distribution()
+                           ? DataDistribution(ExchangeType::PASS_TO_ONE)
+                           : DataDistribution(ExchangeType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? ExchangeType::BUCKET_HASH_SHUFFLE
-                       : ExchangeType::HASH_SHUFFLE;
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:
@@ -184,6 +181,8 @@ private:
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<TExpr> _partition_exprs;
+
+    const bool _use_global_rf;
 };
 
 } // namespace pipeline

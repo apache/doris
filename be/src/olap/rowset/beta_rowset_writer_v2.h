@@ -127,10 +127,6 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
-    bool is_doing_segcompaction() const override { return false; }
-
-    Status wait_flying_segcompaction() override { return Status::OK(); }
-
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }

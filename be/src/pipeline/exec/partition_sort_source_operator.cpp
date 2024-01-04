@@ -49,11 +49,17 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
         if (local_state._shared_state->blocks_buffer.empty() == false) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
-            //if buffer have no data, block reading and wait for signal again
+            //if buffer have no data and sink not eos, block reading and wait for signal again
             RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                     local_state._conjuncts, output_block, output_block->columns()));
-            if (local_state._shared_state->blocks_buffer.empty()) {
-                local_state._dependency->block();
+            if (local_state._shared_state->blocks_buffer.empty() &&
+                local_state._shared_state->sink_eos == false) {
+                // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
+                // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
+                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                if (local_state._shared_state->sink_eos == false) {
+                    local_state._dependency->block();
+                }
             }
             return Status::OK();
         }

@@ -30,15 +30,20 @@ public class JdbcDataSource {
         return jdbcDataSource;
     }
 
-    public DruidDataSource getSource(String jdbcUrl) {
-        return sourcesMap.get(jdbcUrl);
+    public DruidDataSource getSource(String cacheKey) {
+        return sourcesMap.get(cacheKey);
     }
 
-    public void putSource(String jdbcUrl, DruidDataSource ds) {
-        sourcesMap.put(jdbcUrl, ds);
+    public void putSource(String cacheKey, DruidDataSource ds) {
+        sourcesMap.put(cacheKey, ds);
     }
 
     public Map<String, DruidDataSource> getSourcesMap() {
         return sourcesMap;
+    }
+
+    public String createCacheKey(String jdbcUrl, String jdbcUser, String jdbcPassword, String jdbcDriverUrl,
+            String jdbcDriverClass) {
+        return jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass;
     }
 }

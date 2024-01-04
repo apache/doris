@@ -68,6 +68,9 @@
 2	4
 3	\N
 
+-- !select_mv --
+0
+
 -- !select_star --
 \N	4	\N	d
 -4	-4	-4	d

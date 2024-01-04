@@ -34,12 +34,11 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
 
 Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_left_block());
+    _child_block = _node->get_left_block();
     return StatefulOperator::prepare(state);
 }
 
 Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
@@ -131,7 +130,6 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
     _left_side_process_count = 0;
     DCHECK(!_need_more_input_data || !_matched_rows_done);
 
-    vectorized::MutableBlock mutable_join_block(&_join_block);
     if (!_matched_rows_done && !_need_more_input_data) {
         // We should try to join rows if there still are some rows from probe side.
         while (_join_block.rows() < state->batch_size()) {
@@ -145,7 +143,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                 _reset_with_next_probe_row();
                 if (_left_block_pos < _child_block->rows()) {
                     if constexpr (set_probe_side_flag) {
-                        _probe_offset_stack.push(mutable_join_block.rows());
+                        _probe_offset_stack.push(_join_block.rows());
                     }
                 } else {
                     if (_shared_state->left_side_eos) {
@@ -164,9 +162,9 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
 
             const auto& now_process_build_block = _shared_state->build_blocks[_current_build_pos++];
             if constexpr (set_build_side_flag) {
-                _build_offset_stack.push(mutable_join_block.rows());
+                _build_offset_stack.push(_join_block.rows());
             }
-            _process_left_child_block(mutable_join_block, now_process_build_block);
+            _process_left_child_block(_join_block, now_process_build_block);
         }
 
         if constexpr (set_probe_side_flag) {
@@ -179,21 +177,20 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
             if (!status.ok()) {
                 return status;
             }
-            mutable_join_block = vectorized::MutableBlock(&_join_block);
             // If this join operation is left outer join or full outer join, when
             // `_left_side_process_count`, means all rows from build
             // side have been joined with _left_side_process_count, we should output current
             // probe row with null from build side.
             if (_left_side_process_count) {
                 _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                        mutable_join_block, state->batch_size());
+                        _join_block, state->batch_size());
             }
         }
 
         if (_left_side_process_count) {
             if (p._is_mark_join && _shared_state->build_blocks.empty()) {
                 DCHECK_EQ(JoinOpType::value, TJoinOp::CROSS_JOIN);
-                _append_left_data_with_null(mutable_join_block);
+                _append_left_data_with_null(_join_block);
             }
         }
     }
@@ -205,7 +202,6 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
                                                                  set_probe_side_flag, ignore_null>(
                          &_join_block, !p._is_right_semi_anti)));
         _update_additional_flags(&_join_block);
-        mutable_join_block = vectorized::MutableBlock(&_join_block);
         if (!status.ok()) {
             return status;
         }
@@ -215,7 +211,7 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
         if (_matched_rows_done &&
             _output_null_idx_build_side < _shared_state->build_blocks.size()) {
             _finalize_current_phase<true, JoinOpType::value == TJoinOp::RIGHT_SEMI_JOIN>(
-                    mutable_join_block, state->batch_size());
+                    _join_block, state->batch_size());
         }
     }
     return Status::OK();
@@ -236,10 +232,10 @@ void NestedLoopJoinProbeLocalState::_resize_fill_tuple_is_null_column(size_t new
 }
 
 template <bool BuildSide, bool IsSemi>
-void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableBlock& mutable_block,
+void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::Block& block,
                                                             size_t batch_size) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto& dst_columns = mutable_block.mutable_columns();
+    auto dst_columns = block.mutate_columns();
     DCHECK_GT(dst_columns.size(), 0);
     auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
@@ -356,12 +352,12 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
             _resize_fill_tuple_is_null_column(_left_side_process_count, 0, 1);
         }
     }
+    block.set_columns(std::move(dst_columns));
 }
 
-void NestedLoopJoinProbeLocalState::_append_left_data_with_null(
-        vectorized::MutableBlock& mutable_block) const {
+void NestedLoopJoinProbeLocalState::_append_left_data_with_null(vectorized::Block& block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto& dst_columns = mutable_block.mutable_columns();
+    auto dst_columns = block.mutate_columns();
     DCHECK(p._is_mark_join);
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const vectorized::ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
@@ -388,13 +384,13 @@ void NestedLoopJoinProbeLocalState::_append_left_data_with_null(
     auto& mark_column = *dst_columns[dst_columns.size() - 1];
     vectorized::ColumnFilterHelper(mark_column)
             .resize_fill(mark_column.size() + _left_side_process_count, 0);
+    block.set_columns(std::move(dst_columns));
 }
 
 void NestedLoopJoinProbeLocalState::_process_left_child_block(
-        vectorized::MutableBlock& mutable_block,
-        const vectorized::Block& now_process_build_block) const {
+        vectorized::Block& block, const vectorized::Block& now_process_build_block) const {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
-    auto& dst_columns = mutable_block.mutable_columns();
+    auto dst_columns = block.mutate_columns();
     const int max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
         const vectorized::ColumnWithTypeAndName& src_column = _child_block->get_by_position(i);
@@ -435,6 +431,7 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
                                                                           0, max_added_rows);
         }
     }
+    block.set_columns(std::move(dst_columns));
 }
 
 NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,

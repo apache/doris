@@ -269,14 +269,10 @@ class UpCommand(Command):
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
                                           options, related_nodes)
 
-        master_fe_ip_file = cluster.get_path() + "/status/master_fe_ip"
-        master_fe_ip = ""
-        if os.path.exists(master_fe_ip_file):
-            master_fe_ip = open(master_fe_ip_file, "r").read().strip()
-        else:
-            master_fe_ip = cluster.get_node(CLUSTER.Node.TYPE_FE, 1).get_ip()
-        LOG.info("Master fe query address: " + utils.render_green(
-            "{}:{}".format(master_fe_ip, CLUSTER.FE_QUERY_PORT)) + "\n")
+        LOG.info(
+            "Master fe query address: " +
+            utils.render_green(CLUSTER.get_master_fe_endpoint(cluster.name)) +
+            "\n")
 
         if not args.start:
             LOG.info(
@@ -363,6 +359,10 @@ class DownCommand(Command):
             utils.exec_docker_compose_command(cluster.get_compose_file(),
                                               "down",
                                               ["-v", "--remove-orphans"])
+            try:
+                utils.remove_docker_network(cluster.name)
+            except Exception as e:
+                LOG.warn("prune network has exception: " + str(e))
             if args.clean:
                 utils.enable_dir_with_rw_perm(cluster.get_path())
                 shutil.rmtree(cluster.get_path())
@@ -491,12 +491,6 @@ class ListCommand(Command):
             "Specify multiple clusters, if specific, show all their containers."
         )
         self._add_parser_output_json(parser)
-        parser.add_argument(
-            "-a",
-            "--all",
-            default=False,
-            action=self._get_parser_bool_action(True),
-            help="Show all clusters, include stopped or bad clusters.")
         parser.add_argument("--detail",
                             default=False,
                             action=self._get_parser_bool_action(True),
@@ -554,8 +548,8 @@ class ListCommand(Command):
         search_names = []
         if args.NAME:
             search_names = args.NAME
-        elif os.path.exists(CLUSTER.LOCAL_DORIS_PATH):
-            search_names = os.listdir(CLUSTER.LOCAL_DORIS_PATH)
+        else:
+            search_names = CLUSTER.get_all_cluster_names()
 
         for cluster_name in search_names:
             status, services = parse_cluster_compose_file(cluster_name)
@@ -576,7 +570,8 @@ class ListCommand(Command):
 
         TYPE_COMPOSESERVICE = type(ComposeService("", "", ""))
         if not args.NAME:
-            header = ("CLUSTER", "OWNER", "STATUS", "CONFIG FILES")
+            header = ("CLUSTER", "OWNER", "STATUS", "MASTER FE",
+                      "CONFIG FILES")
             rows = []
             for name in sorted(clusters.keys()):
                 cluster_info = clusters[name]
@@ -590,11 +585,10 @@ class ListCommand(Command):
                     "{}({})".format(status, count)
                     for status, count in service_statuses.items()
                 ])
-                if not args.all and service_statuses.get("running", 0) == 0:
-                    continue
                 owner = utils.get_path_owner(CLUSTER.get_cluster_path(name))
                 compose_file = CLUSTER.get_compose_file(name)
                 rows.append((name, owner, show_status,
+                             CLUSTER.get_master_fe_endpoint(name),
                              "{}{}".format(compose_file,
                                            cluster_info["status"])))
             return self._handle_data(header, rows)

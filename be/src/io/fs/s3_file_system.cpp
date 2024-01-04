@@ -114,7 +114,7 @@ S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
         }
     }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            id.c_str(), config::s3_transfer_executor_pool_size);
+            _id.c_str(), config::s3_transfer_executor_pool_size);
 }
 
 S3FileSystem::~S3FileSystem() = default;
@@ -211,9 +211,6 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
                 return Status::IOError("fail to delete object: {}",
                                        error_msg(e.GetKey(), e.GetMessage()));
             }
-            VLOG_TRACE << "delete " << objects.size()
-                       << " s3 objects, endpoint: " << _s3_conf.endpoint
-                       << ", bucket: " << _s3_conf.bucket << ", prefix: " << _s3_conf.prefix;
         }
         is_trucated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());

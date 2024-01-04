@@ -38,7 +38,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AnalyticSinkOperator final : public StreamingOperator<AnalyticSinkOperatorBuilder> {
+class AnalyticSinkOperator final : public StreamingOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -107,6 +107,16 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        if (_partition_by_eq_expr_ctxs.empty()) {
+            return {ExchangeType::PASSTHROUGH};
+        } else if (_order_by_eq_expr_ctxs.empty()) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        }
+        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
+    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -123,6 +133,8 @@ private:
     const TTupleId _buffered_tuple_id;
 
     std::vector<size_t> _num_agg_input;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

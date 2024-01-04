@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSinkOperator final : public StreamingOperator<SortSinkOperatorBuilder> {
+class SortSinkOperator final : public StreamingOperator<vectorized::VSortNode> {
 public:
     SortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
 
@@ -93,6 +93,13 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        if (_merge_by_exchange) {
+            // The current sort node is used for the ORDER BY
+            return {ExchangeType::PASSTHROUGH};
+        }
+        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
+    }
 
 private:
     friend class SortSinkLocalState;
@@ -113,6 +120,7 @@ private:
 
     const RowDescriptor _row_descriptor;
     const bool _use_two_phase_read;
+    const bool _merge_by_exchange;
 };
 
 } // namespace pipeline

@@ -34,7 +34,6 @@
 #include "task_queue.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
@@ -167,8 +166,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
-                                                  : doris::vectorized::Block::create_unique();
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -257,16 +255,6 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     auto status = Status::OK();
-    auto handle_group_commit = [&]() {
-        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
-            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
-            std::unique_lock<std::mutex> l(*(future_block->lock));
-            if (!future_block->is_handled()) {
-                future_block->set_result(status, 0, 0);
-                future_block->cv->notify_all();
-            }
-        }
-    };
 
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
@@ -291,11 +279,7 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            status = _root->get_block(_state, block, _data_state);
-            if (UNLIKELY(!status.ok())) {
-                handle_group_commit();
-                return status;
-            }
+            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
 
@@ -306,7 +290,6 @@ Status PipelineTask::execute(bool* eos) {
                 RETURN_IF_ERROR(_collect_query_statistics());
             }
             status = _sink->sink(_state, block, _data_state);
-            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -374,7 +357,7 @@ Status PipelineTask::close(Status exec_status) {
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_context();
+    return _fragment_context->get_query_ctx();
 }
 
 // The FSM see PipelineTaskState's comment

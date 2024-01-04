@@ -52,6 +52,8 @@ import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -480,6 +482,7 @@ terminal String
     KW_MATCH_ALL,
     KW_MATCH_PHRASE,
     KW_MATCH_PHRASE_PREFIX,
+    KW_MATCH_REGEXP,
     KW_MATCH_ELEMENT_EQ,
     KW_MATCH_ELEMENT_LT,
     KW_MATCH_ELEMENT_GT,
@@ -530,6 +533,9 @@ terminal String
     KW_PROCESSLIST,
     KW_PROFILE,
     KW_PROPERTIES,
+    KW_CONDITIONS,
+    KW_ACTIONS,
+    KW_SET_SESSION_VAR,
     KW_PROPERTY,
     KW_QUANTILE_STATE,
     KW_QUANTILE_UNION,
@@ -569,7 +575,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
-    KW_SCHEDULER,    
+    KW_SCHEDULE,    
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -841,6 +847,8 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 // List of set variable
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
+nonterminal List<WorkloadConditionMeta> workload_policy_condition_list, conditions, opt_conditions;
+nonterminal List<WorkloadActionMeta> workload_policy_action_list, opt_actions, actions;
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_key_value_map_in_paren, opt_properties,
             opt_ext_properties, opt_enable_feature_properties, properties;
@@ -963,6 +971,9 @@ nonterminal StorageBackend storage_backend;
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
 
+// workload policy/group
+nonterminal String policy_condition_op, policy_condition_value;
+
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
 precedence nonassoc KW_COLUMNS;
@@ -977,7 +988,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH_REGEXP, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -986,7 +997,7 @@ precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
 precedence left BITNOT;
 precedence left KW_ORDER, KW_BY, KW_LIMIT;
-precedence right KW_PROPERTIES;
+precedence right KW_PROPERTIES, KW_CONDITIONS, KW_ACTIONS;
 precedence left LPAREN, RPAREN;
 precedence left KW_PREPARE, KW_EXECUTE;
 // Support chaining of timestamp arithmetic exprs.
@@ -1362,6 +1373,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterWorkloadGroupStmt(workloadGroupName, properties);
     :}
+    | KW_ALTER KW_WORKLOAD KW_SCHEDULE KW_POLICY ident_or_text:policyName opt_properties:properties
+    {:
+        RESULT = new AlterWorkloadSchedPolicyStmt(policyName, properties);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
@@ -1397,6 +1412,10 @@ alter_stmt ::=
       opt_password_option:passwdOptions
     {:
         RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions);
+    :}
+    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
+    {:
+        RESULT = new AlterRepositoryStmt(repoName, properties);
     :}
     ;
 
@@ -1883,6 +1902,11 @@ create_stmt ::=
     | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
     {:
         RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
+    :}
+    /* workload schedule policy */
+    | KW_CREATE KW_WORKLOAD KW_SCHEDULE KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
+    {:
+        RESULT = new CreateWorkloadSchedPolicyStmt(ifNotExists, workloadPolicyName, conditions, actions, properties);
     :}
     /* encryptkey */
     | KW_CREATE KW_ENCRYPTKEY opt_if_not_exists:ifNotExists encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
@@ -2556,17 +2580,17 @@ resource_desc ::=
     :}                                                                               
     ; 
 create_job_stmt ::=
-     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.RECURRING,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
@@ -2986,6 +3010,10 @@ drop_stmt ::=
     | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
         RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
+    :}
+    | KW_DROP KW_WORKLOAD KW_SCHEDULE KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
+    {:
+        RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
     :}
     | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
     {:
@@ -3452,6 +3480,135 @@ opt_properties ::=
     | properties:properties
     {:
     RESULT = properties;
+    :}
+    ;
+
+policy_condition_op ::=
+    EQUAL
+    {:
+    RESULT = "=";
+    :}
+    | GREATERTHAN
+    {:
+    RESULT = ">";
+    :}
+    | LESSTHAN
+    {:
+    RESULT = "<";
+    :}
+    | GREATERTHAN EQUAL
+    {:
+    RESULT = ">=";
+    :}
+    | LESSTHAN EQUAL
+    {:
+    RESULT = "<=";
+    :};
+
+policy_condition_value ::=
+    INTEGER_LITERAL:val
+    {:
+    RESULT = String.valueOf(val);
+    :}
+    | STRING_LITERAL:val
+    {:
+    RESULT = val;
+    :}
+    | FLOATINGPOINT_LITERAL:val
+    {:
+    RESULT = String.valueOf(val);
+    :}
+    | DECIMAL_LITERAL:val
+    {:
+    RESULT = val.toString();
+    :}
+    ;
+
+workload_policy_condition_list ::=
+    ident:metricName policy_condition_op:op policy_condition_value:value
+    {:
+    RESULT = new ArrayList<>();
+    WorkloadConditionMeta cm = new WorkloadConditionMeta(metricName, op, value);
+    RESULT.add(cm);
+    :}
+    | workload_policy_condition_list:list COMMA ident:metricName policy_condition_op:op policy_condition_value:value
+    {:
+    WorkloadConditionMeta cm = new WorkloadConditionMeta(metricName, op, value);
+    list.add(cm);
+    RESULT = list;
+    :};
+
+conditions ::=
+    KW_CONDITIONS LPAREN workload_policy_condition_list:list RPAREN
+    {:
+    RESULT = list;
+    :}
+    ;
+
+opt_conditions ::=
+    {:
+    RESULT = null;
+    :}
+    | conditions:conditions
+    {:
+    RESULT = conditions;
+    :}
+    ;
+
+workload_policy_action_list ::=
+    KW_SET_SESSION_VAR STRING_LITERAL:args
+    {:
+    RESULT = Lists.newArrayList();
+    WorkloadActionMeta wam = new WorkloadActionMeta("set_session_variable", args);
+    RESULT.add(wam);
+    :}
+    | workload_policy_action_list:list COMMA KW_SET_SESSION_VAR STRING_LITERAL:args
+    {:
+    WorkloadActionMeta wam = new WorkloadActionMeta("set_session_variable", args);
+    list.add(wam);
+    RESULT = list;
+    :}
+    | ident:firstArgs
+    {:
+    RESULT = Lists.newArrayList();
+    WorkloadActionMeta wam = new WorkloadActionMeta(firstArgs, "");
+    RESULT.add(wam);
+    :}
+    | ident:firstArgs STRING_LITERAL:secondArgs
+    {:
+    RESULT = Lists.newArrayList();
+    WorkloadActionMeta wam = new WorkloadActionMeta(firstArgs, secondArgs);
+    RESULT.add(wam);
+    :}
+    | workload_policy_action_list:list COMMA ident:firstArgs
+    {:
+    WorkloadActionMeta wam = new WorkloadActionMeta(firstArgs, "");
+    list.add(wam);
+    RESULT = list;
+    :}
+    | workload_policy_action_list:list COMMA ident:firstArgs STRING_LITERAL:secondArgs
+    {:
+    WorkloadActionMeta wam = new WorkloadActionMeta(firstArgs, secondArgs);
+    list.add(wam);
+    RESULT = list;
+    :}
+    ;
+
+
+actions ::=
+    KW_ACTIONS LPAREN workload_policy_action_list:list RPAREN
+    {:
+    RESULT = list;
+    :}
+    ;
+
+opt_actions ::=
+    {:
+    RESULT = null;
+    :}
+    | actions:actions
+    {:
+    RESULT = actions;
     :}
     ;
 
@@ -4003,6 +4160,10 @@ show_param ::=
     {:
         RESULT = new ShowWorkloadGroupsStmt();
     :}
+    | KW_WORKLOAD KW_SCHEDULE KW_POLICY
+    {:
+        RESULT = new ShowWorkloadSchedPolicyStmt();
+    :}
     | KW_BACKENDS
     {:
         RESULT = new ShowBackendsStmt();
@@ -4345,9 +4506,9 @@ opt_explain_options ::=
 
 // Describe statement
 describe_stmt ::=
-    describe_command table_name:table
+    describe_command table_name:table opt_partition_names:partitionNames
     {:
-        RESULT = new DescribeStmt(table, false);
+        RESULT = new DescribeStmt(table, false, partitionNames);
     :}
     | KW_SHOW KW_FIELDS KW_FROM table_name:table
     {:
@@ -4441,7 +4602,7 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_table_alias:alias opt_partition_names:partitionNames opt_using_clause:fromClause where_clause:wherePredicate
+    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames opt_table_alias:alias opt_using_clause:fromClause where_clause:wherePredicate
     {:
         RESULT = new DeleteStmt(new TableRef(table, alias), partitionNames, fromClause, wherePredicate);
     :}
@@ -4905,6 +5066,10 @@ kill_stmt ::=
     | KW_KILL KW_QUERY INTEGER_LITERAL:value
     {:
         RESULT = new KillStmt(false, value.intValue());
+    :}
+    | KW_KILL KW_QUERY STRING_LITERAL:value
+    {:
+        RESULT = new KillStmt(value);
     :}
     ;
 
@@ -7010,6 +7175,8 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE, e1, e2); :}
   | expr:e1 KW_MATCH_PHRASE_PREFIX expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
+  | expr:e1 KW_MATCH_REGEXP expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_REGEXP, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
@@ -7390,6 +7557,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ARRAY:id
     {: RESULT = id; :}
+    | KW_AUTO_INCREMENT:id
+    {: RESULT = id; :}
     | KW_BACKUP:id
     {: RESULT = id; :}
     | KW_BEGIN:id
@@ -7616,6 +7785,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PARAMETER:id
     {: RESULT = id; :}
+    | KW_PARTITIONS:id
+    {: RESULT = id; :}
     | KW_PASSWORD:id
     {: RESULT = id; :}
     | KW_PASSWORD_EXPIRE:id
@@ -7639,6 +7810,12 @@ keyword ::=
     | KW_PROCESSLIST:id
     {: RESULT = id; :}
     | KW_PROPERTIES:id
+    {: RESULT = id; :}
+    | KW_CONDITIONS:id
+    {: RESULT = id; :}
+    | KW_ACTIONS:id
+    {: RESULT = id; :}
+    | KW_SET_SESSION_VAR:id
     {: RESULT = id; :}
     | KW_PROPERTY:id
     {: RESULT = id; :}
@@ -7672,7 +7849,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
-    | KW_SCHEDULER:id
+    | KW_SCHEDULE:id
     {: RESULT = id; :}
     | KW_SCHEMA:id
     {: RESULT = id; :}

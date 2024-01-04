@@ -81,9 +81,9 @@ PROPERTIES (["key"="value"][,...])
 ```
 Instructions:
 
-1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set。
-2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4)。
-3. PROPERTIES中`type`Indicates the UDAF call type, which is Native by default. Rpc is transmitted when Rpc UDAF is used。
+1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set.
+2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4).
+3. PROPERTIES中`type`Indicates the UDAF call type, which is Native by default. Rpc is transmitted when Rpc UDAF is used.
 
 Sample:
 ```sql

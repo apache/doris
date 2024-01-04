@@ -83,12 +83,17 @@ visible_functions = {
         [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
     ],
 
+    # variant functions
+    "variant": [
+        [['element_at', '%element_extract%'], 'VARIANT', ['VARIANT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    ],
+
     # struct functions
     "struct": [
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']]
+        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -165,24 +170,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
 
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BIGINT', 'BIGINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_LARGEINT', 'LARGEINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIME', 'DATETIME'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATE', 'DATE'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIMEV2', 'DATETIMEV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATEV2', 'DATEV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_FLOAT', 'FLOAT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DOUBLE', 'DOUBLE'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'DECIMALV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL32', 'DECIMAL32'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL64', 'DECIMAL64'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'CUSTOM'],
+        [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_TINYINT'], ''],
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_SMALLINT'], ''],
@@ -272,7 +260,7 @@ visible_functions = {
         [['array_position'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], 'CUSTOM'],
         [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], 'CUSTOM'],
 
-        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY'], ''],
+        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY<T>'], '', ['T']],
         [['array_distinct'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
         [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
         [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
@@ -772,6 +760,7 @@ visible_functions = {
         [['array_pushfront'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushfront'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['array_pushback'], 'ARRAY<T>',    ['ARRAY<T>', 'T'], 'ALWAYS_NULLABLE', ['T']],
         [['array_pushback'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -833,7 +822,7 @@ visible_functions = {
         [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
         [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
-        [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+        [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
 
         # reverse function for string builtin
@@ -1373,6 +1362,7 @@ visible_functions = {
         [['radians'], 'DOUBLE', ['DOUBLE'], ''],
         [['rand', 'random'], 'DOUBLE', [], 'ALWAYS_NOT_NULLABLE'],
         [['rand', 'random'], 'DOUBLE', ['BIGINT'], ''],
+        [['rand', 'random'], 'BIGINT', ['BIGINT', 'BIGINT'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
         [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'], ''],
@@ -1467,6 +1457,9 @@ visible_functions = {
         # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
         [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['nullif'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+
+        [['is_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+        [['is_not_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
 
         [['ifnull', 'nvl'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'TINYINT', ['TINYINT', 'TINYINT'], 'CUSTOM'],

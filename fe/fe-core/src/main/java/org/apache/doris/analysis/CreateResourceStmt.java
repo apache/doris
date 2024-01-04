@@ -96,7 +96,7 @@ public class CreateResourceStmt extends DdlStmt {
         }
         if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
+                    + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
         }
     }
 

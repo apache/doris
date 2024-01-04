@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "testutil/test_util.h"
 
@@ -72,25 +73,34 @@ public:
         _s_current->_deleted_values.push_back(DecodeValue(v));
     }
 
+    class CacheTestPolicy : public LRUCachePolicy {
+    public:
+        CacheTestPolicy(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::FOR_UT, capacity, LRUCacheType::SIZE, -1) {
+        }
+    };
+
     // there is 16 shards in ShardedLRUCache
     // And the LRUHandle size is about 100B. So the cache size should big enough
     // to run the UT.
     static const int kCacheSize = 1000 * 16;
     std::vector<int> _deleted_keys;
     std::vector<int> _deleted_values;
-    Cache* _cache;
+    CacheTestPolicy* _cache;
 
-    CacheTest() : _cache(new_lru_cache("test", kCacheSize)) { _s_current = this; }
+    CacheTest() : _cache(new CacheTestPolicy(kCacheSize)) { _s_current = this; }
 
     ~CacheTest() { delete _cache; }
 
+    Cache* cache() { return _cache->cache(); }
+
     int Lookup(int key) {
         std::string result;
-        Cache::Handle* handle = _cache->lookup(EncodeKey(&result, key));
-        const int r = (handle == nullptr) ? -1 : DecodeValue(_cache->value(handle));
+        Cache::Handle* handle = cache()->lookup(EncodeKey(&result, key));
+        const int r = (handle == nullptr) ? -1 : DecodeValue(cache()->value(handle));
 
         if (handle != nullptr) {
-            _cache->release(handle);
+            cache()->release(handle);
         }
 
         return r;
@@ -98,19 +108,19 @@ public:
 
     void Insert(int key, int value, int charge) {
         std::string result;
-        _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                                       &CacheTest::Deleter));
+        cache()->release(cache()->insert(EncodeKey(&result, key), EncodeValue(value), charge,
+                                         &CacheTest::Deleter));
     }
 
     void InsertDurable(int key, int value, int charge) {
         std::string result;
-        _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                                       &CacheTest::Deleter, CachePriority::DURABLE));
+        cache()->release(cache()->insert(EncodeKey(&result, key), EncodeValue(value), charge,
+                                         &CacheTest::Deleter, CachePriority::DURABLE));
     }
 
     void Erase(int key) {
         std::string result;
-        _cache->erase(EncodeKey(&result, key));
+        cache()->erase(EncodeKey(&result, key));
     }
 
     void SetUp() {}
@@ -164,16 +174,16 @@ TEST_F(CacheTest, Erase) {
 TEST_F(CacheTest, EntriesArePinned) {
     Insert(100, 101, 1);
     std::string result1;
-    Cache::Handle* h1 = _cache->lookup(EncodeKey(&result1, 100));
-    EXPECT_EQ(101, DecodeValue(_cache->value(h1)));
+    Cache::Handle* h1 = cache()->lookup(EncodeKey(&result1, 100));
+    EXPECT_EQ(101, DecodeValue(cache()->value(h1)));
 
     Insert(100, 102, 1);
     std::string result2;
-    Cache::Handle* h2 = _cache->lookup(EncodeKey(&result2, 100));
-    EXPECT_EQ(102, DecodeValue(_cache->value(h2)));
+    Cache::Handle* h2 = cache()->lookup(EncodeKey(&result2, 100));
+    EXPECT_EQ(102, DecodeValue(cache()->value(h2)));
     EXPECT_EQ(0, _deleted_keys.size());
 
-    _cache->release(h1);
+    cache()->release(h1);
     EXPECT_EQ(1, _deleted_keys.size());
     EXPECT_EQ(100, _deleted_keys[0]);
     EXPECT_EQ(101, _deleted_values[0]);
@@ -182,7 +192,7 @@ TEST_F(CacheTest, EntriesArePinned) {
     EXPECT_EQ(-1, Lookup(100));
     EXPECT_EQ(1, _deleted_keys.size());
 
-    _cache->release(h2);
+    cache()->release(h2);
     EXPECT_EQ(2, _deleted_keys.size());
     EXPECT_EQ(100, _deleted_keys[1]);
     EXPECT_EQ(102, _deleted_values[1]);
@@ -400,8 +410,8 @@ TEST_F(CacheTest, HeavyEntries) {
 }
 
 TEST_F(CacheTest, NewId) {
-    uint64_t a = _cache->new_id();
-    uint64_t b = _cache->new_id();
+    uint64_t a = cache()->new_id();
+    uint64_t b = cache()->new_id();
     EXPECT_NE(a, b);
 }
 

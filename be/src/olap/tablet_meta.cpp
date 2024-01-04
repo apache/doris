@@ -68,7 +68,8 @@ TabletMetaSharedPtr TabletMeta::create(
             std::move(binlog_config), request.compaction_policy,
             request.time_series_compaction_goal_size_mbytes,
             request.time_series_compaction_file_count_threshold,
-            request.time_series_compaction_time_threshold_seconds);
+            request.time_series_compaction_time_threshold_seconds,
+            request.time_series_compaction_empty_rowsets_threshold);
 }
 
 TabletMeta::TabletMeta()
@@ -86,7 +87,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        std::optional<TBinlogConfig> binlog_config, std::string compaction_policy,
                        int64_t time_series_compaction_goal_size_mbytes,
                        int64_t time_series_compaction_file_count_threshold,
-                       int64_t time_series_compaction_time_threshold_seconds)
+                       int64_t time_series_compaction_time_threshold_seconds,
+                       int64_t time_series_compaction_empty_rowsets_threshold)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -114,6 +116,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_file_count_threshold);
     tablet_meta_pb.set_time_series_compaction_time_threshold_seconds(
             time_series_compaction_time_threshold_seconds);
+    tablet_meta_pb.set_time_series_compaction_empty_rowsets_threshold(
+            time_series_compaction_empty_rowsets_threshold);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -284,7 +288,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
 
     init_from_pb(tablet_meta_pb);
-    LOG(INFO) << "init tablet meta from pb: " << tablet_meta_pb.ShortDebugString();
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
@@ -314,7 +317,9 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _time_series_compaction_file_count_threshold(
                   b._time_series_compaction_file_count_threshold),
           _time_series_compaction_time_threshold_seconds(
-                  b._time_series_compaction_time_threshold_seconds) {};
+                  b._time_series_compaction_time_threshold_seconds),
+          _time_series_compaction_empty_rowsets_threshold(
+                  b._time_series_compaction_empty_rowsets_threshold) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -596,6 +601,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             tablet_meta_pb.time_series_compaction_file_count_threshold();
     _time_series_compaction_time_threshold_seconds =
             tablet_meta_pb.time_series_compaction_time_threshold_seconds();
+    _time_series_compaction_empty_rowsets_threshold =
+            tablet_meta_pb.time_series_compaction_empty_rowsets_threshold();
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -677,9 +684,11 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_file_count_threshold());
     tablet_meta_pb->set_time_series_compaction_time_threshold_seconds(
             time_series_compaction_time_threshold_seconds());
+    tablet_meta_pb->set_time_series_compaction_empty_rowsets_threshold(
+            time_series_compaction_empty_rowsets_threshold());
 }
 
-uint32_t TabletMeta::mem_size() const {
+int64_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
     size += _schema->mem_size();
     return size;
@@ -861,6 +870,9 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
         return false;
     if (a._time_series_compaction_time_threshold_seconds !=
         b._time_series_compaction_time_threshold_seconds)
+        return false;
+    if (a._time_series_compaction_empty_rowsets_threshold !=
+        b._time_series_compaction_empty_rowsets_threshold)
         return false;
     return true;
 }
@@ -1075,7 +1087,7 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
 }
 
-std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
+std::atomic<DeleteBitmap::AggCachePolicy*> DeleteBitmap::AggCache::s_repr {nullptr};
 
 std::string tablet_state_name(TabletState state) {
     switch (state) {

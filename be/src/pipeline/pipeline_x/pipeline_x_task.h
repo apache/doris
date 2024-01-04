@@ -46,21 +46,23 @@ namespace doris::pipeline {
 
 class TaskQueue;
 class PriorityTaskQueue;
+struct LocalExchangeSinkDependency;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map,
+                  std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                          std::shared_ptr<LocalExchangeSinkDependency>>>
+                          le_state_map,
                   int task_idx);
 
     Status prepare(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
     }
 
-    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
-                   const TDataSink& tsink);
+    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink);
 
     Status execute(bool* eos) override;
 
@@ -71,6 +73,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
 
+    Status close_sink(Status exec_status);
     bool source_can_read() override {
         if (_dry_run) {
             return true;
@@ -122,6 +125,8 @@ public:
     OperatorXPtr source() const { return _source; }
 
     OperatorXs operatorXs() { return _operators; }
+
+    int task_id() const { return _index; };
 
     void clear_blocking_state() {
         if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
@@ -191,7 +196,9 @@ private:
     DependencyMap _upstream_dependency;
     std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
-    std::map<int, std::shared_ptr<LocalExchangeSharedState>> _le_state_map;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
+            _le_state_map;
     int _task_idx;
     bool _dry_run = false;
 

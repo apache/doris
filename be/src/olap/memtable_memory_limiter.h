@@ -54,7 +54,10 @@ private:
 
     bool _soft_limit_reached();
     bool _hard_limit_reached();
-    void _flush_active_memtables();
+    bool _load_usage_low();
+    void _flush_active_memtables(int64_t need_flush);
+    int64_t _flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold);
+    void _refresh_mem_tracker();
 
     std::mutex _lock;
     std::condition_variable _hard_limit_end_cond;
@@ -66,9 +69,9 @@ private:
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
+    int64_t _load_safe_mem_permit = -1;
 
     std::vector<std::weak_ptr<MemTableWriter>> _writers;
-    std::weak_ptr<MemTableWriter> _largest_active_writer;
-    int64_t _largest_active_mem = 0;
+    std::vector<std::weak_ptr<MemTableWriter>> _active_writers;
 };
 } // namespace doris

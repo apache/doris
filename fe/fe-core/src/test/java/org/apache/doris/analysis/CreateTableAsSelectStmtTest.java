@@ -536,6 +536,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"
@@ -546,7 +547,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
 
     @Test
     public void testQuerySchema() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         String create1 = "create table test.qs1 (k1 int, k2 int) distributed by hash(k1) "
                 + "buckets 1 properties('replication_num' = '1')";
         String create2 = "create table test.qs2 (k1 int, k2 int) distributed by hash(k1) "

@@ -96,6 +96,8 @@ CREATE CATALOG iceberg PROPERTIES (
 
 #### AWS Glue
 
+> When connecting Glue, if it's not on the EC2 environment, need copy the `~/.aws` from the EC2 environment to the current environment. And can also download and configure the [AWS Cli tools](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), which also creates the `.aws` directory under the current user directory.
+
 ```sql
 CREATE CATALOG glue PROPERTIES (
     "type"="iceberg",
@@ -212,4 +214,4 @@ You can use the `FOR TIME AS OF` and `FOR VERSION AS OF` statements to read hist
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) table function to query the snapshot information of the specified table.
+In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) table function to query the snapshot information of the specified table.

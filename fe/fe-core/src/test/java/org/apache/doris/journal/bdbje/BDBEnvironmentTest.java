@@ -31,8 +31,11 @@ import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.Durability;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+import com.sleepycat.je.rep.InsufficientAcksException;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
+import com.sleepycat.je.rep.impl.RepImpl;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.commons.io.FileUtils;
@@ -46,6 +49,7 @@ import org.junit.jupiter.api.RepeatedTest;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
@@ -367,15 +371,16 @@ public class BDBEnvironmentTest {
         for (int i = 0; i < 10; i++) {
             electionSuccess = true;
             for (Pair<BDBEnvironment, NodeInfo> entryPair : followersInfo) {
-                if (entryPair.first.getReplicatedEnvironment().getState()
-                        .equals(ReplicatedEnvironment.State.MASTER)) {
+                ReplicatedEnvironment env = entryPair.first.getReplicatedEnvironment();
+                if (env == null) {
+                    continue;
+                }
+                if (env.getState().equals(ReplicatedEnvironment.State.MASTER)) {
                     masterEnvironment = entryPair.first;
                     masterNode = entryPair.second;
                 }
-                if (!entryPair.first.getReplicatedEnvironment().getState()
-                        .equals(ReplicatedEnvironment.State.MASTER)
-                        && !entryPair.first.getReplicatedEnvironment().getState()
-                        .equals(ReplicatedEnvironment.State.REPLICA)) {
+                if (!env.getState().equals(ReplicatedEnvironment.State.MASTER)
+                        && !env.getState().equals(ReplicatedEnvironment.State.REPLICA)) {
                     electionSuccess = false;
                 }
             }
@@ -558,5 +563,99 @@ public class BDBEnvironmentTest {
 
         Assertions.assertEquals(Durability.ReplicaAckPolicy.SIMPLE_MAJORITY,
                 Deencapsulation.invoke(BDBEnvironment.class, "getAckPolicy", "default"));
+    }
+
+    @RepeatedTest(1)
+    public void testReadTxnIsNotMatched() throws Exception {
+        List<Pair<BDBEnvironment, NodeInfo>> followersInfo = new ArrayList<>();
+
+        int masterPort = findValidPort();
+        String masterNodeName = "fe1";
+        String masterNodeHostPort = "127.0.0.1:" + masterPort;
+
+        BDBEnvironment masterEnvironment = new BDBEnvironment(true, false);
+        String masterDir = createTmpDir();
+        masterEnvironment.setup(new File(masterDir), masterNodeName, masterNodeHostPort, masterNodeHostPort);
+        followersInfo.add(Pair.of(masterEnvironment, new NodeInfo(masterNodeName, masterNodeHostPort, masterDir)));
+
+        for (int i = 2; i <= 3; i++) {
+            int nodePort = findValidPort();
+            String nodeName = "fe" + i;
+            String nodeHostPort = "127.0.0.1:" + nodePort;
+
+            BDBEnvironment followerEnvironment = new BDBEnvironment(true, false);
+            String nodeDir = createTmpDir();
+            followerEnvironment.setup(new File(nodeDir), nodeName, nodeHostPort, masterNodeHostPort);
+            followersInfo.add(Pair.of(followerEnvironment, new NodeInfo(nodeName, nodeHostPort, nodeDir)));
+        }
+
+        Pair<BDBEnvironment, NodeInfo> masterPair = findMaster(followersInfo);
+        String beginDbName = String.valueOf(0L);
+        Database masterDb = masterPair.first.openDatabase(beginDbName);
+        DatabaseEntry key = new DatabaseEntry(randomBytes());
+        DatabaseEntry value = new DatabaseEntry(randomBytes());
+        Assertions.assertEquals(OperationStatus.SUCCESS, masterDb.put(null, key, value));
+        Assertions.assertEquals(1, masterEnvironment.getDatabaseNames().size());
+        LOG.info("master is {} | {}", masterPair.second.name, masterPair.second.dir);
+
+        for (Pair<BDBEnvironment, NodeInfo> entryPair : followersInfo) {
+            if (entryPair.second.dir.equals(masterPair.second.dir)) {
+                LOG.info("skip {}", entryPair.second.name);
+                continue;
+            }
+
+            Assertions.assertEquals(1, entryPair.first.getDatabaseNames().size());
+            Database followerDb = entryPair.first.openDatabase(beginDbName);
+            DatabaseEntry readValue = new DatabaseEntry();
+            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+            Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
+        }
+
+        Field envImplField = ReplicatedEnvironment.class.getDeclaredField("repEnvironmentImpl");
+        envImplField.setAccessible(true);
+        RepImpl impl = (RepImpl) envImplField.get(masterPair.first.getReplicatedEnvironment());
+        Assertions.assertNotNull(impl);
+
+        new Expectations(impl) {{
+                // Below method will replicate log item to followers.
+                impl.registerVLSN(withNotNull());
+                // Below method will wait until the logs are replicated.
+                impl.postLogCommitHook(withNotNull(), withNotNull());
+                result = new InsufficientAcksException("mocked");
+            }};
+
+        long count = masterDb.count();
+        final Database oldMasterDb = masterDb;
+        Assertions.assertThrows(InsufficientAcksException.class, () -> {
+            // Since this key is not replicated to any replicas, it should not be read.
+            DatabaseEntry k = new DatabaseEntry(new byte[]{1, 2, 3});
+            DatabaseEntry v = new DatabaseEntry(new byte[]{4, 5, 6});
+            oldMasterDb.put(null, k, v);
+        });
+
+        LOG.info("close old master {} | {}", masterPair.second.name, masterPair.second.dir);
+        masterDb.close();
+        masterEnvironment.getEpochDB().close();
+        masterEnvironment.close();
+
+        for (Pair<BDBEnvironment, NodeInfo> entryPair : followersInfo) {
+            if (entryPair.second.dir.equals(masterPair.second.dir)) {
+                LOG.info("skip {}", entryPair.second.name);
+                continue;
+            }
+            LOG.info("close follower {} | {}", entryPair.second.name, entryPair.second.dir);
+            entryPair.first.close();
+        }
+
+        masterPair.first.openReplicatedEnvironment(new File(masterPair.second.dir));
+        masterDb = masterPair.first.openDatabase(beginDbName);
+        LOG.info("open {} | {}", masterPair.second.name, masterPair.second.dir);
+
+        // The local commit txn is readable!!!
+        Assertions.assertEquals(count + 1, masterDb.count());
+
+        key = new DatabaseEntry(new byte[]{1, 2, 3});
+        DatabaseEntry readValue = new DatabaseEntry();
+        Assertions.assertEquals(OperationStatus.SUCCESS, masterDb.get(null, key, readValue, LockMode.READ_COMMITTED));
     }
 }

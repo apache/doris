@@ -28,8 +28,8 @@ under the License.
 ### description
 BITMAP
 
-BITMAP类型的列可以在Aggregate表或Unique表中使用。
-在Unique表中使用时，其必须作为非key列使用。
+BITMAP类型的列可以在Aggregate表、Unique表或Duplicate表中使用。
+在Unique表或duplicate表中使用时，其必须作为非key列使用。
 在Aggregate表中使用时，其必须作为非key列使用，且建表时配合的聚合类型为BITMAP_UNION。
 用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
 并且BITMAP列只能通过配套的bitmap_union_count、bitmap_union、bitmap_hash、bitmap_hash64等函数进行查询或使用。

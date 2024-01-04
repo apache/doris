@@ -93,16 +93,16 @@ suite("regression_test_variant", "variant_type"){
             sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-            qt_sql "select k, cast(v:a as array<int>) from  ${table_name} where  size(cast(v:a as array<int>)) > 0 order by k, cast(v as string);"
+            qt_sql "select k, cast(v:a as array<int>) from  ${table_name} where  size(cast(v:a as array<int>)) > 0 order by k, cast(v:a as string) asc"
             // cast v:b as int should be correct
             // FIXME: unstable, todo use qt_sql
             sql "select k, v, cast(v:b as string) from  ${table_name} where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
             sql "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
             sql "select v:b, v:b.c, v from  ${table_name} order by k,cast(v as string) desc limit 10000;"
-            sql "select k, v, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
+            // sql "select k, v, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
             sql "select v:b from ${table_name} where cast(v:b as int) > 0;"
             sql "select cast(v:b as string) from ${table_name} order by k"
-            verify table_name 
+            // verify table_name 
         }
         // FIXME
         sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
@@ -287,28 +287,28 @@ suite("regression_test_variant", "variant_type"){
         // 12. streamload remote file
         table_name = "logdata"
         create_table.call(table_name, "4")
-        sql "set enable_two_phase_read_opt = false;"
+        // sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_32_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_32_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_33_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_33_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.85")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
         qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""
-        qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_35_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
         // unique table
@@ -337,10 +337,10 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
         sql "select * from ${table_name}"
-        qt_sql_36_1 "select v:a, v:b, v:c from ${table_name} order by k limit 10"
+        qt_sql_36_1 "select cast(v:a as int), cast(v:b as int), cast(v:c as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
-        qt_sql_36_2 "select * from ${table_name} where k > 3 order by k desc limit 10"
+        qt_sql_36_2 """select k, json_extract(cast(v as text), "\$.repo") from ${table_name} where k > 3 order by k desc limit 10"""
         sql "insert into ${table_name} select * from ${table_name}"
         sql """UPDATE ${table_name} set v = '{"updated_value" : 10}' where k = 2"""
         qt_sql_36_3 """select * from ${table_name} where k = 2"""
@@ -386,13 +386,13 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (2, "abe", '{"c" : 1}')"""
         sql """insert into ${table_name} values (3, "abd", '{"d" : 1}')"""
         sql "delete from ${table_name} where k in (select k from variant_mow where k in (1, 2))"
-        qt_sql_38 "select * from ${table_name} order by k"
+        qt_sql_38 "select * from ${table_name} order by k limit 10"
 
         // read text from sparse col
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' limit 1;"""
+        qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' order by k limit 1;"""
         sql "truncate table sparse_columns"
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     } finally {

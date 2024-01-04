@@ -346,7 +346,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         };
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
-        desc.setTable(mgr.getInternalCatalog().getDbNullable("default_cluster:test").getTableNullable("tbl1"));
+        desc.setTable(mgr.getInternalCatalog().getDbNullable("test").getTableNullable("tbl1"));
         olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode");
     }
 
@@ -480,8 +480,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Assert.assertEquals(ca.getCacheMode(), CacheAnalyzer.CacheMode.Sql);
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `hms_ctl`.`default_cluster:hms_db`.`hms_view2`.`k1` AS `k1` "
-                    + "FROM `hms_ctl`.`default_cluster:hms_db`.`hms_view2`"
+        Assert.assertEquals(cacheKey, "SELECT `hms_ctl`.`hms_db`.`hms_view2`.`k1` AS `k1` "
+                    + "FROM `hms_ctl`.`hms_db`.`hms_view2`"
                     + "|SELECT * FROM hms_db.hms_tbl|SELECT * FROM hms_db.hms_view1");
         Assert.assertEquals(sqlCache.getLatestTime(), NOW);
     }

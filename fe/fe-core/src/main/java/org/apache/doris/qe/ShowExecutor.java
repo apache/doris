@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
@@ -104,6 +105,7 @@ import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
+import org.apache.doris.analysis.ShowWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
@@ -181,6 +183,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -347,6 +350,8 @@ public class ShowExecutor {
             handleShowResources();
         } else if (stmt instanceof ShowWorkloadGroupsStmt) {
             handleShowWorkloadGroups();
+        } else if (stmt instanceof ShowWorkloadSchedPolicyStmt) {
+            handleShowWorkloadSchedPolicy();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -933,14 +938,27 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
+
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
-        if (db.getDbProperties().getProperties().size() > 0) {
-            sb.append("\nPROPERTIES (\n");
-            sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
-            sb.append("\n)");
+        CatalogIf catalog = ctx.getCurrentCatalog();
+        if (catalog instanceof HMSExternalCatalog) {
+            String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
+            org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
+                    .getDatabase(simpleDBName);
+            sb.append("CREATE DATABASE `").append(simpleDBName).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocationUri())
+                .append("'");
+        } else {
+            DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+            if (db.getDbProperties().getProperties().size() > 0) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append("\n)");
+            }
         }
+
 
         rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getDb()), sb.toString()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1152,32 +1170,36 @@ public class ShowExecutor {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
-
+        List<List<Comparable>> loadInfos;
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = env.getLoadInstance();
-        List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
+        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
                 showStmt.isAccurateMatch(), showStmt.getStates());
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
         loadInfos.addAll(env.getLoadManager()
                 .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
+        // add the nerieds load info
+        JobManager loadMgr = env.getJobManager();
+        loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
+                showStmt.isAccurateMatch(), showStmt.getStateV2()));
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-        ListComparator<List<Comparable>> comparator = null;
+        ListComparator<List<Comparable>> comparator;
         if (orderByPairs != null) {
             OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
         } else {
             // sort by id asc
-            comparator = new ListComparator<List<Comparable>>(0);
+            comparator = new ListComparator<>(0);
         }
         Collections.sort(loadInfos, comparator);
 
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> loadInfo : loadInfos) {
-            List<String> oneInfo = new ArrayList<String>(loadInfo.size());
+            List<String> oneInfo = new ArrayList<>(loadInfo.size());
 
             // replace QUORUM_FINISHED -> FINISHED
             if (loadInfo.get(LoadProcDir.STATE_INDEX).equals(JobState.QUORUM_FINISHED.name())) {
@@ -1642,28 +1664,53 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
+    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
         HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
 
         List<String> partitionNames;
         LimitElement limit = showStmt.getLimitElement();
-        if (limit != null && limit.hasLimit()) {
-            // only limit is valid on Hive
+        Map<String, Expr> filterMap = showStmt.getFilterMap();
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+
+        if (limit != null && limit.hasLimit() && limit.getOffset() == 0
+                && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
+            // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
             partitionNames = catalog.getClient()
-                    .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
+                .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
         } else {
             partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl());
         }
+
+        /* Filter add rows */
         for (String partition : partitionNames) {
             List<String> list = new ArrayList<>();
+
+            if (filterMap != null && !filterMap.isEmpty()) {
+                if (!PartitionsProcDir.filter(ShowPartitionsStmt.FILTER_PARTITION_NAME, partition, filterMap)) {
+                    continue;
+                }
+            }
             list.add(partition);
             rows.add(list);
         }
 
         // sort by partition name
-        rows.sort(Comparator.comparing(x -> x.get(0)));
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+
+        if (limit != null && limit.hasLimit()) {
+            int beginIndex = (int) limit.getOffset();
+            int endIndex = (int) (beginIndex + limit.getLimit());
+            if (endIndex > rows.size()) {
+                endIndex = rows.size();
+            }
+            rows = rows.subList(beginIndex, endIndex);
+        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -1910,6 +1957,12 @@ public class ShowExecutor {
         List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo();
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
+    }
+
+    private void handleShowWorkloadSchedPolicy() {
+        ShowWorkloadSchedPolicyStmt showStmt = (ShowWorkloadSchedPolicyStmt) stmt;
+        List<List<String>> workloadSchedInfo = Env.getCurrentEnv().getWorkloadSchedPolicyMgr().getShowPolicyInfo();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadSchedInfo);
     }
 
     private void handleShowExport() throws AnalysisException {
@@ -2601,8 +2654,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
-                .showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2628,14 +2680,7 @@ public class ShowExecutor {
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                         ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
-                try {
-                    row.add(showStmt.isAuto()
-                            ? analysisInfo.progress
-                            : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
-                } catch (Exception e) {
-                    row.add("N/A");
-                    LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
-                }
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
                 row.add(analysisInfo.scheduleType.toString());
                 LocalDateTime startTime =
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),

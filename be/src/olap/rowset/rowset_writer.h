@@ -146,10 +146,6 @@ public:
 
     virtual int32_t allocate_segment_id() = 0;
 
-    virtual bool is_doing_segcompaction() const = 0;
-
-    virtual Status wait_flying_segcompaction() = 0;
-
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
     virtual int64_t delete_bitmap_ns() { return 0; }

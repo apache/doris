@@ -132,7 +132,7 @@ public class Alter {
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
-                                          final String clusterName, Database db) throws UserException {
+                                          Database db) throws UserException {
         if (olapTable.getDataSortInfo() != null
                 && olapTable.getDataSortInfo().getSortType() == TSortType.ZORDER) {
             throw new UserException("z-order table can not support schema change!");
@@ -193,11 +193,11 @@ public class Alter {
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-            schemaChangeHandler.process(stmt.toSql(), alterClauses, clusterName, db, olapTable);
+            schemaChangeHandler.process(stmt.toSql(), alterClauses, db, olapTable);
             // if base table schemaChanged, need change mtmv status
             Env.getCurrentEnv().getMtmvService().alterTable(olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
-            materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
+            materializedViewHandler.process(alterClauses, db, olapTable);
         } else if (currentAlterOps.hasPartitionOp()) {
             Preconditions.checkState(!alterClauses.isEmpty());
             for (AlterClause alterClause : alterClauses) {
@@ -431,8 +431,6 @@ public class Alter {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
-        final String clusterName = stmt.getClusterName();
-
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Table table = db.getTableOrDdlException(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
@@ -442,7 +440,7 @@ public class Alter {
             case MATERIALIZED_VIEW:
             case OLAP:
                 OlapTable olapTable = (OlapTable) table;
-                needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, clusterName, db);
+                needProcessOutsideTableLock = processAlterOlapTable(stmt, olapTable, alterClauses, db);
                 break;
             case ODBC:
             case JDBC:
@@ -507,7 +505,9 @@ public class Alter {
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                         || properties
-                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
+                            .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
@@ -682,7 +682,7 @@ public class Alter {
     }
 
     public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
-        clusterHandler.process(Collections.singletonList(stmt.getAlterClause()), stmt.getClusterName(), null, null);
+        clusterHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {

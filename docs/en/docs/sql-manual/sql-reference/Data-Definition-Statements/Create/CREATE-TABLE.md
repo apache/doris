@@ -125,7 +125,7 @@ Column definition list:
 
         Default value of the column. If the load data does not specify a value for this column, the system will assign a default value to this column.
         
-        The syntax is: `default default_value`。
+        The syntax is: `default default_value`.
         
         Currently, the default value supports two forms:
 
@@ -260,7 +260,7 @@ Partition information supports three writing methods:
 </version>
 
 
-4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
+4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size.
 
     ```
     PARTITION BY RANGE(int_col)
@@ -382,6 +382,12 @@ Set table properties. The following attributes are currently supported:
    The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
 
    `"compression"="zstd"`
+
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> Wheather the unique table use merge-on-write implementation. </version>
+
+    The property is disabled by default before version 2.1 and is enabled by default since version 2.1.
 
 * `light_schema_change`
 

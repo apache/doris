@@ -102,6 +102,12 @@ public:
       */
     virtual bool use_default_implementation_for_constants() const { return true; }
 
+    /** If use_default_implementation_for_nulls() is true, after execute the function,
+      * whether need to replace the nested data of null data to the default value.
+      * E.g. for binary arithmetic exprs, need return true to avoid false overflow.
+      */
+    virtual bool need_replace_null_data_to_default() const { return false; }
+
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, size_t result,
@@ -393,6 +399,8 @@ protected:
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
 
+    virtual bool need_replace_null_data_to_default() const { return false; }
+
     /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
       * If function arguments has low cardinality types, convert them to ordinary types.
       * get_return_type returns ColumnLowCardinality if at least one argument type is ColumnLowCardinality.
@@ -434,6 +442,9 @@ public:
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool need_replace_null_data_to_default() const override { return false; }
+
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
 
     /// all constancy check should use this function to do automatically
@@ -505,6 +516,9 @@ protected:
     }
     bool use_default_implementation_for_nulls() const final {
         return function->use_default_implementation_for_nulls();
+    }
+    bool need_replace_null_data_to_default() const final {
+        return function->need_replace_null_data_to_default();
     }
     bool use_default_implementation_for_constants() const final {
         return function->use_default_implementation_for_constants();
@@ -629,6 +643,10 @@ protected:
     bool use_default_implementation_for_nulls() const override {
         return function->use_default_implementation_for_nulls();
     }
+
+    bool need_replace_null_data_to_default() const override {
+        return function->need_replace_null_data_to_default();
+    }
     bool use_default_implementation_for_low_cardinality_columns() const override {
         return function->use_default_implementation_for_low_cardinality_columns();
     }
@@ -671,11 +689,11 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Float32, ColumnFloat32)          \
     M(Float64, ColumnFloat64)
 
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)         \
-    M(Decimal32, ColumnDecimal<Decimal32>)     \
-    M(Decimal64, ColumnDecimal<Decimal64>)     \
-    M(Decimal128, ColumnDecimal<Decimal128>)   \
-    M(Decimal128I, ColumnDecimal<Decimal128I>) \
+#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)           \
+    M(Decimal32, ColumnDecimal<Decimal32>)       \
+    M(Decimal64, ColumnDecimal<Decimal64>)       \
+    M(Decimal128V2, ColumnDecimal<Decimal128V2>) \
+    M(Decimal128V3, ColumnDecimal<Decimal128V3>) \
     M(Decimal256, ColumnDecimal<Decimal256>)
 
 #define STRING_TYPE_TO_COLUMN_TYPE(M) \
@@ -698,7 +716,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Struct, ColumnStruct)            \
     M(VARIANT, ColumnObject)           \
     M(BitMap, ColumnBitmap)            \
-    M(HLL, ColumnHLL)
+    M(HLL, ColumnHLL)                  \
+    M(QuantileState, ColumnQuantileState)
 
 #define TYPE_TO_BASIC_COLUMN_TYPE(M) \
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \

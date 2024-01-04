@@ -157,6 +157,108 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 ## Guide
 
+### View the JDBC Catalog
+
+You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
+
+```sql
+SHOW CATALOGS;
+```
+
+Query the creation statement of a Catalog through SHOW CREATE CATALOG:
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### Drop the JDBC Catalog
+
+A Catalog can be deleted via DROP CATALOG:
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### Query the JDBC Catalog
+
+1. Use SWITCH to switch the Catalog in effect for the current session:
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. Query all libraries under the current Catalog through SHOW DATABASES:
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. Use USE to switch the Database that takes effect in the current session:
+
+    ```sql
+    USE <database_name>;
+    ```
+
+   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
+
+4. Query all tables under the current Catalog through SHOW TABLES:
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. Query the data of a table under the current Catalog through SELECT:
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
+## SQL Passthrough
+
+In versions prior to Doris 2.0.3, users could only perform query operations (SELECT) through the JDBC Catalog.
+Starting from version Doris 2.0.4, users can perform DDL (Data Definition Language) and DML (Data Manipulation Language) operations on JDBC data sources using the `CALL` command.
+
+```
+CALL EXECUTE_STMT("catalog_name", "raw_stmt_string");
+```
+
+The `EXECUTE_STMT()` procedure involves two parameters:
+
+- Catalog Name: Currently, only the Jdbc Catalog is supported.
+- Execution Statement: Currently, only DDL and DML statements are supported. These statements must use the syntax specific to the JDBC data source.
+
+```
+CALL EXECUTE_STMT("jdbc_catalog", "insert into db1.tbl1 values(1,2), (3, 4)");
+
+CALL EXECUTE_STMT("jdbc_catalog", "delete from db1.tbl1 where k1 = 2");
+
+CALL EXECUTE_STMT("jdbc_catalog", "create table db1.tbl2 (k1 int)");
+```
+
+### Principles and Limitations
+
+Through the `CALL EXECUTE_STMT()` command, Doris directly sends the SQL statements written by the user to the JDBC data source associated with the Catalog for execution. Therefore, this operation has the following limitations:
+
+- The SQL statements must be in the syntax specific to the data source, as Doris does not perform syntax and semantic checks.
+- It is recommended that table names in SQL statements be fully qualified, i.e., in the `db.tbl` format. If the `db` is not specified, the db name specified in the JDBC Catalog's JDBC URL will be used.
+- SQL statements cannot reference tables outside of the JDBC data source, nor can they reference Doris's tables. However, they can reference tables within the JDBC data source that have not been synchronized to the Doris JDBC Catalog.
+- When executing DML statements, it is not possible to obtain the number of rows inserted, updated, or deleted; success of the command execution can only be confirmed.
+- Only users with LOAD permissions on the Catalog can execute this command.
+
+## Supported Datasoures
+
 ### MySQL
 
 #### Example
@@ -599,76 +701,8 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 ```
 
 :::tip
-When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
+When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#mysql) and [Oracle](#oracle)
 :::
-
-### View the JDBC Catalog
-
-You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
-
-```sql
-SHOW CATALOGS;
-```
-
-Query the creation statement of a Catalog through SHOW CREATE CATALOG:
-
-```sql
-SHOW CREATE CATALOG <catalog_name>;
-```
-
-### Drop the JDBC Catalog
-
-A Catalog can be deleted via DROP CATALOG:
-
-```sql
-DROP CATALOG <catalog_name>;
-```
-
-### Query the JDBC Catalog
-
-1. Use SWITCH to switch the Catalog in effect for the current session:
-
-    ```sql
-    SWITCH <catalog_name>;
-    ```
-
-2. Query all libraries under the current Catalog through SHOW DATABASES:
-
-    ```sql
-    SHOW DATABASES FROM <catalog_name>;
-    ```
-
-    ```sql
-    SHOW DATABASES;
-    ```
-
-3. Use USE to switch the Database that takes effect in the current session:
-
-    ```sql
-    USE <database_name>;
-    ```
-
-   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
-
-4. Query all tables under the current Catalog through SHOW TABLES:
-
-    ```sql
-    SHOW TABLES FROM <catalog_name>.<database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES FROM <database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES;
-    ```
-
-5. Query the data of a table under the current Catalog through SELECT:
-
-    ```sql
-    SELECT * FROM <table_name>;
-    ```
 
 ## JDBC Drivers
 

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
@@ -91,6 +93,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -149,7 +152,8 @@ public class InsertExecutor {
     /**
      * finalize sink to complete enough info for sink execution
      */
-    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert) {
+    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert,
+            boolean allowAutoPartition) {
         if (!(sink instanceof OlapTableSink)) {
             return;
         }
@@ -167,6 +171,9 @@ public class InsertExecutor {
                     false,
                     isStrictMode);
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
+            if (!allowAutoPartition) {
+                olapTableSink.setAutoPartition(false);
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -175,7 +182,7 @@ public class InsertExecutor {
             throw new AnalysisException("txn does not exist: " + txnId);
         }
         state.addTableIndexes((OlapTable) table);
-        if (isPartialUpdate && isFromInsert) {
+        if (isPartialUpdate) {
             state.setSchemaForPartialUpdate((OlapTable) table);
         }
     }
@@ -311,11 +318,14 @@ public class InsertExecutor {
             if (0 != jobId) {
                 etlJobType = EtlJobType.INSERT_JOB;
             }
-            ctx.getEnv().getLoadManager()
-                    .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
-                            table.getId(),
-                            etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
-                            coordinator.getTrackingUrl(), userIdentity, jobId);
+            if (!Config.enable_nereids_load) {
+                // just record for loadv2 here
+                ctx.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
+                                table.getId(),
+                                etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
+                                coordinator.getTrackingUrl(), userIdentity, jobId);
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             errMsg = "Record info of insert load with error " + e.getMessage();
@@ -474,7 +484,12 @@ public class InsertExecutor {
                 .setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone)
                 .setSendBatchParallelism(sendBatchParallelism)
-                .setTrimDoubleQuotes(true);
+                .setTrimDoubleQuotes(true)
+                .setSequenceCol(columns.stream()
+                        .filter(c -> Column.SEQUENCE_COL.equalsIgnoreCase(c.getName()))
+                        .map(Column::getName)
+                        .findFirst()
+                        .orElse(null));
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
@@ -490,6 +505,31 @@ public class InsertExecutor {
      */
     public static Plan normalizePlan(Plan plan, TableIf table) {
         UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) plan;
+
+        if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS
+                && unboundTableSink.isPartialUpdate()) {
+            // check the necessary conditions for partial updates
+            OlapTable olapTable = (OlapTable) table;
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                throw new AnalysisException("Partial update is only allowed on "
+                        + "unique table with merge-on-write enabled.");
+            }
+            if (unboundTableSink.getDMLCommandType() == DMLCommandType.INSERT) {
+                if (unboundTableSink.getColNames().isEmpty()) {
+                    throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                            + "updating partial columns using the INSERT statement.");
+                }
+                for (Column col : olapTable.getFullSchema()) {
+                    Optional<String> insertCol = unboundTableSink.getColNames().stream()
+                            .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                    if (col.isKey() && !insertCol.isPresent()) {
+                        throw new AnalysisException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
+                }
+            }
+        }
+
         Plan query = unboundTableSink.child();
         if (!(query instanceof LogicalInlineTable)) {
             return plan;
@@ -497,6 +537,7 @@ public class InsertExecutor {
         LogicalInlineTable logicalInlineTable = (LogicalInlineTable) query;
         ImmutableList.Builder<LogicalPlan> oneRowRelationBuilder = ImmutableList.builder();
         List<Column> columns = table.getBaseSchema(false);
+
         for (List<NamedExpression> values : logicalInlineTable.getConstantExprsList()) {
             ImmutableList.Builder<NamedExpression> constantExprs = ImmutableList.builder();
             if (values.isEmpty()) {

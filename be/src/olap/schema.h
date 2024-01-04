@@ -50,7 +50,6 @@ using SchemaSPtr = std::shared_ptr<const Schema>;
 class Schema {
 public:
     Schema(TabletSchemaSPtr tablet_schema) {
-        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         size_t num_columns = tablet_schema->num_columns();
         // ignore this column
         if (tablet_schema->columns().back().name() == BeConsts::ROW_STORE_COL) {
@@ -86,7 +85,6 @@ public:
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
-        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
         for (size_t i = 0; i < columns.size(); ++i) {
@@ -109,7 +107,6 @@ public:
 
     // Only for UT
     Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
-        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         std::vector<ColumnId> col_ids(columns.size());
         _unique_ids.resize(columns.size());
         for (uint32_t cid = 0; cid < columns.size(); ++cid) {
@@ -121,7 +118,6 @@ public:
     }
 
     Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
-        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         std::vector<ColumnId> col_ids(cols.size());
         _unique_ids.resize(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
@@ -181,6 +177,9 @@ public:
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
+    // Don't use.
+    // TODO: memory size of Schema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as Schema size.
     int64_t mem_size() const { return _mem_size; }
 
 private:

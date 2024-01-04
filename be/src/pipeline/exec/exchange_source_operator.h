@@ -43,7 +43,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ExchangeSourceOperator final : public SourceOperator<ExchangeSourceOperatorBuilder> {
+class ExchangeSourceOperator final : public SourceOperator<vectorized::VExchangeNode> {
 public:
     ExchangeSourceOperator(OperatorBuilderBase*, ExecNode*);
     bool can_read() override;
@@ -71,21 +71,22 @@ private:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState final : public PipelineXLocalState<> {
+class ExchangeLocalState final : public PipelineXLocalState<AndDependency> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
+
+public:
+    using Base = PipelineXLocalState<AndDependency>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Dependency* dependency() override { return source_dependency.get(); }
     std::string debug_string(int indentation_level) const override;
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
-    std::shared_ptr<AndDependency> source_dependency;
     std::vector<std::shared_ptr<ExchangeDataDependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
@@ -116,13 +117,22 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    bool need_to_local_shuffle() const override { return !_is_hash_partition; }
+    DataDistribution required_data_distribution() const override {
+        if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+            return {ExchangeType::NOOP};
+        }
+        return _partition_type == TPartitionType::HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::HASH_SHUFFLE)
+               : _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
+                       : DataDistribution(ExchangeType::NOOP);
+    }
 
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
-    const bool _is_hash_partition;
+    const TPartitionType::type _partition_type;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

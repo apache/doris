@@ -39,7 +39,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class AggSinkOperator final : public StreamingOperator<AggSinkOperatorBuilder> {
+class AggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     AggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return true; }
@@ -53,7 +53,7 @@ public:
     ~AggSinkDependency() override = default;
 
     void set_ready() override {
-        if (_is_streaming_agg_state()) {
+        if (_shared_state && _is_streaming_agg_state()) {
             if (((SharedState*)Dependency::_shared_state.get())
                         ->data_queue->has_enough_space_to_push()) {
                 Dependency::set_ready();
@@ -366,12 +366,15 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize ? ExchangeType::PASSTHROUGH : ExchangeType::NOOP;
+            return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
+                                              ->ignore_data_distribution()
+                           ? DataDistribution(ExchangeType::PASSTHROUGH)
+                           : DataSinkOperatorX<LocalStateType>::required_data_distribution();
         }
-        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
     using DataSinkOperatorX<LocalStateType>::id;

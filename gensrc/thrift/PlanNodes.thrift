@@ -311,6 +311,7 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
 }
 
 struct TMaxComputeFileDesc {
@@ -890,6 +891,7 @@ struct TSortNode {
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
+  8: optional bool merge_by_exchange
 }
 
 enum TopNAlgorithm {
@@ -999,6 +1001,8 @@ struct TAnalyticNode {
   // should be evaluated over a row that is composed of the child tuple and the buffered
   // tuple
   9: optional Exprs.TExpr order_by_eq
+
+  10: optional bool is_colocate
 }
 
 struct TMergeNode {
@@ -1033,6 +1037,7 @@ struct TIntersectNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 struct TExceptNode {
@@ -1045,6 +1050,7 @@ struct TExceptNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 

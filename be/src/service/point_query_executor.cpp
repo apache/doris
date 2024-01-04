@@ -111,11 +111,10 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
     return res;
 }
 
-RowCache::RowCache(int64_t capacity, int num_shards) {
-    // Create Row Cache
-    _cache = std::unique_ptr<Cache>(
-            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
-}
+RowCache::RowCache(int64_t capacity, int num_shards)
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -130,12 +129,12 @@ RowCache* RowCache::instance() {
 
 bool RowCache::lookup(const RowCacheKey& key, CacheHandle* handle) {
     const std::string& encoded_key = key.encode();
-    auto lru_handle = _cache->lookup(encoded_key);
+    auto lru_handle = cache()->lookup(encoded_key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(_cache.get(), lru_handle);
+    *handle = CacheHandle(cache(), lru_handle);
     return true;
 }
 
@@ -145,14 +144,14 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     memcpy(cache_value, value.data, value.size);
     const std::string& encoded_key = key.encode();
     auto handle =
-            _cache->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
+            cache()->insert(encoded_key, cache_value, value.size, deleter, CachePriority::NORMAL);
     // handle will released
-    auto tmp = CacheHandle {_cache.get(), handle};
+    auto tmp = CacheHandle {cache(), handle};
 }
 
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
-    _cache->erase(encoded_key);
+    cache()->erase(encoded_key);
 }
 
 Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,

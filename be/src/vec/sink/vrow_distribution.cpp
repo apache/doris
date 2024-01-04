@@ -21,6 +21,8 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -308,7 +310,8 @@ Status VRowDistribution::generate_rows_distribution(
 
     // batching block rows which need new partitions. deal together at finish.
     if (!_batching_block) [[unlikely]] {
-        _batching_block = MutableBlock::create_unique(block->create_same_struct_block(0).release());
+        std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+        _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
     }
 
     _row_distribution_watch.start();

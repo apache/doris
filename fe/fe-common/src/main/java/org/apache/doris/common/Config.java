@@ -144,7 +144,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
-    public static int default_load_parallelism = 1;
+    public static int default_load_parallelism = 8;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
@@ -244,12 +244,12 @@ public class Config extends ConfigBase {
             "The desired upper limit on the number of bytes of reserved space to retain "
                     + "in a replicated JE Environment. "
                     + "This parameter is ignored in a non-replicated JE Environment."})
-    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+    public static long bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
     @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
-    public static int bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+    public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
@@ -456,6 +456,10 @@ public class Config extends ConfigBase {
             + " dead lock" })
     public static boolean publish_version_check_alter_replica = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
+            "print log interval for publish transaction failed interval"})
+    public static long publish_fail_log_interval_second = 5 * 60;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -507,6 +511,10 @@ public class Config extends ConfigBase {
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交时间，单位是毫秒",
+            "Default commit interval in ms for group commit"})
+    public static int group_commit_interval_ms_default_value = 10000;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
@@ -515,7 +523,7 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
@@ -1557,7 +1565,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean enable_pipeline_load = false;
 
     /*---------------------- JOB CONFIG START------------------------*/
@@ -1581,7 +1589,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
-
+    @ConfField(description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
+            "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
+                   + "If the value is less than 1, it will not be persisted." })
+    public static int max_persistence_task_count = 100;
     @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
@@ -1667,12 +1678,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_decimal_conversion = true;
-
-    /**
-     * List of S3 API compatible object storage systems.
-     */
-    @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
 
     /**
      * Support complex data type ARRAY.
@@ -1770,6 +1775,27 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
+
+    /**
+     * Abort transaction time after lost heartbeat.
+     * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abort_txn_after_lost_heartbeat_time_second = 300;
+
+    /**
+     * Heartbeat interval in seconds.
+     * Default is 10, which means every 10 seconds, the master will send a heartbeat to all backends.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int heartbeat_interval_second = 10;
+
+    /**
+     * After a backend is marked as unavailable, it will be added to blacklist.
+     * Default is 120.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int blacklist_duration_second = 120;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
@@ -1898,6 +1924,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 false，开启后支持使用新优化器的load语句导入数据，失败后会降级旧的load语句。",
+            "Now default set to true, After this function is enabled, the load statement of "
+                    + "the new optimizer can be used to import data. If this function fails, "
+                    + "the old load statement will be degraded."})
+    public static boolean enable_nereids_load = false;
+
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2031,7 +2069,13 @@ public class Config extends ConfigBase {
     public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_round_robin_create_tablet = false;
+    public static boolean enable_round_robin_create_tablet = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "创建分区时，总是从第一个 BE 开始创建。注意：这种方式可能造成BE不均衡",
+            "When creating tablet of a partition, always start from the first BE. "
+                    + "Note: This method may cause BE imbalance"})
+    public static boolean create_tablet_round_robin_from_start = false;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
@@ -2100,7 +2144,7 @@ public class Config extends ConfigBase {
             "When set to true, if a query is unable to select a healthy replica, "
                     + "the detailed information of all the replicas of the tablet,"
                     + " including the specific reason why they are unqueryable, will be printed out."})
-    public static boolean show_details_for_unaccessible_tablet = false;
+    public static boolean show_details_for_unaccessible_tablet = true;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用binlog特性",
@@ -2176,7 +2220,7 @@ public class Config extends ConfigBase {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
-    public static boolean enable_convert_light_weight_schema_change = true;
+    public static boolean enable_convert_light_weight_schema_change = false;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
@@ -2268,6 +2312,24 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(mutable = true)
+    public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true)
+    public static int workload_action_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_policy_num = 25;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_condition_num_in_policy = 5;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_action_num_in_policy = 5; // mainly used to limit set session var action
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_max_num = 15;
+
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
@@ -2324,4 +2386,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
+
+    @ConfField(description = {"用于SQL方言转换的服务地址。",
+            "The service address for SQL dialect conversion."})
+    public static String sql_convertor_service = "";
+
+    @ConfField(mutable = true)
+    public static boolean enable_profile_when_analyze = false;
+    @ConfField(mutable = true)
+    public static boolean enable_collect_internal_query_profile = false;
 }

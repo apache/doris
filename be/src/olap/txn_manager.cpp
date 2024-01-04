@@ -116,8 +116,7 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
     // For debugging
-    _tablet_version_cache =
-            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32);
+    _tablet_version_cache = std::make_unique<TabletVersionCache>(100000);
 }
 
 // prepare txn should always be allowed because ingest task will be retried
@@ -295,9 +294,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
                               bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
-        LOG(FATAL) << "invalid commit req "
-                   << " partition_id=" << partition_id << " transaction_id=" << transaction_id
-                   << " tablet_id=" << tablet_id;
+        LOG(WARNING) << "invalid commit req "
+                     << " partition_id=" << partition_id << " transaction_id=" << transaction_id
+                     << " tablet_id=" << tablet_id;
+        return Status::InternalError("invalid partition id");
     }
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
@@ -383,10 +383,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             }
         });
         if (!save_status.ok()) {
-            return Status::Error<ROWSET_SAVE_FAILED>(
-                    "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
-                    "txn id: {}",
-                    rowset_ptr->rowset_id().to_string(), tablet_id, transaction_id);
+            save_status.append(fmt::format(", txn id: {}", transaction_id));
+            return save_status;
         }
     }
 
@@ -537,10 +535,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
-        return Status::Error<ROWSET_SAVE_FAILED>(
-                "save committed rowset failed. when publish txn rowset_id: {}, tablet id: {}, txn "
-                "id: {}",
-                rowset->rowset_id().to_string(), tablet_id, transaction_id);
+        status.append(fmt::format(", txn id: {}", transaction_id));
+        return status;
     }
 
     // TODO(Drogon): remove these test codes
@@ -652,8 +648,8 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                             << (rowset != nullptr ? rowset->rowset_id().to_string() : "0");
             }
         }
+        it->second.erase(load_itr);
     }
-    it->second.erase(load_itr);
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
@@ -892,12 +888,12 @@ int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version
     memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
     CacheKey cache_key((const char*)&key, sizeof(key));
 
-    auto handle = _tablet_version_cache->lookup(cache_key);
+    auto* handle = _tablet_version_cache->cache()->lookup(cache_key);
     if (handle == nullptr) {
         return -1;
     }
-    int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
-    _tablet_version_cache->release(handle);
+    int64_t res = *(int64_t*)_tablet_version_cache->cache()->value(handle);
+    _tablet_version_cache->cache()->release(handle);
     return res;
 }
 
@@ -914,9 +910,9 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
         delete cache_value;
     };
 
-    auto handle = _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
-                                                CachePriority::NORMAL, sizeof(txn_id));
-    _tablet_version_cache->release(handle);
+    auto* handle = _tablet_version_cache->cache()->insert(cache_key, value, 1, deleter,
+                                                          CachePriority::NORMAL, sizeof(txn_id));
+    _tablet_version_cache->cache()->release(handle);
 }
 
 TxnState TxnManager::get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,

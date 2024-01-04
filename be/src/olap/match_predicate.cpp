@@ -110,6 +110,9 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     case MatchType::MATCH_PHRASE_PREFIX:
         ret = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
         break;
+    case MatchType::MATCH_REGEXP:
+        ret = InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+        break;
     case MatchType::MATCH_ELEMENT_EQ:
         ret = InvertedIndexQueryType::EQUAL_QUERY;
         break;

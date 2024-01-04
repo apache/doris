@@ -49,7 +49,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -473,11 +472,14 @@ public class Load {
         LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
-    private static Expr getExprFromDesc(Analyzer analyzer, SlotDescriptor slotDesc, SlotRef slot)
-            throws AnalysisException {
-        SlotRef newSlot = new SlotRef(slotDesc);
-        newSlot.setType(slotDesc.getType());
-        Expr rhs = newSlot;
+    private static SlotRef getSlotFromDesc(SlotDescriptor slotDesc) {
+        SlotRef slot = new SlotRef(slotDesc);
+        slot.setType(slotDesc.getType());
+        return slot;
+    }
+
+    public static Expr getExprFromDesc(Analyzer analyzer, Expr rhs, SlotRef slot) throws AnalysisException {
+        Type rhsType = rhs.getType();
         rhs = rhs.castTo(slot.getType());
 
         if (slot.getDesc() == null) {
@@ -485,13 +487,13 @@ public class Load {
             return rhs;
         }
 
-        if (newSlot.isNullable() && !slot.isNullable()) {
+        if (rhs.isNullable() && !slot.isNullable()) {
             rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
-        } else if (!newSlot.isNullable() && slot.isNullable()) {
+        } else if (!rhs.isNullable() && slot.isNullable()) {
             rhs = new FunctionCallExpr("nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
         }
         return rhs;
@@ -554,7 +556,8 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
+                    smap.getRhs().add(
+                            getExprFromDesc(analyzer, getSlotFromDesc(slotDescByName.get(slot.getColumnName())), slot));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
@@ -1355,22 +1358,20 @@ public class Load {
         public String dbName;
         public Set<String> tblNames = Sets.newHashSet();
         public String label;
-        public String clusterName;
         public JobState state;
         public String failMsg;
         public String trackingUrl;
 
-        public JobInfo(String dbName, String label, String clusterName) {
+        public JobInfo(String dbName, String label) {
             this.dbName = dbName;
             this.label = label;
-            this.clusterName = clusterName;
         }
     }
 
     // Get job state
     // result saved in info
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        String fullDbName = info.dbName;
         info.dbName = fullDbName;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         readLock();

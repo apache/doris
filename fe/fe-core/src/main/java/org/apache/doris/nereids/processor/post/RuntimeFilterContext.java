@@ -52,6 +52,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * runtime filter context used at post process and translation.
@@ -120,17 +121,17 @@ public class RuntimeFilterContext {
     // you can see disjoint set data structure to learn the processing detailed.
     private final Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = Maps.newHashMap();
 
-    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
+    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
 
     // cte to related joins map which can extract common runtime filter to cte inside
-    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
+    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newLinkedHashMap();
 
     // cte candidates which can be pushed into common runtime filter into from outside
-    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newHashMap();
+    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newLinkedHashMap();
 
-    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newLinkedHashMap();
 
     // cte whose runtime filter has been extracted
     private final Set<CTEId> processedCTE = Sets.newHashSet();
@@ -273,6 +274,7 @@ public class RuntimeFilterContext {
                     l.addAll(r);
                     return l;
                 });
+        filters = filters.stream().distinct().collect(Collectors.toList());
         filters.sort((a, b) -> a.getId().compareTo(b.getId()));
         return filters;
     }

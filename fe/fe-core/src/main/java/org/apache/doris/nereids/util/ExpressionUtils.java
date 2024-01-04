@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 
@@ -207,6 +208,11 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
+                plan, ImmutableSet.of(), ImmutableSet.of()).get(0);
+    }
+
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan) {
         return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
@@ -310,24 +316,7 @@ public class ExpressionUtils {
      * </pre>
      */
     public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-        return expr.accept(ExpressionReplacer.INSTANCE, ExpressionReplacerContext.of(replaceMap, false));
-    }
-
-    /**
-     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
-     * if replaced, create alias
-     * For example.
-     * <pre>
-     * input expression: a > 1
-     * replaceMap: a -> b + c
-     *
-     * output:
-     * ((b + c) as a) > 1
-     * </pre>
-     */
-    public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
-            boolean withAlias) {
-        return expr.accept(ExpressionReplacer.INSTANCE, ExpressionReplacerContext.of(replaceMap, true));
+        return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
     /**
@@ -335,8 +324,7 @@ public class ExpressionUtils {
      */
     public static NamedExpression replace(NamedExpression expr,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE,
-                ExpressionReplacerContext.of(replaceMap, false));
+        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
         } else {
@@ -366,54 +354,44 @@ public class ExpressionUtils {
     }
 
     private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<ExpressionReplacerContext> {
+            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         private ExpressionReplacer() {
         }
 
         @Override
-        public Expression visit(Expression expr, ExpressionReplacerContext replacerContext) {
-            Map<? extends Expression, ? extends Expression> replaceMap = replacerContext.getReplaceMap();
-            boolean isContained = replaceMap.containsKey(expr);
-            if (!isContained) {
-                return super.visit(expr, replacerContext);
-            }
-            boolean withAlias = replacerContext.isWithAlias();
-            if (!withAlias) {
+        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
+            if (replaceMap.containsKey(expr)) {
                 return replaceMap.get(expr);
-            } else {
-                Expression replacedExpression = replaceMap.get(expr);
-                if (replacedExpression instanceof SlotReference) {
-                    replacedExpression = ((SlotReference) (replacedExpression)).withNullable(expr.nullable());
-                }
-                return new Alias(((NamedExpression) expr).getExprId(), replacedExpression,
-                        ((NamedExpression) expr).getName());
             }
+            return super.visit(expr, replaceMap);
         }
     }
 
     private static class ExpressionReplacerContext {
         private final Map<? extends Expression, ? extends Expression> replaceMap;
-        private final boolean withAlias;
+        // if the key of replaceMap is named expr and withAlias is true, we should
+        // add alias after replaced
+        private final boolean withAliasIfKeyNamed;
 
         private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAlias) {
+                boolean withAliasIfKeyNamed) {
             this.replaceMap = replaceMap;
-            this.withAlias = withAlias;
+            this.withAliasIfKeyNamed = withAliasIfKeyNamed;
         }
 
         public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
-                boolean withAlias) {
-            return new ExpressionReplacerContext(replaceMap, withAlias);
+                boolean withAliasIfKeyNamed) {
+            return new ExpressionReplacerContext(replaceMap, withAliasIfKeyNamed);
         }
 
         public Map<? extends Expression, ? extends Expression> getReplaceMap() {
             return replaceMap;
         }
 
-        public boolean isWithAlias() {
-            return withAlias;
+        public boolean isWithAliasIfKeyNamed() {
+            return withAliasIfKeyNamed;
         }
     }
 
@@ -661,5 +639,26 @@ public class ExpressionUtils {
                     return false;
                 }
         );
+    }
+
+    /**
+     * Check the expression is inferred or not, if inferred return true, nor return false
+     */
+    public static boolean isInferred(Expression expression) {
+        return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
+
+            @Override
+            public Boolean visit(Expression expr, Void context) {
+                boolean inferred = expr.isInferred();
+                if (expr.isInferred() || expr.children().isEmpty()) {
+                    return inferred;
+                }
+                inferred = true;
+                for (Expression child : expr.children()) {
+                    inferred = inferred && child.accept(this, context);
+                }
+                return inferred;
+            }
+        }, null);
     }
 }
