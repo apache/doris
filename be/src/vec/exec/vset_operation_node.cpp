@@ -86,7 +86,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }
 
-    for (auto& texprs : *result_texpr_lists) {
+    for (const auto& texprs : *result_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
@@ -424,10 +424,10 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (_build_not_ignore_null[i]) {
                 raw_ptrs[i] = nullable;
             } else {
@@ -452,10 +452,10 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (_build_not_ignore_null[i]) { //same as build column
                 raw_ptrs[i] = nullable;
             } else {
@@ -496,8 +496,8 @@ void VSetOperationNode<is_intersect>::debug_string(int indentation_level,
                                                    std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << " _child_expr_lists=[";
-    for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        *out << VExpr::debug_string(_child_expr_lists[i]) << ", ";
+    for (const auto& _child_expr_list : _child_expr_lists) {
+        *out << VExpr::debug_string(_child_expr_list) << ", ";
     }
     *out << "] \n";
     ExecNode::debug_string(indentation_level, out);
