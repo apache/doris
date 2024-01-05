@@ -45,7 +45,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
             DorisCompoundDirectoryFactory::getDirectory(fs, index_writer_path.c_str());
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
-                                                          true /* closeDirOnShutdown */);
+                                                           true /* closeDirOnShutdown */);
 
     // get compound directory src_index_dirs
     std::vector<lucene::store::Directory*> src_index_dirs(src_segment_num);
