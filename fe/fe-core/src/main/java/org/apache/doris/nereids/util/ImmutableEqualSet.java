@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,6 +47,9 @@ public class ImmutableEqualSet<T> {
         private final Map<T, T> parent = new HashMap<>();
         private final Map<T, Integer> size = new HashMap<>();
 
+        /**
+         * Add a equal pair
+         */
         public void addEqualPair(T a, T b) {
             T root1 = findRoot(a);
             T root2 = findRoot(b);
@@ -85,6 +90,21 @@ public class ImmutableEqualSet<T> {
         return root.keySet().stream()
                 .filter(t -> root.get(t).equals(ra) && !t.equals(a))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Calculate all equal set
+     */
+    public List<Set<T>> calEqualSetList() {
+        return root.values()
+                .stream()
+                .distinct()
+                .map(a -> {
+                    T ra = root.get(a);
+                    return root.keySet().stream()
+                            .filter(t -> root.get(t).equals(ra))
+                            .collect(ImmutableSet.toImmutableSet());
+                }).collect(ImmutableList.toImmutableList());
     }
 
     public Set<T> getAllItemSet() {

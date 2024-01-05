@@ -38,7 +38,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.ImmutableEquivalenceSet;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -467,12 +467,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     /**
      * get Equal slot from join
      */
-    public ImmutableEquivalenceSet<Slot> getEqualSlots() {
+    public ImmutableEqualSet<Slot> getEqualSlots() {
         // TODO: Use fd in the future
         if (!joinType.isInnerJoin() && !joinType.isSemiJoin()) {
-            return ImmutableEquivalenceSet.of();
+            return ImmutableEqualSet.empty();
         }
-        ImmutableEquivalenceSet.Builder<Slot> builder = new ImmutableEquivalenceSet.Builder<>();
+        ImmutableEqualSet.Builder<Slot> builder = new ImmutableEqualSet.Builder<>();
         hashJoinConjuncts.stream()
                 .filter(e -> e instanceof EqualPredicate
                         && e.child(0) instanceof Slot

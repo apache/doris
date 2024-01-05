@@ -33,17 +33,18 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
-import com.google.common.collect.Sets;
-
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * derive additional predicates.
@@ -70,8 +71,9 @@ public class PredicatePropagation {
      * infer additional predicates.
      */
     public static Set<Expression> infer(Set<Expression> predicates) {
-        List<Set<Slot>> equalSlots = new ArrayList<>();
+        ImmutableEqualSet.Builder<Slot> equalSetBuilder = new ImmutableEqualSet.Builder<>();
         Map<Slot, List<Expression>> slotPredicates = new HashMap<>();
+        Set<Pair<Slot, Slot>> equalPairs = new HashSet<>();
         for (Expression predicate : predicates) {
             Set<Slot> inputSlots = predicate.getInputSlots();
             if (inputSlots.size() == 1) {
@@ -83,23 +85,35 @@ public class PredicatePropagation {
             }
 
             if (predicate instanceof EqualTo) {
-                getEqualSlot(equalSlots, (EqualTo) predicate);
+                getEqualSlot(equalSetBuilder, equalPairs, (EqualTo) predicate);
             }
         }
 
-        // TODO: infer equal to equal like a = b & b = c -> a = c
+        ImmutableEqualSet<Slot> equalSet = equalSetBuilder.build();
+
         Set<Expression> inferred = new HashSet<>();
-        for (Map.Entry<Slot, List<Expression>> entry : slotPredicates.entrySet()) {
-            Slot slot = entry.getKey();
-            List<Expression> exprs = entry.getValue();
-            for (Set<Slot> equalSlot : equalSlots) {
-                if (equalSlot.contains(slot)) {
-                    for (Expression expr : exprs) {
-                        for (Slot s : equalSlot) {
-                            if (s != slot) {
-                                inferred.add(doInferPredicate(slot, s, expr));
-                            }
-                        }
+        slotPredicates.forEach((left, exprs) -> {
+            for (Slot right : equalSet.calEqualSet(left)) {
+                for (Expression expr : exprs) {
+                    inferred.add(doInferPredicate(left, right, expr));
+                }
+            }
+        });
+
+        // infer equal to equal like a = b & b = c -> a = c
+        // a b c | e f g
+        // get (a b) (a c) (b c) | (e f) (e g) (f g)
+        List<Set<Slot>> equalSetList = equalSet.calEqualSetList();
+        for (Set<Slot> es : equalSetList) {
+            List<Slot> el = es.stream().sorted(Comparator.comparingInt(s -> s.getExprId().asInt()))
+                    .collect(Collectors.toList());
+            for (int i = 0; i < el.size(); i++) {
+                Slot left = el.get(i);
+                for (int j = i + 1; j < el.size(); j++) {
+                    Slot right = el.get(j);
+                    if (!equalPairs.contains(Pair.of(left, right))) {
+                        inferred.add(TypeCoercionUtils.processComparisonPredicate(new EqualTo(left, right))
+                                .withInferred(true));
                     }
                 }
             }
@@ -219,42 +233,16 @@ public class PredicatePropagation {
         return Optional.of(Pair.of(left.get(), right.get()));
     }
 
-    /**
-     * Currently only equivalence derivation is supported
-     * and requires that the left and right sides of an expression must be slot
-     * <p>
-     * TODO: NullSafeEqual
-     */
-    private static Optional<Pair<Slot, Slot>> getEqualInferInfo(ComparisonPredicate predicate) {
-        if (!(predicate instanceof EqualTo)) {
-            return Optional.empty();
-        }
-        return inferInferInfo(predicate)
-                .filter(info -> info.first instanceof Slot && info.second instanceof Slot)
-                .map(info -> Pair.of((Slot) info.first, (Slot) info.second));
-    }
-
-    private static void getEqualSlot(List<Set<Slot>> equalSlots, EqualTo predicate) {
+    private static void getEqualSlot(ImmutableEqualSet.Builder<Slot> equalSlots, Set<Pair<Slot, Slot>> equalPairs,
+            EqualTo predicate) {
         inferInferInfo(predicate)
                 .filter(info -> info.first instanceof Slot && info.second instanceof Slot)
                 .ifPresent(pair -> {
                     Slot left = (Slot) pair.first;
                     Slot right = (Slot) pair.second;
-                    boolean added = false;
-                    for (Set<Slot> equalSlot : equalSlots) {
-                        if (equalSlot.contains(left)) {
-                            equalSlot.add(right);
-                            added = true;
-                            break;
-                        } else if (equalSlot.contains(right)) {
-                            equalSlot.add(left);
-                            added = true;
-                            break;
-                        }
-                    }
-                    if (!added) {
-                        equalSlots.add(Sets.newHashSet(left, right));
-                    }
+                    equalSlots.addEqualPair(left, right);
+                    equalPairs.add(left.getExprId().asInt() <= right.getExprId().asInt()
+                            ? Pair.of(left, right) : Pair.of(right, left));
                 });
     }
 }
