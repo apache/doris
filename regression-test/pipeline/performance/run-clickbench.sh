@@ -263,15 +263,16 @@ exit_flag=0
     if ! (cd clickbench && bash check-query-result.sh && cd -); then exit 1; fi
     cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
-    comment_body="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body_summary="Total hot run time: ${best_hot_run_sum} s"
+    comment_body_detail="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
 $(sed 's|,|\t|g' result.csv)
 Total cold run time: ${cold_run_sum} s
 Total hot run time: ${best_hot_run_sum} s"
 
     echo "#### 6. comment result on clickbench"
-    comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body}"
+    comment_body_detail=$(echo "${comment_body_detail}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
+    create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body_summary}" "${comment_body_detail}"
     rm -f result.csv
     echo -e "INFO: Restore session variables \n$(cat "${backup_session_variables_file}")"
     mysql -h"${host}" -P"${query_port}" -uroot -e "source ${backup_session_variables_file};"

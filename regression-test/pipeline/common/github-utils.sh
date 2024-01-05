@@ -50,39 +50,57 @@ function create_an_issue_comment() {
 
 function create_an_issue_comment_tpch() {
     local ISSUE_NUMBER="$1"
-    local COMMENT_BODY="$2"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
-TPC-H test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/tpch-tools
+<details>
+<summary>TPC-H: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
 \`\`\`
-${COMMENT_BODY}
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpch-tools
+${COMMENT_BODY_DETAIL}
 \`\`\`
+</details>
 "
     create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }
 
 function create_an_issue_comment_tpcds() {
     local ISSUE_NUMBER="$1"
-    local COMMENT_BODY="$2"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
-TPC-DS test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/tpcds-tools
+<details>
+<summary>TPC-DS: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
 \`\`\`
-${COMMENT_BODY}
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/tpcds-tools
+${COMMENT_BODY_DETAIL}
 \`\`\`
+</details>
 "
     create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }
 
 function create_an_issue_comment_clickbench() {
     local ISSUE_NUMBER="$1"
-    local COMMENT_BODY="$2"
+    local COMMENT_BODY_SUMMARY="$2"
+    local COMMENT_BODY_DETAIL="$3"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
-ClickBench test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/clickbench-tools
+<details>
+<summary>ClickBench: <b>${COMMENT_BODY_SUMMARY}</b></summary>
+
 \`\`\`
-${COMMENT_BODY}
+machine: '${machine}'
+scripts: https://github.com/apache/doris/tree/master/tools/clickbench-tools
+${COMMENT_BODY_DETAIL}
 \`\`\`
+</details>
 "
     create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }

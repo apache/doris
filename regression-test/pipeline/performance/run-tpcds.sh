@@ -130,14 +130,16 @@ exit_flag=0
     if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)
     line_begin=$((line_end - 100))
-    comment_body="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body_summary="$(sed -n "${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
+    comment_body_detail="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
 run tpcds-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
 
     echo "#### 4. comment result on tpcds"
-    comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_tpcds "${pull_request_num:-}" "${comment_body}"
+    comment_body_summary=$(echo "${comment_body_summary}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
+    comment_body_detail=$(echo "${comment_body_detail}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g')   # 将所有的 Tab字符替换为\t 换行符替换为\n
+    create_an_issue_comment_tpcds "${pull_request_num:-}" "${comment_body_summary}" "${comment_body_detail}"
     rm -f result.csv
 )
 exit_flag="$?"
