@@ -259,8 +259,6 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _lazy_materialization_read(false),
           _lazy_inited(false),
           _inited(false),
-          _estimate_row_size(true),
-          _wait_times_estimate_row_size(10),
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
@@ -457,11 +455,20 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
-            for (auto& expr : _remaining_conjunct_roots) {
+            for (auto it = _remaining_conjunct_roots.begin();
+                 it != _remaining_conjunct_roots.end();) {
                 _pred_except_leafnode_of_andnode_evaluate_result.clear();
-                auto res = _execute_predicates_except_leafnode_of_andnode(expr);
+                auto res = _execute_predicates_except_leafnode_of_andnode(*it);
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
+                    // Delete expr after it obtains the final result.
+                    {
+                        std::erase_if(_common_expr_ctxs_push_down,
+                                      [&it](const auto& iter) { return iter->root() == *it; });
+                        it = _remaining_conjunct_roots.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
             }
         }
@@ -472,7 +479,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_ctx();
+        auto* query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -1541,7 +1548,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
-                // pred column also needs to be filtered by expr
+                // pred column also needs to be filtered by expr, exclude additional delete condition column.
+                // if delete condition column not in the block, no filter is needed
+                // and will be removed from _columns_to_filter in the first next_batch.
                 if (_is_common_expr_column[cid] || _is_pred_column[cid]) {
                     auto loc = _schema_block_id_map[cid];
                     _columns_to_filter.push_back(loc);
@@ -1978,7 +1987,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     auto status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); }); }();
-    if (!status.ok()) {
+    // if rows read by batch is 0, will return end of file, we should not remove segment cache in this situation.
+    if (!status.ok() && !status.is<END_OF_FILE>()) {
         _segment->remove_from_segment_cache();
     }
     return status;
@@ -2019,19 +2029,28 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
+
+        // Additional deleted filter condition will be materialized column be at the end of the block,
+        // after _output_column_by_sel_idx  will be erase, we not need to filter it,
+        // so erase it from _columns_to_filter in the first next_batch.
+        // Eg:
+        //      `delete from table where a = 10;`
+        //      `select b from table;`
+        // a column only effective in segment iterator, the block from query engine only contain the b column,
+        // so no need to filter a column by expr.
+        for (auto it = _columns_to_filter.begin(); it != _columns_to_filter.end();) {
+            if (*it >= block->columns()) {
+                it = _columns_to_filter.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     _init_current_block(block, _current_return_columns);
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    if (_wait_times_estimate_row_size > 0) {
-        // first time, read 100 rows to estimate average row size, to avoid oom caused by a single batch being too large.
-        // If no valid data is read for the first time, block_row_max is read each time thereafter.
-        // Avoid low performance when valid data cannot be read all the time
-        nrows_read_limit = std::min(nrows_read_limit, (uint32_t)100);
-        _wait_times_estimate_row_size--;
-    }
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2171,9 +2190,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
-            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
-                _update_max_row(block);
-            }
             return Status::OK();
         }
 
@@ -2198,10 +2214,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
-    if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
-        _update_max_row(block);
-    }
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
@@ -2351,14 +2363,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-void SegmentIterator::_update_max_row(const vectorized::Block* block) {
-    _estimate_row_size = false;
-    auto avg_row_size = block->bytes() / block->rows();
-
-    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
-    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {

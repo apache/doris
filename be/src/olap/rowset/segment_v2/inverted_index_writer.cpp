@@ -60,12 +60,10 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
-const std::string empty_value;
 
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
@@ -163,7 +161,10 @@ public:
         }
 
         _doc = std::make_unique<lucene::document::Document>();
-        _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
+        bool use_compound_file_writer = true;
+        bool can_use_ram_dir = true;
+        _dir.reset(DorisCompoundDirectoryFactory::getDirectory(
+                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
 
         if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
             _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
@@ -193,8 +194,8 @@ public:
         }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
-        _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         _index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         _index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         _index_writer->setMergeFactor(MERGE_FACTOR);
         _index_writer->setUseCompoundFile(false);
@@ -229,6 +230,17 @@ public:
         return Status::OK();
     }
 
+    Status add_null_document() {
+        try {
+            _index_writer->addNullDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_null_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -240,8 +252,7 @@ public:
             }
 
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(empty_value.c_str(), 0);
-                RETURN_IF_ERROR(add_document());
+                RETURN_IF_ERROR(add_null_document());
             }
         }
         return Status::OK();
@@ -283,9 +294,19 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             auto* v = (Slice*)values;
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(v->get_data(), v->get_size());
-                RETURN_IF_ERROR(add_document());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     v->get_size() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(v->get_data(), v->get_size());
+                    RETURN_IF_ERROR(add_document());
+                }
                 ++v;
                 _rid++;
             }
@@ -308,6 +329,9 @@ public:
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
             }
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // offsets[i+1] is now row element count
                 std::vector<std::string> strings;
@@ -324,9 +348,16 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     value.length() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(value.c_str(), value.length());
+                    RETURN_IF_ERROR(add_document());
+                }
                 _rid++;
-                _index_writer->addDocument(_doc.get());
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             for (int i = 0; i < count; ++i) {
@@ -464,7 +495,10 @@ public:
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                bool use_compound_file_writer = true;
+                bool can_use_ram_dir = true;
+                dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;

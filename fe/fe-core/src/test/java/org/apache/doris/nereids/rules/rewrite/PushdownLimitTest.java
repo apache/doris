@@ -137,8 +137,10 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     void testPushLimitThroughRightJoin() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setDisableJoinReorder(true);
         // after use RelationUtil to allocate relation id, the id will increase when getNextId() called.
-        test(JoinType.RIGHT_OUTER_JOIN, true,
+        testWithContext(context, JoinType.RIGHT_OUTER_JOIN, true,
                 logicalLimit(
                         logicalProject(
                                 rightOuterLogicalJoin(
@@ -148,7 +150,7 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
                         )
                 )
         );
-        test(JoinType.RIGHT_OUTER_JOIN, false,
+        testWithContext(context, JoinType.RIGHT_OUTER_JOIN, false,
                 logicalLimit(
                         rightOuterLogicalJoin(
                                 logicalOlapScan().when(s -> s.getTable().getName().equals("score")),
@@ -349,6 +351,15 @@ class PushdownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     private void test(JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {
         Plan plan = generatePlan(joinType, hasProject);
         PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze(plan)
+                .applyTopDown(new ConvertInnerOrCrossJoin())
+                .applyTopDown(new PushdownLimit())
+                .matchesFromRoot(pattern);
+    }
+
+    private void testWithContext(ConnectContext context, JoinType joinType, boolean hasProject, PatternDescriptor<? extends Plan> pattern) {
+        Plan plan = generatePlan(joinType, hasProject);
+        PlanChecker.from(context)
                 .analyze(plan)
                 .applyTopDown(new ConvertInnerOrCrossJoin())
                 .applyTopDown(new PushdownLimit())

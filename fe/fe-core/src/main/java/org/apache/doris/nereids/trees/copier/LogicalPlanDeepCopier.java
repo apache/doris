@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -236,6 +237,18 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         updateReplaceMapWithOutput(jdbcScan, newJdbcScan, context.exprIdReplaceMap);
         context.putRelation(jdbcScan.getRelationId(), newJdbcScan);
         return newJdbcScan;
+    }
+
+    @Override
+    public Plan visitLogicalOdbcScan(LogicalOdbcScan odbcScan, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(odbcScan.getRelationId())) {
+            return context.getRelationReplaceMap().get(odbcScan.getRelationId());
+        }
+        LogicalOdbcScan newOdbcScan = new LogicalOdbcScan(StatementScopeIdGenerator.newRelationId(),
+                odbcScan.getTable(), odbcScan.getQualifier());
+        updateReplaceMapWithOutput(odbcScan, newOdbcScan, context.exprIdReplaceMap);
+        context.putRelation(odbcScan.getRelationId(), newOdbcScan);
+        return newOdbcScan;
     }
 
     @Override
@@ -462,4 +475,5 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             replaceMap.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
         }
     }
+
 }

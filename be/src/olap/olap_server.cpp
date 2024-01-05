@@ -32,6 +32,7 @@
 #include <mutex>
 #include <ostream>
 #include <random>
+#include <shared_mutex>
 #include <string>
 #include <type_traits>
 #include <unordered_set>
@@ -58,6 +59,7 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -240,7 +242,7 @@ Status StorageEngine::start_bg_threads() {
             .build(&_tablet_publish_txn_thread_pool);
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "aync_publish_version_thread",
+            "StorageEngine", "async_publish_version_thread",
             [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
     LOG(INFO) << "async publish thread started";
 
@@ -623,11 +625,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 continue;
             }
 
-            /// Regardless of whether the tablet is submitted for compaction or not,
-            /// we need to call 'reset_compaction' to clean up the base_compaction or cumulative_compaction objects
-            /// in the tablet, because these two objects store the tablet's own shared_ptr.
-            /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
-            /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     tablet->set_last_base_compaction_schedule_time(UnixMillis());
@@ -749,33 +746,39 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
-    Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
+
+    auto compaction = std::make_shared<SingleReplicaCompaction>(tablet, compaction_type);
+    auto st = compaction->prepare_compact();
+
     auto clean_single_replica_compaction = [tablet, this]() {
-        tablet->reset_single_replica_compaction();
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     };
 
-    if (st.ok()) {
-        auto submit_st = _single_replica_compaction_thread_pool->submit_func(
-                [tablet, compaction_type, clean_single_replica_compaction]() {
-                    tablet->execute_single_replica_compaction(compaction_type);
-                    clean_single_replica_compaction();
-                });
-        if (!submit_st.ok()) {
-            clean_single_replica_compaction();
-            return Status::InternalError(
-                    "failed to submit single replica compaction task to thread pool, "
-                    "tablet_id={} ",
-                    tablet->tablet_id());
+    if (!st.ok()) {
+        clean_single_replica_compaction();
+        if (!st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            LOG(WARNING) << "failed to prepare single replica compaction, tablet_id="
+                         << tablet->tablet_id() << " : " << st;
+            return st;
         }
-        return Status::OK();
-    } else {
+        return Status::OK(); // No suitable version, regard as OK
+    }
+
+    auto submit_st = _single_replica_compaction_thread_pool->submit_func(
+            [tablet, compaction = std::move(compaction),
+             clean_single_replica_compaction]() mutable {
+                tablet->execute_single_replica_compaction(*compaction);
+                clean_single_replica_compaction();
+            });
+    if (!submit_st.ok()) {
         clean_single_replica_compaction();
         return Status::InternalError(
-                "failed to prepare single replica compaction task tablet_id={} ",
+                "failed to submit single replica compaction task to thread pool, "
+                "tablet_id={}",
                 tablet->tablet_id());
     }
+    return Status::OK();
 }
 
 void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
@@ -949,8 +952,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
+    std::shared_ptr<Compaction> compaction;
     int64_t permits = 0;
-    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+    Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
+                                                                 compaction, permits);
     if (st.ok() && permits > 0) {
         if (!force) {
             _permit_limiter.request(permits);
@@ -959,17 +964,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([tablet, compaction_type, permits, this]() {
-            tablet->execute_compaction(compaction_type);
-            _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
-            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        });
+        auto st = thread_pool->submit_func(
+                [tablet, compaction = std::move(compaction), compaction_type, permits, this]() {
+                    tablet->execute_compaction(*compaction);
+                    _permit_limiter.release(permits);
+                    _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                });
         if (!st.ok()) {
             _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -978,8 +980,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         }
         return Status::OK();
     } else {
-        // reset compaction
-        tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
             return Status::InternalError(
@@ -1236,6 +1236,20 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
                                            int64_t publish_version, int64_t transaction_id,
                                            bool is_recovery) {
     if (!is_recovery) {
+        bool exists = false;
+        {
+            std::shared_lock<std::shared_mutex> rlock(_async_publish_lock);
+            if (auto tablet_iter = _async_publish_tasks.find(tablet_id);
+                tablet_iter != _async_publish_tasks.end()) {
+                if (auto iter = tablet_iter->second.find(publish_version);
+                    iter != tablet_iter->second.end()) {
+                    exists = true;
+                }
+            }
+        }
+        if (exists) {
+            return;
+        }
         TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
@@ -1252,12 +1266,12 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
               << " version: " << publish_version << " txn_id:" << transaction_id
               << " is_recovery: " << is_recovery;
-    std::lock_guard<std::mutex> lock(_async_publish_mutex);
+    std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
     _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
 }
 
 int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
-    std::lock_guard<std::mutex> lock(_async_publish_mutex);
+    std::shared_lock<std::shared_mutex> rlock(_async_publish_lock);
     auto iter = _async_publish_tasks.find(tablet_id);
     if (iter == _async_publish_tasks.end()) {
         return INT64_MAX;
@@ -1268,58 +1282,67 @@ int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
     return iter->second.begin()->first;
 }
 
-void StorageEngine::_async_publish_callback() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30)) &&
-           !k_doris_exit) {
-        // tablet, publish_version
-        std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
-        {
-            std::lock_guard<std::mutex> lock(_async_publish_mutex);
-            for (auto tablet_iter = _async_publish_tasks.begin();
-                 tablet_iter != _async_publish_tasks.end();) {
-                if (tablet_iter->second.empty()) {
-                    tablet_iter = _async_publish_tasks.erase(tablet_iter);
-                    continue;
-                }
-                int64_t tablet_id = tablet_iter->first;
-                TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
-                if (!tablet) {
-                    LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
-                                 << tablet_id;
-                    tablet_iter = _async_publish_tasks.erase(tablet_iter);
-                    continue;
-                }
-
-                auto task_iter = tablet_iter->second.begin();
-                int64_t version = task_iter->first;
-                int64_t transaction_id = task_iter->second.first;
-                int64_t partition_id = task_iter->second.second;
-                int64_t max_version = tablet->max_version().second;
-
-                if (version <= max_version) {
-                    need_removed_tasks.emplace_back(tablet, version);
-                    tablet_iter->second.erase(task_iter);
-                    tablet_iter++;
-                    continue;
-                }
-                if (version != max_version + 1) {
-                    tablet_iter++;
-                    continue;
-                }
-
-                auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                        tablet, partition_id, transaction_id, version);
-                StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                        [=]() { async_publish_task->handle(); });
-                tablet_iter->second.erase(task_iter);
-                need_removed_tasks.emplace_back(tablet, version);
-                tablet_iter++;
+void StorageEngine::_process_async_publish() {
+    // tablet, publish_version
+    std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
+    {
+        std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
+        for (auto tablet_iter = _async_publish_tasks.begin();
+             tablet_iter != _async_publish_tasks.end();) {
+            if (tablet_iter->second.empty()) {
+                tablet_iter = _async_publish_tasks.erase(tablet_iter);
+                continue;
             }
+            int64_t tablet_id = tablet_iter->first;
+            TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+            if (!tablet) {
+                LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
+                             << tablet_id;
+                tablet_iter = _async_publish_tasks.erase(tablet_iter);
+                continue;
+            }
+
+            auto task_iter = tablet_iter->second.begin();
+            int64_t version = task_iter->first;
+            int64_t transaction_id = task_iter->second.first;
+            int64_t partition_id = task_iter->second.second;
+            int64_t max_version = tablet->max_version().second;
+
+            if (version <= max_version) {
+                need_removed_tasks.emplace_back(tablet, version);
+                tablet_iter->second.erase(task_iter);
+                tablet_iter++;
+                continue;
+            }
+            if (version != max_version + 1) {
+                // Keep only the most recent versions
+                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                    need_removed_tasks.emplace_back(tablet, version);
+                    task_iter = tablet_iter->second.erase(task_iter);
+                    version = task_iter->first;
+                }
+                tablet_iter++;
+                continue;
+            }
+
+            auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
+                    tablet, partition_id, transaction_id, version);
+            static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
+                    [=]() { async_publish_task->handle(); }));
+            tablet_iter->second.erase(task_iter);
+            need_removed_tasks.emplace_back(tablet, version);
+            tablet_iter++;
         }
-        for (auto& [tablet, publish_version] : need_removed_tasks) {
-            TabletMetaManager::remove_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
-                                                           publish_version);
-        }
+    }
+    for (auto& [tablet, publish_version] : need_removed_tasks) {
+        static_cast<void>(TabletMetaManager::remove_pending_publish_info(
+                tablet->data_dir(), tablet->tablet_id(), publish_version));
+    }
+}
+
+void StorageEngine::_async_publish_callback() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
+        _process_async_publish();
     }
 }
 

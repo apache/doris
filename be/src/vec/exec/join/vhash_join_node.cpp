@@ -882,7 +882,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
         while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side)) {
-            block.clear_column_data();
+            release_block_memory(block, 1);
             RETURN_IF_CANCELLED(state);
             {
                 SCOPED_TIMER(_build_get_next_timer);

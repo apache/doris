@@ -117,6 +117,15 @@ CharFilterMap get_parser_char_filter_map_from_properties(
     return char_filter_map;
 }
 
+std::string get_parser_ignore_above_value_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    if (properties.find(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY) != properties.end()) {
+        return properties.at(INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY);
+    } else {
+        return INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE;
+    }
+}
+
 std::string get_parser_lowercase_from_properties(
         const std::map<std::string, std::string>& properties) {
     if (properties.find(INVERTED_INDEX_PARSER_LOWERCASE_KEY) != properties.end()) {

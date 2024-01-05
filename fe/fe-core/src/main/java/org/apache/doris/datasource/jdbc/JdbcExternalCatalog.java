@@ -68,6 +68,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
+        }
+    }
+
+    @Override
     public void onClose() {
         super.onClose();
         if (jdbcClient != null) {

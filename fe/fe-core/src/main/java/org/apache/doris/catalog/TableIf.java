@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -26,6 +27,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -247,6 +249,19 @@ public interface TableIf {
 
     default Partition getPartition(String name) {
         return null;
+    }
+
+
+    default List<String> getFullQualifiers() {
+        return ImmutableList.of(getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
+    }
+
+    default String getNameWithFullQualifiers() {
+        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
     }
 
     default boolean isManagedTable() {

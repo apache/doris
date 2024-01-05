@@ -272,7 +272,9 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_previous_core_id(index);
         if (!status.ok()) {
             task->set_eos_time();
-            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}", status.to_string());
+            LOG_WARNING("Instance {} pipeline task {} failed, reason: {}",
+                        print_id(task->fragment_context()->get_fragment_instance_id()),
+                        task->get_core_id(), status.msg());
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();

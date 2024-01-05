@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
@@ -86,6 +88,11 @@ public class StructLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.STRUCT_LITERAL;
+        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
+        TTypeDesc container = new TTypeDesc();
+        container.setTypes(new ArrayList<TTypeNode>());
+        type.toThrift(container);
+        msg.setType(container);
     }
 
     @Override

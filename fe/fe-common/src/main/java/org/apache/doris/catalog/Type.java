@@ -1943,6 +1943,7 @@ public abstract class Type {
     }
 
     public static boolean matchExactType(Type type1, Type type2, boolean ignorePrecision) {
+        // we should make type decide to match other for itself to impl matchesType instead of switch case types
         if (type1.matchesType(type2)) {
             if (PrimitiveType.typeWithPrecision.contains(type2.getPrimitiveType())) {
                 // For types which has precision and scale, we also need to check quality between precisions and scales
@@ -1955,22 +1956,6 @@ public abstract class Type {
                     return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
                             ((ScalarType) type1).decimalPrecision());
                 }
-            } else if (type2.isArrayType()) {
-                // For types array, we also need to check contains null for case like
-                // cast(array<not_null(int)> as array<int>)
-                if (((ArrayType) type2).getContainsNull() != ((ArrayType) type1).getContainsNull()) {
-                    return false;
-                }
-                return matchExactType(((ArrayType) type2).getItemType(), ((ArrayType) type1).getItemType());
-            } else if (type2.isMapType()) {
-                if (((MapType) type2).getIsKeyContainsNull() != ((MapType) type1).getIsKeyContainsNull()) {
-                    return false;
-                }
-                if (((MapType) type2).getIsValueContainsNull() != ((MapType) type1).getIsValueContainsNull()) {
-                    return false;
-                }
-                return matchExactType(((MapType) type2).getKeyType(), ((MapType) type1).getKeyType())
-                    && matchExactType(((MapType) type2).getValueType(), ((MapType) type1).getValueType());
             } else {
                 return true;
             }

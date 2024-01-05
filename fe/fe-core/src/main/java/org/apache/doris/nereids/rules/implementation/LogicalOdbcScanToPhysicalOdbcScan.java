@@ -15,25 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
+
+import java.util.Optional;
 
 /**
- * RightSemiJoin -> LeftSemiJoin
+ * Implementation rule that convert logical OdbcScan to physical OdbcScan.
  */
-public class SemiJoinCommute extends OneRewriteRuleFactory {
+public class LogicalOdbcScanToPhysicalOdbcScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalJoin()
-                .when(join -> join.getJoinType().isRightSemiOrAntiJoin())
-                .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
-                .whenNot(LogicalJoin::hasJoinHint)
-                .whenNot(LogicalJoin::isMarkJoin)
-                .then(join -> join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left()))
-                .toRule(RuleType.LOGICAL_SEMI_JOIN_COMMUTE);
+        return logicalOdbcScan().then(odbcScan ->
+            new PhysicalOdbcScan(
+                odbcScan.getRelationId(),
+                odbcScan.getTable(),
+                odbcScan.getQualifier(),
+                Optional.empty(),
+                odbcScan.getLogicalProperties(),
+                odbcScan.getConjuncts())
+        ).toRule(RuleType.LOGICAL_ODBC_SCAN_TO_PHYSICAL_ODBC_SCAN_RULE);
     }
 }
