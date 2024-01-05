@@ -234,8 +234,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
 
         // check access
-        if (!isReplay && !Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
-                baseIndexName, PrivPredicate.ALTER)) {
+        if (!isReplay && ConnectContext.get() != null && !Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), dbName,
+                        baseIndexName, PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
@@ -641,7 +642,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
         return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
-                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
+                .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {
