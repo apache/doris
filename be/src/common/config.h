@@ -1176,7 +1176,7 @@ DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
 
 DECLARE_mBool(enable_column_type_check);
 
-// Tolerance for the number of partition id 0 in rowset, default 5
+// Tolerance for the number of partition id 0 in rowset, default 0
 DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 #ifdef BE_TEST

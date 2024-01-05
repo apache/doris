@@ -296,7 +296,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             rowset_ptr->rowset_meta()->set_partition_id(partition_id);
             LOG(WARNING) << "cant get partition id from rs pb, get from func arg partition_id="
                          << partition_id;
-        } 
+        }
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         auto it = txn_tablet_map.find(key);
         if (it == txn_tablet_map.end()) {
