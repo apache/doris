@@ -70,7 +70,6 @@ private:
     int64_t _table_id;
     // TODO the stop is not used?
     std::atomic<bool> _stop;
-    std::shared_ptr<HttpStreamAction> _http_stream_action;
     mutable std::mutex _replay_wal_lock;
     // key is wal_path
     std::map<std::string, std::shared_ptr<WalInfo>> _replay_wal_map;

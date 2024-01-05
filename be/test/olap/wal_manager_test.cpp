@@ -47,7 +47,7 @@ extern TLoadTxnBeginResult k_stream_load_begin_result;
 extern Status k_stream_load_exec_status;
 
 ExecEnv* _env = nullptr;
-std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
+std::filesystem::path wal_dir = std::filesystem::current_path().string() + "/wal_test";
 
 class WalManagerTest : public testing::Test {
 public:
@@ -64,23 +64,37 @@ public:
         _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_stream_load_executor = StreamLoadExecutor::create_shared(_env);
         _env->_store_paths = {StorePath(std::filesystem::current_path(), 0)};
-        _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
+        _env->_wal_manager = WalManager::create_shared(_env, wal_dir.string());
         k_stream_load_begin_result = TLoadTxnBeginResult();
     }
     void TearDown() override {
-        static_cast<void>(io::global_local_filesystem()->delete_directory(wal_dir));
+        Status st = io::global_local_filesystem()->delete_directory(wal_dir);
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to delete " << wal_dir.string();
+        }
         SAFE_STOP(_env->_wal_manager);
         SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_internal_client_cache);
         SAFE_DELETE(_env->_master_info);
     }
 
-    void prepare() { static_cast<void>(io::global_local_filesystem()->create_directory(wal_dir)); }
+    void prepare() {
+        Status st = io::global_local_filesystem()->create_directory(wal_dir);
+        if (!st.ok()) {
+            LOG(WARNING) << "create dir  " << wal_dir.string();
+        }
+    }
 
     void createWal(const std::string& wal_path) {
         auto wal_writer = WalWriter(wal_path);
-        static_cast<void>(wal_writer.init());
-        static_cast<void>(wal_writer.finalize());
+        Status st = wal_writer.init();
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to int wal reader on path " << wal_path;
+        }
+        st = wal_writer.finalize();
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to finalize wal reader on path " << wal_path;
+        }
     }
 };
 
@@ -96,20 +110,29 @@ TEST_F(WalManagerTest, recovery_normal) {
     std::string wal_200_id = "200";
     std::string wal_201_id = "201";
 
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id));
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_100_id;
-    std::string wal_101 = wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_101_id;
+    bool res = std::filesystem::create_directory(wal_dir.string() + "/" + db_id);
+    ASSERT_TRUE(res);
+    res = std::filesystem::create_directory(wal_dir.string() + "/" + db_id + "/" +
+                                            std::to_string(tb_1_id));
+    ASSERT_TRUE(res);
+    std::string wal_100 =
+            wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_100_id;
+    std::string wal_101 =
+            wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_101_id;
     createWal(wal_100);
     createWal(wal_101);
 
-    std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id));
-    std::string wal_200 = wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_200_id;
-    std::string wal_201 = wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_201_id;
+    res = std::filesystem::create_directory(wal_dir.string() + "/" + db_id + "/" +
+                                            std::to_string(tb_2_id));
+    ASSERT_TRUE(res);
+    std::string wal_200 = wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_200_id;
+    std::string wal_201 = wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_201_id;
     createWal(wal_200);
     createWal(wal_201);
-    static_cast<void>(_env->wal_mgr()->init());
+    Status st = _env->wal_mgr()->init();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to int wal manager ";
+    }
 
     while (_env->wal_mgr()->get_wal_table_size(tb_1_id) > 0 ||
            _env->wal_mgr()->get_wal_table_size(tb_2_id) > 0) {

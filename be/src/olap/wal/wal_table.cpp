@@ -39,7 +39,6 @@ namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
         : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
-    _http_stream_action = std::make_shared<HttpStreamAction>(exec_env);
 }
 WalTable::~WalTable() {}
 
@@ -281,7 +280,9 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->label = label;
     ctx->auth.token = "relay_wal"; // this is a fake, fe not check it now
     ctx->auth.user = "admin";
-    auto st = _http_stream_action->process_put(nullptr, ctx);
+    std::shared_ptr<HttpStreamAction> http_stream_action =
+            std::make_shared<HttpStreamAction>(_exec_env);
+    auto st = http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish
         RETURN_IF_ERROR(ctx->future.get());
