@@ -21,7 +21,35 @@ suite("test_literal") {
 
 
     // test map and array empty literal
-    sql """
+    qt_select """
         select {}, [], [[[null]], [[1, 2, 3]]], {1:[null], 3:[3]};
+    """
+
+    qt_select """
+        select 1='';
+    """
+
+    qt_select """
+        select 1='1';
+    """
+
+    qt_select """
+        select 1='1.1';
+    """
+
+    qt_select """
+        select 1.1='1';
+    """
+
+    qt_select """
+        select 1='a';
+    """
+
+    qt_select """
+        select 2<'1.1';
+    """
+
+    qt_select """
+        select 3<'22';
     """
 }

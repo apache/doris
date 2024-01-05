@@ -505,9 +505,28 @@ public class TypeCoercionUtils {
                 && !left.getDataType().isStringLikeType()) {
             right = TypeCoercionUtils.characterLiteralTypeCoercion(
                     ((Literal) right).getStringValue(), left.getDataType()).orElse(right);
-
         }
         return (T) op.withChildren(left, right);
+    }
+
+    /**
+     * change target type to StringType when literal cast to target type failed
+     */
+    public static DataType processCharacterLiteralInBinaryOperatorWithTargetType(Expression left, Expression right,
+            DataType target) {
+        if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()) {
+            if (!TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) left).getStringValue(), target)
+                    .isPresent()) {
+                return StringType.INSTANCE;
+            }
+        }
+        if (right instanceof Literal && ((Literal) right).isStringLikeLiteral()) {
+            if (!TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) right).getStringValue(), target)
+                    .isPresent()) {
+                return StringType.INSTANCE;
+            }
+        }
+        return target;
     }
 
     /**
@@ -926,8 +945,9 @@ public class TypeCoercionUtils {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            left = castIfNotSameType(left, commonType.get());
-            right = castIfNotSameType(right, commonType.get());
+            DataType target = processCharacterLiteralInBinaryOperatorWithTargetType(left, right, commonType.get());
+            left = castIfNotSameType(left, target);
+            right = castIfNotSameType(right, target);
         }
         return comparisonPredicate.withChildren(left, right);
     }
