@@ -337,8 +337,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // if enable join eliminate, query maybe inner join and mv maybe outer join.
                 // If the slot is at null generate side, the nullable maybe different between query and view
                 // So need to force to consistent.
-                replacedExpression = sourceExpression.nullable() ?
-                        new Nullable(replacedExpression) : new NonNullable(replacedExpression);
+                replacedExpression = sourceExpression.nullable()
+                        ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
             }
             if (sourceExpression instanceof NamedExpression) {
                 NamedExpression sourceNamedExpression = (NamedExpression) sourceExpression;
