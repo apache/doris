@@ -64,7 +64,7 @@ private:
  *    c. cleared old version of Version 2.
  *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
 */
-inline const int BeExecVersionManager::max_be_exec_version = 3;
+inline const int BeExecVersionManager::max_be_exec_version = 4;
 inline const int BeExecVersionManager::min_be_exec_version = 0;
 
 } // namespace doris
