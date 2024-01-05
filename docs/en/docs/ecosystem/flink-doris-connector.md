@@ -391,6 +391,7 @@ ON a.city = c.city
 | HLL        | Unsupported datatype             |
 
 ## Flink write Metrics
+Where the metrics value of type Counter is the cumulative value of the imported task from the beginning to the current time, you can observe each metric in each table in the Flink Webui metrics.
 
 | Name                      | Metric Type | Description                                                  |
 | ------------------------- | ----------- | ------------------------------------------------------------ |
