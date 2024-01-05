@@ -301,7 +301,7 @@ suite("test_bitmap_index") {
             """
         max_try_secs = 60
         while (max_try_secs--) {
-            String res = getJobState(tbName3)
+            String res = getJobState(tbName4)
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 sleep(3000)
@@ -376,7 +376,7 @@ suite("test_bitmap_index") {
             """
         max_try_secs = 60
         while (max_try_secs--) {
-            String res = getJobState(tbName3)
+            String res = getJobState(tbName5)
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 sleep(3000)
