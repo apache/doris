@@ -191,6 +191,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -1119,6 +1122,18 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6NumToString(Ipv6NumToString ipv6NumToString, C context) {
         return visitScalarFunction(ipv6NumToString, context);
+    }
+
+    default R visitIpv6StringToNum(Ipv6StringToNum ipv6StringToNum, C context) {
+        return visitScalarFunction(ipv6StringToNum, context);
+    }
+
+    default R visitIpv6StringToNumOrDefault(Ipv6StringToNumOrDefault ipv6StringToNumOrDefault, C context) {
+        return visitScalarFunction(ipv6StringToNumOrDefault, context);
+    }
+
+    default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
+        return visitScalarFunction(ipv6StringToNumOrNull, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {
