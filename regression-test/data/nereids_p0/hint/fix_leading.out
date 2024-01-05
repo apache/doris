@@ -9,7 +9,7 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
-----------NestedLoopJoin[CROSS_JOIN]
+----------NestedLoopJoin[CROSS_JOIN](t4.c4 = t3.c3)(t3.c3 = t4.c4)
 ------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
