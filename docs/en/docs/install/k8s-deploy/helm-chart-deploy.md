@@ -24,47 +24,94 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-Doris-Operator is software extension to Kubernetes that make use of custom resource to manage Doris and it components. It provides [DorisCluster](https://github.com/selectdb/doris-operator/blob/master/config/crd/bases/doris.selectdb.com_dorisclusters.yaml) a Kubernetes [CustomResourceDefinition](https://kubernetes.io/docs/reference/kubernetes-api/extend-resources/custom-resource-definition-v1/) for user to custom resource.
-## Deploy Doris-Operator by Helm-Chart
 
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/doris)](https://artifacthub.io/packages/search?repo=doris)
+[Helm](https://helm.sh/) is the best way to find, share, and use software built for Kubernetes. Charts describe even the most complex apps, provide repeatable application installation, and serve as a single point of authority.
+Helm-Chart makes it easy to deploy Doris clusters and skip difficult configuration steps.
 
-### Install doris-operator Chart
+## Add Helm repository of Doris-Operator
 
-1. Add helm-chart repo of Doris-Operator in helm. This helm chart have resources about RBAC , deployment ...etc for doris-operator running.
-  1. Add the selectdb repository.
-    ```Bash
-    helm repo add selectdb https://charts.selectdb.com
-    ```
+This [helm chart](https://artifacthub.io/packages/search?ts_query_web=doris&sort=relevance&page=1) have resources about RBAC , deployment ...etc for doris-operator running.
 
-  2. Update the Helm Chart Repo to the latest version.
-   ```Bash
-   helm repo update selectdb
-   ```
-
-  3. Check the Helm Chart Repo is the latest version.
-   ```Bash
-   helm search repo selectdb
-   NAME                       CHART VERSION    APP VERSION   DESCRIPTION
-   selectdb/doris-operator    1.3.1            1.3.1         Doris-operator for doris creat ...
-   selectdb/doris             1.3.1            2.0.3         Apache Doris is an easy-to-use ...
-   ```
-2. we install doris operator in `doris` namespace, so the first we should create `doris` namespace.
-   ```Bash
-   kubectl create namespace doris
-   ```
-3. Install the Doris Operator.
-- install doris operator in doris namespace.
-   ```Bash
-   helm install --namespace doris operator selectdb/doris-operator
-   ```
-- The repo defines the basic function for running doris-operator, Please use next command to deploy doris-operator, when you have completed customization of [`values.yaml`](./values.yaml).
-   ```Bash
-   helm install --namespace doris -f values.yaml operator selectdb/doris-operator 
-   ```
-
-## Uninstall Doris-Operator
-When you have confirmed have not `doris` running in kubernetes, Please use next command to uninstall operator.
+1. Add the selectdb repository
 ```Bash
-helm uninstall operator
+$ helm repo add selectdb https://charts.selectdb.com
+```
+2. Update the Helm Chart Repo to the latest version
+```Bash
+$ helm repo update selectdb
+```
+3. Check the Helm Chart Repo is the latest version
+```Bash
+$ helm search repo selectdb
+NAME                       CHART VERSION    APP VERSION   DESCRIPTION
+selectdb/doris-operator    1.3.1            1.3.1         Doris-operator for doris creat ...
+selectdb/doris             1.3.1            2.0.3         Apache Doris is an easy-to-use ...
+```
+
+
+
+## Install doris-operator
+
+### 1. Install
+- install [doris-operator](https://artifacthub.io/packages/helm/doris/doris-operator)，with default config  in a namespace named doris
+```Bash
+$ helm install operator selectdb/doris-operator
+```
+- The repo defines the basic function for running doris-operator, Please use next command to deploy operator, when you have completed customization of [values.yaml](https://artifacthub.io/packages/helm/doris/doris-operator?modal=values):
+```Bash
+$ helm install -f values.yaml operator selectdb/doris-operator 
+```
+### 2. Confirm installation is complete
+
+Check the deployment status of Pods through the `kubectl get pods` command.
+Observe that the Pod of doris-operator is in the Running state and all containers in the Pod are ready, that means, the deployment is successful.
+```Bash
+$ kubectl get pod --namespace doris
+NAME                              READY   STATUS    RESTARTS   AGE
+doris-operator-866bd449bb-zl5mr   1/1     Running   0          18m
+```
+
+
+
+## Install doriscluster
+
+### 1. Install
+- use default config for deploying [doriscluster](https://artifacthub.io/packages/helm/doris/doris). This deploys only for fe and be components using default `storageClass` for providing persistent volume.
+```Bash
+$ helm install doriscluster selectdb/doris
+```
+- custom doris deploying, specify resources or different deployment type, please custom the [values.yaml](https://artifacthub.io/packages/helm/doris/doris?modal=values) and use next command for deploying.
+```Bash
+$ helm install -f values.yaml doriscluster selectdb/doris 
+```
+### 2. Confirm installation is complete
+After executing the installation command, deployment and distribution, service deployment scheduling and startup will take a certain amount of time.
+Check the deployment status of Pods through the `kubectl get pods` command.
+
+Observe that the Pod of doris-operator is in the Running state and all containers in the Pod are ready, that means, the deployment is successful.
+```Bash
+$  kubectl get pod --namespace doris
+NAME                     READY   STATUS    RESTARTS   AGE
+doriscluster-helm-fe-0   1/1     Running   0          1m39s
+doriscluster-helm-fe-1   1/1     Running   0          1m39s
+doriscluster-helm-fe-2   1/1     Running   0          1m39s
+doriscluster-helm-be-0   1/1     Running   0          16s
+doriscluster-helm-be-1   1/1     Running   0          16s
+doriscluster-helm-be-2   1/1     Running   0          16s
+```
+
+
+
+## Uninstall doris by helm
+
+### Uninstall doriscluster
+Please confirm the doriscluster is not used, When using next command to uninstall doris.
+```bash
+$ helm uninstall doriscluster
+```
+
+### Uninstall doris-operator
+When you have confirmed have not `doris` running in kubernetes, Please use next command to uninstall operator.
+```bash
+$ helm uninstall operator
 ```
