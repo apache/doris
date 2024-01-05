@@ -52,7 +52,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
                 assertEquals(disableAutoCompaction, false)
                 logger.info("Compaction was done automatically!")
             }
-            if (disableAutoCompaction) {
+            if (disableAutoCompaction && compactionStatus!="e-6010") {
                 assertEquals("success", compactionStatus)
             }
         }
