@@ -418,7 +418,7 @@ public class AnalyticPlanner {
             // if this sort group does not have partitioning exprs, we want the sort
             // to be executed like a regular distributed sort
             if (!partitionByExprs.isEmpty()) {
-                sortNode.setIsAnalyticSort(true);
+                sortNode.setPartitionedExprs(partitionByExprs);
             }
 
             if (partitionExprs != null) {

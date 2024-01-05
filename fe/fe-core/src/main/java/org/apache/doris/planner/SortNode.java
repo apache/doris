@@ -69,8 +69,9 @@ public class SortNode extends PlanNode {
     private boolean mergeByexchange = false;
 
     private boolean isDefaultLimit;
-    // if true, the output of this node feeds an AnalyticNode
-    private boolean isAnalyticSort;
+    // If AnalyticNode with partition by exprs follow this sort node, this indicates the partition by exprs.
+    private List<Expr> partitionedExprs = new ArrayList<>();
+    private boolean isColocate = false;
     private DataPartition inputPartition;
 
     private boolean isUnusedExprRemoved = false;
@@ -118,12 +119,8 @@ public class SortNode extends PlanNode {
         isDefaultLimit = defaultLimit;
     }
 
-    public void setIsAnalyticSort(boolean v) {
-        isAnalyticSort = v;
-    }
-
     public boolean isAnalyticSort() {
-        return isAnalyticSort;
+        return !partitionedExprs.isEmpty();
     }
 
     public DataPartition getInputPartition() {
@@ -318,6 +315,10 @@ public class SortNode extends PlanNode {
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
         msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        for (Expr expr : partitionedExprs) {
+            msg.sort_node.addToPartitionExprs(expr.treeToThrift());
+        }
+        msg.sort_node.setIsColocate(isColocate);
     }
 
     @Override
@@ -338,5 +339,13 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    public void setPartitionedExprs(List<Expr> partitionedExprs) {
+        this.partitionedExprs = partitionedExprs;
+    }
+
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 }

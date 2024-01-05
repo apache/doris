@@ -892,6 +892,8 @@ struct TSortNode {
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
   8: optional bool merge_by_exchange
+  9: optional list<Exprs.TExpr> partition_exprs
+  10: optional bool is_colocate
 }
 
 enum TopNAlgorithm {

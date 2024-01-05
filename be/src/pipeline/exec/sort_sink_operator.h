@@ -94,7 +94,11 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
     DataDistribution required_data_distribution() const override {
-        if (_merge_by_exchange) {
+        if (!_partition_exprs.empty()) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
         }
@@ -121,6 +125,8 @@ private:
     const RowDescriptor _row_descriptor;
     const bool _use_two_phase_read;
     const bool _merge_by_exchange;
+    const std::vector<TExpr> _partition_exprs;
+    const bool _is_colocate;
 };
 
 } // namespace pipeline
