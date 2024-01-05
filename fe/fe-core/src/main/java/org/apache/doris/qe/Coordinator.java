@@ -1150,7 +1150,7 @@ public class Coordinator implements CoordInterface {
         Status status = new Status();
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
-            LOG.warn("get next fail, need cancel. query id: {}", DebugUtil.printId(queryId));
+            LOG.warn("get next fail, need cancel. query id: {}, msg: {}", DebugUtil.printId(queryId), status.getErrorMsg());
         }
 
         updateStatus(status, null /* no instance id */);
@@ -1171,7 +1171,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
 
                 // hide host info
                 int hostIndex = errMsg.indexOf("host");
