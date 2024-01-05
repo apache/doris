@@ -195,14 +195,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
-<<<<<<< HEAD
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
-=======
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
->>>>>>> change isipv4string and isipv6string return type, tinyint -> boolean
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -601,14 +598,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv4StringToNumOrDefault.class, "ipv4stringtonumordefault"),
             scalar(Ipv4StringToNumOrNull.class, "ipv4stringtonumornull"),
             scalar(Ipv6NumToString.class, "ipv6numtostring", "inet6_ntoa"),
-<<<<<<< HEAD
             scalar(Ipv6StringToNum.class, "ipv6_string_to_num", "inet6_aton"),
             scalar(Ipv6StringToNumOrDefault.class, "ipv6_string_to_num_or_default"),
             scalar(Ipv6StringToNumOrNull.class, "ipv6_string_to_num_or_null"),
-=======
             scalar(IsIpv4String.class, "isipv4string"),
             scalar(IsIpv6String.class, "isipv6string"),
->>>>>>> change isipv4string and isipv6string return type, tinyint -> boolean
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
