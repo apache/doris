@@ -294,29 +294,22 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.delta_urls = true;
             }
         }
+
+        // load rows
+        static std::string s_dpp_normal_all = "dpp.norm.ALL";
+        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+        static std::string s_unselected_rows = "unselected.rows";
+        int64_t num_rows_load_success = 0;
+        int64_t num_rows_load_filtered = 0;
+        int64_t num_rows_load_unselected = 0;
         if (req.runtime_state->num_rows_load_total() > 0 ||
             req.runtime_state->num_rows_load_filtered() > 0) {
             params.__isset.load_counters = true;
 
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-
-            params.load_counters.emplace(
-                    s_dpp_normal_all, std::to_string(req.runtime_state->num_rows_load_success()));
-            params.load_counters.emplace(
-                    s_dpp_abnormal_all,
-                    std::to_string(req.runtime_state->num_rows_load_filtered()));
-            params.load_counters.emplace(
-                    s_unselected_rows,
-                    std::to_string(req.runtime_state->num_rows_load_unselected()));
+            num_rows_load_success = req.runtime_state->num_rows_load_success();
+            num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
+            num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
         } else if (!req.runtime_states.empty()) {
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-            int64_t num_rows_load_success = 0;
-            int64_t num_rows_load_filtered = 0;
-            int64_t num_rows_load_unselected = 0;
             for (auto* rs : req.runtime_states) {
                 if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
                     params.__isset.load_counters = true;
@@ -325,12 +318,16 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     num_rows_load_unselected += rs->num_rows_load_unselected();
                 }
             }
-            params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
-            params.load_counters.emplace(s_dpp_abnormal_all,
-                                         std::to_string(num_rows_load_filtered));
-            params.load_counters.emplace(s_unselected_rows,
-                                         std::to_string(num_rows_load_unselected));
         }
+        params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+        params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
+        params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+        LOG(INFO) << "execute coordinator callback, query id: " << print_id(req.query_id)
+                  << ", instance id: " << print_id(req.fragment_instance_id)
+                  << ", num_rows_load_success: " << num_rows_load_success
+                  << ", num_rows_load_filtered: " << num_rows_load_filtered
+                  << ", num_rows_load_unselected: " << num_rows_load_unselected;
+
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
                     to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
