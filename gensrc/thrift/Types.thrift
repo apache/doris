@@ -721,3 +721,8 @@ const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
 const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
 
+enum THudiIncrementalQueryType {
+    SNAPSHOT = 0,
+    INCR = 1,
+    CDC = 2,
+}

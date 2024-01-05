@@ -63,6 +63,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.text.ParseException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -115,7 +116,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected void doInitialize() throws UserException {
+    protected void doInitialize() throws UserException, ParseException {
         super.doInitialize();
         if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
             genSlotToSchemaIdMap();

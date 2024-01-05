@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external.hudi;
 
 import org.apache.doris.planner.external.FileSplit;
+import org.apache.doris.thrift.THudiIncrementalQueryType;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;
@@ -40,6 +41,9 @@ public class HudiSplit extends FileSplit {
     private List<String> hudiColumnNames;
     private List<String> hudiColumnTypes;
     private List<String> nestedFields;
+    private THudiIncrementalQueryType scanType;
+    private String beginTime;
+    private String endTime;
 }
 
 

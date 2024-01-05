@@ -318,6 +318,12 @@ struct TMaxComputeFileDesc {
     1: optional string partition_spec
 }
 
+struct THudiIncrementatlScanParam {
+    1: optional Types.THudiIncrementalQueryType query_type;
+    2: optional string begin_time;
+    3: optional string end_time;
+}
+
 struct THudiFileDesc {
     1: optional string instant_time;
     2: optional string serde;
@@ -329,6 +335,7 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
+    11: optional THudiIncrementatlScanParam incr_scan_param;
 }
 
 struct TTransactionalHiveDeleteDeltaDesc {

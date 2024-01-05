@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external.hudi;
 
+import org.apache.doris.analysis.ScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
@@ -40,9 +41,13 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
+import org.apache.doris.thrift.THudiIncrementalQueryType;
+import org.apache.doris.thrift.THudiIncrementatlScanParam;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import joptsimple.internal.Strings;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
@@ -62,6 +67,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -78,9 +84,17 @@ public class HudiScanNode extends HiveScanNode {
 
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
+    private static final Map<String, THudiIncrementalQueryType> supportedScanTypes = ImmutableMap.of("snapshot",
+            THudiIncrementalQueryType.SNAPSHOT, "incr", THudiIncrementalQueryType.INCR, "cdc",
+            THudiIncrementalQueryType.CDC);
+
     private final boolean isCowOrRoTable;
 
     private final AtomicLong noLogsSplitNum = new AtomicLong(0);
+
+    private THudiIncrementalQueryType scanType = THudiIncrementalQueryType.SNAPSHOT;
+    private String beginTime = "";
+    private String endTime = "";
 
     /**
      * External file scan node for Query Hudi table
@@ -110,7 +124,7 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     @Override
-    protected void doInitialize() throws UserException {
+    protected void doInitialize() throws UserException, ParseException {
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table.isView()) {
             throw new AnalysisException(
@@ -120,6 +134,33 @@ public class HudiScanNode extends HiveScanNode {
         computeColumnsFilter();
         initBackendPolicy();
         initSchemaParams();
+        initScanParams();
+    }
+
+    private void initScanParams() throws ParseException, AnalysisException {
+        ScanParams scanParams = desc.getRef().getScanParams();
+        if (scanParams == null) {
+            return;
+        }
+
+        beginTime = scanParams.getParams().getOrDefault("beginTime", "");
+        if (beginTime.equalsIgnoreCase("latest")) {
+            beginTime = "";
+        } else {
+            beginTime = HudiUtils.formatQueryInstant(beginTime);
+        }
+
+        if (endTime.equalsIgnoreCase("latest")) {
+            endTime = "";
+        } else {
+            endTime = HudiUtils.formatQueryInstant(endTime);
+        }
+
+        if (!supportedScanTypes.keySet().stream().anyMatch(s -> s.equalsIgnoreCase(scanParams.getParamType()))) {
+            throw new AnalysisException("only snapshot|cdc|incr supported ");
+        }
+
+        scanType = supportedScanTypes.get(scanParams.getParamType());
     }
 
     @Override
@@ -152,6 +193,13 @@ public class HudiScanNode extends HiveScanNode {
         fileDesc.setDeltaLogs(hudiSplit.getHudiDeltaLogs());
         fileDesc.setColumnNames(hudiSplit.getHudiColumnNames());
         fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
+
+        THudiIncrementatlScanParam scanParam = new THudiIncrementatlScanParam();
+        scanParam.setBeginTime(beginTime);
+        scanParam.setEndTime(endTime);
+        scanParam.setQueryType(scanType);
+        fileDesc.setIncrScanParam(scanParam);
+
         // TODO(gaoxin): support complex types
         // fileDesc.setNestedFields(hudiSplit.getNestedFields());
         tableFormatFileDesc.setHudiParams(fileDesc);
@@ -246,10 +294,14 @@ public class HudiScanNode extends HiveScanNode {
             columnTypes.add(columnType);
         }
 
+        String beginScanTime;
+        String endScanTime;
         HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
         String queryInstant;
         Option<String> snapshotTimestamp;
         if (desc.getRef().getTableSnapshot() != null) {
+            endScanTime = "";
+            beginScanTime = "";
             queryInstant = desc.getRef().getTableSnapshot().getTime();
             snapshotTimestamp = Option.of(queryInstant);
         } else {
@@ -257,7 +309,27 @@ public class HudiScanNode extends HiveScanNode {
             if (!snapshotInstant.isPresent()) {
                 return Collections.emptyList();
             }
-            queryInstant = snapshotInstant.get().getTimestamp();
+            if (scanType == THudiIncrementalQueryType.INCR || scanType == THudiIncrementalQueryType.CDC) {
+                if (Strings.isNullOrEmpty(beginTime)) {
+                    beginScanTime = timeline.lastInstant().get().getTimestamp();
+                } else {
+                    beginScanTime = "";
+                }
+                if (Strings.isNullOrEmpty(endTime)) {
+                    endScanTime = timeline.lastInstant().get().getTimestamp();
+                } else {
+                    endScanTime = "";
+                }
+
+                if (isNoRecordsInBetween(timeline, beginScanTime, endScanTime)) {
+                    return Collections.emptyList();
+                }
+                queryInstant = beginScanTime;
+            } else {
+                endScanTime = "";
+                beginScanTime = "";
+                queryInstant = snapshotInstant.get().getTimestamp();
+            }
             snapshotTimestamp = Option.empty();
         }
         // Non partition table will get one dummy partition
@@ -325,6 +397,9 @@ public class HudiScanNode extends HiveScanNode {
                     split.setHudiColumnNames(columnNames);
                     split.setHudiColumnTypes(columnTypes);
                     split.setInstantTime(queryInstant);
+                    split.setScanType(scanType);
+                    split.setBeginTime(beginScanTime);
+                    split.setEndTime(endScanTime);
                     splits.add(split);
                 });
             }
@@ -336,6 +411,19 @@ public class HudiScanNode extends HiveScanNode {
             throw new RuntimeException(e.getMessage(), e);
         }
         return splits;
+    }
+
+    private boolean isNoRecordsInBetween(HoodieTimeline timeline, final String beginTime, final String endTime) {
+        if (HoodieTimeline.compareTimestamps(beginTime, HoodieTimeline.LESSER_THAN_OR_EQUALS, endTime)) {
+            HoodieTimeline filteredTimeline = timeline.filter(instant ->
+                    HoodieTimeline.compareTimestamps(instant.getTimestamp(), HoodieTimeline.GREATER_THAN_OR_EQUALS,
+                            beginTime) && HoodieTimeline.compareTimestamps(instant.getTimestamp(),
+                            HoodieTimeline.LESSER_THAN_OR_EQUALS, endTime));
+            if (filteredTimeline.empty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
