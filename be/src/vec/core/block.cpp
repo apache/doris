@@ -556,7 +556,7 @@ Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column;
+        columns[i] = data[i].column->convert_to_full_column_if_const();
     }
     return columns;
 }
