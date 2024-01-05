@@ -57,11 +57,11 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
     }
 
     /**
-     * LAG/LEAD param must be const number
+     * LAG/LEAD param must be const, and offset must be number
      */
-    public void checkValidParams(Expression param) {
-        DataType offsetType = param.getDataType();
-        if (!offsetType.isNumericType()) {
+    protected void checkValidParams(Expression param, boolean isOffset) {
+        DataType type = param.getDataType();
+        if (isOffset && !type.isNumericType()) {
             throw new AnalysisException("The offset of LAG/LEAD must be a number: " + this.toSql());
         }
         if (!param.isConstant()) {
