@@ -68,6 +68,12 @@ void WalTable::_pick_relay_wals() {
                 LOG(WARNING) << "rename " << it->first << " fail"
                              << ",st:" << st.to_string();
             }
+            if (config::group_commit_wait_replay_wal_finish) {
+                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(it->second->get_wal_id());
+                if (!notify_st.ok()) {
+                    LOG(WARNING) << "notify wal " << it->second->get_wal_id() << " fail";
+                }
+            }
             need_erase_wals.push_back(it->first);
             continue;
         }
@@ -122,6 +128,9 @@ Status WalTable::_relay_wal_one_by_one() {
         if (!st.ok()) {
             LOG(WARNING) << "fail to delete wal " << delete_wal_info->get_wal_path();
         }
+        if (config::group_commit_wait_replay_wal_finish) {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->notify_relay_wal(delete_wal_info->get_wal_id()));
+        }
     }
     return Status::OK();
 }
@@ -173,6 +182,9 @@ Status WalTable::_rename_to_tmp_path(const std::string wal) {
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
+    if (config::group_commit_wait_replay_wal_finish) {
+        return true;
+    }
 #ifndef BE_TEST
     auto replay_interval = pow(2, wal_info->get_retry_num()) *
                            config::group_commit_replay_wal_retry_interval_seconds * 1000;
@@ -210,9 +222,11 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     auto wal_id = pair->first;
     auto label = pair->second;
 #ifndef BE_TEST
-    auto st = _try_abort_txn(_db_id, wal_id);
-    if (!st.ok()) {
-        LOG(WARNING) << "abort txn " << wal_id << " fail";
+    if (!config::group_commit_wait_replay_wal_finish) {
+        auto st = _try_abort_txn(_db_id, wal_id);
+        if (!st.ok()) {
+            LOG(WARNING) << "abort txn " << wal_id << " fail";
+        }
     }
     RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
 #endif
@@ -281,6 +295,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->label = label;
     ctx->auth.token = "relay_wal"; // this is a fake, fe not check it now
     ctx->auth.user = "admin";
+    ctx->group_commit = false;
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish

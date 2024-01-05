@@ -92,6 +92,15 @@ public:
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
+    //for test relay
+    Status add_wal_cv_map(int64_t wal_id, std::shared_ptr<std::mutex> lock,
+                          std::shared_ptr<std::condition_variable> cv);
+    Status erase_wal_cv_map(int64_t wal_id);
+    Status get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& lock,
+                           std::shared_ptr<std::condition_variable>& cv);
+    Status wait_replay_wal_finish(int64_t wal_id);
+    Status notify_relay_wal(int64_t wal_id);
+
 private:
     // wal back pressure
     Status _init_wal_dirs_conf();
@@ -138,5 +147,12 @@ private:
     // TODO should remove
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
+
+    // for test relay
+    // <lock, condition_variable>
+    using WalCvInfo =
+            std::pair<std::shared_ptr<std::mutex>, std::shared_ptr<std::condition_variable>>;
+    std::shared_mutex _wal_cv_lock;
+    std::unordered_map<int64_t, WalCvInfo> _wal_cv_map;
 };
 } // namespace doris

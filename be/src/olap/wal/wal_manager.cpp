@@ -338,6 +338,15 @@ Status WalManager::_scan_wals(const std::string& wal_path) {
                         int64_t db_id = std::strtoll(database_id.file_name.c_str(), NULL, 10);
                         int64_t tb_id = std::strtoll(table_id.file_name.c_str(), NULL, 10);
                         add_wal_status_queue(tb_id, wal_id, WalManager::WalStatus::REPLAY);
+                        if (config::group_commit_wait_replay_wal_finish) {
+                            std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+                            std::shared_ptr<std::condition_variable> cv =
+                                    std::make_shared<std::condition_variable>();
+                            auto add_st = add_wal_cv_map(wal_id, lock, cv);
+                            if (!add_st.ok()) {
+                                LOG(WARNING) << "fail to add wal_id " << wal_id << " to wal_cv_map";
+                            }
+                        }
                         RETURN_IF_ERROR(add_recover_wal(db_id, tb_id, wal_id, wal_file));
                     } catch (const std::invalid_argument& e) {
                         return Status::InvalidArgument("Invalid format, {}", e.what());
@@ -505,6 +514,70 @@ std::string WalManager::_get_base_wal_path(const std::string& wal_path_str) {
         wal_path = wal_path.parent_path();
     }
     return wal_path.string();
+}
+
+Status WalManager::add_wal_cv_map(int64_t wal_id, std::shared_ptr<std::mutex> lock,
+                                  std::shared_ptr<std::condition_variable> cv) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    auto it = _wal_cv_map.find(wal_id);
+    if (it != _wal_cv_map.end()) {
+        return Status::InternalError("wal {} is already in _wal_cv_map ", wal_id);
+    }
+    auto pair = std::make_pair(lock, cv);
+    _wal_cv_map.emplace(wal_id, pair);
+    LOG(INFO) << "add  " << wal_id << " to _wal_cv_map";
+    return Status::OK();
+}
+
+Status WalManager::erase_wal_cv_map(int64_t wal_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    if (_wal_cv_map.erase(wal_id)) {
+        LOG(INFO) << "erase " << wal_id << " from _wal_cv_map";
+    } else {
+        return Status::InternalError("fail to erase wal {} from wal_cv_map", wal_id);
+    }
+    return Status::OK();
+}
+
+Status WalManager::wait_replay_wal_finish(int64_t wal_id) {
+    std::shared_ptr<std::mutex> lock = nullptr;
+    std::shared_ptr<std::condition_variable> cv = nullptr;
+    auto st = get_lock_and_cv(wal_id, lock, cv);
+    if (st.ok()) {
+        std::unique_lock l(*(lock));
+        LOG(INFO) << "start wait " << wal_id;
+        if (cv->wait_for(l, std::chrono::seconds(180)) == std::cv_status::timeout) {
+            LOG(WARNING) << "wait for " << wal_id << " is time out";
+        }
+        LOG(INFO) << "get wal " << wal_id << ",finish wait";
+        RETURN_IF_ERROR(erase_wal_cv_map(wal_id));
+        LOG(INFO) << "erase wal " << wal_id;
+    }
+    return Status::OK();
+}
+
+Status WalManager::notify_relay_wal(int64_t wal_id) {
+    std::shared_ptr<std::mutex> lock = nullptr;
+    std::shared_ptr<std::condition_variable> cv = nullptr;
+    auto st = get_lock_and_cv(wal_id, lock, cv);
+    if (st.ok()) {
+        std::unique_lock l(*(lock));
+        cv->notify_all();
+        LOG(INFO) << "get wal " << wal_id << ",notify all";
+    }
+    return Status::OK();
+}
+
+Status WalManager::get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& lock,
+                                   std::shared_ptr<std::condition_variable>& cv) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_cv_lock);
+    auto it = _wal_cv_map.find(wal_id);
+    if (it == _wal_cv_map.end()) {
+        return Status::InternalError("cannot find txn {} in _wal_cv_map", wal_id);
+    }
+    lock = it->second.first;
+    cv = it->second.second;
+    return Status::OK();
 }
 
 } // namespace doris
