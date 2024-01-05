@@ -43,7 +43,7 @@ import java.util.Set;
 /**
  * add constraint command
  */
-public class AddConstraintCommand extends Command implements ForwardWithSync {
+public class AddConstraintCommand extends Command implements NoForward {
 
     public static final Logger LOG = LogManager.getLogger(AddConstraintCommand.class);
     private final String name;

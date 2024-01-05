@@ -40,7 +40,7 @@ import java.util.Set;
 /**
  * drop constraint command
  */
-public class DropConstraintCommand extends Command implements ForwardWithSync {
+public class DropConstraintCommand extends Command implements NoForward {
 
     public static final Logger LOG = LogManager.getLogger(DropConstraintCommand.class);
     private final String name;
