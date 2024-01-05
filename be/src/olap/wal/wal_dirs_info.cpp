@@ -79,7 +79,16 @@ Status WalDirInfo::update_wal_dir_used(size_t used) {
         set_used(used);
     } else {
         size_t wal_dir_size = 0;
-        RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
+        Status st = Status::OK();
+        try {
+            st = io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size);
+        } catch (const std::exception& e) {
+            LOG(INFO) << "failed to update wal dir used info, err: {}", e.what();
+            return Status::OK();
+        }
+        if (!st.ok()) {
+            return st;
+        }
         set_used(wal_dir_size);
     }
     return Status::OK();
