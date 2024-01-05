@@ -109,6 +109,10 @@ public:
 
     void refresh_profile();
 
+    size_t total_received_rows() const { return _total_received_rows; }
+
+    size_t num_rows_filtered() const { return _num_rows_filtered; }
+
 protected:
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -116,9 +120,14 @@ protected:
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
+    // thread-unsafe, add a shared lock for `_tablet_writers_lock` if needed
+    bool _is_broken_tablet(int64_t tablet_id) const;
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                            int64_t tablet_id, Status error) const;
-    bool _is_broken_tablet(int64_t tablet_id);
+    void _build_tablet_to_rowidxs(
+            const PTabletWriterAddBlockRequest& request,
+            std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>*
+                    tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
@@ -181,6 +190,10 @@ protected:
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
     RuntimeProfile::Counter* _incremental_open_timer = nullptr;
+
+    // record rows received and filtered
+    size_t _total_received_rows = 0;
+    size_t _num_rows_filtered = 0;
 };
 
 class DeltaWriter;

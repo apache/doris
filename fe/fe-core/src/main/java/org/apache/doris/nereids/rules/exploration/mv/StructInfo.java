@@ -20,12 +20,14 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -65,6 +67,7 @@ public class StructInfo {
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
     // source data
     private final Plan originalPlan;
+    private ObjectId originalPlanId;
     private final HyperGraph hyperGraph;
     private boolean valid = true;
     // derived data following
@@ -85,6 +88,8 @@ public class StructInfo {
 
     private StructInfo(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan, HyperGraph hyperGraph) {
         this.originalPlan = originalPlan;
+        this.originalPlanId = originalPlan.getGroupExpression()
+                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         this.hyperGraph = hyperGraph;
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
@@ -101,7 +106,6 @@ public class StructInfo {
         }
         collectStructInfoFromGraph();
         initPredicates();
-        predicatesDerive();
     }
 
     public void addPredicates(List<Expression> canPulledUpExpressions) {
@@ -156,13 +160,14 @@ public class StructInfo {
         Set<Expression> topPlanPredicates = new HashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
         topPlanPredicates.forEach(this.predicates::addPredicate);
+        predicatesDerive();
     }
 
     // derive some useful predicate by predicates
     private void predicatesDerive() {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        this.predicates.getPulledUpPredicates(), originalPlan).stream()
+                        new ArrayList<>(this.predicates.getPulledUpPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
@@ -258,14 +263,19 @@ public class StructInfo {
                 ? ((LogicalProject<Plan>) originalPlan).getProjects() : originalPlan.getOutput();
     }
 
+    public ObjectId getOriginalPlanId() {
+        return originalPlanId;
+    }
+
     /**
      * Judge the source graph logical is whether the same as target
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static ComparisonResult isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
+        return HyperGraphComparator
+                .isLogicCompatible(queryStructInfo.hyperGraph, viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
@@ -282,7 +292,9 @@ public class StructInfo {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
             // Just collect the filter in top plan, if meet other node except project and filter, return
-            if (!(plan instanceof LogicalProject) && !(plan instanceof LogicalFilter)) {
+            if (!(plan instanceof LogicalProject)
+                    && !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalAggregate)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
@@ -396,7 +408,7 @@ public class StructInfo {
                 super.visit(aggregate, context);
                 return true;
             }
-            if (plan instanceof LogicalProject) {
+            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
                 super.visit(plan, context);
                 return true;
             }

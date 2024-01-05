@@ -248,9 +248,14 @@ public class OriginalPlanner extends Planner {
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
-            List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
-            rootFragment.setOutputExprs(resExprs);
+            if (analyzer.getContext().getConnectionId() == 0) {
+                // stream load tvf
+                rootFragment.setOutputExprs(exprs);
+            } else {
+                List<Expr> resExprs = Expr.substituteList(exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer,
+                        true);
+                rootFragment.setOutputExprs(resExprs);
+            }
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);

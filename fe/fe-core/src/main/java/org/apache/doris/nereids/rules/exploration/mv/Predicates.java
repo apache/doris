@@ -20,12 +20,14 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -34,7 +36,7 @@ import java.util.stream.Collectors;
 public class Predicates {
 
     // Predicates that can be pulled up
-    private final List<Expression> pulledUpPredicates = new ArrayList<>();
+    private final Set<Expression> pulledUpPredicates = new HashSet<>();
 
     private Predicates() {
     }
@@ -49,7 +51,7 @@ public class Predicates {
         return predicates;
     }
 
-    public List<? extends Expression> getPulledUpPredicates() {
+    public Set<? extends Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 
@@ -68,6 +70,11 @@ public class Predicates {
     public static SplitPredicate splitPredicates(Expression expression) {
         PredicatesSplitter predicatesSplit = new PredicatesSplitter(expression);
         return predicatesSplit.getSplitPredicate();
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates);
     }
 
     /**
@@ -137,6 +144,14 @@ public class Predicates {
                     && ((BooleanLiteral) equalExpr).getValue()
                     && ((BooleanLiteral) rangeExpr).getValue()
                     && ((BooleanLiteral) residualExpr).getValue();
+        }
+
+        @Override
+        public String toString() {
+            return Utils.toSqlString("SplitPredicate",
+                    "equalPredicate", equalPredicate,
+                    "rangePredicate", rangePredicate,
+                    "residualPredicate", residualPredicate);
         }
     }
 }

@@ -89,6 +89,10 @@ public enum ParseDialect {
          */
         TRINO("trino"),
         /**
+         * Presto parser dialect
+         */
+        PRESTO("presto"),
+        /**
          * Doris parser dialect
          */
         DORIS("doris"),

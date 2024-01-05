@@ -123,11 +123,17 @@ private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
-                               PipelinePtr cur_pipe, const std::vector<TExpr>& texprs,
-                               ExchangeType exchange_type, bool* do_local_exchange, int num_buckets,
-                               const std::map<int, int>& bucket_seq_to_instance_idx);
-    void _inherit_pipeline_properties(ExchangeType exchange_type, PipelinePtr pipe_with_source,
-                                      PipelinePtr pipe_with_sink);
+                               PipelinePtr cur_pipe, DataDistribution data_distribution,
+                               bool* do_local_exchange, int num_buckets,
+                               const std::map<int, int>& bucket_seq_to_instance_idx,
+                               const bool ignore_data_distribution);
+    void _inherit_pipeline_properties(const DataDistribution& data_distribution,
+                                      PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
+    Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
+                                    PipelinePtr new_pipe, DataDistribution data_distribution,
+                                    bool* do_local_exchange, int num_buckets,
+                                    const std::map<int, int>& bucket_seq_to_instance_idx,
+                                    const bool ignore_data_distribution);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -156,7 +162,8 @@ private:
     Status _plan_local_exchange(int num_buckets,
                                 const std::map<int, int>& bucket_seq_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
-                                const std::map<int, int>& bucket_seq_to_instance_idx);
+                                const std::map<int, int>& bucket_seq_to_instance_idx,
+                                const bool ignore_data_distribution);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
@@ -165,6 +172,8 @@ private:
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
+
+    bool _use_global_rf = false;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
@@ -210,7 +219,6 @@ private:
         void clear() { _build_side_pipelines.clear(); }
     } _pipeline_parent_map;
 
-    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
 
     int _operator_id = 0;

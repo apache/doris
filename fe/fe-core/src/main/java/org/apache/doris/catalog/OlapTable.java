@@ -589,6 +589,7 @@ public class OlapTable extends Table {
         }
 
         // for each partition, reset rollup index map
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
             // entry.getKey() is the new partition id, use it to get the restore specified replica allocation
@@ -616,7 +617,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, null, false, false);
+                                        replicaAlloc, nextIndexs, null, false, false);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -947,6 +948,17 @@ public class OlapTable extends Table {
         return getPartition(partitionName, true);
     }
 
+    public Partition getPartitionOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = getPartition(partitionName, false);
+        if (partition == null) {
+            partition = getPartition(partitionName, true);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partition;
+    }
+
     // get partition by name
     public Partition getPartition(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {
@@ -961,6 +973,17 @@ public class OlapTable extends Table {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
             partition = tempPartitions.getPartition(partitionId);
+        }
+        return partition;
+    }
+
+    public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
+        Partition partition = idToPartition.get(partitionId);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionId);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionId);
         }
         return partition;
     }
@@ -2050,6 +2073,20 @@ public class OlapTable extends Table {
     public Long getTimeSeriesCompactionTimeThresholdSeconds() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
+    }
+
+    public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
         }
         return null;
     }

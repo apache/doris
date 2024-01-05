@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
@@ -27,6 +28,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,6 +39,10 @@ import java.util.stream.Collectors;
  * This is responsible for common join rewriting
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
+
+    protected final String currentClassName = this.getClass().getSimpleName();
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
@@ -53,6 +61,13 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()
                 || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Rewrite expressions by view in join fail",
+                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                            + "queryToViewSlotMapping = %s",
+                                    queryStructInfo.getExpressions(),
+                                    materializationContext.getMvExprToMvScanExprMapping(),
+                                    queryToViewSlotMapping)));
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in

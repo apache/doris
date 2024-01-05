@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer.ExpressionReplaceContext;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -66,9 +67,28 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
             if (exprIdExpressionMap.containsKey(namedExpression.getExprId())) {
-                return super.visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
+                return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
             }
-            return super.visitNamedExpression(namedExpression, exprIdExpressionMap);
+            return visit(namedExpression, exprIdExpressionMap);
+        }
+
+        @Override
+        public Expression visit(Expression expr, Map<ExprId, Expression> exprIdExpressionMap) {
+            if (expr instanceof NamedExpression
+                    && expr.arity() == 0
+                    && exprIdExpressionMap.containsKey(((NamedExpression) expr).getExprId())) {
+                expr = exprIdExpressionMap.get(((NamedExpression) expr).getExprId());
+            }
+            List<Expression> newChildren = new ArrayList<>(expr.arity());
+            boolean hasNewChildren = false;
+            for (Expression child : expr.children()) {
+                Expression newChild = child.accept(this, exprIdExpressionMap);
+                if (newChild != child) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            return hasNewChildren ? expr.withChildren(newChildren) : expr;
         }
     }
 

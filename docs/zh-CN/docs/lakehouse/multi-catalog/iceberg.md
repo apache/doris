@@ -96,6 +96,8 @@ CREATE CATALOG iceberg PROPERTIES (
 
 #### AWS Glue
 
+> 连接Glue时，如果是在非EC2环境，需要将EC2环境里的 `~/.aws` 目录拷贝到当前环境里。也可以下载[AWS Cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)工具进行配置，这种方式也会在当前用户目录下创建`.aws`目录。
+
 ```sql
 CREATE CATALOG glue PROPERTIES (
     "type"="iceberg",
@@ -212,5 +214,5 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) 表函数查询指定表的 snapshot 信息。
+另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) 表函数查询指定表的 snapshot 信息。
 

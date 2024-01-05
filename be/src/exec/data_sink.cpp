@@ -35,10 +35,10 @@
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmemory_scratch_sink.h"
+#include "vec/sink/volap_table_sink.h"
+#include "vec/sink/volap_table_sink_v2.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
-#include "vec/sink/vtablet_sink.h"
-#include "vec/sink/vtablet_sink_v2.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -206,9 +206,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         ? params.send_query_statistics_with_every_batch
                         : false;
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new vectorized::VDataStreamSender(state, pool, local_params.sender_id, row_desc,
-                                                      thrift_sink.stream_sink, params.destinations,
-                                                      send_query_statistics_with_every_batch));
+        *sink = std::make_unique<vectorized::VDataStreamSender>(
+                state, pool, local_params.sender_id, row_desc, thrift_sink.stream_sink,
+                params.destinations, send_query_statistics_with_every_batch);
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }

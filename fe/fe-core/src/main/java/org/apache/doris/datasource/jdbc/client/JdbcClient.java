@@ -74,8 +74,9 @@ public abstract class JdbcClient {
             lowerColumnToRealColumn = new ConcurrentHashMap<>();
 
     private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
-    private final AtomicBoolean tableNamesLoaded = new AtomicBoolean(false);
-    private final AtomicBoolean columnNamesLoaded = new AtomicBoolean(false);
+    private final ConcurrentHashMap<String, AtomicBoolean> tableNamesLoadedMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, AtomicBoolean>> columnNamesLoadedMap
+            = new ConcurrentHashMap<>();
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -404,13 +405,18 @@ public abstract class JdbcClient {
     }
 
     private void loadTableNamesIfNeeded(String dbName) {
-        if (tableNamesLoaded.compareAndSet(false, true)) {
+        AtomicBoolean isLoaded = tableNamesLoadedMap.computeIfAbsent(dbName, k -> new AtomicBoolean(false));
+        if (isLoaded.compareAndSet(false, true)) {
             getTablesNameList(dbName);
         }
     }
 
     private void loadColumnNamesIfNeeded(String dbName, String tableName) {
-        if (columnNamesLoaded.compareAndSet(false, true)) {
+        ConcurrentHashMap<String, AtomicBoolean> tableMap = columnNamesLoadedMap.computeIfAbsent(dbName,
+                k -> new ConcurrentHashMap<>());
+        AtomicBoolean isLoaded = tableMap.computeIfAbsent(tableName, k -> new AtomicBoolean(false));
+
+        if (isLoaded.compareAndSet(false, true)) {
             getJdbcColumnsInfo(dbName, tableName);
         }
     }
@@ -469,6 +475,7 @@ public abstract class JdbcClient {
 
     /**
      * Execute stmt direct via jdbc
+     *
      * @param origStmt, the raw stmt string
      */
     public void executeStmt(String origStmt) {

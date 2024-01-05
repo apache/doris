@@ -273,8 +273,8 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
     // check local disk capacity
     int64_t tablet_size = tablet->tablet_local_size();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
-        return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
-                                     (*dest_store)->path(), tablet_size);
+        return Status::Error<EXCEEDED_LIMIT>("reach the capacity limit of path {}, tablet_size={}",
+                                             (*dest_store)->path(), tablet_size);
     }
     return Status::OK();
 }
@@ -590,7 +590,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
     };
 
     auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
-    CHECK(st.ok()) << name << ": " << st;
+    CHECK(st.ok()) << _name << ": " << st;
 }
 
 ReportWorker::~ReportWorker() {
@@ -729,6 +729,16 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             }
             tablet->tablet_meta()->set_time_series_compaction_time_threshold_seconds(
                     tablet_meta_info.time_series_compaction_time_threshold_seconds);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.time_series_compaction_empty_rowsets_threshold) {
+            if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                status = Status::InvalidArgument(
+                        "only time series compaction policy support time series config");
+                continue;
+            }
+            tablet->tablet_meta()->set_time_series_compaction_empty_rowsets_threshold(
+                    tablet_meta_info.time_series_compaction_empty_rowsets_threshold);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -1518,7 +1528,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
-                        if (published_count % 10 == 0) {
+                        if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
+                            published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true);
                             if (!st.ok()) [[unlikely]] {

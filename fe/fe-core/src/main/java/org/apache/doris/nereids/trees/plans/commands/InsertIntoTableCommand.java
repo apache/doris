@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -82,6 +83,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * When source it's from job scheduler,it will be set.
      */
     private long jobId;
+    private boolean allowAutoPartition;
 
     /**
      * constructor
@@ -90,6 +92,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
+        // only insert overwrite will disable it.
+        this.allowAutoPartition = true;
+    }
+
+    public Optional<String> getLabelName() {
+        return labelName;
     }
 
     public void setLabelName(Optional<String> labelName) {
@@ -100,8 +108,22 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.jobId = jobId;
     }
 
+    public void setAllowAutoPartition(boolean allowAutoPartition) {
+        this.allowAutoPartition = allowAutoPartition;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        runInternal(ctx, executor);
+    }
+
+    public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
+                                  LoadStatistic loadStatistic) throws Exception {
+        // TODO: add coordinator statistic
+        runInternal(ctx, executor);
+    }
+
+    private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -114,6 +136,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         PhysicalOlapTableSink<?> physicalOlapTableSink;
         DataSink sink;
         InsertExecutor insertExecutor;
+        Table targetTable;
         TableIf targetTableIf = InsertExecutor.getTargetTable(logicalQuery, ctx);
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
@@ -137,7 +160,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             physicalOlapTableSink = plan.get();
 
-            Table targetTable = physicalOlapTableSink.getTargetTable();
+            targetTable = physicalOlapTableSink.getTargetTable();
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
@@ -160,11 +183,15 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
-                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT);
+                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT, this.allowAutoPartition);
         } finally {
             targetTableIf.readUnlock();
         }
 
+        boolean isEnableMemtableOnSinkNode =
+                    ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
+                    ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode() : false;
+        insertExecutor.getCoordinator().getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption
         // so we need to set this here
@@ -227,11 +254,19 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         return ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ConnectContext.get().isTxnModel()
                 && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
-                .isEmpty();
+                .isEmpty() && physicalOlapTableSink.getTargetTable().getTableProperty().getUseSchemaLightChange();
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 

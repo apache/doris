@@ -114,6 +114,7 @@ import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TColumnInfo;
 import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCommitTxnResult;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
@@ -1785,9 +1786,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        // create connect context
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setQueryId(request.getLoadId());
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
+        ctx.setQualifiedUser(request.getUser());
+        ctx.setBackendId(request.getBackendId());
+        ctx.setThreadLocalInfo();
+
         try {
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
-                httpStreamPutImpl(request, result);
+                httpStreamPutImpl(request, result, ctx);
                 return result;
             } else {
                 if (Config.enable_pipeline_load) {
@@ -1805,6 +1816,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
+        } finally {
+            ConnectContext.remove();
         }
         return result;
     }
@@ -1916,12 +1929,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-
-    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
+    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result, ConnectContext ctx)
             throws UserException {
-        LOG.info("receive http stream put request");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive http stream put request: {}", request);
+        }
         String originStmt = request.getLoadSql();
-        ConnectContext ctx = new ConnectContext();
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
         } else if (Strings.isNullOrEmpty(request.getToken())) {
@@ -1929,12 +1942,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQueryId(request.getLoadId());
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        ctx.setBackendId(request.getBackendId());
-        ctx.setThreadLocalInfo();
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         try {
@@ -1976,6 +1983,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTableId(parsedStmt.getTargetTable().getId());
             result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
             result.setGroupCommitIntervalMs(((OlapTable) parsedStmt.getTargetTable()).getGroupCommitIntervalMs());
+            // TODO get from table property
+            result.setGroupCommitDataBytes(134217728L);
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
@@ -2000,6 +2009,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange() && (request.getGroupCommitMode() != null
+                && !request.getGroupCommitMode().equals("off_mode"))) {
+            throw new UserException("table light_schema_change is false, can't do stream load with group commit mode");
+        }
         result.setDbId(db.getId());
         result.setTableId(table.getId());
         result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
@@ -2061,6 +2074,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange() && (request.getGroupCommitMode() != null
+                && !request.getGroupCommitMode().equals("off_mode"))) {
+            throw new UserException("table light_schema_change is false, can't do stream load with group commit mode");
+        }
         return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs,
                 1, false);
     }
@@ -2850,16 +2867,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         restoreStmt.setIsBeingSynced();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx == null) {
-                ctx = new ConnectContext();
-                ctx.setThreadLocalInfo();
-            }
+            ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(request.getUser());
             String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
-            UserIdentity currentUserIdentity = new UserIdentity(fullUserName, "%");
-            ctx.setCurrentUserIdentity(currentUserIdentity);
-
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
+            ctx.setThreadLocalInfo();
             Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
@@ -2871,6 +2883,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        } finally {
+            ConnectContext.remove();
         }
 
         return result;
@@ -3279,38 +3293,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
         TGetColumnInfoResult result = new TGetColumnInfoResult();
-        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
         if (!Env.getCurrentEnv().isMaster()) {
-            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
-            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
-            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
-            result.setStatus(errorStatus);
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             return result;
         }
-
-        Table table = db.getTable(tableId).get();
+        Table table = db.getTableNullable(tableId);
         if (table == null) {
-            errorStatus.setErrorMsgs(
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
-            result.setStatus(errorStatus);
             return result;
         }
-        StringBuilder sb = new StringBuilder();
-        for (Column column : table.getFullSchema()) {
-            sb.append(column.getName() + ":" + column.getUniqueId() + ",");
+        List<TColumnInfo> columnsResult = Lists.newArrayList();
+        for (Column column : table.getBaseSchema(true)) {
+            final TColumnInfo info = new TColumnInfo();
+            info.setColumnName(column.getName());
+            info.setColumnId(column.getUniqueId());
+            columnsResult.add(info);
         }
-        String columnInfo = sb.toString();
-        columnInfo = columnInfo.substring(0, columnInfo.length() - 1);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        result.setColumnInfo(columnInfo);
+        result.setColumns(columnsResult);
         return result;
     }
 

@@ -19,7 +19,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
+class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
 public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}

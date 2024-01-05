@@ -172,6 +172,10 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
 
+    public void setAutoPartition(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {
@@ -523,6 +527,7 @@ public class OlapTableSink extends DataSink {
         // for partition by function expr, there is no any partition firstly, But this is required in thrift struct.
         if (partitionIds.isEmpty()) {
             locationParam.setTablets(new ArrayList<TTabletLocation>());
+            slaveLocationParam.setTablets(new ArrayList<TTabletLocation>());
         }
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check

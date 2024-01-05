@@ -53,7 +53,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && keys && values) {
+    if (!offsets_concrete->empty() && keys_column && values_column) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
@@ -217,7 +217,7 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
-    pos += 2 * sizeof(array_size);
+    pos += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
         pos = get_keys().deserialize_and_insert_from_arena(pos);

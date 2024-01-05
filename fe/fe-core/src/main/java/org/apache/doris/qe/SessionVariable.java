@@ -33,6 +33,7 @@ import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -125,6 +126,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+
+    public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
@@ -219,7 +222,16 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
     public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
-    public static final String IGNORE_SCAN_DISTRIBUTION = "ignore_scan_distribution";
+
+    public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
+
+    public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Limit the max count of scanners to prevent generate too many scanners.
+    public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
+
+    // Avoid splitting small segments, each scanner should scan `parallel_scan_min_rows_per_scanner` rows.
+    public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
@@ -448,8 +460,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
-    public static final String ENABLE_EXTERNAL_MV_REWRITE = "enable_external_mv_rewrite";
-    public static final String ENABLE_MV_REWRITE = "enable_mv_rewrite";
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
@@ -467,8 +477,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
-    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE
-            = "materialized_view_rewrite_enable_contain_foreign_table";
+    public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE
+            = "materialized_view_rewrite_enable_contain_external_table";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
@@ -689,7 +701,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
                         setter = "setFragmentInstanceNum")
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 8;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
                         setter = "setPipelineTaskNum")
@@ -783,11 +795,23 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
-    private boolean enableSharedScan = false;
+    private boolean enableSharedScan = true;
 
-    @VariableMgr.VarAttr(name = IGNORE_SCAN_DISTRIBUTION, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
-    private boolean ignoreScanDistribution = false;
+    private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private int parallelScanMaxScannersCount = 48;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private long parallelScanMinRowsPerScanner = 2097152; // 2MB
+
+    @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean ignoreStorageDataDistribution = true;
 
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -795,7 +819,8 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable local shuffle on pipelineX engine."})
     private boolean enableLocalShuffle = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -810,12 +835,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_MV_REWRITE, needForward = true)
-    public boolean enableExternalMvRewrite = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_MV_REWRITE, needForward = true)
-    public boolean enableMvRewrite = false;
-
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
     // Default value is 1Gto
@@ -828,6 +847,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     private boolean enableFoldConstantByBe = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
+    private boolean enableRewriteElementAtToSlot = true;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -956,7 +977,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, varType = VariableAnnotation.DEPRECATED)
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = true;
 
     @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
@@ -1203,6 +1224,11 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
 
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
+        "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
+    public boolean enablePushDownMinMaxOnUnique = false;
+
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
@@ -1328,7 +1354,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
-    public int loadStreamPerNode = 20;
+    public int loadStreamPerNode = 60;
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";
@@ -1425,7 +1451,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
-    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+    public long hugeTableLowerBoundSizeInBytes = 0;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
@@ -1433,7 +1459,7 @@ public class SessionVariable implements Serializable, Writable {
                     "This controls the minimum time interval for automatic ANALYZE on large tables."
                             + "Within this interval,"
                             + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(0);
 
     @VariableMgr.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对外表的自动ANALYZE的最小时间间隔，在该时间间隔内的外表仅ANALYZE一次",
@@ -1455,11 +1481,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = false;
 
-    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE, needForward = true,
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_EXTERNAL_TABLE, needForward = true,
             description = {"基于结构信息的透明改写，是否使用包含外表的物化视图",
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
-    public boolean materializedViewRewriteEnableContainForeignTable = false;
+    public boolean materializedViewRewriteEnableContainExternalTable = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -1506,6 +1532,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
+    @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
@@ -1529,7 +1556,6 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
         }
-        this.runtimeFilterType = 1 << randomInt;
         /*
         switch (randomInt) {
             case 0:
@@ -1571,6 +1597,26 @@ public class SessionVariable implements Serializable, Writable {
                 case 3:
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
+                default:
+                    break;
+            }
+
+            this.runtimeFilterType = 1 << randomInt;
+            this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
+            switch (randomInt) {
+                case 0:
+                    this.parallelScanMaxScannersCount = 32;
+                    this.parallelScanMinRowsPerScanner = 64;
+                    break;
+                case 1:
+                    this.parallelScanMaxScannersCount = 16;
+                    this.parallelScanMinRowsPerScanner = 128;
+                    break;
+                case 2:
+                    this.parallelScanMaxScannersCount = 8;
+                    this.parallelScanMinRowsPerScanner = 256;
+                    break;
+                case 3:
                 default:
                     break;
             }
@@ -1960,6 +2006,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoldConstantByBe;
     }
 
+    public boolean isEnableRewriteElementAtToSlot() {
+        return enableRewriteElementAtToSlot;
+    }
+
+    public void setEnableRewriteElementAtToSlot(boolean rewriteElementAtToSlot) {
+        enableRewriteElementAtToSlot = rewriteElementAtToSlot;
+    }
+
     public boolean isEnableNereidsDML() {
         return enableNereidsDML;
     }
@@ -1969,6 +2023,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
+                    .getParallelFragmentExecInstanceNum(connectContext.getQualifiedUser());
+            if (userParallelExecInstanceNum > 0) {
+                return userParallelExecInstanceNum;
+            }
+        }
         if (getEnablePipelineEngine() && parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
@@ -2404,6 +2466,14 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
     /**
      * Nereids only support vectorized engine.
      *
@@ -2591,22 +2661,6 @@ public class SessionVariable implements Serializable, Writable {
                         : maxTableCountUseCascadesJoinReorder;
     }
 
-    public boolean isEnableExternalMvRewrite() {
-        return enableExternalMvRewrite;
-    }
-
-    public void setEnableExternalMvRewrite(boolean enableExternalMvRewrite) {
-        this.enableExternalMvRewrite = enableExternalMvRewrite;
-    }
-
-    public boolean isEnableMvRewrite() {
-        return enableMvRewrite;
-    }
-
-    public void setEnableMvRewrite(boolean enableMvRewrite) {
-        this.enableMvRewrite = enableMvRewrite;
-    }
-
     public boolean isShowUserDefaultRole() {
         return showUserDefaultRole;
     }
@@ -2699,7 +2753,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
-        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
@@ -2748,6 +2802,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
+        tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
 
         return tResult;
     }
@@ -3062,6 +3120,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableSharedScan;
     }
 
+    public void setEnableSharedScan(boolean value) {
+        enableSharedScan = value;
+    }
+
+    public boolean getEnableParallelScan() {
+        return enableParallelScan;
+    }
+
     public boolean getEnablePipelineXEngine() {
         return enablePipelineXEngine;
     }
@@ -3147,7 +3213,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableInsertGroupCommit() {
-        return Config.wait_internal_group_commit_finish || GroupCommitBlockSink.parseGroupCommit(groupCommit) != null;
+        return Config.wait_internal_group_commit_finish
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.SYNC_MODE;
     }
 
     public String getGroupCommit() {
@@ -3161,15 +3229,16 @@ public class SessionVariable implements Serializable, Writable {
         return enableMaterializedViewRewrite;
     }
 
-    public boolean isMaterializedViewRewriteEnableContainForeignTable() {
-        return materializedViewRewriteEnableContainForeignTable;
+    public boolean isMaterializedViewRewriteEnableContainExternalTable() {
+        return materializedViewRewriteEnableContainExternalTable;
     }
 
-    public boolean isIgnoreScanDistribution() {
-        return ignoreScanDistribution && getEnablePipelineXEngine() && enableLocalShuffle;
+    public boolean isIgnoreStorageDataDistribution() {
+        return ignoreStorageDataDistribution && getEnablePipelineXEngine() && enableLocalShuffle
+                && enableNereidsPlanner;
     }
 
-    public void setIgnoreScanDistribution(boolean ignoreScanDistribution) {
-        this.ignoreScanDistribution = ignoreScanDistribution;
+    public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
+        this.ignoreStorageDataDistribution = ignoreStorageDataDistribution;
     }
 }

@@ -208,7 +208,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
     /// Different with compute layer, the DecimalV1 was stored as decimal12_t(12 bytes).
     using StorageFieldType = decimal12_t;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128>;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V2>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -224,9 +224,9 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
-    using CppType = vectorized::Decimal128I;
+    using CppType = vectorized::Decimal128V3;
     using StorageFieldType = vectorized::Int128;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V3>;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL256> {

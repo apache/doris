@@ -528,10 +528,11 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
                                                   rows);
-
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
+        block->set_columns(std::move(mutate_columns));
 
         *read_rows = rows;
         if (_current_group_reader->get_remaining_rows() == 0) {

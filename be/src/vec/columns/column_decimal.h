@@ -124,11 +124,16 @@ public:
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
-        const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-        for (uint32_t i = 0; i < new_size; ++i) {
-            data[origin_size + i] = src_data[indices_begin[i]];
-        }
+        auto copy = [](const T* __restrict src, T* __restrict dest,
+                       const uint32_t* __restrict begin, const uint32_t* __restrict end) {
+            for (auto it = begin; it != end; ++it) {
+                *dest = src[*it];
+                ++dest;
+            }
+        };
+        copy(reinterpret_cast<const T*>(src.get_raw_data().data), data.data() + origin_size,
+             indices_begin, indices_end);
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
@@ -260,6 +265,8 @@ public:
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

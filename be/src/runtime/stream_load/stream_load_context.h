@@ -139,6 +139,7 @@ public:
     int64_t table_id = -1;
     int64_t schema_version = -1;
     std::string label;
+    std::string sql_str;
     // optional
     std::string sub_label;
     double max_filter_ratio = 0.0;

@@ -383,7 +383,7 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
         data_column = (*std::move(column.column)).mutate();
     }
     auto& decimal_data =
-            static_cast<ColumnDecimal<vectorized::Decimal128>&>(*data_column).get_data();
+            static_cast<ColumnDecimal<vectorized::Decimal128V2>&>(*data_column).get_data();
     for (auto i = 0; i < num_elements; ++i) {
         auto idx = counter - num_elements + i;
         if (is_nullable) {
@@ -399,41 +399,6 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
             ASSERT_EQ(Int128(decimal_data[idx]), expect_value);
         }
     }
-}
-
-template <bool is_nullable>
-void test_decimalv2(std::shared_ptr<arrow::Decimal128Type> type,
-                    const std::vector<std::string>& test_cases, size_t num_elements) {
-    size_t counter = 0;
-    auto pt = arrow_type_to_primitive_type(type->id());
-    ASSERT_NE(pt, INVALID_TYPE);
-    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, true);
-    MutableColumnPtr data_column = data_type->create_column();
-    ColumnWithTypeAndName column(std::move(data_column), data_type, "test_numeric_column");
-    auto max_result =
-            vectorized::DataTypeDecimal<vectorized::Decimal128>::get_max_digits_number(27);
-    auto min_result = -max_result;
-    for (auto& str : test_cases) {
-        int128_t value = DecimalV2Value(str).value();
-        int128_t expect_value =
-                convert_decimals<vectorized::DataTypeDecimal<vectorized::Decimal128>,
-                                 vectorized::DataTypeDecimal<vectorized::Decimal128>, true, true>(
-                        value, type->scale(), 9, min_result, max_result);
-        test_arrow_to_decimal_column<is_nullable>(type, column, num_elements, value, expect_value,
-                                                  counter);
-    }
-}
-
-TEST(ArrowColumnToDorisColumnTest, test_decimalv2) {
-    std::vector<std::string> test_cases = {"1.2345678", "-12.34567890", "99999999999.99999999",
-                                           "-99999999999.99999999"};
-    auto type_p27s9 = std::make_shared<arrow::Decimal128Type>(27, 9);
-    test_decimalv2<false>(type_p27s9, test_cases, 64);
-    test_decimalv2<true>(type_p27s9, test_cases, 64);
-
-    auto type_p27s25 = std::make_shared<arrow::Decimal128Type>(27, 25);
-    test_decimalv2<false>(type_p27s25, test_cases, 128);
-    test_decimalv2<true>(type_p27s25, test_cases, 128);
 }
 
 template <int bytes_width, bool is_nullable = false>
