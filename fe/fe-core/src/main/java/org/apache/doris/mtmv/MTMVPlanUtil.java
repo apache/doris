@@ -41,6 +41,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPlanUtil {
@@ -57,6 +58,10 @@ public class MTMVPlanUtil {
         ctx.changeDefaultCatalog(catalog.getName());
         ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+        if (workloadGroup.isPresent()) {
+            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        }
         return ctx;
     }
 

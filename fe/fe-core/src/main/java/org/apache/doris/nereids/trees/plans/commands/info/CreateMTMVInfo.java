@@ -199,6 +199,18 @@ public class CreateMTMVInfo {
             mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables);
             properties.remove(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP)) {
+            String workloadGroup = properties.get(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP);
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup, PrivPredicate.USAGE)) {
+                String message = String
+                        .format("Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                                "USAGE/ADMIN", workloadGroup);
+                throw new AnalysisException(message);
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP, workloadGroup);
+            properties.remove(PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP);
+        }
     }
 
     /**

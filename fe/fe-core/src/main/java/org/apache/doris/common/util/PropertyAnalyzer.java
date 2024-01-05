@@ -164,6 +164,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
+    public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
