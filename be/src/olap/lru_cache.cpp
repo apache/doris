@@ -356,8 +356,12 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
-    e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : 1);
+    // if LRUCacheType::NUMBER, charge not add handle_size,
+    // because charge at this time is no longer the memory size, but an independent weight.
+    e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : charge);
     DCHECK(_type == LRUCacheType::SIZE || bytes != -1) << " _type " << _type;
+    // if LRUCacheType::NUMBER and bytes equals 0, such as some caches cannot accurately track memory size.
+    // cache mem tracker value divided by handle_size(106) will get the number of cache entries.
     e->bytes = (_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
