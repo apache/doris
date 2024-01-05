@@ -971,9 +971,7 @@ public class OlapScanNode extends ScanNode {
         long selectedRows = 0;
         long totalSampleRows = 0;
         List<Long> selectedPartitionList = new ArrayList<>();
-        if (FeConstants.runningUnitTest && selectedIndexId == -1) {
-            selectedIndexId = olapTable.getBaseIndexId();
-        }
+        Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
