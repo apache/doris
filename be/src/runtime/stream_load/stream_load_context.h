@@ -231,6 +231,8 @@ public:
     // for single-stream-multi-table, we have table list
     std::vector<std::string> table_list;
 
+    bool memtable_on_sink_node = false;
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 
