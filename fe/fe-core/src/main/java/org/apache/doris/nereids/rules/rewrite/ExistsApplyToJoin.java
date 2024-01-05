@@ -45,27 +45,27 @@ import java.util.ArrayList;
 import java.util.Optional;
 
 /**
- * Convert Existsapply to LogicalJoin.
+ * Convert ExistsApply to LogicalJoin.
  * <p>
  * Exists
  *    Correlated -> LEFT_SEMI_JOIN
  *         apply                  LEFT_SEMI_JOIN(Correlated Predicate)
  *      /       \         -->       /           \
  *    input    queryPlan          input        queryPlan
- *
+ * <p>
  *    UnCorrelated -> CROSS_JOIN(limit(1))
  *          apply                       CROSS_JOIN
  *      /           \          -->      /       \
  *    input        queryPlan          input    limit(1)
  *                                               |
  *                                             queryPlan
- *
+ * <p>
  * Not Exists
  *    Correlated -> LEFT_ANTI_JOIN
  *          apply                  LEFT_ANTI_JOIN(Correlated Predicate)
  *       /       \         -->       /           \
  *     input    queryPlan          input        queryPlan
- *
+ * <p>
  *    UnCorrelated -> CROSS_JOIN(Count(*))
  *                                    Filter(count(*) = 0)
  *                                          |
@@ -89,29 +89,24 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         }).toRule(RuleType.EXISTS_APPLY_TO_JOIN);
     }
 
-    private Plan correlatedToJoin(LogicalApply apply) {
+    private Plan correlatedToJoin(LogicalApply<?, ?> apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
-        Expression predicate = correlationFilter.get();
         if (((Exists) apply.getSubqueryExpr()).isNot()) {
             return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                    predicate != null
-                        ? ExpressionUtils.extractConjunction(predicate)
-                        : ExpressionUtils.EMPTY_CONDITION,
+                    correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
                     apply.children());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                    predicate != null
-                        ? ExpressionUtils.extractConjunction(predicate)
-                        : ExpressionUtils.EMPTY_CONDITION,
+                    correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
                     apply.children());
         }
     }
 
-    private Plan unCorrelatedToJoin(LogicalApply unapply) {
+    private Plan unCorrelatedToJoin(LogicalApply<?, ?> unapply) {
         if (((Exists) unapply.getSubqueryExpr()).isNot()) {
             return unCorrelatedNotExist(unapply);
         } else {
@@ -119,21 +114,22 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
         }
     }
 
-    private Plan unCorrelatedNotExist(LogicalApply unapply) {
-        LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
+    private Plan unCorrelatedNotExist(LogicalApply<?, ?> unapply) {
+        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         Alias alias = new Alias(new Count(), "count(*)");
-        LogicalAggregate newAgg = new LogicalAggregate<>(new ArrayList<>(),
+        LogicalAggregate<?> newAgg = new LogicalAggregate<>(new ArrayList<>(),
                 ImmutableList.of(alias), newLimit);
-        LogicalJoin newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
+        LogicalJoin<?, ?> newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
-                new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
+                new DistributeHint(DistributeType.NONE),
+                unapply.getMarkJoinSlotReference(),
                 (LogicalPlan) unapply.left(), newAgg);
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
                 new IntegerLiteral(0))), newJoin);
     }
 
-    private Plan unCorrelatedExist(LogicalApply unapply) {
-        LogicalLimit newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
+    private Plan unCorrelatedExist(LogicalApply<?, ?> unapply) {
+        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
             ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
