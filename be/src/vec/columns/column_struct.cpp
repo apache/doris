@@ -191,19 +191,13 @@ int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
 
     const size_t lhs_tuple_size = columns.size();
     const size_t rhs_tuple_size = rhs.tuple_size();
-
-    if (rhs_tuple_size < lhs_tuple_size) {
-        return -1;
-    } else if (rhs_tuple_size > lhs_tuple_size) {
-        return 1;
-    } else {
-        for (size_t i = 0; i < lhs_tuple_size; ++i) {
-            if (int res = columns[i]->compare_at(n, m, *rhs.columns[i], nan_direction_hint); res) {
-                return res;
-            }
+    const size_t min_size = std::min(lhs_tuple_size, rhs_tuple_size);
+    for (size_t i = 0; i < min_size; ++i) {
+        if (int res = columns[i]->compare_at(n, m, *rhs.columns[i], nan_direction_hint); res) {
+            return res;
         }
     }
-    return 0;
+    return lhs_tuple_size > rhs_tuple_size ? 1 : (lhs_tuple_size < rhs_tuple_size ? -1 : 0);
 }
 
 void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
