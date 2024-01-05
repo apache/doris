@@ -614,14 +614,16 @@ private:
             size_t col_size = nullable_src->size();
             auto col_res = ColumnUInt8::create(col_size, 0);
             auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+            auto& null_map_data = null_map->get_data();
 
             for (size_t i = 0; i < col_size; ++i) {
                 if (nullable_src->is_null_at(i)) {
-                    null_map->get_data()[i] = 1;
+                    null_map_data[i] = 1;
                 } else {
                     StringRef ipv4_str = nullable_src->get_data_at(i);
                     if (IPv4Value::is_valid_string(ipv4_str.data, ipv4_str.size)) {
-                        col_res->get_data()[i] = 1;
+                        col_res_data[i] = 1;
                     }
                 }
             }
@@ -633,11 +635,12 @@ private:
             size_t col_size = col_src->size();
             auto col_res = ColumnUInt8::create(col_size, 0);
             auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
 
             for (size_t i = 0; i < col_size; ++i) {
                 StringRef ipv4_str = col_src->get_data_at(i);
                 if (IPv4Value::is_valid_string(ipv4_str.data, ipv4_str.size)) {
-                    col_res->get_data()[i] = 1;
+                    col_res_data[i] = 1;
                 }
             }
 
@@ -681,14 +684,16 @@ private:
             size_t col_size = nullable_src->size();
             auto col_res = ColumnUInt8::create(col_size, 0);
             auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+            auto& null_map_data = null_map->get_data();
 
             for (size_t i = 0; i < col_size; ++i) {
                 if (nullable_src->is_null_at(i)) {
-                    null_map->get_data()[i] = 1;
+                    null_map_data[i] = 1;
                 } else {
                     StringRef ipv6_str = nullable_src->get_data_at(i);
                     if (IPv6Value::is_valid_string(ipv6_str.data, ipv6_str.size)) {
-                        col_res->get_data()[i] = 1;
+                        col_res_data[i] = 1;
                     }
                 }
             }
@@ -700,11 +705,12 @@ private:
             size_t col_size = col_src->size();
             auto col_res = ColumnUInt8::create(col_size, 0);
             auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
 
             for (size_t i = 0; i < col_size; ++i) {
                 StringRef ipv6_str = col_src->get_data_at(i);
                 if (IPv6Value::is_valid_string(ipv6_str.data, ipv6_str.size)) {
-                    col_res->get_data()[i] = 1;
+                    col_res_data[i] = 1;
                 }
             }
 
