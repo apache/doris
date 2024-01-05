@@ -150,8 +150,6 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
                                      type->get_name());
     }
     Block tmp_block {arguments};
-    vectorized::ColumnNumbers argnum;
-    argnum.emplace_back(0);
     size_t result_column = tmp_block.columns();
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
@@ -159,9 +157,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     ctx->set_string_as_jsonb_string(true);
     tmp_block.insert({nullptr, type, arg.name});
     RETURN_IF_ERROR(
-            function->execute(ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
-    *result = std::move(tmp_block.get_by_position(result_column).column)
-                      ->convert_to_full_column_if_const();
+            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
+    *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
     return Status::OK();
 }
 

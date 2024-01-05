@@ -403,9 +403,9 @@ size_t Block::bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
-                    ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->byte_size();
     }
@@ -421,9 +421,9 @@ size_t Block::allocated_bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
-                    elem.name, ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->allocated_bytes();
     }
