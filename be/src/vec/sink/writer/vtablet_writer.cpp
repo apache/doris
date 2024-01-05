@@ -1623,12 +1623,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
 
+    _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
@@ -1637,6 +1639,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    _row_distribution_watch.stop();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
