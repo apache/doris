@@ -93,12 +93,12 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-u
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/be_custom.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/fe_custom.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/clickbench/conf/opt_session_variables.sql &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/check-query-result.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/queries-sort.sql &&
-    -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/query-result-target/ &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/be_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/fe_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/opt_session_variables.sql &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/check-query-result.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/queries-sort.sql &&
+    -d "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/query-result-target/ &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/prepare.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/compile.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/deploy.sh &&
