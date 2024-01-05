@@ -80,8 +80,6 @@ public class SystemInfoService {
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
-    private int lastSelectedBackendIndex = 0;
-
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
         public int port;
