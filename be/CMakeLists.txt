@@ -464,6 +464,7 @@ set(AWS_LIBS
     aws-c-compression
     aws-c-http
     aws-c-mqtt
+    aws-c-sdkutils
     aws-sdk-s3-crt)
 
 if (OS_MACOSX)
