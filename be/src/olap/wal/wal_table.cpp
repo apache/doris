@@ -38,8 +38,7 @@
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
-}
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {}
 WalTable::~WalTable() {}
 
 #ifdef BE_TEST

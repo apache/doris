@@ -125,8 +125,10 @@ TEST_F(WalManagerTest, recovery_normal) {
     res = std::filesystem::create_directory(wal_dir.string() + "/" + db_id + "/" +
                                             std::to_string(tb_2_id));
     ASSERT_TRUE(res);
-    std::string wal_200 = wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_200_id;
-    std::string wal_201 = wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_201_id;
+    std::string wal_200 =
+            wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_200_id;
+    std::string wal_201 =
+            wal_dir.string() + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_201_id;
     createWal(wal_200);
     createWal(wal_201);
     Status st = _env->wal_mgr()->init();
