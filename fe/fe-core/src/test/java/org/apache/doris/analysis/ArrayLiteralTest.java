@@ -142,5 +142,4 @@ public class ArrayLiteralTest  {
         Assert.assertEquals("[{\"1\", \"2.15\", \"2022-10-10\"}]", arrayLiteral15.getStringValueForArray());
 
     }
->>>>>>> 7bee504ad6 (fix map/struct literal in fe)
 }
