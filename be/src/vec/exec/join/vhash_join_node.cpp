@@ -824,7 +824,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                           state, arg.hash_table->size()));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
-                                  RETURN_IF_ERROR(_runtime_filter_slots->publish());
+                                  RETURN_IF_ERROR(_runtime_filter_slots->publish(true));
                                   return Status::OK();
                               }},
                     *_hash_table_variants);

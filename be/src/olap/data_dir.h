@@ -43,6 +43,8 @@ class TxnManager;
 class OlapMeta;
 class RowsetIdGenerator;
 
+const char* const kTestFilePath = ".testfile";
+
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("jira8317") {
+suite("doris8317") {
     sql """
     DROP TABLE IF EXISTS `table_1000_undef_undef2`;
     """

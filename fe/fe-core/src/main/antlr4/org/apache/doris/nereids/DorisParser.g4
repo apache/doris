@@ -334,13 +334,13 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN joinHint? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
-joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
-    | HINT_START identifier HINT_END                                  #commentJoinHint
+distributeType
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
+    | HINT_START identifier HINT_END                                  #commentDistributeType
     ;
 
 relationHint
