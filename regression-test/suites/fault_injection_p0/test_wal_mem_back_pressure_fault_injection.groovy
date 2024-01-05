@@ -40,23 +40,23 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
                 def be = bes[0]
                     def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
                     logger.info("observer url: " + url)
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
-                        sb.append("/rest/v2/manager/node/set_config/be")
-                        sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
-                        sb.append(""" -d \"{\\"group_commit_queue_mem_limit\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"0\\",\\"persist\\": \\"false\\"}}\"""")
-                        String command = sb.toString()
-                        logger.info(command)
-                        def process = command.execute()
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
+                    sb.append("/rest/v2/manager/node/set_config/be")
+                    sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
+                    sb.append(""" -d \"{\\"group_commit_queue_mem_limit\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"0\\",\\"persist\\": \\"false\\"}}\"""")
+                    String command = sb.toString()
+                    logger.info(command)
+                    def process = command.execute()
 
-                        sb = new StringBuilder();
-                        sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
-                        sb.append("/rest/v2/manager/node/set_config/be")
-                        sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
-                        sb.append(""" -d \"{\\"group_commit_memory_rows_for_max_filter_ratio\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"0\\",\\"persist\\": \\"false\\"}}\"""")
-                        String command = sb.toString()
-                        logger.info(command)
-                        def process = command.execute()
+                    sb = new StringBuilder();
+                    sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
+                    sb.append("/rest/v2/manager/node/set_config/be")
+                    sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
+                    sb.append(""" -d \"{\\"group_commit_memory_rows_for_max_filter_ratio\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"0\\",\\"persist\\": \\"false\\"}}\"""")
+                    command = sb.toString()
+                    logger.info(command)
+                    process = command.execute()
         } finally {
         }
     }
@@ -70,23 +70,23 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
                 def be = bes[0]
                     def url = "jdbc:mysql://${fe.Host}:${fe.QueryPort}/"
                     logger.info("observer url: " + url)
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
-                        sb.append("/rest/v2/manager/node/set_config/be")
-                        sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
-                        sb.append(""" -d \"{\\"group_commit_queue_mem_limit\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"67108864\\",\\"persist\\": \\"false\\"}}\"""")
-                        String command = sb.toString()
-                        logger.info(command)
-                        def process = command.execute()
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
+                    sb.append("/rest/v2/manager/node/set_config/be")
+                    sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
+                    sb.append(""" -d \"{\\"group_commit_queue_mem_limit\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"67108864\\",\\"persist\\": \\"false\\"}}\"""")
+                    String command = sb.toString()
+                    logger.info(command)
+                    def process = command.execute()
 
-                        sb = new StringBuilder();
-                        sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
-                        sb.append("/rest/v2/manager/node/set_config/be")
-                        sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
-                        sb.append(""" -d \"{\\"group_commit_memory_rows_for_max_filter_ratio\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"10000\\",\\"persist\\": \\"false\\"}}\"""")
-                        String command = sb.toString()
-                        logger.info(command)
-                        def process = command.execute()
+                    sb = new StringBuilder();
+                    sb.append("curl -X POST http://${fe.Host}:${fe.HttpPort}")
+                    sb.append("/rest/v2/manager/node/set_config/be")
+                    sb.append(" -H \"Content-Type: application/json\" -H \"Authorization: Basic cm9vdDo= \"")
+                    sb.append(""" -d \"{\\"group_commit_memory_rows_for_max_filter_ratio\\": {\\"node\\": [\\"${be.Host}:${be.HttpPort}\\"],\\"value\\": \\"10000\\",\\"persist\\": \\"false\\"}}\"""")
+                    command = sb.toString()
+                    logger.info(command)
+                    process = command.execute()
         } finally {
         }
     }
@@ -101,7 +101,6 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains('Communications link failure'))
         } finally {
-            disable_back_pressure()
             finish  = true
         }
     })
@@ -113,13 +112,14 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
         processList.each { item ->
             logger.info(item[1].toString())
             logger.info(item[11].toString())
-            if (item[11].toString() == "insert into ${tableName} values(1,1)".toString()){
+            if (item[11].toString() == "".toString()){
                 def res = sql "kill ${item[1]}"
                 logger.info(res.toString())
             }
         }
         sleep(1000)
     }
+    disable_back_pressure()
 
     thread1.join()
 
