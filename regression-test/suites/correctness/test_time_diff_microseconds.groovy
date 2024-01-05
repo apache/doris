@@ -43,6 +43,7 @@ suite("test_time_diff_microseconds") {
     """
 
     sql """set enable_nereids_planner=false"""
+    sql """set enable_fold_constant_by_be=false"""
 
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
