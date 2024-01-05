@@ -2494,7 +2494,7 @@ Status Tablet::remove_all_remote_rowsets() {
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
-               t->tablet_state() == TABLET_RUNNING;
+               t->tablet_state() == TABLET_RUNNING && t->_cooldown_replica_id == t->replica_id();
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
