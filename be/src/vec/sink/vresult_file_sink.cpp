@@ -113,63 +113,53 @@ Status VResultFileSink::open(RuntimeState* state) {
     return AsyncWriterSink::open(state);
 }
 
-Status VResultFileSink::try_close(RuntimeState* state, Status exec_status) {
-    if (_closed) {
-        LOG_WARNING("Closing a closed result file sink");
-        return Status::OK();
-    }
-
+Status VResultFileSink::try_close(RuntimeState* state, Status /*exec_status*/) {
     if (_writer == nullptr) {
         LOG_WARNING("writer of result file sink is not initialized");
         return Status::RuntimeError("writer of result file sink is not initialized");
     }
 
-    LOG_INFO("VResultFileSink try closing {}", exec_status.to_string_no_stack());
+    RETURN_IF_ERROR(_writer->try_close(state, Status::OK()));
 
-    // here we should rename _writer->cloes to _writer->try_close
-    // to make read code easily
-    // check of EOF should be left to operator
-    RETURN_IF_ERROR(_writer->try_close(state, exec_status));
-
-    if (_is_top_sink) {
-        LOG_INFO("VResultFileSink");
-        if (_sender) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
-            // WIP: close -> flush
-            LOG_INFO("VResultFileSink");
-            RETURN_IF_ERROR(_sender->close(exec_status));
-        }
-        LOG_INFO("VResultFileSink");
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->result_mgr()->cancel_at_time(
-                time(nullptr) + config::result_buffer_cancelled_interval_time,
-                state->fragment_instance_id()));
-    } else {
-        LOG_INFO("VResultFileSink");
+    if (!_is_top_sink) {
         RETURN_IF_ERROR(_stream_sender->send(state, _output_block.get(), true));
-        // WIP: close -> flush
-        RETURN_IF_ERROR(_stream_sender->close(state, exec_status));
+        RETURN_IF_ERROR(_stream_sender->close(state, Status::OK()));
         _output_block->clear();
     }
-    _closed = true;
-    LOG_INFO("VResultFileSink");
+
     return Status::OK();
 }
 
-Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
+Status VResultFileSink::close(RuntimeState* state, Status /*exec_status*/) {
     if (_writer == nullptr) {
         LOG_WARNING("writer of result file sink is not initialized");
         return Status::RuntimeError("writer of result file sink is not initialized");
     }
 
+    auto try_close_status = Status::OK();
     // PlanFragmentExecutor does not call DataSink::try_close() so we need to call it manually
     if (!state->enable_pipeline_exec()) {
-        auto try_close_st = try_close(state, exec_status);
-        if (!try_close_st.ok()) {
-            LOG_WARNING(try_close_st.to_string_no_stack());
-        }
+        RETURN_IF_ERROR(try_close(state, Status::OK()));
     }
 
-    return _writer->close(exec_status);
+    _closed = true;
+
+    RETURN_IF_ERROR(_writer->close(Status::OK()));
+    
+    if (_is_top_sink) {
+        // ResultSender must be closed by VResultFileSink::close since we need to wait io threads
+        // finished
+        if (_sender) {
+            _sender->update_num_written_rows(_writer->get_written_rows());
+            // idempotent of close if guaranteed by _buffer_control_block
+            RETURN_IF_ERROR(_sender->close(Status::OK()));
+        }
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->result_mgr()->cancel_at_time(
+                time(nullptr) + config::result_buffer_cancelled_interval_time,
+                state->fragment_instance_id()));
+    }
+
+    return Status::OK();
 }
 
 void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {

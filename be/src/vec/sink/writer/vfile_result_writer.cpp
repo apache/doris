@@ -92,8 +92,11 @@ Status VFileResultWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     }
 
     auto status = _create_next_file_writer();
+    std::lock_guard<std::mutex> lg(_m);
     if (status.ok()) {
         _is_opened = true;
+    } else {
+        _writer_status = status;
     }
 
     return status;
@@ -434,17 +437,30 @@ Status VFileResultWriter::try_close(RuntimeState* state, Status /*status*/) {
     std::unique_lock<std::mutex> lock(_m);
     _is_closed = true;
     if (!_is_opened) {
-        return Status::OK();
+        // _is_opened = true is set in VFileResultWriter::open
+        // for non pipeline, we will reach here ONLY after open is finished
+        // for pipeline, we will reach here ONLY after open is finished either.
+        // because if process_block thread is still opening, it will not set _writer_thread_closed to true
+        // so PipelineTask will be in PENDING_FINISH state, TaskScheduler does not have chance to call try_close
+        LOG_ERROR("File result writer is not opened. {}", _writer_status.to_string_no_stack());
+        return Status::RuntimeError("File result writer is not opened. Writer state {}", _writer_status.to_string_no_stack());
     }
+
+    // _try_close failed will make query status to abnormal in pipeline
+    RETURN_IF_ERROR(_writer_status);
 
     if (state->enable_pipeline_exec()) {
-        // 对于 pipeline，只需要让 process_block 线程继续工作就可以了
-        // notify process_block to flush all data
+        // for pipeline，just notity process_block keep working
+        // TaskScheduler will move task to _blocked_task_queue if there are still pending data
         _cv.notify_one();
+    } else {
+        // for non-pipeline, reach here means already eos(stored in AsyncResultWriter).
+        // we just need to wait until data_queue is empty, _writer_thread_closed is set
+        // only in pipeline engine.
+        while (!_data_queue.empty()) {
+            _cv.wait(lock);
+        }
     }
-
-    // 对于非 pipeline，执行到 try_close 的时候一定已经是 eos 之后了
-    // 所以直接返回就行了
 
     return Status::OK();
 }
@@ -460,14 +476,14 @@ Status VFileResultWriter::close(Status /*status*/) {
         SCOPED_TIMER(_writer_close_timer);
     }
 
-    auto ret = _close_file_writer(true);
+    auto close_status = _close_file_writer(true);
 
     std::unique_lock<std::mutex> lock(_m);
     _is_closed = true;
+    // for pipeline execution
     _cv.notify_one();
-    LOG_INFO("async AsyncResultWriter closed");
 
-    return ret;
+    return _writer_status.ok() ? close_status : _writer_status;
 }
 
 } // namespace doris::vectorized
