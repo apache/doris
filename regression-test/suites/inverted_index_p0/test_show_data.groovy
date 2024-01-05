@@ -17,7 +17,7 @@
 
 suite("test_show_data", "p0") {
     // define a sql table
-    def testTable_dup = "httplogs_dup"
+    def testTable = "test_show_data_httplogs"
     def delta_time = 5000
     def timeout = 60000
     String database = context.config.getDbNameByFile(context.file)
@@ -131,23 +131,23 @@ suite("test_show_data", "p0") {
     }
 
     try {
-        sql "DROP TABLE IF EXISTS ${testTable_dup}"
+        sql "DROP TABLE IF EXISTS ${testTable}"
 
-        create_httplogs_dup_table.call(testTable_dup)
+        create_httplogs_dup_table.call(testTable)
 
-        load_httplogs_data.call(testTable_dup, 'test_httplogs_load', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(testTable, 'test_httplogs_load', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        def no_index_size = wait_for_show_data_finish(testTable_dup, 90000, 0)
+        def no_index_size = wait_for_show_data_finish(testTable, 90000, 0)
         assertTrue(no_index_size != "wait_timeout")
-        sql """ ALTER TABLE ${testTable_dup} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
-        wait_for_latest_op_on_table_finish(testTable_dup, timeout)
+        sql """ ALTER TABLE ${testTable} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
+        wait_for_latest_op_on_table_finish(testTable, timeout)
 
         // BUILD INDEX and expect state is RUNNING
-        sql """ BUILD INDEX idx_request ON ${testTable_dup} """
-        def state = wait_for_last_build_index_on_table_finish(testTable_dup, timeout)
+        sql """ BUILD INDEX idx_request ON ${testTable} """
+        def state = wait_for_last_build_index_on_table_finish(testTable, timeout)
         assertEquals(state, "FINISHED")
-        def with_index_size = wait_for_show_data_finish(testTable_dup, 90000, no_index_size)
+        def with_index_size = wait_for_show_data_finish(testTable, 90000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
