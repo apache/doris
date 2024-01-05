@@ -1191,6 +1191,7 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
+DECLARE_Bool(group_commit_wait_replay_wal_finish);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1235,6 +1236,9 @@ DECLARE_mInt64(local_exchange_buffer_mem_limit);
 DECLARE_mInt64(enable_debug_log_timeout_secs);
 
 DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 #ifdef BE_TEST
 // test s3

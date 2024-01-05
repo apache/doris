@@ -52,8 +52,12 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     }
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
-        _block_queue.push_back(block);
-        if (write_wal) {
+        if (!config::group_commit_wait_replay_wal_finish) {
+            _block_queue.push_back(block);
+        } else {
+            LOG(INFO) << "skip adding block to queue on txn " << txn_id;
+        }
+        if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
             if (!st.ok()) {
                 _cancel_without_lock(st);
@@ -383,9 +387,11 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // result_status: commit txn result
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(
-                txn_id, load_block_queue->block_queue_pre_allocated()));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
+        if (!config::group_commit_wait_replay_wal_finish) {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(
+                    txn_id, load_block_queue->block_queue_pre_allocated()));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
+        }
     } else {
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
@@ -491,10 +497,13 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
-            db_id, tb_id, wal_id, import_label, _wal_base_path));
+    std::string real_label = config::group_commit_wait_replay_wal_finish
+                                     ? import_label + "_test_wait"
+                                     : import_label;
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(db_id, tb_id, wal_id,
+                                                                       real_label, _wal_base_path));
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
+            db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

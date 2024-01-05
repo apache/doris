@@ -1,7 +1,7 @@
 ---
 {
 "title": "IPV6_NUM_TO_STRING",
-"language": "en"
+"language": "zh-CN"
 }
 ---
 

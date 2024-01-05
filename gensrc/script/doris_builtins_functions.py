@@ -2006,6 +2006,12 @@ visible_functions = {
         [['ipv4stringtonumornull'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],  
         [['ipv6numtostring','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
         [['ipv6numtostring','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],       
+        [['ipv6_string_to_num','inet6_aton'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num','inet6_aton'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],  
     ],
 
     "NonNullalbe": [
