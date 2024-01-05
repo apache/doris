@@ -32,6 +32,7 @@
 #include "gen_cpp/Descriptors_types.h"     // for TTupleId
 #include "gen_cpp/FrontendService_types.h" // for TTupleId
 #include "gen_cpp/Types_types.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -115,6 +116,7 @@ public:
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
 
     int32_t col_unique_id() const { return _col_unique_id; }
+    PrimitiveType col_type() const { return _col_type; }
 
 private:
     friend class DescriptorTbl;
@@ -132,6 +134,7 @@ private:
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
+    const PrimitiveType _col_type;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE

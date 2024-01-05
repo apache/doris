@@ -40,27 +40,33 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _db_id = pschema.db_id();
     _table_id = pschema.table_id();
     _version = pschema.version();
-    std::map<std::string, SlotDescriptor*> slots_map;
+    std::map<std::pair<std::string, FieldType>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
 
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(slot_desc->col_name(), slot_desc);
+        std::string data_type;
+        EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
+        slots_map.emplace(std::make_pair(slot_desc->col_name(),
+                                         TabletColumn::get_field_type_by_string(data_type)),
+                          slot_desc);
     }
 
     for (auto& p_index : pschema.indexes()) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
-        for (auto& col : p_index.columns()) {
-            auto it = slots_map.find(col);
+        for (auto& pcolumn_desc : p_index.columns_desc()) {
+            auto it = slots_map.find(
+                    std::make_pair(pcolumn_desc.name(),
+                                   TabletColumn::get_field_type_by_string(pcolumn_desc.type())));
             if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}", col);
+                return Status::InternalError("unknown index column, column={}, type={}",
+                                             pcolumn_desc.name(), pcolumn_desc.type());
             }
             index->slots.emplace_back(it->second);
-        }
-        for (auto& pcolumn_desc : p_index.columns_desc()) {
+
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_pb(pcolumn_desc);
             index->columns.emplace_back(tc);
@@ -79,27 +85,29 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
-    std::map<std::string, SlotDescriptor*> slots_map;
+    std::map<std::pair<std::string, PrimitiveType>, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (auto& t_slot_desc : tschema.slot_descs) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(slot_desc->col_name(), slot_desc);
+        slots_map.emplace(std::make_pair(slot_desc->col_name(), slot_desc->col_type()), slot_desc);
     }
 
     for (auto& t_index : tschema.indexes) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
-        for (auto& col : t_index.columns) {
-            auto it = slots_map.find(col);
-            if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}", col);
-            }
-            index->slots.emplace_back(it->second);
-        }
         if (t_index.__isset.columns_desc) {
             for (auto& tcolumn_desc : t_index.columns_desc) {
+                auto it = slots_map.find(std::make_pair(
+                        tcolumn_desc.column_name, thrift_to_type(tcolumn_desc.column_type.type)));
+                if (it == slots_map.end()) {
+                    return Status::InternalError("unknown index column, column={}, type={}",
+                                                 tcolumn_desc.column_name,
+                                                 tcolumn_desc.column_type.type);
+                }
+                index->slots.emplace_back(it->second);
+
                 TabletColumn* tc = _obj_pool.add(new TabletColumn());
                 tc->init_from_thrift(tcolumn_desc);
                 index->columns.emplace_back(tc);

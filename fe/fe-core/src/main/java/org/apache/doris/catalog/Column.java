@@ -397,7 +397,7 @@ public class Column implements Writable, GsonPostProcessable {
 
     public TColumn toThrift() {
         TColumn tColumn = new TColumn();
-        tColumn.setColumnName(this.name);
+        tColumn.setColumnName(removeNamePrefix(this.name));
 
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());

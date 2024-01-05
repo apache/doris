@@ -304,11 +304,12 @@ public class SlotDescriptor {
 
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
                 (originType != null ? originType.toThrift() : type.toThrift()), -1, byteOffset, nullIndicatorByte,
-                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+                nullIndicatorBit, ((column != null) ? column.getNonShadowName() : ""), slotIdx, isMaterialized);
 
         if (column != null) {
-            LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
+            LOG.debug("column name:{}, column unique id:{}", column.getNonShadowName(), column.getUniqueId());
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
+            tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
         }
         return tSlotDescriptor;
     }

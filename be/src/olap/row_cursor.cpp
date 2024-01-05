@@ -51,7 +51,8 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
             return Status::Error<INIT_FAILED>();
         }
         _variable_len += column_schema(cid)->get_variable_len();
-        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING || _schema->column(cid)->type() == OLAP_FIELD_TYPE_JSONB) {
+        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING ||
+            _schema->column(cid)->type() == OLAP_FIELD_TYPE_JSONB) {
             ++_string_field_count;
         }
     }
@@ -221,7 +222,8 @@ Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
     char** long_text_ptr = _long_text_buf;
     for (auto cid : _schema->column_ids()) {
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING || _schema->column(cid)->type() == OLAP_FIELD_TYPE_JSONB) {
+        if (_schema->column(cid)->type() == OLAP_FIELD_TYPE_STRING ||
+            _schema->column(cid)->type() == OLAP_FIELD_TYPE_JSONB) {
             Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
             slice->data = *(long_text_ptr);
