@@ -335,6 +335,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_zip(array(cast ('2000-03-05' as datev2), cast ('2023-03-10' as datev2)), array(cast ('2000-02-02' as datev2), cast ('2023-03-10' as datev2)))"
     qt_sql "select array_zip(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
     qt_sql "select array_zip([1, 2, 3], null, ['foo', 'bar', 'test'])"
+    qt_sql_null "select /*+ SET_VAR(experimental_enable_nereids_planner = false, enable_fold_constant_by_be=true) */ array_zip([1, 2, 3], null, ['foo', 'bar', 'test'])"
 
     qt_sql "select array(8, null)"
     qt_sql "select array('a', 1, 2)"

@@ -475,6 +475,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     }
 
     std::stringstream out;
+    out << std::endl;
     // header upper line
     auto line = [&]() {
         for (size_t i = 0; i < columns(); ++i) {

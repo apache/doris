@@ -1895,9 +1895,8 @@ public class FunctionCallExpr extends Expr {
                 // array_zip varargs special case array_zip(array1, array2, ...)
                 // we only specialize array_zip with first array type, next type we same with custom type
                 if (i >= args.length && (fnName.getFunction().equalsIgnoreCase("array_zip"))) {
-                    if (argTypes[i].isNull()) { //select array_zip(['a', 'b', 'c'], NULL, [11, 22, 33]);
-                        Type arrayNullType = ArrayType.create(Type.NULL, true);
-                        uncheckedCastChild(arrayNullType, i);
+                    if (argTypes[i].isNull()) {
+                        uncheckedCastChild(args[i - 1], i);
                     }
                     continue;
                 }
