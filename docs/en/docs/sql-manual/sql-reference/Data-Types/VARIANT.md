@@ -29,19 +29,20 @@ under the License.
 ### Description
 
 VARIANT Type
-Introduced a new data type VARIANT in Doris 2.1, which can store semi-structured JSON data. It allows storing complex data structures containing different data types (such as integers, strings, boolean values, etc.) without the need to define specific columns in the table structure beforehand. The Variant type is particularly useful for handling complex nested structures that may change at any time. During the writing process, this type can automatically infer column information based on the structure and types of the columns, merging them into the existing Schema of the table. It stores JSON keys and their corresponding values as columns and dynamic sub-columns.
+Introduced a new data type VARIANT in Doris 2.1, which can store semi-structured JSON data. It allows storing complex data structures containing different data types (such as integers, strings, boolean values, etc.) without the need to define specific columns in the table structure beforehand. The VARIANT type is particularly useful for handling complex nested structures that may change at any time. During the writing process, this type can automatically infer column information based on the structure and types of the columns, merging them into the existing Schema of the table. It stores JSON keys and their corresponding values as columns and dynamic sub-columns.
 
 ### Note
+
 Advantages over JSON Type:
 
 1. Different storage methods: The JSON type is stored in binary JSONB format, and the entire JSON is stored row by row in segment files. In contrast, the VARIANT type infers types during writing and stores the written JSON columns. It has a higher compression ratio compared to the JSON type, providing better storage efficiency.
-2. Query: Querying does not require parsing. Variant fully utilizes columnar storage, vectorized engines, optimizers, and other components in Doris, providing users with extremely high query performance.
+2. Query: Querying does not require parsing. VARIANT fully utilizes columnar storage, vectorized engines, optimizers, and other components in Doris, providing users with extremely high query performance.
 Below are test results based on clickbench data:
 
 |    | Storage Space |
 |--------------|------------|
 | Predefined Static Columns | 24.329 GB  |
-| Variant Type    | 24.296 GB  |
+| VARIANT Type    | 24.296 GB  |
 | JSON Type             | 46.730 GB  |
 
 **Saves approximately 50% storage capacity**
@@ -56,10 +57,12 @@ Below are test results based on clickbench data:
 **8x faster query, query performance comparable to static columns**
 
 ### Example
-Demonstrate the functionality and usage of Variant with an example covering table creation, data import, and query cycle.
+
+Demonstrate the functionality and usage of VARIANT with an example covering table creation, data import, and query cycle.
 
 **Table Creation Syntax**
 Create a table, using the `variant` keyword in the syntax.
+
 ``` sql
 -- Without index
 CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -85,11 +88,12 @@ table_properties;
 SELECT v:`properties`.`title` from ${table_name}
 
 -- Query Method 2, use v['a']['b'] format for example
-SELECT v:["properties"]["title"] from ${table_name}
+SELECT v["properties"]["title"] from ${table_name}
 
 ```
 
-**Usage Example**
+**Example based on the GitHub events dataset**
+
 Here, github events data is used to demonstrate the table creation, data import, and query using variant.
 The below is a formatted line of data:
 
@@ -126,10 +130,10 @@ The below is a formatted line of data:
 
 **Table Creation**
 
-. Created three columns of VARIANT type: actor, repo, and payload.
-. Simultaneously created an inverted index, idx_payload, for the payload column while creating the table.
-. Specified the index type as inverted using `USING INVERTED`, aimed at accelerating conditional filtering of sub-columns.
-. `PROPERTIES("parser" = "english")` specified the adoption of English tokenization.
+- Created three columns of VARIANT type: `actor`, `repo`, and `payload`.
+- Simultaneously created an inverted index, `idx_payload`, for the `payload` column while creating the table.
+- Specified the index type as inverted using `USING INVERTED`, aimed at accelerating conditional filtering of sub-columns.
+- `PROPERTIES("parser" = "english")` specified the adoption of English tokenization.
 
 ``` sql
 CREATE DATABASE test_variant;
@@ -150,8 +154,10 @@ properties("replication_num" = "1");
 ```
 
 ::: tip
-1. Creating an index on Variant columns, such as when there are numerous sub-columns in payload, might lead to an excessive number of index columns, impacting write performance.
-2. The tokenization properties for the same Variant column are uniform. If you have varied tokenization requirements, consider creating multiple Variant columns and specifying index properties separately for each.
+
+1. Creating an index on VARIANT columns, such as when there are numerous sub-columns in payload, might lead to an excessive number of index columns, impacting write performance.
+2. The tokenization properties for the same VARIANT column are uniform. If you have varied tokenization requirements, consider creating multiple VARIANT columns and specifying index properties separately for each.
+
 :::
 
 
@@ -243,11 +249,13 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 **Querying**
 
-::: tip
+::: warning
+
 When utilizing filtering and aggregation functionalities to query sub-columns, additional casting operations need to be performed on sub-columns (because the storage types are not necessarily fixed and require a unified SQL type).
 For instance, `SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"`
-The simplified examples below illustrate how to use Variant for querying:
-The following are three typical query scenarios:
+The simplified examples below illustrate how to use VARIANT for querying:
+The following are three typical query scenarios
+
 :::
 
 1. Retrieve the top 5 repositories based on star count from the `github_events` table.
@@ -314,20 +322,19 @@ mysql> SELECT
 ### Usage Restrictions and Best Practices
 
 **There are several limitations when using the VARIANT type:**
-Dynamic columns of Variant are nearly as efficient as predefined static columns. When dealing with data like logs, where fields are often added dynamically (such as container labels in Kubernetes), parsing JSON and inferring types can generate additional costs during write operations. Therefore, it's recommended to keep the number of columns for a single import below 1000.
+Dynamic columns of VARIANT are nearly as efficient as predefined static columns. When dealing with data like logs, where fields are often added dynamically (such as container labels in Kubernetes), parsing JSON and inferring types can generate additional costs during write operations. Therefore, it's recommended to keep the number of columns for a single import below 1000.
 
 Ensure consistency in types whenever possible. Doris automatically performs compatible type conversions. When a field cannot undergo compatible type conversion, it is uniformly converted to JSONB type. The performance of JSONB columns may degrade compared to columns like int or text.
 
 **Other limitations include:**
 
-1. Aggregate models are currently not supported.
-2. VARIANT columns can only create inverted indexes.
-3. Using the **RANDOM** mode is recommended for higher write performance.
-4. Non-standard JSON types such as date and decimal should ideally use static types for better performance.
-5. Arrays with dimensions of 2 or higher will be stored as JSONB encoding, which might perform less efficiently than native arrays.
-6. Not supported as primary or sort keys.
-7. Queries with filters or aggregations require casting. The storage layer eliminates cast operations based on storage type and the target type of the cast, speeding up queries. 
-
+- Aggregate models are currently not supported.
+- VARIANT columns can only create inverted indexes.
+- Using the **RANDOM** mode is recommended for higher write performance.
+- Non-standard JSON types such as date and decimal should ideally use static types for better performance.
+- Arrays with dimensions of 2 or higher will be stored as JSONB encoding, which might perform less efficiently than native arrays.
+- Not supported as primary or sort keys.
+- Queries with filters or aggregations require casting. The storage layer eliminates cast operations based on storage type and the target type of the cast, speeding up queries. 
 
 ### Keywords
 

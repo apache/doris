@@ -29,21 +29,21 @@ under the License.
 ### Description
 
 VARIANT类型
-在 Doris 2.1 中引入一种新的数据类型 VARIANT，它可以存储半结构化 JSON 数据。它允许存储包含不同数据类型（如整数、字符串、布尔值等）的复杂数据结构，而无需在表结构中提前定义具体的列。Variant 类型特别适用于处理复杂的嵌套结构，而这些结构可能随时会发生变化。在写入过程中，该类型可以自动根据列的结构、类型推断列信息，并将其合并到现有表的 Schema 中。通过将 JSON 键及其对应的值存储为列和动态子列。
+在 Doris 2.1 中引入一种新的数据类型 VARIANT，它可以存储半结构化 JSON 数据。它允许存储包含不同数据类型（如整数、字符串、布尔值等）的复杂数据结构，而无需在表结构中提前定义具体的列。VARIANT 类型特别适用于处理复杂的嵌套结构，而这些结构可能随时会发生变化。在写入过程中，该类型可以自动根据列的结构、类型推断列信息，并将其合并到现有表的 Schema 中。通过将 JSON 键及其对应的值存储为列和动态子列。
 
 ### Note
 
 相比 JSON 类型有有以下优势:
 
 1. 存储方式不同， JSON 类型是以二进制 JSONB 格式进行存储，整行 JSON 以行存的形式存储到 segment 文件中。而 VARIANT 类型在写入的时候进行类型推断，将写入的 JSON 列存化。比JSON类型有更高的压缩比， 存储空间更好。
-2. 查询方式同步，查询不需要进行解析。Variant 充分利用 Doris 中列式存储、向量化引擎、优化器等组件给用户带来极高的查询性能。
+2. 查询方式同步，查询不需要进行解析。VARIANT 充分利用 Doris 中列式存储、向量化引擎、优化器等组件给用户带来极高的查询性能。
 下面是基于 clickbench 数据测试的结果：
 
 |    | 存储空间   |
 |--------------|------------|
 | 预定义静态列 | 24.329 GB  |
-| variant类型    | 24.296 GB  |
-| json类型             | 46.730 GB  |
+| variant 类型    | 24.296 GB  |
+| json 类型             | 46.730 GB  |
    
    
 
@@ -60,12 +60,12 @@ VARIANT类型
 ### Example
 
 ```
-用一个从建表、导数据、查询全周期的例子说明Variant的功能和用法。
+用一个从建表、导数据、查询全周期的例子说明VARIANT的功能和用法。
 ```
 
 **建表语法**
 
-建表，建表语法关键字variant
+建表，建表语法关键字 variant
 
 ``` sql
 -- 无索引
@@ -89,11 +89,11 @@ table_properties;
 ``` sql
 -- 1. 查询方式1， 查询语法稍有不同，v 后使用:分割，.访问子列，例如
 SELECT v:`properties`.`title` from ${table_name}
--- 2. 查询方式2， 使用v['a']['b']形式例如
-SELECT v:["properties"]["title"] from ${table_name}
+-- 2. 查询方式2， 使用 v['a']['b'] 形式例如
+SELECT v["properties"]["title"] from ${table_name}
 ```
 
-### 使用示例
+### 基于 github events 数据集示例
 
 这里用 github events 数据展示 variant 的建表、导入、查询。
 下面是格式化后的一行数据
@@ -131,10 +131,10 @@ SELECT v:["properties"]["title"] from ${table_name}
 
 **建表**
 
-. 创建了三个VARIANT类型的列， actor，repo和payload
-. 创建表的同时创建了payload列的倒排索引idx_payload
-. USING INVERTED 指定索引类型是倒排索引，用于加速子列的条件过滤
-. `PROPERTIES("parser" = "english")` 指定采用english分词
+- 创建了三个 VARIANT 类型的列， `actor`，`repo` 和 `payload`
+- 创建表的同时创建了 `payload` 列的倒排索引 `idx_payload`
+- USING INVERTED 指定索引类型是倒排索引，用于加速子列的条件过滤
+- `PROPERTIES("parser" = "english")` 指定采用 english 分词
 
 ``` sql
 CREATE DATABASE test_variant;
@@ -157,13 +157,15 @@ properties("replication_num" = "1");
 **需要注意的是:**
 
 ::: tip
-1. 在Variant列上创建索引，比如payload的子列很多时，可能会造成索引列过多，影响写入性能
-2. 同一个Variant列的分词属性是相同的，如果您有不同的分词需求，那么可以创建多个Variant然后分别指定索引属性
+
+1. 在 VARIANT 列上创建索引，比如 payload 的子列很多时，可能会造成索引列过多，影响写入性能
+2. 同一个 VARIANT 列的分词属性是相同的，如果您有不同的分词需求，那么可以创建多个 VARIANT 然后分别指定索引属性
+
 :::
 
 **使用 streamload 导入**
 
-导入gh_2022-11-07-3.json，这是github events 一个小时的数据
+导入gh_2022-11-07-3.json，这是 github events 一个小时的数据
 
 ``` shell
 wget http://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/variant/gh_2022-11-07-3.json
@@ -251,11 +253,13 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 **查询**
 
-::: tip
+::: warning
+
 **注意**
 如使用过滤和聚合等功能来查询子列, 需要对子列进行额外的 cast 操作（因为存储类型不一定是固定的，需要有一个 SQL 统一的类型）。
 例如 SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"
-以下简化的示例说明了如何使用 Variant 进行查询:
+以下简化的示例说明了如何使用 VARIANT 进行查询
+
 :::
 
 下面是典型的三个查询场景：
@@ -281,7 +285,7 @@ mysql> SELECT
 5 rows in set (0.03 sec)
 ```
 
-2. 获取评论中包含doris的数量
+2. 获取评论中包含 doris 的数量
 
 ``` sql
 mysql> SELECT
@@ -295,7 +299,7 @@ mysql> SELECT
 1 row in set (0.04 sec)
 ```
 
-3. 查询comments最多的issue号以及对应的库
+3. 查询 comments 最多的 issue 号以及对应的库
 
 ``` sql
 mysql> SELECT 
@@ -321,22 +325,22 @@ mysql> SELECT
 3 rows in set (0.03 sec)
 ```
 
-##### 使用限制和最佳实践
+### 使用限制和最佳实践
 
 **VARIANT 类型的使用有以下限制：**
-Variant 动态列与预定义静态列几乎一样高效。处理诸如日志之类的数据 ，在这类数据中，经常通过动态属性添加字段（例如 Kubernetes 中的容器标签）。但是解析 JSON 和推断类型会在写入时产生额外开销。因此，我们建议保持单次导入列数在 1000 以下。
+VARIANT 动态列与预定义静态列几乎一样高效。处理诸如日志之类的数据 ，在这类数据中，经常通过动态属性添加字段（例如 Kubernetes 中的容器标签）。但是解析 JSON 和推断类型会在写入时产生额外开销。因此，我们建议保持单次导入列数在 1000 以下。
 
 尽可能保证类型一致， Doris 会自动进行如下兼容类型转换，当字段无法进行兼容类型转换时会统一转换成 JSONB 类型。JSONB 列的性能与 int、text 等列性能会有所退化。
 
 其它限制如下：
 
 - 目前不支持 Aggregate 模型
-- VARIANT列只能创建倒排索引
+- VARIANT 列只能创建倒排索引
 - **推荐使用 RANDOM 模式， 写入性能更高效**
 - 日期、decimal 等非标准 JSON 类型尽可能用静态类型，性能更好
 - 2 维及其以上的数组列存化会被存成 JSONB 编码，性能不如原生数组
 - 不支持作为主键或者排序键
-- 查询过滤、聚合需要带cast， 存储层会根据存储类型和cast目标类型来消除cast操作，加速查询。
+- 查询过滤、聚合需要带 cast， 存储层会根据存储类型和 cast 目标类型来消除 cast 操作，加速查询。
 
 ### Keywords
 
