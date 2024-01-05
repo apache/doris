@@ -37,7 +37,12 @@ public interface DialectConverterPlugin {
     ImmutableSet<Dialect> acceptDialects();
 
     /**
-     * Override this method if you want to convert sql before parse, returns null as default.
+     * <pre>
+     * Override this method if you want to convert sql before parse.
+     * Fallback to next dialect plugin if this method returns null, empty string or any exception throws.
+     * If all plugins fail to convert (returns null, empty string or any exception throws),
+     * Nereids parser will use the original SQL.
+     * </pre>
      * */
     default @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
         return null;
@@ -46,8 +51,9 @@ public interface DialectConverterPlugin {
     /**
      * <pre>
      * Parse sql with dialect.
-     * Fallback to {@link org.apache.doris.nereids.parser.NereidsParser#parseSQL(String)}
-     * if this method returns null, empty list or any exception throws.
+     * Fallback to next dialect plugin if this method returns null, empty string or any exception throws.
+     * If all plugins fail to parse (returns null, empty string or any exception throws),
+     * Nereids parser will fallback to invoke {@link org.apache.doris.nereids.parser.NereidsParser#parseSQL(String)}.
      * Use Dialect.getByName(sessionVariable.getSqlDialect()) to extract the dialect parameter.
      * </pre>
      * */

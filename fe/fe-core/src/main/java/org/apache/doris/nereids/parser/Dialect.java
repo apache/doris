@@ -44,22 +44,6 @@ public enum Dialect {
      */
     HIVE("hive"),
     /**
-     * Iceberg parser dialect
-     */
-    ICEBERG("iceberg"),
-    /**
-     * Hudi parser dialect
-     */
-    HUDI("hudi"),
-    /**
-     * Paimon parser dialect
-     */
-    PAIMON("paimon"),
-    /**
-     * Alibaba dlf parser dialect
-     */
-    DLF("dlf"),
-    /**
      * Alibaba max compute parser dialect
      */
     MAX_COMPUTE("max_compute"),
