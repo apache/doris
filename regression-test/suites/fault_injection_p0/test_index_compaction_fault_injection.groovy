@@ -145,7 +145,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
-        // this time, index compaction will be skipped because of the fault injection
+        // this time, index compaction of some columns will be skipped because of the fault injection
         trigger_full_compaction_on_tablets.call(tablets)
 
         // wait for full compaction done
@@ -185,7 +185,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
-        // this time, index compaction will be skipped because of the fault injection
+        // this time, index compaction of some columns will be skipped because of the fault injection
         trigger_full_compaction_on_tablets.call(tablets)
 
         // wait for full compaction done
