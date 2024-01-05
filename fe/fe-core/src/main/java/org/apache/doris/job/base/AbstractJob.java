@@ -279,8 +279,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         Env.getCurrentEnv().getEditLog().logCreateJob(this);
     }
 
-    public void logFinalOperation() {
-        Env.getCurrentEnv().getEditLog().logEndJob(this);
+    public void logDeleteOperation() {
+        Env.getCurrentEnv().getEditLog().logDeleteJob(this);
     }
 
     public void logUpdateOperation() {
