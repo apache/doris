@@ -797,17 +797,17 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableSharedScan = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableParallelScan = true;
 
-    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = false,
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private int parallelScanMaxScannersCount = 48;
 
-    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = false,
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private long parallelScanMinRowsPerScanner = 65536; // 2MB
+    private long parallelScanMinRowsPerScanner = 2097152; // 2MB
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1532,6 +1532,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
+    @SuppressWarnings("checkstyle:Indentation")
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
@@ -1555,7 +1556,6 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
         }
-        this.runtimeFilterType = 1 << randomInt;
         /*
         switch (randomInt) {
             case 0:
@@ -1597,6 +1597,26 @@ public class SessionVariable implements Serializable, Writable {
                 case 3:
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
+                default:
+                    break;
+            }
+
+            this.runtimeFilterType = 1 << randomInt;
+            this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
+            switch (randomInt) {
+                case 0:
+                    this.parallelScanMaxScannersCount = 32;
+                    this.parallelScanMinRowsPerScanner = 64;
+                    break;
+                case 1:
+                    this.parallelScanMaxScannersCount = 16;
+                    this.parallelScanMinRowsPerScanner = 128;
+                    break;
+                case 2:
+                    this.parallelScanMaxScannersCount = 8;
+                    this.parallelScanMinRowsPerScanner = 256;
+                    break;
+                case 3:
                 default:
                     break;
             }
