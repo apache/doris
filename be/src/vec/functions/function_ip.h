@@ -745,4 +745,64 @@ public:
     }
 };
 
+class FunctionIsIPAddressInRange : public IFunction {
+public:
+    static constexpr auto name = "isipaddressinrange";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 2) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Number of arguments for function {} doesn't match: passed {}, should be 2",
+                            get_name(), arguments.size());
+        }
+        const auto& addr_type = arguments[0];
+        const auto& cidr_type = arguments[1];
+        if (!is_string(addr_type) || !is_string(cidr_type)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "The arguments of function {} must be String", get_name());
+        }
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const auto* col_ipv6 = check_and_get_column<ColumnIPv6>(column.get());
+        const auto* col_string = check_and_get_column<ColumnString>(column.get());
+
+        if (!col_ipv6 && !col_string)
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected IPv6 or String",
+                            column->get_name(), get_name());
+
+        auto col_res = ColumnString::create();
+        ColumnString::Chars& vec_res = col_res->get_chars();
+        ColumnString::Offsets& offsets_res = col_res->get_offsets();
+        vec_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1));
+        offsets_res.resize(input_rows_count);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
+
+        if (col_ipv6) {
+            process_ipv6_column<ColumnIPv6>(column, input_rows_count, vec_res, offsets_res,
+                                            null_map, ipv6_address_data);
+        } else {
+            process_ipv6_column<ColumnString>(column, input_rows_count, vec_res, offsets_res,
+                                              null_map, ipv6_address_data);
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized
