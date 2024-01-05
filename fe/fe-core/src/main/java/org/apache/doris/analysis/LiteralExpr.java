@@ -241,6 +241,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
+    public String getStringValueInFe() {
+        return getStringValue();
+    }
+
     @Override
     public abstract String getStringValueForArray();
 
