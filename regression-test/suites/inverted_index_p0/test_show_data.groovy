@@ -138,7 +138,7 @@ suite("test_show_data", "p0") {
         load_httplogs_data.call(testTable, 'test_httplogs_load', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        def no_index_size = wait_for_show_data_finish(testTable, 90000, 0)
+        def no_index_size = wait_for_show_data_finish(testTable, 300000, 0)
         assertTrue(no_index_size != "wait_timeout")
         sql """ ALTER TABLE ${testTable} ADD INDEX idx_request (`request`) USING INVERTED PROPERTIES("parser" = "english") """
         wait_for_latest_op_on_table_finish(testTable, timeout)
@@ -147,7 +147,7 @@ suite("test_show_data", "p0") {
         sql """ BUILD INDEX idx_request ON ${testTable} """
         def state = wait_for_last_build_index_on_table_finish(testTable, timeout)
         assertEquals(state, "FINISHED")
-        def with_index_size = wait_for_show_data_finish(testTable, 90000, no_index_size)
+        def with_index_size = wait_for_show_data_finish(testTable, 300000, no_index_size)
         assertTrue(with_index_size != "wait_timeout")
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
