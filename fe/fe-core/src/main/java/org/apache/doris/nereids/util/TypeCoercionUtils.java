@@ -920,7 +920,7 @@ public class TypeCoercionUtils {
         right = comparisonPredicate.right();
 
         Optional<DataType> commonType = findWiderTypeForTwoForComparison(
-                left.getDataType(), right.getDataType(), false);
+                left.getDataType(), right.getDataType(), true);
         if (commonType.isPresent()) {
             if (!supportCompare(commonType.get())) {
                 throw new AnalysisException("data type " + commonType.get()
