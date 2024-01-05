@@ -2553,6 +2553,9 @@ void Tablet::remove_unused_remote_files() {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
             }
+            if (cooldowned_rowsets.empty()) {
+                return;
+            }
             cooldown_meta_id = t->_tablet_meta->cooldown_meta_id();
         }
         auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
