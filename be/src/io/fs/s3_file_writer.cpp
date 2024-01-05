@@ -59,13 +59,9 @@
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
-namespace Aws {
-namespace S3 {
-namespace Model {
+namespace Aws::S3::Model {
 class DeleteObjectRequest;
-} // namespace Model
-} // namespace S3
-} // namespace Aws
+} // namespace Aws::S3::Model
 
 using Aws::S3::Model::AbortMultipartUploadRequest;
 using Aws::S3::Model::CompletedPart;
@@ -75,8 +71,7 @@ using Aws::S3::Model::CreateMultipartUploadRequest;
 using Aws::S3::Model::UploadPartRequest;
 using Aws::S3::Model::UploadPartOutcome;
 
-namespace doris {
-namespace io {
+namespace doris::io {
 using namespace Aws::S3::Model;
 using Aws::S3::S3Client;
 
@@ -416,7 +411,7 @@ Status S3FileWriter::_complete() {
         return s;
     });
     SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-    auto compute_outcome = _client->CompleteMultipartUpload(complete_request);
+    auto complete_outcome = _client->CompleteMultipartUpload(complete_request);
 
     if (!complete_outcome.IsSuccess()) {
         _st = s3fs_error(complete_outcome.GetError(),
@@ -479,5 +474,4 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     s3_file_created_total << 1;
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io
