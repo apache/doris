@@ -204,7 +204,8 @@ public class CreateMTMVInfo {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup, PrivPredicate.USAGE)) {
                 String message = String
-                        .format("Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                        .format("Access denied;"
+                                        + " you need (at least one of) the %s privilege(s) to use workload group '%s'.",
                                 "USAGE/ADMIN", workloadGroup);
                 throw new AnalysisException(message);
             }
