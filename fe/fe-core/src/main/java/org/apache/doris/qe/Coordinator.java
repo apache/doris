@@ -1150,7 +1150,8 @@ public class Coordinator implements CoordInterface {
         Status status = new Status();
         resultBatch = receiver.getNext(status);
         if (!status.ok()) {
-            LOG.warn("get next fail, need cancel. query id: {}, msg: {}", DebugUtil.printId(queryId), status.getErrorMsg());
+            LOG.warn("get next fail, need cancel. query id: {}, msg: {}",
+                    DebugUtil.printId(queryId), status.getErrorMsg());
         }
 
         updateStatus(status, null /* no instance id */);
