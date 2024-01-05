@@ -23,15 +23,18 @@ import org.apache.doris.catalog.TableIf;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class PrimaryKeyConstraint extends Constraint {
-    private final ImmutableSet<String> columns;
+    @SerializedName(value = "columns")
+    private final Set<String> columns;
 
     // record the foreign table which references the primary key
+    @SerializedName(value = "foreignTables")
     private final Set<TableIdentifier> foreignTables = new HashSet<>();
 
     public PrimaryKeyConstraint(String name, Set<String> columns) {
@@ -39,11 +42,11 @@ public class PrimaryKeyConstraint extends Constraint {
         this.columns = ImmutableSet.copyOf(columns);
     }
 
-    public ImmutableSet<String> getPrimaryKeyNames() {
+    public Set<String> getPrimaryKeyNames() {
         return columns;
     }
 
-    public ImmutableSet<Column> getPrimaryKeys(TableIf table) {
+    public Set<Column> getPrimaryKeys(TableIf table) {
         return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 

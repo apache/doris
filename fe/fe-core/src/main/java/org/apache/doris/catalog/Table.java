@@ -22,18 +22,21 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import cfjd.com.google.gson.reflect.TypeToken;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -455,9 +458,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         for (Column column : fullSchema) {
             column.write(out);
         }
-
         Text.writeString(out, comment);
-
+        // write constraints
+        Text.writeString(out, GsonUtils.GSON.toJson(getConstraintsMap()));
         // write create time
         out.writeLong(createTime);
     }
@@ -488,7 +491,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             hasCompoundKey = true;
         }
         comment = Text.readString(in);
-
+        // constraint only support after version 127
+        if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
+            String json = Text.readString(in);
+            if (!json.isEmpty() && !json.equals("{}")) {
+                this.constraintsMap = GsonUtils.GSON.fromJson(json,
+                        new TypeToken<HashMap<String, Constraint>>() {}.getType());
+            }
+        }
         // read create time
         this.createTime = in.readLong();
     }

@@ -22,22 +22,25 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
 
-class TableIdentifier {
+public class TableIdentifier {
+    @SerializedName(value = "databaseId")
     private final long databaseId;
+    @SerializedName(value = "tableId")
     private final long tableId;
 
-    TableIdentifier(TableIf tableIf) {
+    public TableIdentifier(TableIf tableIf) {
         Preconditions.checkArgument(tableIf != null,
                 "Table can not be null in constraint");
         databaseId = tableIf.getDatabase().getId();
         tableId = tableIf.getId();
     }
 
-    TableIf toTableIf() {
-        DatabaseIf databaseIf = Env.getCurrentEnv().getCurrentCatalog().getDbNullable(databaseId);
+    public TableIf toTableIf() {
+        DatabaseIf<?> databaseIf = Env.getCurrentEnv().getCurrentCatalog().getDbNullable(databaseId);
         if (databaseIf == null) {
             throw new RuntimeException(String.format("Can not find database %s in constraint", databaseId));
         }

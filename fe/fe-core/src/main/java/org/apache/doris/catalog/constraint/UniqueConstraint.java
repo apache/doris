@@ -22,22 +22,24 @@ import org.apache.doris.catalog.TableIf;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.Set;
 
 public class UniqueConstraint extends Constraint {
-    private final ImmutableSet<String> columns;
+    @SerializedName(value = "columns")
+    private final Set<String> columns;
 
     public UniqueConstraint(String name, Set<String> columns) {
         super(ConstraintType.UNIQUE, name);
         this.columns = ImmutableSet.copyOf(columns);
     }
 
-    public ImmutableSet<String> getUniqueColumnNames() {
+    public Set<String> getUniqueColumnNames() {
         return columns;
     }
 
-    public ImmutableSet<Column> getUniqueKeys(TableIf table) {
+    public Set<Column> getUniqueKeys(TableIf table) {
         return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 
