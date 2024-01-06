@@ -79,8 +79,6 @@ public class SyncChecker extends MasterDaemon {
     private void cleanOldSyncJobs() {
         // clean up expired sync jobs
         this.syncJobManager.cleanOldSyncJobs();
-        if (Config.label_num_threshold > 0) {
-            this.syncJobManager.cleanOverLimitSyncJobs();
-        }
+        this.syncJobManager.cleanOverLimitSyncJobs();
     }
 }

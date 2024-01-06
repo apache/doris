@@ -18,7 +18,6 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -126,9 +125,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
 
         routineLoadManager.cleanOldRoutineLoadJobs();
 
-        if (Config.label_num_threshold > 0) {
-            routineLoadManager.cleanOverLimitRoutineLoadJobs();
-        }
+        routineLoadManager.cleanOverLimitRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {

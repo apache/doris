@@ -62,8 +62,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +83,7 @@ public class RoutineLoadManager implements Writable {
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
     // routine load job meta
-    private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Collections.synchronizedMap(Maps.newLinkedHashMap());
+    private Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newConcurrentMap();
 
     private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
@@ -688,7 +690,7 @@ public class RoutineLoadManager implements Writable {
     // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
         LOG.debug("begin to clean old routine load jobs ");
-        clearRoutineLoadJobIf(RoutineLoadJob::isExpired, -1);
+        clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
     }
 
     /**
@@ -697,19 +699,40 @@ public class RoutineLoadManager implements Writable {
      * Cancelled and stopped job will be removed.
      */
     public void cleanOverLimitRoutineLoadJobs() {
-        if (idToRoutineLoadJob.size() <= Config.label_num_threshold) {
+        if (Config.label_num_threshold < 0
+                || idToRoutineLoadJob.size() <= Config.label_num_threshold) {
             return;
         }
-        LOG.debug("begin to clean routine load jobs");
-        clearRoutineLoadJobIf(RoutineLoadJob::isFinal, Config.label_num_threshold);
+        writeLock();
+        try {
+            LOG.debug("begin to clean routine load jobs");
+            // clearRoutineLoadJobIf(RoutineLoadJob::isFinal, Config.label_num_threshold);
+            Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
+                    .values()
+                    .stream()
+                    .filter(RoutineLoadJob::isFinal)
+                    .sorted(Comparator.comparingLong(o -> o.endTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToRoutineLoadJob.size() > Config.label_num_threshold) {
+                RoutineLoadJob routineLoadJob = finishedJobs.pollFirst();
+                unprotectedRemoveJobFromDb(routineLoadJob);
+                idToRoutineLoadJob.remove(routineLoadJob.getId());
+                RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
+                        routineLoadJob.getState());
+                Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
-    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred, int numLimit) {
+    private void clearRoutineLoadJobIf(Predicate<RoutineLoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, RoutineLoadJob>> iterator = idToRoutineLoadJob.entrySet().iterator();
             long currentTimestamp = System.currentTimeMillis();
-            while (iterator.hasNext() && idToRoutineLoadJob.size() > numLimit) {
+            while (iterator.hasNext()) {
                 RoutineLoadJob routineLoadJob = iterator.next().getValue();
                 if (pred.test(routineLoadJob)) {
                     unprotectedRemoveJobFromDb(routineLoadJob);

@@ -65,9 +65,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -91,7 +93,7 @@ import java.util.stream.Collectors;
 public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
-    private Map<Long, LoadJob> idToLoadJob = Collections.synchronizedMap(Maps.newLinkedHashMap());
+    private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
 
@@ -409,42 +411,62 @@ public class LoadManager implements Writable {
      **/
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
-        removeLoadJobIf(job -> job.isExpired(currentTimeMs), -1);
+        removeLoadJobIf(job -> job.isExpired(currentTimeMs));
     }
 
     /**
      * Remove completed jobs if total job num exceed Config.label_num_threshold
      */
     public void removeOverLimitLoadJob() {
-        if (idToLoadJob.size() <= Config.label_num_threshold) {
+        if (Config.label_num_threshold < 0 || idToLoadJob.size() <= Config.label_num_threshold) {
             return;
         }
-        removeLoadJobIf(LoadJob::isCompleted, Config.label_num_threshold);
+        writeLock();
+        try {
+            Deque<LoadJob> finishedJobs = idToLoadJob
+                    .values()
+                    .stream()
+                    .filter(LoadJob::isCompleted)
+                    .sorted(Comparator.comparingLong(o -> o.finishTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToLoadJob.size() > Config.label_num_threshold) {
+                LoadJob loadJob = finishedJobs.pollFirst();
+                idToLoadJob.remove(loadJob.getId());
+                jobRemovedTrigger(loadJob);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
-    private void removeLoadJobIf(Predicate<LoadJob> pred, int numLimit) {
+    private void jobRemovedTrigger(LoadJob job) {
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        List<LoadJob> list = map.get(job.getLabel());
+        list.remove(job);
+        if (job instanceof SparkLoadJob) {
+            ((SparkLoadJob) job).clearSparkLauncherLog();
+        }
+        if (job instanceof BulkLoadJob) {
+            ((BulkLoadJob) job).recycleProgress();
+        }
+        if (list.isEmpty()) {
+            map.remove(job.getLabel());
+        }
+        if (map.isEmpty()) {
+            dbIdToLabelToLoadJobs.remove(job.getDbId());
+        }
+    }
+
+    private void removeLoadJobIf(Predicate<LoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
-            while (iter.hasNext() && idToLoadJob.size() > numLimit) {
+            while (iter.hasNext()) {
                 LoadJob job = iter.next().getValue();
                 if (pred.test(job)) {
                     iter.remove();
-                    Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-                    List<LoadJob> list = map.get(job.getLabel());
-                    list.remove(job);
-                    if (job instanceof SparkLoadJob) {
-                        ((SparkLoadJob) job).clearSparkLauncherLog();
-                    }
-                    if (job instanceof BulkLoadJob) {
-                        ((BulkLoadJob) job).recycleProgress();
-                    }
-                    if (list.isEmpty()) {
-                        map.remove(job.getLabel());
-                    }
-                    if (map.isEmpty()) {
-                        dbIdToLabelToLoadJobs.remove(job.getDbId());
-                    }
+                    jobRemovedTrigger(job);
                 }
             }
         } finally {
@@ -531,8 +553,8 @@ public class LoadManager implements Writable {
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue   used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     * The result is unordered.
+     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     *         The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
                                                       Set<String> statesValue) throws AnalysisException {
