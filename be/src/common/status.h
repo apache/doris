@@ -79,6 +79,7 @@ namespace ErrorCode {
     E(FILE_ALREADY_EXIST, -122, true);                       \
     E(BAD_CAST, -123, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
+    E(PERMISSION_DENIED, -125, false);                       \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
