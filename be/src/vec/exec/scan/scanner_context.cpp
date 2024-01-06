@@ -276,9 +276,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         // (if the scheduler continues to schedule, it will cause a lot of busy running).
         // At this point, consumers are required to trigger new scheduling to ensure that
         // data can be continuously fetched.
-        int64_t cur_bytes_in_queue = _cur_bytes_in_queue;
         bool to_be_schedule = should_be_scheduled();
-        int num_running_scanners = _num_running_scanners;
 
         bool is_scheduled = false;
         if (!done() && to_be_schedule && _num_running_scanners == 0) {
