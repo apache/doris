@@ -39,5 +39,6 @@ void register_function_ip(SimpleFunctionFactory& factory) {
                            "inet6_aton");
     factory.register_function<FunctionIsIPv4String>();
     factory.register_function<FunctionIsIPv6String>();
+    factory.register_function<FunctionIsIPAddressInRange>();
 }
 } // namespace doris::vectorized

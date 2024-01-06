@@ -32,6 +32,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/ip_address_cidr.h"
 
 namespace doris::vectorized {
 
@@ -762,7 +763,7 @@ public:
         }
         const auto& addr_type = arguments[0];
         const auto& cidr_type = arguments[1];
-        if (!is_string(addr_type) || !is_string(cidr_type)) {
+        if (!is_string(remove_nullable(addr_type)) || !is_string(remove_nullable(cidr_type))) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "The arguments of function {} must be String", get_name());
         }
         return std::make_shared<DataTypeUInt8>();
@@ -772,35 +773,33 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
-        const auto* col_ipv6 = check_and_get_column<ColumnIPv6>(column.get());
-        const auto* col_string = check_and_get_column<ColumnString>(column.get());
+        const ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
+        const ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
+        const auto* col_addr = check_and_get_column<ColumnString>(addr_column.get());
+        const auto* col_cidr = check_and_get_column<ColumnString>(cidr_column.get());
 
-        if (!col_ipv6 && !col_string)
+        if (!col_addr) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Illegal column {} of argument of function {}, expected IPv6 or String",
-                            column->get_name(), get_name());
-
-        auto col_res = ColumnString::create();
-        ColumnString::Chars& vec_res = col_res->get_chars();
-        ColumnString::Offsets& offsets_res = col_res->get_offsets();
-        vec_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1));
-        offsets_res.resize(input_rows_count);
-
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-
-        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
-
-        if (col_ipv6) {
-            process_ipv6_column<ColumnIPv6>(column, input_rows_count, vec_res, offsets_res,
-                                            null_map, ipv6_address_data);
-        } else {
-            process_ipv6_column<ColumnString>(column, input_rows_count, vec_res, offsets_res,
-                                              null_map, ipv6_address_data);
+                            "Illegal column {} of argument of function {}, expected String",
+                            addr_column->get_name(), get_name());
         }
 
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        if (!col_cidr) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            cidr_column->get_name(), get_name());
+        }
+
+        auto col_res = ColumnUInt8::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto addr = IPAddressVariant(col_addr->get_data_at(i).to_string_view());
+            const auto cidr = parse_ip_with_cidr(col_cidr->get_data_at(i).to_string_view());
+            col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
+        }
+
+        block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 };
