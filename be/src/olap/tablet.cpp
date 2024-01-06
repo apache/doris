@@ -2403,7 +2403,7 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
         return nullptr;
     }
     if (tablet_footprint() == 0) {
-        VLOG_DEBUG << "skip cooldown due to empty tablet_id = " << tablet_id << tablet_id();
+        VLOG_DEBUG << "skip cooldown due to empty tablet_id = " << tablet_id();
         return nullptr;
     }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
