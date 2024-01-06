@@ -238,6 +238,22 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
+    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
+        return aliasTransferMap.remove(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
+        return aliasTransferMap.get(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> aliasTransferMapPut(NamedExpression slot, Pair<PhysicalRelation, Slot> pair) {
+        return aliasTransferMap.put(slot, pair);
+    }
+
+    public boolean aliasTransferMapContains(NamedExpression slot) {
+        return aliasTransferMap.containsKey(slot);
+    }
+
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
         return scanNodeOfLegacyRuntimeFilterTarget;
     }
