@@ -211,10 +211,9 @@ public class DiskRebalancer extends Rebalancer {
                 if (alternativeTabletIds.contains(tabletId)) {
                     continue;
                 }
-                if (!Config.disable_disk_balance_for_single_replica) {
-                    if (invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
-                        continue;
-                    }
+                if (!Config.enable_disk_balance_for_single_replica
+                        && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
+                    continue;
                 }
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
                 if (replica == null) {
