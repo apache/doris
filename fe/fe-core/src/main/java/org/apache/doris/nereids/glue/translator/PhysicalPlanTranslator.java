@@ -2073,6 +2073,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 bufferedTupleDesc
         );
         analyticEvalNode.setDistributeExprLists(distributeExprLists);
+        PlanNode root = inputPlanFragment.getPlanRoot();
+        if (root instanceof SortNode) {
+            ((SortNode) root).setIsAnalyticSort(true);
+        }
         inputPlanFragment.addPlanRoot(analyticEvalNode);
 
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
@@ -2081,6 +2085,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
             inputPlanFragment.setHasColocatePlanNode(true);
             analyticEvalNode.setColocate(true);
+            if (root instanceof SortNode) {
+                ((SortNode) root).setColocate(true);
+            }
         }
         return inputPlanFragment;
     }
