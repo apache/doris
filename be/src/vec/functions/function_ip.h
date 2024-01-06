@@ -82,7 +82,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv4numtostring";
+    static constexpr auto name = "ipv4_num_to_string";
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4NumToString<mask_tail_octets, Name>>();
     }
@@ -196,10 +196,10 @@ template <IPStringToNumExceptionMode exception_mode>
 class FunctionIPv4StringToNum : public IFunction {
 public:
     static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
-                                         ? "ipv4stringtonum"
+                                         ? "ipv4_string_to_num"
                                          : (exception_mode == IPStringToNumExceptionMode::Default
-                                                    ? "ipv4stringtonumordefault"
-                                                    : "ipv4stringtonumornull");
+                                                    ? "ipv4_string_to_num_or_default"
+                                                    : "ipv4_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
@@ -293,7 +293,7 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
 
 class FunctionIPv6NumToString : public IFunction {
 public:
-    static constexpr auto name = "ipv6numtostring";
+    static constexpr auto name = "ipv6_num_to_string";
     static FunctionPtr create() { return std::make_shared<FunctionIPv6NumToString>(); }
 
     String get_name() const override { return name; }
