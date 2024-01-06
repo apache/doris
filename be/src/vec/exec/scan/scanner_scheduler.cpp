@@ -397,7 +397,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                 blocks.push_back(std::move(block));
             }
         }
-        raw_rows_read = scanner->get_rows_read();
     } // end for while
 
     // if we failed, check status.
