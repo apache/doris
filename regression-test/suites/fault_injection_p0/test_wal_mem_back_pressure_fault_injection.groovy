@@ -112,7 +112,7 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
         processList.each { item ->
             logger.info(item[1].toString())
             logger.info(item[11].toString())
-            if (item[11].toString() == "".toString()){
+            if (item[11].toString() == "group commit is not supported in nereids now".toString()){
                 def res = sql "kill ${item[1]}"
                 logger.info(res.toString())
             }
