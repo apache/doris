@@ -60,9 +60,9 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
 
         // sort according to ExecTime
         sortedRowData.sort((l1, l2) -> {
-            final int execTime1 = Integer.parseInt(l1.get(EXEC_TIME_INDEX));
-            final int execTime2 = Integer.parseInt(l2.get(EXEC_TIME_INDEX));
-            return execTime2 - execTime1;
+            final long execTime1 = Long.parseLong(l1.get(EXEC_TIME_INDEX));
+            final long execTime2 = Long.parseLong(l2.get(EXEC_TIME_INDEX));
+            return Long.compare(execTime2, execTime1);
         });
         result.setRows(sortedRowData);
         return result;
