@@ -151,8 +151,8 @@ private:
   * It is used in priority queue.
   */
 struct MergeSortCursorImpl {
-    ColumnRawPtrs all_columns;
-    ColumnRawPtrs sort_columns;
+    ColumnPtrs all_columns;
+    ColumnPtrs sort_columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
     size_t pos = 0;
@@ -171,17 +171,12 @@ struct MergeSortCursorImpl {
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
-    void reset(const Block& block) { reset(block.get_columns(), block); }
-
-    /// Set the cursor to the beginning of the new block.
-    void reset(const Columns& columns, const Block& block) {
-        all_columns.clear();
-        sort_columns.clear();
-
+    void reset(const Block& block) {
+        auto columns = block.get_columns();
         size_t num_columns = columns.size();
 
         for (size_t j = 0; j < num_columns; ++j) {
-            all_columns.push_back(columns[j].get());
+            all_columns.push_back(columns[j]);
         }
 
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
@@ -189,11 +184,16 @@ struct MergeSortCursorImpl {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block.get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
-            sort_columns.push_back(columns[column_number].get());
+            sort_columns.push_back(columns[column_number]);
         }
 
         pos = 0;
         rows = all_columns[0]->size();
+    }
+
+    void clear() {
+        all_columns.clear();
+        sort_columns.clear();
     }
 
     bool isFirst() const { return pos == 0; }
@@ -242,7 +242,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                     status = _ordering_expr[i]->execute(&_block, &desc[i].column_number);
                 }
             }
-            MergeSortCursorImpl::reset(_block);
+            reset(_block);
             return status.ok();
         } else if (!status.ok()) {
             throw std::runtime_error(status.msg());

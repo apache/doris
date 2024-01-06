@@ -1920,6 +1920,12 @@ private:
                                     from_column->size(), Null());
                     return Status::OK();
                 }
+                if (from_col_array->get_data_ptr()->empty()) {
+                    block.get_by_position(result).column =
+                            block.get_by_position(result).type->create_column_const(
+                                    from_column->size(), Array());
+                    return Status::OK();
+                }
 
                 /// create columns for converting nested column containing original and result columns
                 ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),

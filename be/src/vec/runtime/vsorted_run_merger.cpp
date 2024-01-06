@@ -134,6 +134,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         if (current->isFirst()) {
             if (current->block_ptr() != nullptr) {
                 current->block_ptr()->swap(*output_block);
+                current->clear();
                 if (_pipeline_engine_enabled) {
                     _pending_cursor = current.impl;
                     _priority_queue.pop();
@@ -151,6 +152,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                             current->pos, current->rows - current->pos);
                 }
                 current->block_ptr()->swap(*output_block);
+                current->clear();
                 if (_pipeline_engine_enabled) {
                     _pending_cursor = current.impl;
                     _priority_queue.pop();
