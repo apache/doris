@@ -844,6 +844,10 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
+    if (tablet_meta->partition_id() == 0) {
+        LOG(WARNING) << "tablet=" << tablet_id << " load from meta but partition id eq 0";
+    }
+
     TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
     if (tablet == nullptr) {
         return Status::Error<TABLE_CREATE_FROM_HEADER_ERROR>(
