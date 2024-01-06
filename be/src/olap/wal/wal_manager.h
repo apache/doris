@@ -71,8 +71,7 @@ public:
     Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
     void add_wal_queue(int64_t table_id, int64_t wal_id);
     void erase_wal_queue(int64_t table_id, int64_t wal_id);
-    Status get_wal_queue_size(const PGetWalQueueSizeRequest* request,
-                              PGetWalQueueSizeResponse* response);
+    size_t get_wal_queue_size(int64_t table_id);
     // fot ut
     size_t get_wal_table_size(int64_t table_id);
 
@@ -97,7 +96,6 @@ private:
     Status _scan_wals(const std::string& wal_path);
     Status _replay();
     void _stop_relay_wal();
-    size_t _get_wal_queue_size(int64_t table_id);
 
 public:
     // used for be ut

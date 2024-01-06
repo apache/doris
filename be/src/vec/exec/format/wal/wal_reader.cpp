@@ -82,9 +82,8 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
 Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
-    uint32_t version = 0;
     std::string col_ids;
-    RETURN_IF_ERROR(_wal_reader->read_header(version, col_ids));
+    RETURN_IF_ERROR(_wal_reader->read_header(col_ids));
     std::vector<std::string> column_id_vector =
             strings::Split(col_ids, ",", strings::SkipWhitespace());
     try {

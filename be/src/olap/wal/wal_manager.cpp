@@ -31,7 +31,6 @@
 #include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_dirs_info.h"
-#include "olap/wal/wal_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
@@ -178,9 +177,9 @@ void WalManager::add_wal_queue(int64_t table_id, int64_t wal_id) {
 void WalManager::erase_wal_queue(int64_t table_id, int64_t wal_id) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_queue_lock);
     auto it = _wal_queues.find(table_id);
-    LOG(INFO) << "remove wal queue "
-              << ",table_id:" << table_id << ",wal_id:" << wal_id;
     if (it != _wal_queues.end()) {
+        LOG(INFO) << "remove wal queue "
+                  << ",table_id:" << table_id << ",wal_id:" << wal_id;
         it->second.erase(wal_id);
         if (it->second.empty()) {
             _wal_queues.erase(table_id);
@@ -188,7 +187,7 @@ void WalManager::erase_wal_queue(int64_t table_id, int64_t wal_id) {
     }
 }
 
-size_t WalManager::_get_wal_queue_size(int64_t table_id) {
+size_t WalManager::get_wal_queue_size(int64_t table_id) {
     std::lock_guard<std::shared_mutex> wrlock(_wal_queue_lock);
     size_t count = 0;
     if (table_id > 0) {
@@ -205,14 +204,6 @@ size_t WalManager::_get_wal_queue_size(int64_t table_id) {
         }
     }
     return count;
-}
-
-Status WalManager::get_wal_queue_size(const PGetWalQueueSizeRequest* request,
-                                      PGetWalQueueSizeResponse* response) {
-    auto table_id = request->table_id();
-    size_t count = _get_wal_queue_size(table_id);
-    response->set_size(count);
-    return Status::OK();
 }
 
 Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
@@ -498,12 +489,16 @@ Status WalManager::delete_wal(int64_t table_id, int64_t wal_id, size_t block_que
         auto it = _wal_path_map.find(wal_id);
         if (it != _wal_path_map.end()) {
             wal_path = it->second;
-            RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
-            LOG(INFO) << "delete file=" << wal_path;
+            auto st = io::global_local_filesystem()->delete_file(wal_path);
+            if (st.ok()) {
+                LOG(INFO) << "delete file=" << wal_path;
+            } else {
+                LOG(WARNING) << "fail to delete file=" << wal_path;
+            }
             _wal_path_map.erase(wal_id);
-            erase_wal_queue(table_id, wal_id);
         }
     }
+    erase_wal_queue(table_id, wal_id);
     RETURN_IF_ERROR(update_wal_dir_pre_allocated(_get_base_wal_path(wal_path), 0,
                                                  block_queue_pre_allocated));
     return Status::OK();
