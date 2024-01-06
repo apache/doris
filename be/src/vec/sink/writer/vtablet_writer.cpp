@@ -47,7 +47,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -176,16 +175,16 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                            _failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs[tablet_id]);
             }
         }
     }
@@ -432,7 +431,7 @@ Status VNodeChannel::open_wait() {
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
-            return Status::InternalError(
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
         }
@@ -466,7 +465,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
@@ -477,7 +477,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
-    while (!_cancelled && _pending_batches_num > 0 &&
+    while (!_cancelled && !_state->is_cancelled() && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -872,7 +872,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(
                     st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
@@ -902,7 +903,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError(get_cancel_msg());
+    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
 }
 
 void VNodeChannel::_close_check() {
@@ -1049,7 +1050,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
-        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
     return Status::OK();
 }
@@ -1058,6 +1059,9 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
+    if (_write_single_replica) {
+        _slave_location->add_locations(*new_locations);
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
@@ -1619,12 +1623,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
 
+    _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
@@ -1633,6 +1639,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    _row_distribution_watch.stop();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.

@@ -23,7 +23,7 @@ suite("aggregate_without_roll_up") {
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
     sql "SET global enable_auto_analyze = false"
 
     sql """
@@ -150,7 +150,7 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -169,7 +169,7 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 

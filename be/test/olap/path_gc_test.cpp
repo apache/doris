@@ -176,7 +176,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         st = create_rowset_files(*rs, false);
         ASSERT_TRUE(st.ok()) << st;
         st = RowsetMetaManager::save(data_dir.get_meta(), rs->rowset_meta()->tablet_uid(),
-                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb());
+                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb(), false);
         ASSERT_TRUE(st.ok()) << st;
     }
     // Prepare garbage rowset files

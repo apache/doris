@@ -83,7 +83,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -391,8 +391,7 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         }
 
         stream_options.handler = load_stream.get();
-        // TODO : set idle timeout
-        // stream_options.idle_timeout_ms =
+        stream_options.idle_timeout_ms = config::load_stream_idle_timeout_ms;
 
         StreamId streamid;
         if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
@@ -807,6 +806,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
         std::set<std::set<int32_t>> filter_set;
+        std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -819,17 +819,45 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             }
             // check schema consistency, column ids should be the same
             const auto& columns = tablet->tablet_schema()->columns();
+
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
                 column_ids.insert(col.unique_id());
             }
             filter_set.insert(column_ids);
+
+            if (id_to_column.empty()) {
+                for (const auto& col : columns) {
+                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                }
+            } else {
+                for (const auto& col : columns) {
+                    auto it = id_to_column.find(col.unique_id());
+                    if (it == id_to_column.end() || *(it->second) != col) {
+                        ColumnPB prev_col_pb;
+                        ColumnPB curr_col_pb;
+                        if (it != id_to_column.end()) {
+                            it->second->to_schema_pb(&prev_col_pb);
+                        }
+                        col.to_schema_pb(&curr_col_pb);
+                        std::stringstream ss;
+                        ss << "consistency check failed: index{ " << index_id << " }"
+                           << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
+                           << " current column: " << curr_col_pb.DebugString();
+                        LOG(WARNING) << ss.str();
+                        response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                        response->mutable_status()->add_error_msgs(ss.str());
+                        return;
+                    }
+                }
+            }
         }
+
         if (filter_set.size() > 1) {
             // consistecy check failed
             std::stringstream ss;
             ss << "consistency check failed: index{" << index_id << "}"
-               << "got inconsistent shema";
+               << "got inconsistent schema";
             LOG(WARNING) << ss.str();
             response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
             response->mutable_status()->add_error_msgs(ss.str());
@@ -1229,11 +1257,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
                                               google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = Status::OK();
-        st = _fold_constant_expr(request->request(), response);
-        if (!st.ok()) {
-            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st;
-        }
+        Status st = _fold_constant_expr(request->request(), response);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1250,8 +1274,13 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-
-    return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
+    std::unique_ptr<FoldConstantExecutor> fold_executor = std::make_unique<FoldConstantExecutor>();
+    Status st = fold_executor->fold_constant_vexpr(t_request, response);
+    if (!st.ok()) {
+        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                     << " .and query_id_is: " << fold_executor->query_id_string();
+    }
+    return st;
 }
 
 void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* controller,

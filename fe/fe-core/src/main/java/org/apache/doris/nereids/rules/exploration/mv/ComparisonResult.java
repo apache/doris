@@ -18,30 +18,37 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /**
  * comparison result of view and query
  */
 public class ComparisonResult {
-    public static final ComparisonResult INVALID = new ComparisonResult(ImmutableList.of(), ImmutableList.of(), false);
-    public static final ComparisonResult EMPTY = new ComparisonResult(ImmutableList.of(), ImmutableList.of(), true);
     private final boolean valid;
     private final List<Expression> viewExpressions;
     private final List<Expression> queryExpressions;
+    private final Set<Set<Slot>> viewNoNullableSlot;
+    private final String errorMessage;
 
-    public ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions) {
-        this(queryExpressions, viewExpressions, true);
-    }
-
-    ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions, boolean valid) {
+    ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions,
+            Set<Set<Slot>> viewNoNullableSlot, boolean valid, String message) {
         this.viewExpressions = ImmutableList.copyOf(viewExpressions);
         this.queryExpressions = ImmutableList.copyOf(queryExpressions);
+        this.viewNoNullableSlot = ImmutableSet.copyOf(viewNoNullableSlot);
         this.valid = valid;
+        this.errorMessage = message;
+    }
+
+    public static ComparisonResult newInvalidResWithErrorMessage(String errorMessage) {
+        return new ComparisonResult(ImmutableList.of(), ImmutableList.of(), ImmutableSet.of(), false, errorMessage);
     }
 
     public List<Expression> getViewExpressions() {
@@ -52,8 +59,16 @@ public class ComparisonResult {
         return queryExpressions;
     }
 
+    public Set<Set<Slot>> getViewNoNullableSlot() {
+        return viewNoNullableSlot;
+    }
+
     public boolean isInvalid() {
         return !valid;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 
     /**
@@ -62,6 +77,7 @@ public class ComparisonResult {
     public static class Builder {
         ImmutableList.Builder<Expression> queryBuilder = new ImmutableList.Builder<>();
         ImmutableList.Builder<Expression> viewBuilder = new ImmutableList.Builder<>();
+        ImmutableSet.Builder<Set<Slot>> viewNoNullableSlotBuilder = new ImmutableSet.Builder<>();
         boolean valid = true;
 
         /**
@@ -77,18 +93,40 @@ public class ComparisonResult {
             return this;
         }
 
-        public Builder addQueryExpressions(Collection<Expression> expressions) {
+        public Builder addQueryExpressions(Collection<? extends Expression> expressions) {
             queryBuilder.addAll(expressions);
             return this;
         }
 
-        public Builder addViewExpressions(Collection<Expression> expressions) {
+        public Builder addViewExpressions(Collection<? extends Expression> expressions) {
             viewBuilder.addAll(expressions);
             return this;
         }
 
-        public ComparisonResult build() {
-            return new ComparisonResult(queryBuilder.build(), viewBuilder.build(), valid);
+        public Builder addViewNoNullableSlot(Set<Slot> viewNoNullableSlot) {
+            viewNoNullableSlotBuilder.add(ImmutableSet.copyOf(viewNoNullableSlot));
+            return this;
         }
+
+        public boolean isInvalid() {
+            return !valid;
+        }
+
+        public ComparisonResult build() {
+            Preconditions.checkArgument(valid, "Comparison result must be valid");
+            return new ComparisonResult(queryBuilder.build(), viewBuilder.build(),
+                    viewNoNullableSlotBuilder.build(), valid, "");
+        }
+    }
+
+    @Override
+    public String toString() {
+        if (isInvalid()) {
+            return "INVALID";
+        }
+        return String.format("viewExpressions: %s \n "
+                + "queryExpressions :%s \n "
+                + "viewNoNullableSlot :%s \n",
+                viewExpressions, queryExpressions, viewNoNullableSlot);
     }
 }

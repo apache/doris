@@ -667,4 +667,39 @@ void ShardedLRUCache::update_cache_metrics() const {
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
 }
 
+Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
+                                     void (*deleter)(const CacheKey& key, void* value),
+                                     CachePriority priority, size_t bytes) {
+    size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
+    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    e->value = value;
+    e->deleter = deleter;
+    e->charge = charge;
+    e->key_length = 0;
+    e->total_size = 0;
+    e->bytes = 0;
+    e->hash = 0;
+    e->refs = 1; // only one for the returned handle
+    e->next = e->prev = nullptr;
+    e->in_cache = false;
+    return reinterpret_cast<Cache::Handle*>(e);
+}
+
+void DummyLRUCache::release(Cache::Handle* handle) {
+    if (handle == nullptr) {
+        return;
+    }
+    auto* e = reinterpret_cast<LRUHandle*>(handle);
+    e->free();
+}
+
+void* DummyLRUCache::value(Handle* handle) {
+    return reinterpret_cast<LRUHandle*>(handle)->value;
+}
+
+Slice DummyLRUCache::value_slice(Handle* handle) {
+    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
+    return Slice((char*)lru_handle->value, lru_handle->charge);
+}
+
 } // namespace doris

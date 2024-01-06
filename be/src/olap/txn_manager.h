@@ -44,6 +44,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/time.h"
 #include "vec/core/block.h"
 
@@ -220,6 +221,14 @@ private:
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
+    class TabletVersionCache : public LRUCachePolicy {
+    public:
+        TabletVersionCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
 private:
     const int32_t _txn_map_shard_size;
 
@@ -238,7 +247,7 @@ private:
     std::shared_mutex* _txn_mutex = nullptr;
 
     txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map = nullptr;
-    std::unique_ptr<Cache> _tablet_version_cache;
+    std::unique_ptr<TabletVersionCache> _tablet_version_cache;
     std::shared_mutex* _txn_tablet_delta_writer_map_locks = nullptr;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager

@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -122,9 +123,13 @@ public class FederationBackendPolicy {
         Set<Tag> tags = Sets.newHashSet();
         if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-            tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                throw new UserException("No valid resource tag for user: " + qualifiedUser);
+            // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
+            // just ignore it.
+            if (!Strings.isNullOrEmpty(qualifiedUser)) {
+                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                    throw new UserException("No valid resource tag for user: " + qualifiedUser);
+                }
             }
         } else {
             LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");

@@ -93,7 +93,7 @@ visible_functions = {
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']]
+        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -1551,6 +1551,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
+        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -2005,6 +2006,12 @@ visible_functions = {
         [['ipv4stringtonumornull'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],  
         [['ipv6numtostring','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
         [['ipv6numtostring','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],       
+        [['ipv6_string_to_num','inet6_aton'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num','inet6_aton'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],  
     ],
 
     "NonNullalbe": [

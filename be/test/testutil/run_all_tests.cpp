@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
             doris::TabletSchemaCache::create_global_schema_cache());
     doris::ExecEnv::GetInstance()->get_tablet_schema_cache()->start();
+    doris::ExecEnv::GetInstance()->set_dummy_lru_cache(std::make_shared<doris::DummyLRUCache>());
     doris::ExecEnv::GetInstance()->set_storage_page_cache(
             doris::StoragePageCache::create_global_cache(1 << 30, 10, 0));
     doris::ExecEnv::GetInstance()->set_segment_loader(new doris::SegmentLoader(1000));

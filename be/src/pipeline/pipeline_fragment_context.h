@@ -83,7 +83,7 @@ public:
         return _runtime_state->runtime_filter_mgr();
     }
 
-    QueryContext* get_query_ctx() { return _runtime_state->get_query_ctx(); }
+    QueryContext* get_query_ctx() { return _query_ctx.get(); }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
@@ -107,8 +107,6 @@ public:
             const std::string& msg = "");
 
     // TODO: Support pipeline runtime filter
-
-    QueryContext* get_query_context() { return _query_ctx.get(); }
 
     TUniqueId get_query_id() const { return _query_id; }
 
@@ -148,7 +146,7 @@ public:
     }
     void refresh_next_report_time();
 
-    virtual std::string debug_string() { return ""; }
+    virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
 

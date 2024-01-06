@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ResultFileSinkOperator final : public DataSinkOperator<ResultFileSinkOperatorBuilder> {
+class ResultFileSinkOperator final : public DataSinkOperator<vectorized::VResultFileSink> {
 public:
     ResultFileSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 

@@ -534,9 +534,6 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 }
 
 void AggregationNode::release_resource(RuntimeState* state) {
-    for (auto* aggregate_evaluator : _aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
     if (_executor.close) {
         _executor.close();
     }

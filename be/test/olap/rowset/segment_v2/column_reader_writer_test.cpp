@@ -542,7 +542,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimal<vectorized::Decimal128>(27, 9).create_column();
+        return vectorized::DataTypeDecimal<vectorized::Decimal128V2>(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
 }

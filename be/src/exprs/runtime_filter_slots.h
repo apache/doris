@@ -58,15 +58,14 @@ public:
                                 filter_id);
             }
             for (auto filter : filters) {
-                filter->set_ignored();
+                filter->set_ignored("");
                 filter->signal();
             }
             return Status::OK();
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
-            runtime_filter->set_ignored();
-            runtime_filter->set_ignored_msg(msg);
+            runtime_filter->set_ignored(msg);
             RETURN_IF_ERROR(runtime_filter->publish());
             return Status::OK();
         };
@@ -204,10 +203,10 @@ public:
     }
 
     // publish runtime filter
-    Status publish() {
+    Status publish(bool publish_local = false) {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
-                RETURN_IF_ERROR(filter->publish());
+            for (auto& filter : pair.second) {
+                RETURN_IF_ERROR(filter->publish(publish_local));
             }
         }
         return Status::OK();

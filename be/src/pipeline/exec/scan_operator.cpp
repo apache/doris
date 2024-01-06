@@ -53,6 +53,7 @@ bool ScanOperator::can_read() {
             return false;
         }
     } else {
+        // If scanner meet any error, done == true
         if (_node->_eos || _node->_scanner_ctx->done()) {
             // _eos: need eos
             // _scanner_ctx->done(): need finish
@@ -64,14 +65,6 @@ bool ScanOperator::can_read() {
     }
 }
 
-bool ScanOperator::is_pending_finish() const {
-    return _node->_scanner_ctx && !_node->_scanner_ctx->no_schedule();
-}
-
-Status ScanOperator::try_close(RuntimeState* state) {
-    return _node->try_close(state);
-}
-
 bool ScanOperator::runtime_filters_are_ready_or_timeout() {
     return _node->runtime_filters_are_ready_or_timeout();
 }
@@ -81,9 +74,8 @@ std::string ScanOperator::debug_string() const {
     fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
                    SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}, num_scheduling_ctx = {} ",
-                       _node->_scanner_ctx->get_num_running_scanners(),
-                       _node->_scanner_ctx->get_num_scheduling_ctx());
+        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}",
+                       _node->_scanner_ctx->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -101,9 +93,6 @@ std::string ScanOperator::debug_string() const {
 template <typename Derived>
 ScanLocalState<Derived>::ScanLocalState(RuntimeState* state, OperatorXBase* parent)
         : ScanLocalStateBase(state, parent) {
-    _finish_dependency = std::make_shared<FinishDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-            state->get_query_ctx());
     _filter_dependency = std::make_shared<RuntimeFilterDependency>(
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
             state->get_query_ctx());
@@ -175,7 +164,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
-        _finish_dependency->block();
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
@@ -569,15 +557,14 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                    _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(
-                debug_string_buffer,
-                ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
-                "_num_running_scanners={}, "
-                "_num_scheduling_ctx = {}, _num_unfinished_scanners = {}, status = {}, error = {})",
-                _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
-                _scanner_ctx->get_num_running_scanners(), _scanner_ctx->get_num_scheduling_ctx(),
-                _scanner_ctx->get_num_unfinished_scanners(), _scanner_ctx->status().to_string(),
-                _scanner_ctx->status_error());
+        fmt::format_to(debug_string_buffer,
+                       ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
+                       "_num_running_scanners={}, "
+                       " _num_unfinished_scanners = {}, status = {})",
+                       _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
+                       _scanner_ctx->get_num_running_scanners(),
+                       _scanner_ctx->get_num_unfinished_scanners(),
+                       _scanner_ctx->status().to_string());
     }
 
     return fmt::to_string(debug_string_buffer);
@@ -1225,24 +1212,27 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
+    // Init scanner wrapper
+    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
+        _scanners.emplace_back(std::make_shared<vectorized::ScannerDelegate>(*it));
+    }
     if (scanners.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners));
+        RETURN_IF_ERROR(_start_scanners(_scanners));
     }
     return Status::OK();
 }
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
-        const std::list<vectorized::VScannerSPtr>& scanners) {
+        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
-                                                    p.limit(), state()->scan_queue_mem_limit(),
-                                                    p._col_distribute_ids, 1, _scan_dependency,
-                                                    _finish_dependency);
+    _scanner_ctx = PipXScannerContext::create_shared(
+            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
+            state()->scan_queue_mem_limit(), _scan_dependency);
     return Status::OK();
 }
 
@@ -1317,9 +1307,6 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
-
-    _wait_for_finish_dependency_timer =
-            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
 
     return Status::OK();
 }
@@ -1428,17 +1415,6 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
-    auto& local_state = get_local_state(state);
-    if (local_state._scanner_ctx) {
-        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
-        // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        local_state._scanner_ctx->set_should_stop();
-    }
-    return Status::OK();
-}
-
 template <typename Derived>
 Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_closed) {
@@ -1450,10 +1426,9 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 
     SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx) {
-        _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
+        _scanner_ctx->stop_scanners(state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
-    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 
     return PipelineXLocalState<ScanDependency>::close(state);
@@ -1510,7 +1485,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (eos) {
         source_state = SourceState::FINISHED;
         // reach limit, stop the scanners.
-        local_state._scanner_ctx->set_should_stop();
+        local_state._scanner_ctx->stop_scanners(state);
     }
 
     return Status::OK();

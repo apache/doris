@@ -57,7 +57,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
                 .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
-                .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
