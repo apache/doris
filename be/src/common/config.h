@@ -1313,7 +1313,8 @@ public:
     // or set `retval` to `defstr`
     // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                        std::string& rawval) const;
 
     void set(const std::string& key, const std::string& val);
 

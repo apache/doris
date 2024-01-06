@@ -1377,8 +1377,8 @@ bool Properties::load(const char* conf_file, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
-                                bool* is_retval_set) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                                std::string& rawval) const {
     const auto& it = file_conf_map.find(std::string(key));
     std::string valstr;
     if (it == file_conf_map.end()) {
@@ -1392,6 +1392,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
     } else {
         valstr = it->second;
     }
+    rawval = valstr;
     *is_retval_set = true;
     return convert(valstr, retval);
 }
@@ -1441,9 +1442,11 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                    \
         TYPE new_value = TYPE();                                                               \
         bool is_newval_set = false;                                                            \
+        std::string raw_value;                                                                 \
         if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), \
-                                  new_value, &is_newval_set)) {                                \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                  \
+                                  new_value, &is_newval_set, raw_value)) {                     \
+            std::cerr << "config field error: " << (FIELD).name << " = \"" << raw_value << '"' \
+                      << std::endl;                                                            \
             return false;                                                                      \
         }                                                                                      \
         if (!is_newval_set) {                                                                  \
