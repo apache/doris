@@ -561,6 +561,16 @@ Columns Block::get_columns() const {
     return columns;
 }
 
+Columns Block::get_columns_and_convert() {
+    size_t num_columns = data.size();
+    Columns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        data[i].column = data[i].column->convert_to_full_column_if_const();
+        columns[i] = data[i].column;
+    }
+    return columns;
+}
+
 MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);

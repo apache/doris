@@ -47,7 +47,7 @@ public:
 private:
     void _reset() {
         sort_columns.clear();
-        auto columns = block.get_columns();
+        auto columns = block.get_columns_and_convert();
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
             auto& column_desc = desc[j];
             size_t column_number = !column_desc.column_name.empty()
@@ -151,8 +151,8 @@ private:
   * It is used in priority queue.
   */
 struct MergeSortCursorImpl {
-    ColumnPtrs all_columns;
-    ColumnPtrs sort_columns;
+    ColumnRawPtrs all_columns;
+    ColumnRawPtrs sort_columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
     size_t pos = 0;
@@ -161,7 +161,7 @@ struct MergeSortCursorImpl {
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
 
-    MergeSortCursorImpl(const Block& block, const SortDescription& desc_)
+    MergeSortCursorImpl(Block& block, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         reset(block);
     }
@@ -171,12 +171,12 @@ struct MergeSortCursorImpl {
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
-    void reset(const Block& block) {
-        auto columns = block.get_columns();
+    void reset(Block& block) {
+        auto columns = block.get_columns_and_convert();
         size_t num_columns = columns.size();
 
         for (size_t j = 0; j < num_columns; ++j) {
-            all_columns.push_back(columns[j]);
+            all_columns.push_back(columns[j].get());
         }
 
         for (size_t j = 0, size = desc.size(); j < size; ++j) {
@@ -184,16 +184,11 @@ struct MergeSortCursorImpl {
             size_t column_number = !column_desc.column_name.empty()
                                            ? block.get_position_by_name(column_desc.column_name)
                                            : column_desc.column_number;
-            sort_columns.push_back(columns[column_number]);
+            sort_columns.push_back(columns[column_number].get());
         }
 
         pos = 0;
         rows = all_columns[0]->size();
-    }
-
-    void clear() {
-        all_columns.clear();
-        sort_columns.clear();
     }
 
     bool isFirst() const { return pos == 0; }
@@ -242,7 +237,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                     status = _ordering_expr[i]->execute(&_block, &desc[i].column_number);
                 }
             }
-            reset(_block);
+            MergeSortCursorImpl::reset(_block);
             return status.ok();
         } else if (!status.ok()) {
             throw std::runtime_error(status.msg());

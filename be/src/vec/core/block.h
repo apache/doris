@@ -211,6 +211,8 @@ public:
     Block clone_empty() const;
 
     Columns get_columns() const;
+    Columns get_columns_and_convert();
+
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns() const;
