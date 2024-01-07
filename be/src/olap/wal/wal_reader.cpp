@@ -70,7 +70,7 @@ Status WalReader::read_block(PBlock& block) {
     return Status::OK();
 }
 
-Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
+Status WalReader::read_header(std::string& col_ids) {
     size_t bytes_read = 0;
     std::string magic_str;
     magic_str.resize(k_wal_magic_length);
@@ -83,7 +83,7 @@ Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
     RETURN_IF_ERROR(
             file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
     _offset += WalWriter::VERSION_SIZE;
-    version = decode_fixed32_le(version_buf);
+    _version = decode_fixed32_le(version_buf);
     uint8_t len_buf[WalWriter::LENGTH_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
