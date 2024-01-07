@@ -523,6 +523,16 @@ public class TableProperty implements Writable {
                 Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitDataBytes(int groupCommitDataBytes) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES, Integer.toString(groupCommitDataBytes));
+    }
+
+    public int getGroupCommitDataBytes() {
+        return Integer.parseInt(properties.getOrDefault(
+            PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES,
+            Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
