@@ -1077,7 +1077,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCommonExprPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
-    public boolean enableLocalExchange = true;
+    public boolean enableLocalExchange = false;
 
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
