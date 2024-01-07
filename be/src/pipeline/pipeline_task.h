@@ -287,7 +287,7 @@ public:
                       << print_id(_state->fragment_instance_id())
                       << " current pipeline exceed run time "
                       << config::enable_debug_log_timeout_secs << " seconds. Task state "
-                      << get_state_name(get_state()) << debug_string();
+                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
         }
     }
 

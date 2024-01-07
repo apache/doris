@@ -74,7 +74,7 @@ std::string ScanOperator::debug_string() const {
     fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
                    SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}",
+        fmt::format_to(debug_string_buffer, ", scanner ctx detail = {}",
                        _node->_scanner_ctx->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
@@ -557,14 +557,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                    _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer,
-                       ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
-                       "_num_running_scanners={}, "
-                       " _num_unfinished_scanners = {}, status = {})",
-                       _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
-                       _scanner_ctx->get_num_running_scanners(),
-                       _scanner_ctx->get_num_unfinished_scanners(),
-                       _scanner_ctx->status().to_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
     }
 
     return fmt::to_string(debug_string_buffer);
