@@ -157,9 +157,14 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    bool is_null_literal() const override { return _is_null_literal; }
+    void set_null_literal(bool flag) { _is_null_literal = flag; }
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
     };
+
+private:
+    bool _is_null_literal = false;
 };
 
 } // namespace doris::vectorized

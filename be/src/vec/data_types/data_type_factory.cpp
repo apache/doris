@@ -202,6 +202,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL:
         nested = std::make_shared<vectorized::DataTypeUInt8>();
+        const_cast<vectorized::DataTypeUInt8&>(
+                reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
+                .set_null_literal(true);
         break;
     case TYPE_ARRAY:
         DCHECK(col_desc.children.size() == 1);
