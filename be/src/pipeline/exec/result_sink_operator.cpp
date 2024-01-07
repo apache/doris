@@ -136,7 +136,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->append_block(*block));
+    RETURN_IF_ERROR(local_state._writer->write(*block));
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns

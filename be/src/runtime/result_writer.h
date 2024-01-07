@@ -44,7 +44,7 @@ public:
 
     [[nodiscard]] bool output_object_data() const { return _output_object_data; }
 
-    virtual Status append_block(vectorized::Block& block) = 0;
+    virtual Status write(vectorized::Block& block) = 0;
 
     virtual bool can_sink() { return true; }
 
