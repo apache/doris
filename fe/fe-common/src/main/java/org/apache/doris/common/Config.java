@@ -2063,15 +2063,6 @@ public class Config extends ConfigBase {
     public static long lock_reporting_threshold_ms = 500L;
 
     /**
-     * If false, when select from tables in information_schema database,
-     * the result will not contain the information of the table in external catalog.
-     * This is to avoid query time when external catalog is not reachable.
-     * TODO: this is a temp solution, we should support external catalog in the future.
-     */
-    @ConfField(mutable = true)
-    public static boolean infodb_support_ext_catalog = false;
-
-    /**
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */

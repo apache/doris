@@ -4032,6 +4032,10 @@ show_param ::=
     {:
         RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
     :}
+    | opt_full KW_FIELDS from_or_in table_name:table opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
+    :}
     /* collation */
     | KW_COLLATION opt_wild_where
     {:
@@ -4444,6 +4448,10 @@ opt_full ::=
     {:
         parser.isVerbose = true;
     :}
+    | KW_EXTENDED
+    {:
+        parser.isVerbose = true;
+    :}
     ;
 
 opt_wild_where ::=
@@ -4518,27 +4526,11 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, false, partitionNames);
     :}
-    | KW_SHOW KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
-    | KW_SHOW KW_COLUMNS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
     | describe_command KW_FUNCTION table_valued_function_ref:tvf
     {:
         RESULT = new DescribeStmt(tvf);
     :}
     | describe_command table_name:table KW_ALL
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_COLUMNS KW_FROM table_name:table
     {:
         RESULT = new DescribeStmt(table, true);
     :}

@@ -152,7 +152,8 @@ public class Analyzer {
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
     // used for Information Schema Table Scan
     // This 3 fields is used for optimize the data fetching from FE,
-    // if can pre-filter the data, we can reduce the data fetching from FE.
+    // for stmt such as `show columns like`, `show databases like`, `show tables like`
+    // if can pre-filter the data in FrontendServiceImpl to reduce the data fetching from FE.
     private String schemaCatalog;
     private String schemaDb;
     private String schemaTable; // table used in DESCRIBE Table
