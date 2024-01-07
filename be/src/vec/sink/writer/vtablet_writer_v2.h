@@ -108,7 +108,7 @@ public:
 
     Status init_properties(ObjectPool* pool);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
