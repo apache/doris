@@ -78,7 +78,7 @@ public:
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
-    // sink the block date to date queue
+    // sink the block date to date queue, it is async
     Status sink(Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
