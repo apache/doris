@@ -211,7 +211,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Check partition query used validation fail",
                                     String.format("the partition used by query is invalid by materialized view,"
-                                            + "invalid partitions query used is %s", invalidPartitionsQueryUsed)));
+                                                    + "invalid partition info query used is %s",
+                                            materializationContext.getMTMV().getPartitions().stream()
+                                                    .filter(partition ->
+                                                            invalidPartitionsQueryUsed.contains(partition.getId()))
+                                                    .collect(Collectors.toSet()))));
                     continue;
                 }
                 materializationContext.setSuccess(true);
