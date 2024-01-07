@@ -46,11 +46,6 @@ public class ShowDbStmt extends ShowStmt {
         this.pattern = pattern;
     }
 
-    public ShowDbStmt(String pattern, Expr where) {
-        this.pattern = pattern;
-        this.where = where;
-    }
-
     public ShowDbStmt(String pattern, Expr where, String catalogName) {
         this.pattern = pattern;
         this.where = where;
@@ -116,3 +111,4 @@ public class ShowDbStmt extends ShowStmt {
         return META_DATA;
     }
 }
+

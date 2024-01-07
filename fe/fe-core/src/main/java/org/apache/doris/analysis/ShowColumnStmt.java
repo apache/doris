@@ -120,52 +120,43 @@ public class ShowColumnStmt extends ShowStmt {
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
         // Field
         SelectListItem item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_NAME"), "Field");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Field"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Field"), item.getExpr().clone(null));
         // Type
         item = new SelectListItem(new SlotRef(columnsTableName, "DATA_TYPE"), "Type");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Type"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Type"), item.getExpr().clone(null));
         // Collation
         if (isVerbose) {
             item = new SelectListItem(new SlotRef(columnsTableName, "COLLATION_NAME"), "Collation");
-            item.getExpr().analyze(analyzer);
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Collation"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Collation"), item.getExpr().clone(null));
         }
         // Null
         item = new SelectListItem(new SlotRef(columnsTableName, "IS_NULLABLE"), "Null");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Null"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Null"), item.getExpr().clone(null));
         // Key
         item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_KEY"), "Key");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Key"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Key"), item.getExpr().clone(null));
         // Default
         item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_DEFAULT"), "Default");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Default"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Default"), item.getExpr().clone(null));
         // Extra
         item = new SelectListItem(new SlotRef(columnsTableName, "EXTRA"), "Extra");
-        item.getExpr().analyze(analyzer);
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, "Extra"), item.getExpr().clone(null));
+        aliasMap.putNoAnalyze(new SlotRef(null, "Extra"), item.getExpr().clone(null));
         if (isVerbose) {
             // Privileges
             item = new SelectListItem(new SlotRef(columnsTableName, "PRIVILEGES"), "Privileges");
-            item.getExpr().analyze(analyzer);
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Privileges"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Privileges"), item.getExpr().clone(null));
             // Comment
             item = new SelectListItem(new SlotRef(columnsTableName, "COLUMN_COMMENT"), "Comment");
-            item.getExpr().analyze(analyzer);
             selectList.addItem(item);
-            aliasMap.put(new SlotRef(null, "Comment"), item.getExpr().clone(null));
+            aliasMap.putNoAnalyze(new SlotRef(null, "Comment"), item.getExpr().clone(null));
         }
 
         where = where.substitute(aliasMap);
@@ -182,3 +173,4 @@ public class ShowColumnStmt extends ShowStmt {
         return metaData;
     }
 }
+

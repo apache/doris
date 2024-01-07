@@ -3988,11 +3988,11 @@ show_param ::=
     /* Database */
     | KW_DATABASES opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_DATABASES KW_FROM ident:catalogName
+    | KW_DATABASES KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
@@ -4006,7 +4006,7 @@ show_param ::=
     :}
     | KW_SCHEMAS opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
     | KW_SCHEMAS KW_FROM ident:catalogName
     {:
