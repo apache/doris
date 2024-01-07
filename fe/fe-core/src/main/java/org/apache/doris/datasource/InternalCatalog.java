@@ -2428,10 +2428,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // analyse group commit interval ms
-        int groupCommitIntervalMs = 0;
+        int groupCommitIntervalMs;
         try {
             groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        int groupCommitDataBytes;
+        try {
+            groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDateBytes(properties);
+            olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
