@@ -43,7 +43,7 @@ suite("test_group_commit_data_bytes_property") {
 
     for (item in ["legacy", "nereids"]) {
         try {
-            test_table = table + "_" + item;
+            def test_table = table + "_" + item;
             sql """ drop table if exists ${test_table} force; """
             sql """
             CREATE table ${test_table} (
