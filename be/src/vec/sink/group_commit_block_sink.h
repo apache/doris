@@ -18,7 +18,7 @@
 #pragma once
 #include "exec/data_sink.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
@@ -47,7 +47,8 @@ public:
 
 private:
     Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
-    Status _add_blocks();
+    Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
+    size_t _pre_allocated(bool is_blocks_contain_all_load_data);
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
@@ -70,6 +71,13 @@ private:
     std::vector<std::shared_ptr<vectorized::Block>> _blocks;
     bool _is_block_appended = false;
     double _max_filter_ratio = 0.0;
+
+    // used for find_partition
+    VOlapTablePartitionParam* _vpartition = nullptr;
+    // reuse for find_tablet.
+    std::vector<VOlapTablePartition*> _partitions;
+    Bitmap _filter_bitmap;
+    bool _has_filtered_rows = false;
 };
 
 } // namespace vectorized

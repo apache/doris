@@ -767,12 +767,18 @@ message POpenLoadStreamResponse {
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
 }
 
-message PWriteStreamSinkResponse {
+message PFailedTablet {
+    optional int64 id = 1;
+    optional PStatus status = 2;
+}
+
+message PLoadStreamResponse {
     optional PStatus status = 1;
     repeated int64 success_tablet_ids = 2;
-    repeated int64 failed_tablet_ids = 3;
+    repeated PFailedTablet failed_tablets = 3;
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
+    optional bool eos = 6;
 }
 
 message PStreamHeader {

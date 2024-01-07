@@ -19,25 +19,7 @@
 
 #include <gen_cpp/data.pb.h>
 
-#include <mutex>
 #include <sstream>
-#include <string>
-#include <unordered_map>
-#include <vector>
-
-#include "common/compiler_util.h"
-#include "common/status.h"
-#include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
-#include "util/proto_util.h"
-#include "util/thrift_util.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/block.h"
-#include "vec/sink/vtablet_block_convertor.h"
-#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 namespace vectorized {
@@ -56,9 +38,18 @@ VWalWriter::VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id,
 VWalWriter::~VWalWriter() {}
 
 Status VWalWriter::init() {
-    RETURN_IF_ERROR(_wal_manager->add_wal_path(_db_id, _tb_id, _wal_id, _label));
     RETURN_IF_ERROR(_wal_manager->create_wal_writer(_wal_id, _wal_writer));
-    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WAL_STATUS::CREATE);
+    _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WalStatus::CREATE);
+#ifndef BE_TEST
+    if (config::group_commit_wait_replay_wal_finish) {
+        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+        auto add_st = _wal_manager->add_wal_cv_map(_wal_id, lock, cv);
+        if (!add_st.ok()) {
+            LOG(WARNING) << "fail to add wal_id " << _wal_id << " to wal_cv_map";
+        }
+    }
+#endif
     std::stringstream ss;
     for (auto slot_desc : _slot_descs) {
         if (slot_desc.col_unique_id < 0) {
@@ -81,6 +72,13 @@ Status VWalWriter::write_wal(vectorized::Block* block) {
 }
 
 Status VWalWriter::close() {
+    if (config::group_commit_wait_replay_wal_finish) {
+        std::string wal_path;
+        RETURN_IF_ERROR(_wal_manager->get_wal_path(_wal_id, wal_path));
+        LOG(INFO) << "close file " << wal_path;
+        RETURN_IF_ERROR(_wal_manager->add_recover_wal(_db_id, _tb_id, _wal_id, wal_path));
+        RETURN_IF_ERROR(_wal_manager->wait_replay_wal_finish(_wal_id));
+    }
     if (_wal_writer != nullptr) {
         RETURN_IF_ERROR(_wal_writer->finalize());
     }

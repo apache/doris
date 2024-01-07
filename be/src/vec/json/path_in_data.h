@@ -61,6 +61,7 @@ public:
     explicit PathInData(std::string_view path_);
     explicit PathInData(const Parts& parts_);
     explicit PathInData(const std::vector<std::string>& paths);
+    explicit PathInData(const std::string& root, const std::vector<std::string>& paths);
     PathInData(const PathInData& other);
     PathInData& operator=(const PathInData& other);
     static UInt128 get_parts_hash(const Parts& parts_);

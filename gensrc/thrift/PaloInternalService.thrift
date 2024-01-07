@@ -181,7 +181,7 @@ struct TQueryOptions {
 
   54: optional bool enable_share_hash_table_for_broadcast_join
 
-  55: optional bool check_overflow_for_decimal = false
+  55: optional bool check_overflow_for_decimal = true
 
   // For debug purpose, skip delete bitmap when reading data
   56: optional bool skip_delete_bitmap = false
@@ -263,6 +263,12 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parallel_scan = false;
+
+  96: optional i32 parallel_scan_max_scanners_count = 0;
+
+  97: optional i64 parallel_scan_min_rows_per_scanner = 0;
 }
 
 
@@ -471,6 +477,8 @@ struct TExecPlanFragmentParams {
   27: optional i32 total_load_streams
 
   28: optional i32 num_local_sink
+
+  29: optional i64 content_length
 }
 
 struct TExecPlanFragmentParamsList {

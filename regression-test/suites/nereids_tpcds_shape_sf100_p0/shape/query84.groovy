@@ -24,20 +24,12 @@ suite("query84") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_84 '''
-    explain shape plan
-
-
-
-
-select  c_customer_id as customer_id
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select  c_customer_id as customer_id
        , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
  from customer
      ,customer_address
@@ -54,7 +46,9 @@ select  c_customer_id as customer_id
    and hd_demo_sk = c_current_hdemo_sk
    and sr_cdemo_sk = cd_demo_sk
  order by c_customer_id
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_84 """
+    explain shape plan
+    ${ds}
+    """
 }

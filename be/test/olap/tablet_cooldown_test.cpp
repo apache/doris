@@ -101,14 +101,8 @@ public:
 
     Status close() override { return _local_file_writer->close(); }
 
-    Status abort() override { return _local_file_writer->abort(); }
-
     Status appendv(const Slice* data, size_t data_cnt) override {
         return _local_file_writer->appendv(data, data_cnt);
-    }
-
-    Status write_at(size_t offset, const Slice& data) override {
-        return _local_file_writer->write_at(offset, data);
     }
 
     Status finalize() override { return _local_file_writer->finalize(); }
@@ -181,20 +175,7 @@ protected:
         return Status::OK();
     }
 
-    Status direct_upload_impl(const Path& remote_file, const std::string& content) override {
-        return Status::OK();
-    }
-
-    Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                     const std::string& checksum) override {
-        return Status::OK();
-    }
-
     Status download_impl(const Path& remote_file, const Path& local_file) override {
-        return Status::OK();
-    }
-
-    Status direct_download_impl(const Path& remote_file, std::string* content) override {
         return Status::OK();
     }
 
@@ -207,10 +188,6 @@ protected:
     Status connect_impl() override { return Status::OK(); }
 
     Status rename_impl(const Path& orig_name, const Path& new_name) override {
-        return Status::OK();
-    }
-
-    Status rename_dir_impl(const Path& orig_name, const Path& new_name) override {
         return Status::OK();
     }
 
@@ -237,9 +214,10 @@ public:
         config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(get_remote_path(remote_tablet_path(kTabletId)))
                             .ok());
@@ -249,7 +227,7 @@ public:
         EngineOptions options;
         options.store_paths = paths;
         k_engine = std::make_unique<StorageEngine>(options);
-        auto st = k_engine->open();
+        st = k_engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
@@ -267,6 +245,7 @@ public:
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
                                                     TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 30003;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;

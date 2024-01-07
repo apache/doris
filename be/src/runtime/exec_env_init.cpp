@@ -17,14 +17,14 @@
 
 // IWYU pragma: no_include <bthread/errno.h>
 #include <common/multi_version.h>
-#include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/resource.h>
 
+#include <cerrno> // IWYU pragma: keep
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <memory>
@@ -49,7 +49,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -76,6 +76,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_management/workload_sched_policy_mgr.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
@@ -109,15 +110,13 @@ class PFunctionService_Stub;
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
     std::vector<std::string> network_interfaces;
     std::vector<std::string> paths;
-    for (auto& store_path : store_paths) {
+    for (const auto& store_path : store_paths) {
         paths.emplace_back(store_path.path);
     }
     if (init_system_metrics) {
@@ -167,8 +166,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(config::send_batch_thread_pool_queue_size)
                               .build(&_send_batch_thread_pool));
 
-    init_download_cache_required_components();
-
     static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
                               .set_min_threads(16)
                               .set_max_threads(64)
@@ -193,6 +190,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(1)
+                              .set_max_queue_size(1000000)
+                              .build(&_lazy_release_obj_pool));
+
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -213,11 +216,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
-    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _wal_manager = WalManager::create_shared(this, config::group_commit_replay_wal_dir);
+    _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -269,6 +271,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
 
+    _workload_sched_mgr = new WorkloadSchedPolicyMgr();
+    _workload_sched_mgr->start(this);
+
     _s_ready = true;
 
     return Status::OK();
@@ -282,21 +287,22 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
+    _without_group_block_scheduler =
+            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
     _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "WithoutGroupTaskSchePool", nullptr);
+            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start("WithoutGroupBlockSche"));
+    RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _with_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _with_group_block_scheduler, tg_queue, "WithGroupTaskSchePool", nullptr);
+    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGSchePool");
+    _with_group_task_scheduler = new pipeline::TaskScheduler(this, _with_group_block_scheduler,
+                                                             tg_queue, "PipeGSchePool", nullptr);
     RETURN_IF_ERROR(_with_group_task_scheduler->start());
-    RETURN_IF_ERROR(_with_group_block_scheduler->start("WithGroupBlockSche"));
+    RETURN_IF_ERROR(_with_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    RETURN_IF_ERROR(_global_block_scheduler->start("GlobalBlockSche"));
+    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
+    RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -330,9 +336,11 @@ void ExecEnv::init_file_cache_factory() {
                 continue;
             }
 
-            olap_res = file_cache_init_pool->submit_func(std::bind(
-                    &io::FileCacheFactory::create_file_cache, _file_cache_factory, cache_path.path,
-                    cache_path.init_settings(), &(cache_status.emplace_back())));
+            olap_res = file_cache_init_pool->submit_func(
+                    [this, capture0 = cache_path.path, capture1 = cache_path.init_settings(),
+                     capture2 = &(cache_status.emplace_back())] {
+                        _file_cache_factory->create_file_cache(capture0, capture1, capture2);
+                    });
 
             if (!olap_res.ok()) {
                 LOG(FATAL) << "failed to init file cache, err: " << olap_res;
@@ -349,7 +357,6 @@ void ExecEnv::init_file_cache_factory() {
             }
         }
     }
-    return;
 }
 
 Status ExecEnv::_init_mem_env() {
@@ -363,13 +370,13 @@ Status ExecEnv::_init_mem_env() {
     init_hook();
 #endif
 
-    // 2. init buffer pool
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
         return Status::InternalError(ss.str());
     }
 
-    // 3. init storage page cache
+    _dummy_lru_cache = std::make_shared<DummyLRUCache>();
+
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -387,6 +394,12 @@ Status ExecEnv::_init_mem_env() {
                      << ". Rounded up to " << num_shards
                      << ". Please modify the 'storage_page_cache_shard_size' parameter in your "
                         "conf file to be a power of two for better performance.";
+    }
+    if (storage_cache_limit < num_shards * 2) {
+        LOG(WARNING) << "storage_cache_limit(" << storage_cache_limit << ") less than num_shards("
+                     << num_shards
+                     << ") * 2, cache capacity will be 0, continuing to use "
+                        "cache will only have negative effects, will be disabled.";
     }
     int64_t pk_storage_page_cache_limit =
             ParseUtil::parse_mem_spec(config::pk_storage_page_cache_limit, MemInfo::mem_limit(),
@@ -434,6 +447,8 @@ Status ExecEnv::_init_mem_env() {
 
     _schema_cache = new SchemaCache(config::schema_cache_capacity);
 
+    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+
     _lookup_connection_cache = LookupConnectionCache::create_global_instance(
             config::lookup_connection_cache_bytes_limit);
 
@@ -465,7 +480,6 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
     return Status::OK();
 }
@@ -482,43 +496,18 @@ void ExecEnv::init_mem_tracker() {
             std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
 }
 
-void ExecEnv::init_download_cache_buf() {
-    std::unique_ptr<char[]> download_cache_buf(new char[config::download_cache_buffer_size]);
-    memset(download_cache_buf.get(), 0, config::download_cache_buffer_size);
-    _download_cache_buf_map[_serial_download_cache_thread_token.get()] =
-            std::move(download_cache_buf);
-}
-
-void ExecEnv::init_download_cache_required_components() {
-    static_cast<void>(ThreadPoolBuilder("DownloadCacheThreadPool")
-                              .set_min_threads(1)
-                              .set_max_threads(config::download_cache_thread_pool_thread_num)
-                              .set_max_queue_size(config::download_cache_thread_pool_queue_size)
-                              .build(&_download_cache_thread_pool));
-    set_serial_download_cache_thread_token();
-    init_download_cache_buf();
-}
-
 void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
 
     REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size,
                          [this]() { return _send_batch_thread_pool->get_queue_size(); });
-
-    REGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num,
-                         [this]() { return _download_cache_thread_pool->num_threads(); });
-
-    REGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size,
-                         [this]() { return _download_cache_thread_pool->get_queue_size(); });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);
-    DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
 }
 
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
@@ -532,6 +521,7 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
+    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -541,6 +531,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
+    // stop workload scheduler
+    SAFE_STOP(_workload_sched_mgr);
     // stop pipline step 1, non-cgroup execution
     SAFE_SHUTDOWN(_without_group_block_scheduler.get());
     SAFE_STOP(_without_group_task_scheduler);
@@ -563,14 +555,12 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
-    SAFE_SHUTDOWN(_serial_download_cache_thread_token);
-    SAFE_SHUTDOWN(_download_cache_thread_pool);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _wal_manager.reset();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
@@ -598,9 +588,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
-    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
-    SAFE_DELETE(_cache_manager);
 
     SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
@@ -616,6 +603,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_task_group_manager);
     SAFE_DELETE(_with_group_task_scheduler);
     SAFE_DELETE(_without_group_task_scheduler);
@@ -623,6 +611,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
+    _lazy_release_obj_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
@@ -637,8 +626,9 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    _serial_download_cache_thread_token.reset(nullptr);
-    _download_cache_thread_pool.reset(nullptr);
+    // cache_manager must be destoried after all cache.
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    SAFE_DELETE(_cache_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);

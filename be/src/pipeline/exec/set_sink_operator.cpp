@@ -42,7 +42,7 @@ OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSinkOperator<is_intersect>::SetSinkOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<SetSinkOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSinkOperatorBuilder<true>;
 template class SetSinkOperatorBuilder<false>;
@@ -59,13 +59,16 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    auto& mem_used = local_state._shared_state->mem_used;
     auto& build_block = local_state._shared_state->build_block;
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
-        mem_used += in_block->allocated_bytes();
         RETURN_IF_ERROR(local_state._mutable_block.merge(*in_block));
+
+        if (local_state._mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
+            return Status::NotSupported("set operator do not support build table rows over:" +
+                                        std::to_string(std::numeric_limits<uint32_t>::max()));
+        }
     }
 
     if (source_state == SourceState::FINISHED ||

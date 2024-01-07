@@ -986,25 +986,27 @@ public class TypeCoercionUtils {
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
         return optionalCommonType
                 .map(commonType -> {
+                    DataType realCommonType = commonType instanceof DecimalV2Type
+                            ? DecimalV3Type.forType(commonType) : commonType;
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
                                 Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
-                                        wc.getResult(), commonType);
+                                        wc.getResult(), realCommonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
                                 // return a branch value
-                                if (!valueExpr.getDataType().equals(commonType)) {
-                                    valueExpr = new Cast(valueExpr, commonType);
+                                if (!valueExpr.getDataType().equals(realCommonType)) {
+                                    valueExpr = new Cast(valueExpr, realCommonType);
                                 }
                                 return wc.withChildren(wc.getOperand(), valueExpr);
                             })
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
-                                if (!defaultExpr.getDataType().equals(commonType)) {
-                                    defaultExpr = new Cast(defaultExpr, commonType);
+                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, realCommonType);
+                                if (!defaultExpr.getDataType().equals(realCommonType)) {
+                                    defaultExpr = new Cast(defaultExpr, realCommonType);
                                 }
                                 return defaultExpr;
                             })

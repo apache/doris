@@ -74,8 +74,9 @@ suite("test_binlog_config_change") {
         syncer.closeBackendClients()
     }
 
+    target_sql " sync "
     def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
 
     // TODO: bugfix
     // test 2: source cluster disable and re-enable binlog

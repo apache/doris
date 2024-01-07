@@ -27,6 +27,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -64,6 +65,8 @@ public class TableProperty implements Writable {
     private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
 
+    private TStorageMedium storageMedium = null;
+
     /*
      * the default storage format of this table.
      * DEFAULT: depends on BE's config 'default_rowset_type'
@@ -97,6 +100,9 @@ public class TableProperty implements Writable {
     private long timeSeriesCompactionTimeThresholdSeconds
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
 
+    private long timeSeriesCompactionEmptyRowsetsThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -123,6 +129,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildMinLoadReplicaNum();
+                buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
                 buildCompactionPolicy();
@@ -132,6 +139,7 @@ public class TableProperty implements Writable {
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
                 buildDisableAutoCompaction();
+                buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 break;
             default:
                 break;
@@ -278,6 +286,17 @@ public class TableProperty implements Writable {
         return timeSeriesCompactionTimeThresholdSeconds;
     }
 
+    public TableProperty buildTimeSeriesCompactionEmptyRowsetsThreshold() {
+        timeSeriesCompactionEmptyRowsetsThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionEmptyRowsetsThreshold() {
+        return timeSeriesCompactionEmptyRowsetsThreshold;
+    }
+
     public TableProperty buildMinLoadReplicaNum() {
         minLoadReplicaNum = Short.parseShort(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1"));
@@ -286,6 +305,20 @@ public class TableProperty implements Writable {
 
     public short getMinLoadReplicaNum() {
         return minLoadReplicaNum;
+    }
+
+    public TableProperty buildStorageMedium() {
+        String storageMediumStr = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+        if (Strings.isNullOrEmpty(storageMediumStr)) {
+            storageMedium = null;
+        } else {
+            storageMedium = TStorageMedium.valueOf(storageMediumStr);
+        }
+        return this;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -514,6 +547,7 @@ public class TableProperty implements Writable {
                 .executeBuildDynamicProperty()
                 .buildInMemory()
                 .buildMinLoadReplicaNum()
+                .buildStorageMedium()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()
@@ -528,7 +562,8 @@ public class TableProperty implements Writable {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction();
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

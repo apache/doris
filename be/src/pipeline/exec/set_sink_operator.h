@@ -49,7 +49,7 @@ public:
 };
 
 template <bool is_intersect>
-class SetSinkOperator : public StreamingOperator<SetSinkOperatorBuilder<is_intersect>> {
+class SetSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetSinkOperator(OperatorBuilderBase* operator_builder,
                     vectorized::VSetOperationNode<is_intersect>* set_node);
@@ -85,8 +85,6 @@ public:
     SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
-    int64_t* mem_used() { return &_shared_state->mem_used; };
 
 private:
     friend class SetSinkOperatorX<is_intersect>;
@@ -131,9 +129,9 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
-        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    DataDistribution required_data_distribution() const override {
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:

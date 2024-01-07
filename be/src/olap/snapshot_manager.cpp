@@ -187,6 +187,12 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
             // remote rowset
             *rowset_meta = visible_rowset;
         }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
+        }
+
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
         rs_version_map[rowset_version] = rowset_meta;
     }
@@ -215,6 +221,11 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         } else {
             // remote rowset
             *rowset_meta = stale_rowset;
+        }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
         }
     }
 
@@ -426,10 +437,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                           << ref_tablet->tablet_id();
                 Version version(request.start_version, request.end_version);
                 const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, false);
-                if (rowset != nullptr) {
+                if (rowset && rowset->is_local()) {
                     consistent_rowsets.push_back(rowset);
                 } else {
-                    LOG(WARNING) << "failed to find version when do compaction snapshot. "
+                    LOG(WARNING) << "failed to find local version when do compaction snapshot. "
                                  << " tablet=" << request.tablet_id
                                  << " schema_hash=" << request.schema_hash
                                  << " version=" << version;

@@ -59,15 +59,15 @@ public class TopicPublisherThread extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (!Config.enable_workload_group) {
-            return;
-        }
         LOG.info("begin publish topic info");
         // step 1: get all publish topic info
         TPublishTopicRequest request = new TPublishTopicRequest();
         for (TopicPublisher topicPublisher : topicPublisherList) {
             topicPublisher.getTopicInfo(request);
         }
+
+        // even request contains no group and schedule policy, we still need to send an empty rpc.
+        // because it may means workload group/policy is dropped
 
         // step 2: publish topic info to all be
         Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();

@@ -32,7 +32,7 @@ A big usage scenario in the future is similar to the es log storage. In the log 
 1. The price of ordinary cloud disks of cloud manufacturers is higher than that of object storage
 2. In the actual online use of the doris cluster, the utilization rate of ordinary cloud disks cannot reach 100%
 3. Cloud disk is not paid on demand, but object storage can be paid on demand
-4. High availability based on ordinary cloud disks requires multiple replicas, and a replica migration is required for a replica exception. This problem does not exist when data is placed on the object store, because the object store is shared。
+4. High availability based on ordinary cloud disks requires multiple replicas, and a replica migration is required for a replica exception. This problem does not exist when data is placed on the object store, because the object store is shared.
 
 ## Solution
 Set the freeze time on the partition level to indicate how long the partition will be frozen, and define the location of remote storage stored after the freeze. On the be, the daemon thread will periodically determine whether the table needs to be frozen. If it does, it will upload the data to s3.

@@ -166,9 +166,11 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
   
 + format
 
-  Specify the import data format, support csv, json, the default is csv
+  Specify the import data format, support csv, json, arrow, the default is csv
 
-  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc</version>
+  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc.</version>
+
+  <version since="2.1.0">supports `arrow` format.</version>
 
 + exec\_mem\_limit
 

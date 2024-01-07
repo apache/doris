@@ -589,6 +589,7 @@ public class OlapTable extends Table {
         }
 
         // for each partition, reset rollup index map
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             Partition partition = entry.getValue();
             // entry.getKey() is the new partition id, use it to get the restore specified replica allocation
@@ -616,7 +617,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, null, false, false);
+                                        replicaAlloc, nextIndexs, null, false, false);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1944,6 +1945,20 @@ public class OlapTable extends Table {
         return quorum;
     }
 
+    public void setStorageMedium(TStorageMedium medium) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                medium == null ? "" : medium.name());
+        tableProperty.buildStorageMedium();
+    }
+
+    public TStorageMedium getStorageMedium() {
+        if (tableProperty != null) {
+            return tableProperty.getStorageMedium();
+        }
+        return null;
+    }
+
     public void setStoragePolicy(String storagePolicy) throws UserException {
         if (!Config.enable_storage_policy && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new UserException("storage policy feature is disabled by default. "
@@ -2072,6 +2087,20 @@ public class OlapTable extends Table {
     public Long getTimeSeriesCompactionTimeThresholdSeconds() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
+    }
+
+    public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
         }
         return null;
     }

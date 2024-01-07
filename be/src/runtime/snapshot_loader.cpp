@@ -60,6 +60,29 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+namespace {
+
+Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_path,
+                            std::string_view remote_path, std::string_view checksum) {
+    auto full_remote_path = fmt::format("{}.{}", remote_path, checksum);
+    switch (fs.type()) {
+    case io::FileSystemType::HDFS:
+    case io::FileSystemType::BROKER: {
+        std::string temp = fmt::format("{}.part", remote_path);
+        RETURN_IF_ERROR(fs.upload(local_path, temp));
+        RETURN_IF_ERROR(fs.rename(temp, full_remote_path));
+        break;
+    }
+    case io::FileSystemType::S3:
+        RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
+        break;
+    default:
+        LOG(FATAL) << "unknown fs type: " << static_cast<int>(fs.type());
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
         : _env(env),
@@ -178,10 +201,9 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             }
 
             // upload
-            std::string full_remote_file = dest_path + "/" + local_file;
-            std::string full_local_file = src_path + "/" + local_file;
-            RETURN_IF_ERROR(
-                    _remote_fs->upload_with_checksum(full_local_file, full_remote_file, md5sum));
+            std::string remote_path = dest_path + '/' + local_file;
+            std::string local_path = src_path + '/' + local_file;
+            RETURN_IF_ERROR(upload_with_checksum(*_remote_fs, local_path, remote_path, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -312,7 +334,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // check disk capacity
             if (data_dir->reach_capacity_limit(file_len)) {
-                return Status::InternalError("capacity limit reached");
+                return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                        "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                        file_len);
             }
             // remove file which will be downloaded now.
             // this file will be added to local_files if it be downloaded successfully.
@@ -545,7 +569,9 @@ Status SnapshotLoader::remote_http_download(
 
             // check disk capacity
             if (data_dir->reach_capacity_limit(file_size)) {
-                return Status::InternalError("Disk reach capacity limit");
+                return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                        "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                        file_size);
             }
 
             total_file_size += file_size;

@@ -2062,8 +2062,8 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
+        Assert.assertTrue(explainString, explainString
+                        .contains("OUTPUT EXPRS:\n" + "    CAST(`a`.`aid` AS INT)\n" + "    CAST(`b`.`bid` AS INT)"));
     }
 
     @Test
@@ -2226,6 +2226,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testRewriteOrToIn() throws Exception {
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setEnableRewriteElementAtToSlot(false);
         String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));

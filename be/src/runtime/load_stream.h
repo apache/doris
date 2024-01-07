@@ -41,6 +41,7 @@ class OlapTableSchemaParam;
 
 // origin_segid(index) -> new_segid(value in vector)
 using SegIdMapping = std::vector<uint32_t>;
+using FailedTablets = std::vector<std::pair<int64_t, Status>>;
 class TabletStream {
 public:
     TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, LoadStreamMgr* load_stream_mgr,
@@ -69,6 +70,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    LoadStreamMgr* _load_stream_mgr = nullptr;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
@@ -82,7 +84,7 @@ public:
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 
     Status close(const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
+                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
 private:
     Status _init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
@@ -117,7 +119,7 @@ public:
     }
 
     Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
-                 std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
+                 std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;
@@ -131,20 +133,21 @@ private:
     void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
     Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
 
-    void _report_result(StreamId stream, const Status& st,
+    void _report_result(StreamId stream, const Status& status,
                         const std::vector<int64_t>& success_tablet_ids,
-                        const std::vector<int64_t>& failed_tablet_ids);
+                        const FailedTablets& failed_tablets, bool eos);
     void _report_schema(StreamId stream, const PStreamHeader& hdr);
 
     // report failure for one message
     void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {
-        std::vector<int64_t> success; // empty
-        std::vector<int64_t> failure;
+        FailedTablets failed_tablets;
         if (header.has_tablet_id()) {
-            failure.push_back(header.tablet_id());
+            failed_tablets.emplace_back(header.tablet_id(), status);
         }
-        _report_result(stream, status, success, failure);
+        _report_result(stream, status, {}, failed_tablets, false);
     }
+
+    Status _write_stream(StreamId stream, butil::IOBuf& buf);
 
 private:
     PUniqueId _load_id;

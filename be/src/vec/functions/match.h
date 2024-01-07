@@ -145,6 +145,23 @@ public:
     }
 };
 
+class FunctionMatchRegexp : public FunctionMatchBase {
+public:
+    static constexpr auto name = "match_regexp";
+    static FunctionPtr create() { return std::make_shared<FunctionMatchRegexp>(); }
+
+    String get_name() const override { return name; }
+
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) const override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchRegexp not support execute_match");
+    }
+};
+
 class FunctionMatchElementEQ : public FunctionMatchBase {
 public:
     static constexpr auto name = "match_element_eq";

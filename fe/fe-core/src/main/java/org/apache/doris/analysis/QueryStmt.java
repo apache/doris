@@ -527,6 +527,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     }
 
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+    }
+
 
     /**
      * register expr_id of expr and its children, if not set
@@ -818,6 +822,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     public void setFromInsert(boolean value) {
         this.fromInsert = value;
+    }
+
+    public boolean isFromInsert() {
+        return fromInsert;
     }
 
     @Override

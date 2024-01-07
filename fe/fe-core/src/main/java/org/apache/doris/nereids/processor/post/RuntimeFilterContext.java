@@ -121,17 +121,17 @@ public class RuntimeFilterContext {
     // you can see disjoint set data structure to learn the processing detailed.
     private final Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = Maps.newHashMap();
 
-    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
+    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
 
     // cte to related joins map which can extract common runtime filter to cte inside
-    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
+    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newLinkedHashMap();
 
     // cte candidates which can be pushed into common runtime filter into from outside
     private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newLinkedHashMap();
 
-    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newLinkedHashMap();
 
     // cte whose runtime filter has been extracted
     private final Set<CTEId> processedCTE = Sets.newHashSet();
@@ -236,6 +236,22 @@ public class RuntimeFilterContext {
 
     public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
         return aliasTransferMap;
+    }
+
+    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
+        return aliasTransferMap.remove(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
+        return aliasTransferMap.get(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> aliasTransferMapPut(NamedExpression slot, Pair<PhysicalRelation, Slot> pair) {
+        return aliasTransferMap.put(slot, pair);
+    }
+
+    public boolean aliasTransferMapContains(NamedExpression slot) {
+        return aliasTransferMap.containsKey(slot);
     }
 
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {

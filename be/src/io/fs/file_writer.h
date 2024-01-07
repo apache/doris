@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gutil/macros.h"
 #include "io/fs/path.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -48,14 +49,9 @@ public:
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
 
-    // Abnormal close and remove this file.
-    virtual Status abort() = 0;
-
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
-
-    virtual Status write_at(size_t offset, const Slice& data) = 0;
 
     // Call this method when there is no more data to write.
     // FIXME(cyx): Does not seem to be an appropriate interface for file system?
@@ -63,7 +59,10 @@ public:
 
     const Path& path() const { return _path; }
 
-    size_t bytes_appended() const { return _bytes_appended; }
+    size_t bytes_appended() const {
+        DBUG_EXECUTE_IF("FileWriter.bytes_appended.zero_bytes_appended", { return 0; });
+        return _bytes_appended;
+    }
 
     std::shared_ptr<FileSystem> fs() const { return _fs; }
 

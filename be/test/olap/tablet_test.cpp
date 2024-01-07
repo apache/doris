@@ -79,7 +79,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
 
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
@@ -343,8 +346,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_TRUE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 250);
         ASSERT_EQ(file_size, 84699);
     }
@@ -357,8 +360,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_TRUE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 3800);
         ASSERT_EQ(file_size, 84699);
     }
@@ -371,8 +374,8 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
-        ASSERT_FALSE(ret);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        ASSERT_FALSE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, -1);
         ASSERT_EQ(file_size, -1);
     }
@@ -385,11 +388,11 @@ TEST_F(TestTablet, cooldown_policy) {
 
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        bool ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
+        auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         // the rowset with earliest version woule be picked up to do cooldown of which the timestamp
         // is UnixSeconds() - 250
         int64_t expect_cooldown_timestamp = UnixSeconds() - 50;
-        ASSERT_TRUE(ret);
+        ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
         ASSERT_EQ(file_size, 84699);
     }

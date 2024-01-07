@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
@@ -29,6 +28,7 @@ import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * MetastoreEvent for ALTER_TABLE event type
@@ -65,6 +65,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                     (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
+            tableAfter.setTableName(tableAfter.getTableName().toLowerCase(Locale.ROOT));
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
             tblNameAfter = tableAfter.getTableName();
         } catch (Exception e) {

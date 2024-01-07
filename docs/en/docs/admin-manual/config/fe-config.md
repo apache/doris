@@ -587,6 +587,16 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### `abort_txn_after_lost_heartbeat_time_second`
+
+Abort transaction time after lost heartbeat. The default value is 300, which means transactions of be will be aborted after lost heartbeat 300s.
+
+Default: 300(s)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
 #### `enable_access_file_without_broker`
 
 Default：false
@@ -677,6 +687,18 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
+
+#### `http_sql_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http sql submitter
+
+#### `http_load_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http upload submitter
 
 ### Query Engine
 
@@ -1143,7 +1165,7 @@ Max bytes a broker scanner can process in one broker load job. Commonly, each Ba
 
 #### `default_load_parallelism`
 
-Default: 1
+Default: 8
 
 IsMutable：true
 
@@ -1359,7 +1381,7 @@ Default：false
 
 IsMutable：true
 
-MasterOnly：false
+MasterOnly：true
 
 Enable memtable on sink node for stream load by default.
 When HTTP header `memtable_on_sink_node` is not set.

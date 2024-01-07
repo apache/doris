@@ -51,6 +51,7 @@ enum class RuntimeFilterRole;
 class RuntimePredicateWrapper;
 class QueryContext;
 struct RuntimeFilterParamsContext;
+class ExecEnv;
 
 /// producer:
 /// Filter filter;
@@ -68,8 +69,6 @@ class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state);
 
-    RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
-
     ~RuntimeFilterMgr() = default;
 
     Status init();
@@ -84,9 +83,10 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, bool build_bf_exactly = false,
-                                    int merged_rf_num = 0);
+                                    bool is_global = false);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    bool build_bf_exactly = false);
+                                    bool build_bf_exactly = false, bool is_global = false,
+                                    int parallel_tasks = 0);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -109,7 +109,6 @@ private:
     std::map<int32_t, IRuntimeFilter*> _producer_map;
 
     RuntimeFilterParamsContext* _state = nullptr;
-    QueryContext* _query_ctx = nullptr;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
@@ -227,4 +226,38 @@ using runtime_filter_merge_entity_closer = std::function<void(RuntimeFilterMerge
 void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
                                        RuntimeFilterMergeControllerEntity* entity);
 
+//There are two types of runtime filters:
+// one is global, originating from QueryContext,
+// and the other is local, originating from RuntimeState.
+// In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
+// RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms and enable_pipeline_exec...
+
+/// TODO: Consider adding checks for global/local.
+struct RuntimeFilterParamsContext {
+    RuntimeFilterParamsContext() = default;
+    static RuntimeFilterParamsContext* create(RuntimeState* state);
+    static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
+
+    bool runtime_filter_wait_infinitely;
+    int32_t runtime_filter_wait_time_ms;
+    bool enable_pipeline_exec;
+    int32_t execution_timeout;
+    RuntimeFilterMgr* runtime_filter_mgr;
+    ExecEnv* exec_env;
+    PUniqueId query_id;
+    PUniqueId _fragment_instance_id;
+    int be_exec_version;
+    QueryContext* query_ctx;
+    QueryContext* get_query_ctx() const { return query_ctx; }
+    ObjectPool* _obj_pool;
+    bool _is_global = false;
+    PUniqueId fragment_instance_id() const {
+        DCHECK(!_is_global);
+        return _fragment_instance_id;
+    }
+    ObjectPool* obj_pool() const {
+        DCHECK(_is_global);
+        return _obj_pool;
+    }
+};
 } // namespace doris

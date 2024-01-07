@@ -69,6 +69,11 @@ const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
 
+const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY = "ignore_above";
+const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE = "256";
+
+const std::string INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";
+
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type);
 
 InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::string& parser_str);
@@ -82,4 +87,9 @@ std::string get_parser_phrase_support_string_from_properties(
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);
 
+// get parser ignore_above value from properties
+std::string get_parser_ignore_above_value_from_properties(
+        const std::map<std::string, std::string>& properties);
+std::string get_parser_lowercase_from_properties(
+        const std::map<std::string, std::string>& properties);
 } // namespace doris
