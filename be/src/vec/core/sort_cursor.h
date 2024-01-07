@@ -172,6 +172,9 @@ struct MergeSortCursorImpl {
 
     /// Set the cursor to the beginning of the new block.
     void reset(Block& block) {
+        all_columns.clear();
+        sort_columns.clear();
+
         auto columns = block.get_columns_and_convert();
         size_t num_columns = columns.size();
 
