@@ -73,9 +73,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     static {
         // support count distinct roll up
+        // with bitmap_union and to_bitmap
         AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
                 new BitmapUnion(new ToBitmap(Any.INSTANCE)));
-        // with cast
+        // with bitmap_union, to_bitmap and cast
         AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
                 new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE))));
 
@@ -116,29 +117,30 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             String.format("query plan = %s\n", queryStructInfo.getOriginalPlan().treeString())));
             return null;
         }
+        // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         SlotMapping viewToQurySlotMapping = queryToViewSlotMapping.inverse();
         if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQurySlotMapping)) {
-            // if group by expression between query and view is equals, try to rewrite expression directly
-            List<Expression> rewrittenQueryGroupExpr = rewriteExpression(queryTopPlan.getExpressions(),
+            List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getExpressions(),
                     queryTopPlan,
                     materializationContext.getMvExprToMvScanExprMapping(),
                     queryToViewSlotMapping,
                     true);
-            if (rewrittenQueryGroupExpr.isEmpty()) {
-                // if fails, record the reason and then try to roll up
-                materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                        Pair.of("Can not rewrite expression when no roll up",
-                                String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
-                                                + "queryToViewSlotMapping = %s",
-                                        queryTopPlan.getExpressions(),
-                                        materializationContext.getMvExprToMvScanExprMapping(),
-                                        queryToViewSlotMapping)));
-            } else {
+            if (!rewrittenQueryExpressions.isEmpty()) {
                 return new LogicalProject<>(
-                        rewrittenQueryGroupExpr.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                        rewrittenQueryExpressions.stream().map(NamedExpression.class::cast)
+                                .collect(Collectors.toList()),
                         tempRewritedPlan);
+
             }
+            // if fails, record the reason and then try to roll up aggregate function
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Can not rewrite expression when no roll up",
+                            String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
+                                            + "queryToViewSlotMapping = %s",
+                                    queryTopPlan.getExpressions(),
+                                    materializationContext.getMvExprToMvScanExprMapping(),
+                                    queryToViewSlotMapping)));
         }
         // try to roll up.
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
