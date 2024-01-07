@@ -684,6 +684,12 @@ public class Coordinator implements CoordInterface {
         } else {
             executionProfile.markInstances(instanceIds);
         }
+        StringBuilder ids = new StringBuilder();
+        for (TUniqueId instanceId : instanceIds) {
+            ids.append(DebugUtil.printId(instanceId));
+            ids.append(", ");
+        }
+        LOG.info("mark instances: {}", ids.toString());
 
         if (enablePipelineEngine) {
             sendPipelineCtx();
@@ -2477,7 +2483,7 @@ public class Coordinator implements CoordInterface {
 
             Preconditions.checkArgument(params.isSetDetailedReport());
             if (ctx.done) {
-                LOG.debug("Query {} fragment {} is marked done",
+                LOG.info("Query {} fragment {} is marked done",
                         DebugUtil.printId(queryId), ctx.profileFragmentId);
                 executionProfile.markOneFragmentDone(ctx.profileFragmentId);
             }
@@ -2528,11 +2534,11 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                LOG.debug("Query {} instance {} is marked done",
+                LOG.info("Query {} instance {} is marked done",
                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             } else {
-                LOG.debug("Query {} instance {} is not marked done",
+                LOG.info("Query {} instance {} is not marked done",
                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
@@ -2593,6 +2599,8 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.info("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
         }
