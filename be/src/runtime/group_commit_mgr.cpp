@@ -297,8 +297,6 @@ Status GroupCommitTable::_create_group_commit_load(
         std::unique_lock l(_lock);
         _load_block_queues.emplace(instance_id, load_block_queue);
         _need_plan_fragment = false;
-        _exec_env->wal_mgr()->add_wal_status_queue(_table_id, txn_id,
-                                                   WalManager::WalStatus::PREPARE);
         //create wal
         if (!is_pipeline) {
             RETURN_IF_ERROR(load_block_queue->create_wal(
@@ -388,15 +386,16 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         if (!config::group_commit_wait_replay_wal_finish) {
-            RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(
-                    txn_id, load_block_queue->block_queue_pre_allocated()));
-            RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
+            auto delete_st = _exec_env->wal_mgr()->delete_wal(
+                    table_id, txn_id, load_block_queue->block_queue_pre_allocated());
+            if (!delete_st.ok()) {
+                LOG(WARNING) << "fail to delete wal " << txn_id;
+            }
         }
     } else {
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_recover_wal(db_id, table_id, txn_id, wal_path));
-        _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id, WalManager::WalStatus::REPLAY);
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
