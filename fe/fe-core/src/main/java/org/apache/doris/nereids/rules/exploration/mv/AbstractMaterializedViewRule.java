@@ -152,7 +152,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     queryStructInfo.addPredicates(pulledUpExpressions);
                 }
                 SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
-                        queryToViewSlotMapping, comparisonResult);
+                        queryToViewSlotMapping, comparisonResult, cascadesContext);
                 // Can not compensate, bail out
                 if (compensatePredicates.isEmpty()) {
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
@@ -373,7 +373,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
             SlotMapping queryToViewSlotMapping,
-            ComparisonResult comparisonResult
+            ComparisonResult comparisonResult,
+            CascadesContext cascadesContext
     ) {
         // viewEquivalenceClass to query based
         SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
@@ -397,27 +398,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // if the join type in query and mv plan is different, we should check and add filter on mv to make
         // the mv join type is accord with query
         Set<Set<Slot>> viewNoNullableSlot = comparisonResult.getViewNoNullableSlot();
-        // extract
+        // check query is use the null reject slot which view comparison need
         if (!viewNoNullableSlot.isEmpty()) {
-            Set<Expression> queryUsedRejectNullSlotsViewBased = ExpressionUtils.extractConjunction(
-                            queryStructInfo.getSplitPredicate().getRangePredicate()).stream()
-                    .map(expression -> {
-                        if (TypeUtils.isNotNull(expression).isPresent()) {
-                            return ImmutableList.of(TypeUtils.isNotNull(expression).get());
-                        } else {
-                            Set<Object> slotRefrenceSet =
-                                    expression.collectToSet(expr -> expr instanceof SlotReference);
-                            if (slotRefrenceSet.size() != 1) {
-                                return null;
-                            }
-                            return slotRefrenceSet.iterator().next();
-                        }
-                    })
+            Set<Expression> queryPulledUpPredicates = queryStructInfo.getPredicates().getPulledUpPredicates();
+            Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
+                    cascadesContext);
+            if (nullRejectPredicates.isEmpty() || queryPulledUpPredicates.containsAll(nullRejectPredicates)) {
+                // query has not null reject predicates, so return
+                return SplitPredicate.empty();
+            }
+            Set<Expression> queryUsedRejectNullSlotsViewBased = nullRejectPredicates.stream()
+                    .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
                     .filter(Objects::nonNull)
                     .map(expr -> ExpressionUtils.replace((Expression) expr,
                             queryToViewSlotMapping.toSlotReferenceMap()))
                     .collect(Collectors.toSet());
-
             if (viewNoNullableSlot.stream().anyMatch(
                     set -> Sets.intersection(set, queryUsedRejectNullSlotsViewBased).isEmpty())) {
                 return SplitPredicate.empty();

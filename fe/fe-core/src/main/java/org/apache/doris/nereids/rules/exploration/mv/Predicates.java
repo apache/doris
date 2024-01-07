@@ -51,7 +51,7 @@ public class Predicates {
         return predicates;
     }
 
-    public Set<? extends Expression> getPulledUpPredicates() {
+    public Set<Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 
