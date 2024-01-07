@@ -706,7 +706,6 @@ public class RoutineLoadManager implements Writable {
         writeLock();
         try {
             LOG.debug("begin to clean routine load jobs");
-            // clearRoutineLoadJobIf(RoutineLoadJob::isFinal, Config.label_num_threshold);
             Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
                     .values()
                     .stream()

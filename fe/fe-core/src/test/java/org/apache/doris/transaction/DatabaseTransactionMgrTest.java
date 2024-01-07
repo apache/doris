@@ -247,6 +247,16 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
+    public void testRemoveOverLimitTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_num_threshold = 0;
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
+        Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
     public void testGetTableTransInfo() throws AnalysisException {
         DatabaseTransactionMgr masterDbTransMgr =  masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Long txnId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel1);

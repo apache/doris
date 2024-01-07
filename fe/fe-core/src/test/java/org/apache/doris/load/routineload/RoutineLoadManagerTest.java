@@ -822,6 +822,47 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
+    public void testCleanOverLimitRoutineLoadJobs(@Injectable RoutineLoadJob routineLoadJob,
+            @Mocked Env env, @Mocked EditLog editLog) {
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+        List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
+        routineLoadJobList.add(routineLoadJob);
+        nameToRoutineLoadJob.put("", routineLoadJobList);
+        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
+        idToRoutineLoadJob.put(1L, routineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+        new Expectations() {
+            {
+                routineLoadJob.getId();
+                minTimes = 0;
+                result = 1L;
+                routineLoadJob.isFinal();
+                minTimes = 0;
+                result = true;
+                routineLoadJob.getDbId();
+                minTimes = 0;
+                result = 1L;
+                routineLoadJob.getName();
+                minTimes = 0;
+                result = "";
+                env.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+        Config.label_num_threshold = 0;
+
+        routineLoadManager.cleanOverLimitRoutineLoadJobs();
+        Assert.assertEquals(0, dbToNameToRoutineLoadJob.size());
+        Assert.assertEquals(0, idToRoutineLoadJob.size());
+    }
+
+    @Test
     public void testGetBeIdConcurrentTaskMaps(@Injectable RoutineLoadJob routineLoadJob) {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newHashMap();
