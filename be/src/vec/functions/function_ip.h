@@ -605,4 +605,144 @@ public:
     }
 };
 
+class FunctionIsIPv4String : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const auto* nullable_src = typeid_cast<const ColumnNullable*>(column.get())) {
+            size_t col_size = nullable_src->size();
+            auto col_res = ColumnUInt8::create(col_size, 0);
+            auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+            auto& null_map_data = null_map->get_data();
+
+            for (size_t i = 0; i < col_size; ++i) {
+                if (nullable_src->is_null_at(i)) {
+                    null_map_data[i] = 1;
+                } else {
+                    StringRef ipv4_str = nullable_src->get_data_at(i);
+                    if (IPv4Value::is_valid_string(ipv4_str.data, ipv4_str.size)) {
+                        col_res_data[i] = 1;
+                    }
+                }
+            }
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else if (const auto* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            size_t col_size = col_src->size();
+            auto col_res = ColumnUInt8::create(col_size, 0);
+            auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+
+            for (size_t i = 0; i < col_size; ++i) {
+                StringRef ipv4_str = col_src->get_data_at(i);
+                if (IPv4Value::is_valid_string(ipv4_str.data, ipv4_str.size)) {
+                    col_res_data[i] = 1;
+                }
+            }
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = "isipv4string";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv4String>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+        return execute_type(block, argument, result);
+    }
+};
+
+class FunctionIsIPv6String : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const auto* nullable_src = typeid_cast<const ColumnNullable*>(column.get())) {
+            size_t col_size = nullable_src->size();
+            auto col_res = ColumnUInt8::create(col_size, 0);
+            auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+            auto& null_map_data = null_map->get_data();
+
+            for (size_t i = 0; i < col_size; ++i) {
+                if (nullable_src->is_null_at(i)) {
+                    null_map_data[i] = 1;
+                } else {
+                    StringRef ipv6_str = nullable_src->get_data_at(i);
+                    if (IPv6Value::is_valid_string(ipv6_str.data, ipv6_str.size)) {
+                        col_res_data[i] = 1;
+                    }
+                }
+            }
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else if (const auto* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            size_t col_size = col_src->size();
+            auto col_res = ColumnUInt8::create(col_size, 0);
+            auto null_map = ColumnUInt8::create(col_size, 0);
+            auto& col_res_data = col_res->get_data();
+
+            for (size_t i = 0; i < col_size; ++i) {
+                StringRef ipv6_str = col_src->get_data_at(i);
+                if (IPv6Value::is_valid_string(ipv6_str.data, ipv6_str.size)) {
+                    col_res_data[i] = 1;
+                }
+            }
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = "isipv6string";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv6String>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+        return execute_type(block, argument, result);
+    }
+};
+
 } // namespace doris::vectorized

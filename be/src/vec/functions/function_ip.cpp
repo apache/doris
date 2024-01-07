@@ -37,5 +37,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Null>>();
     factory.register_alias(FunctionIPv6StringToNum<IPStringToNumExceptionMode::Throw>::name,
                            "inet6_aton");
+    factory.register_function<FunctionIsIPv4String>();
+    factory.register_function<FunctionIsIPv6String>();
 }
 } // namespace doris::vectorized

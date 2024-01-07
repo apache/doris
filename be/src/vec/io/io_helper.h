@@ -297,7 +297,7 @@ bool read_date_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_tim
 template <typename T>
 bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<IPv4, T>);
-    bool res = IPv4Value::from_string(x, buf.to_string());
+    bool res = IPv4Value::from_string(x, buf.position(), buf.count());
     buf.position() = buf.end();
     return res;
 }
@@ -305,7 +305,7 @@ bool read_ipv4_text_impl(T& x, ReadBuffer& buf) {
 template <typename T>
 bool read_ipv6_text_impl(T& x, ReadBuffer& buf) {
     static_assert(std::is_same_v<IPv6, T>);
-    bool res = IPv6Value::from_string(x, buf.to_string());
+    bool res = IPv6Value::from_string(x, buf.position(), buf.count());
     buf.position() = buf.end();
     return res;
 }
