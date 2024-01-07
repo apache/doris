@@ -1,0 +1,52 @@
+diff --git a/generated/src/aws-cpp-sdk-s3-crt/source/model/CopyObjectRequest.cpp b/generated/src/aws-cpp-sdk-s3-crt/source/model/CopyObjectRequest.cpp
+index 2aa7869b51..9ba8877ed8 100644
+--- a/generated/src/aws-cpp-sdk-s3-crt/source/model/CopyObjectRequest.cpp
++++ b/generated/src/aws-cpp-sdk-s3-crt/source/model/CopyObjectRequest.cpp
+@@ -173,7 +173,7 @@ Aws::Http::HeaderValueCollection CopyObjectRequest::GetRequestSpecificHeaders()
+   if(m_copySourceHasBeenSet)
+   {
+     ss << m_copySource;
+-    headers.emplace("x-amz-copy-source", URI::URLEncodePath(ss.str()));
++    headers.emplace("x-amz-copy-source", ss.str());
+     ss.str("");
+   }
+ 
+diff --git a/generated/src/aws-cpp-sdk-s3-crt/source/model/UploadPartCopyRequest.cpp b/generated/src/aws-cpp-sdk-s3-crt/source/model/UploadPartCopyRequest.cpp
+index f301c47606..7f16e6afcd 100644
+--- a/generated/src/aws-cpp-sdk-s3-crt/source/model/UploadPartCopyRequest.cpp
++++ b/generated/src/aws-cpp-sdk-s3-crt/source/model/UploadPartCopyRequest.cpp
+@@ -112,7 +112,7 @@ Aws::Http::HeaderValueCollection UploadPartCopyRequest::GetRequestSpecificHeader
+   if(m_copySourceHasBeenSet)
+   {
+     ss << m_copySource;
+-    headers.emplace("x-amz-copy-source", URI::URLEncodePath(ss.str()));
++    headers.emplace("x-amz-copy-source", ss.str());
+     ss.str("");
+   }
+ 
+diff --git a/generated/src/aws-cpp-sdk-s3/source/model/CopyObjectRequest.cpp b/generated/src/aws-cpp-sdk-s3/source/model/CopyObjectRequest.cpp
+index e1862b22ff..6bd6d0aea9 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/model/CopyObjectRequest.cpp
++++ b/generated/src/aws-cpp-sdk-s3/source/model/CopyObjectRequest.cpp
+@@ -173,7 +173,7 @@ Aws::Http::HeaderValueCollection CopyObjectRequest::GetRequestSpecificHeaders()
+   if(m_copySourceHasBeenSet)
+   {
+     ss << m_copySource;
+-    headers.emplace("x-amz-copy-source", URI::URLEncodePath(ss.str()));
++    headers.emplace("x-amz-copy-source", ss.str());
+     ss.str("");
+   }
+ 
+diff --git a/generated/src/aws-cpp-sdk-s3/source/model/UploadPartCopyRequest.cpp b/generated/src/aws-cpp-sdk-s3/source/model/UploadPartCopyRequest.cpp
+index f918909a86..16af4d2797 100644
+--- a/generated/src/aws-cpp-sdk-s3/source/model/UploadPartCopyRequest.cpp
++++ b/generated/src/aws-cpp-sdk-s3/source/model/UploadPartCopyRequest.cpp
+@@ -112,7 +112,7 @@ Aws::Http::HeaderValueCollection UploadPartCopyRequest::GetRequestSpecificHeader
+   if(m_copySourceHasBeenSet)
+   {
+     ss << m_copySource;
+-    headers.emplace("x-amz-copy-source", URI::URLEncodePath(ss.str()));
++    headers.emplace("x-amz-copy-source", ss.str());
+     ss.str("");
+   }
+ 

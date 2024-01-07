@@ -2210,6 +2210,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
+    public String getStringValueInFe() {
+        return getStringValue();
+    }
+
     // A special method only for array literal, all primitive type in array
     // will be wrapped by double quote. eg:
     // ["1", "2", "3"]

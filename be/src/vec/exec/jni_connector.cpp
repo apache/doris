@@ -447,8 +447,10 @@ std::string JniConnector::get_hive_type(const TypeDescriptor& desc) {
         [[fallthrough]];
     case TYPE_TIME:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        return "timestamp";
+    case TYPE_TIMEV2: {
+        buffer << "timestamp(" << desc.scale << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {
