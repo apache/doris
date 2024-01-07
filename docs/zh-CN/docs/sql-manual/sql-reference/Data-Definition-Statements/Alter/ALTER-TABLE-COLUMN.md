@@ -51,27 +51,11 @@ schema change 的 alter_clause 支持如下几种修改方式：
   语法：
 
   ```sql
-  ALTER TABLE [database.]table alter_clause ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
+  ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
   [AFTER column_name|FIRST]
   [TO rollup_index_name]
   [PROPERTIES ("key"="value", ...)]
   ```
-
-    - `[KEY | agg_type]`
-  
-      如果添加列为 KEY 列，需要在 column_type 后添加关键字 KEY。
-  
-    - `[DEFAULT "default_value"]`
-   
-      如果添加列后有需要指定 DEFAULT 值，可以在 column_type 后加 DEFAULT 关键字并且指定 default_value（如果是KEY列，需要放在在 KEY 关键字后方）。
-  
-    - `[TO rollup_index_name]`
-   
-      如果需要对 rollup index 进行加列操作，可以在最后方添加 TO rollup_index_name 实现，如需要创建 rollup index 请参考[ALTER TABLE ROLLUP](./ALTER-TABLE-ROLLUP.md)。  
-  
-    - `[PROPERTIES ("key"="value", ...)]`
-   
-      如果在进行添加列操作时，需要同步对表属性进行修改，可以在 PROPERTIES 中设置表属性一起进行修改。
   
     ### Example
   
@@ -121,7 +105,7 @@ schema change 的 alter_clause 支持如下几种修改方式：
   语法：
   
   ```sql
-  ALTER TABLE [database.]table alter_clause ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
+  ALTER TABLE [database.]table table_name ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
   [TO rollup_index_name]
   [PROPERTIES ("key"="value", ...)]
   ```
@@ -153,7 +137,7 @@ schema change 的 alter_clause 支持如下几种修改方式：
   语法：
   
   ```sql
-  ALTER TABLE [database.]table alter_clause DROP COLUMN column_name
+  ALTER TABLE [database.]table table_name DROP COLUMN column_name
   [FROM rollup_index_name]
   ```
   
@@ -176,7 +160,7 @@ schema change 的 alter_clause 支持如下几种修改方式：
   语法：
   
   ```sql
-  ALTER TABLE [database.]table alter_clause MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
+  ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
   [AFTER column_name|FIRST]
   [FROM rollup_index_name]
   [PROPERTIES ("key"="value", ...)]
@@ -232,14 +216,10 @@ schema change 的 alter_clause 支持如下几种修改方式：
   语法：
   
   ```sql
-  ALTER TABLE [database.]table alter_clause ORDER BY (column_name1, column_name2, ...)
+  ALTER TABLE [database.]table table_name ORDER BY (column_name1, column_name2, ...)
   [FROM rollup_index_name]
   [PROPERTIES ("key"="value", ...)]
   ```
-  
-    - `ORDER BY`
-  
-      列排序关键字，可以修改 base 表列的排序
   
     ### Example
   

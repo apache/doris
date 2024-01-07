@@ -50,272 +50,252 @@ The alter_clause of schema change supports the following modification methods:
 
 1. Add a column to the specified position at the specified index
 
-grammar:
-
-```sql
-ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
-[AFTER column_name|FIRST]
-[TO rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
-
-  - `[KEY | agg_type]`
-
-    If you want to add a KEY column, you need to add keyword KEY after column_type.
-
-  - `[DEFAULT "default_value"]`
- 
-    If the DEFAULT value needs to be specified after the column is added, you can add the DEFAULT keyword to the column_type and specify default_value (if the column is a KEY column, it must be placed after the KEY keyword).
-
-  - `[TO rollup_index_name]`
- 
-    If you need TO add columns to rollup index, you can add TO rollup_index_name at the end. For details about how to create rollup index, see [ALTER TABLE ROLLUP](./ALTER-TABLE-ROLLUP.md).
-
-  - `[PROPERTIES ("key"="value", ...)]`
- 
-    If the table PROPERTIES need to be modified simultaneously when a column is added, you can set the table properties to be modified together.
-
-  ### Example
-
-  1. Add a key column new_col to example_db.my_table after key_1 (non-aggregated model)
-
+  grammar:
+  
   ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+  ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
+  [AFTER column_name|FIRST]
+  [TO rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
   ```
-
-  2. Add a value column new_col to example_db.my_table after value_1 (non-aggregate model)
-
-  ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN new_col INT DEFAULT "0" AFTER value_1;
-  ```
-
-  3. Add a key column new_col (aggregate model) to example_db.my_table after key_1
-
-  ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
-  ```
-
-  4. Add a value column to example_db.my_table after value_1 new_col SUM Aggregation type (aggregation model)
-
-  ```sql
-  ALTER TABLE example_db.my_table   
-  ADD COLUMN new_col INT SUM DEFAULT "0" AFTER value_1; 
-  ```
-
-  5. Add new_col to the first column position of the example_db.my_table table (non-aggregated model)
-
-  ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN new_col INT KEY DEFAULT "0" FIRST;
-  ```
-
- Notice:
-
-- If you add a value column to the aggregation model, you need to specify agg_type
-- For non-aggregated models (such as DUPLICATE KEY), if you add a key column, you need to specify the KEY keyword
-- You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary)
+  
+    ### Example
+  
+    1. Add a key column new_col to example_db.my_table after key_1 (non-aggregated model)
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+    ```
+  
+    2. Add a value column new_col to example_db.my_table after value_1 (non-aggregate model)
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN new_col INT DEFAULT "0" AFTER value_1;
+    ```
+  
+    3. Add a key column new_col (aggregate model) to example_db.my_table after key_1
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+    ```
+  
+    4. Add a value column to example_db.my_table after value_1 new_col SUM Aggregation type (aggregation model)
+  
+    ```sql
+    ALTER TABLE example_db.my_table   
+    ADD COLUMN new_col INT SUM DEFAULT "0" AFTER value_1; 
+    ```
+  
+    5. Add new_col to the first column position of the example_db.my_table table (non-aggregated model)
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN new_col INT KEY DEFAULT "0" FIRST;
+    ```
+  
+   Notice:
+  
+  - If you add a value column to the aggregation model, you need to specify agg_type
+  - For non-aggregated models (such as DUPLICATE KEY), if you add a key column, you need to specify the KEY keyword
+  - You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary)
 
 2. Add multiple columns to the specified index
 
-grammar:
-
-```sql
-ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
-[TO rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
-
-  ### Example
-
-  1. Add multiple columns to example_db.my_table, where new_col and new_col2 are SUM aggregate types (aggregate model)
-
+  grammar:
+  
   ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN (new_col1 INT SUM DEFAULT "0" ,new_col2 INT SUM DEFAULT "0");
+  ALTER TABLE [database.]table table_name ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
+  [TO rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
   ```
-
-  2. Add multiple columns to example_db.my_table (non-aggregated model), where new_col1 is the KEY column and new_col2 is the value column
-
-  ```sql
-  ALTER TABLE example_db.my_table
-  ADD COLUMN (new_col1 INT key DEFAULT "0" , new_col2 INT DEFAULT "0");
-  ```
-
- Notice:
-
-- If you add a value column to the aggregation model, you need to specify agg_type
-- If you add a key column to the aggregation model, you need to specify the KEY keyword
-- You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary)
+  
+    ### Example
+  
+    1. Add multiple columns to example_db.my_table, where new_col and new_col2 are SUM aggregate types (aggregate model)
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN (new_col1 INT SUM DEFAULT "0" ,new_col2 INT SUM DEFAULT "0");
+    ```
+  
+    2. Add multiple columns to example_db.my_table (non-aggregated model), where new_col1 is the KEY column and new_col2 is the value column
+  
+    ```sql
+    ALTER TABLE example_db.my_table
+    ADD COLUMN (new_col1 INT key DEFAULT "0" , new_col2 INT DEFAULT "0");
+    ```
+  
+   Notice:
+  
+  - If you add a value column to the aggregation model, you need to specify agg_type
+  - If you add a key column to the aggregation model, you need to specify the KEY keyword
+  - You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary)
 
 3. Delete a column from the specified index
 
-grammar:
-
-```sql
-DROP COLUMN column_name
-[FROM rollup_index_name]
-```
-
-  ### Example
- 
-  1. Delete column col1 from example_db.my_table
-
+  grammar:
+  
   ```sql
-  ALTER TABLE example_db.my_table DROP COLUMN col1;
+  ALTER TABLE [database.]table table_name DROP COLUMN column_name
+  [FROM rollup_index_name]
   ```
-
- Notice:
-
-- Cannot drop partition column
-- The aggregate model cannot delete KEY columns
-- If the column is removed from the base index, it will also be removed if it is included in the rollup index
+  
+    ### Example
+   
+    1. Delete column col1 from example_db.my_table
+  
+    ```sql
+    ALTER TABLE example_db.my_table DROP COLUMN col1;
+    ```
+  
+   Notice:
+  
+  - Cannot drop partition column
+  - The aggregate model cannot delete KEY columns
+  - If the column is removed from the base index, it will also be removed if it is included in the rollup index
 
 4. Modify the column type and column position of the specified index
 
-grammar:
-
-```sql
-MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
-[AFTER column_name|FIRST]
-[FROM rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
-
-  ### Example
-
-  1. Modify the type of the key column col1 of the base index to BIGINT and move it to the back of the col2 column
-
+  grammar:
+  
   ```sql
-  ALTER TABLE example_db.my_table 
-  MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
+  ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
+  [AFTER column_name|FIRST]
+  [FROM rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
   ```
-
-  Note: Whether you modify the key column or the value column, you need to declare complete column information
-
-  2. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
-
-  ```sql
-  ALTER TABLE example_db.my_table 
-  MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
-  ```
-
-  Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
-
-  3. Modify the length of a field in the Key column of the Duplicate key table
-
-  ```sql
-  ALTER TABLE example_db.my_table 
-  MODIFY COLUMN k3 VARCHAR(50) KEY NULL COMMENT 'to 50';
-  ```
-
-Notice:
-
-- If you modify the value column in the aggregation model, you need to specify agg_type
-- If you modify the key column for non-aggregate types, you need to specify the KEY keyword
-- Only the type of the column can be modified, and other attributes of the column remain as they are (that is, other attributes need to be explicitly written in the statement according to the original attributes, see example 8)
-- Partitioning and bucketing columns cannot be modified in any way
-- The following types of conversions are currently supported (loss of precision is guaranteed by the user)
-  - Conversion of TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE types to larger numeric types
-  - Convert TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL to VARCHAR
-  - VARCHAR supports modifying the maximum length
-  - VARCHAR/CHAR converted to TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
-  - Convert VARCHAR/CHAR to DATE (currently supports "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d" six formats)
-  - Convert DATETIME to DATE (only keep year-month-day information, for example: `2019-12-09 21:47:05` <--> `2019-12-09`)
-  - DATE is converted to DATETIME (hours, minutes and seconds are automatically filled with zeros, for example: `2019-12-09` <--> `2019-12-09 00:00:00`)
-  - Convert FLOAT to DOUBLE
-  - INT is converted to DATE (if the INT type data is illegal, the conversion fails, and the original data remains unchanged)
-  - All can be converted to STRING except DATE and DATETIME, but STRING cannot be converted to any other type
+  
+    ### Example
+  
+    1. Modify the type of the key column col1 of the base index to BIGINT and move it to the back of the col2 column
+  
+    ```sql
+    ALTER TABLE example_db.my_table 
+    MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
+    ```
+  
+    Note: Whether you modify the key column or the value column, you need to declare complete column information
+  
+    2. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+  
+    ```sql
+    ALTER TABLE example_db.my_table 
+    MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+    ```
+  
+    Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
+  
+    3. Modify the length of a field in the Key column of the Duplicate key table
+  
+    ```sql
+    ALTER TABLE example_db.my_table 
+    MODIFY COLUMN k3 VARCHAR(50) KEY NULL COMMENT 'to 50';
+    ```
+  
+  Notice:
+  
+  - If you modify the value column in the aggregation model, you need to specify agg_type
+  - If you modify the key column for non-aggregate types, you need to specify the KEY keyword
+  - Only the type of the column can be modified, and other attributes of the column remain as they are (that is, other attributes need to be explicitly written in the statement according to the   original attributes, see example 8)
+  - Partitioning and bucketing columns cannot be modified in any way
+  - The following types of conversions are currently supported (loss of precision is guaranteed by the user)
+    - Conversion of TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE types to larger numeric types
+    - Convert TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL to VARCHAR
+    - VARCHAR supports modifying the maximum length
+    - VARCHAR/CHAR converted to TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
+    - Convert VARCHAR/CHAR to DATE (currently supports "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d" six formats)
+    - Convert DATETIME to DATE (only keep year-month-day information, for example: `2019-12-09 21:47:05` <--> `2019-12-09`)
+    - DATE is converted to DATETIME (hours, minutes and seconds are automatically filled with zeros, for example: `2019-12-09` <--> `2019-12-09 00:00:00`)
+    - Convert FLOAT to DOUBLE
+    - INT is converted to DATE (if the INT type data is illegal, the conversion fails, and the original data remains unchanged)
+    - All can be converted to STRING except DATE and DATETIME, but STRING cannot be converted to any other type
 
 5. Reorder the column at the specified index
 
-grammar:
-
-```sql
-ORDER BY (column_name1, column_name2, ...)
-[FROM rollup_index_name]
-[PROPERTIES ("key"="value", ...)]
-```
-
-  - `ORDER BY`
-
-    Column sorting keyword, you can change the sorting of the base table columns
-
-  ### Example
-
-  1. Adjust the order of the key and value columns of example_db.my_table (non-aggregate model)
-
+  grammar:
+  
   ```sql
-  CREATE TABLE `my_table`(
-  `k_1` INT NULL,
-  `k_2` INT NULL,
-  `v_1` INT NULL,
-  `v_2` varchar NULL,
-  `v_3` varchar NULL
-  ) ENGINE=OLAP
-  DUPLICATE KEY(`k_1`, `k_2`)
-  COMMENT 'OLAP'
-  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
-  PROPERTIES (
-  "replication_allocation" = "tag.location.default: 1"
-  );
-
-  ALTER TABLE example_db.my_table ORDER BY (k_2,k_1,v_3,v_2,v_1);
-
-  mysql> desc my_table;
-  +-------+------------+------+-------+---------+-------+
-  | Field | Type       | Null | Key   | Default | Extra |
-  +-------+------------+------+-------+---------+-------+
-  | k_2   | INT        | Yes  | true  | NULL    |       |
-  | k_1   | INT        | Yes  | true  | NULL    |       |
-  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-  | v_1   | INT        | Yes  | false | NULL    | NONE  |
-  +-------+------------+------+-------+---------+-------+
+  ALTER TABLE [database.]table table_name ORDER BY (column_name1, column_name2, ...)
+  [FROM rollup_index_name]
+  [PROPERTIES ("key"="value", ...)]
   ```
-
-  2. Do Two Actions Simultaneously
-
-  ```sql
-  CREATE TABLE `my_table` (
-  `k_1` INT NULL,
-  `k_2` INT NULL,
-  `v_1` INT NULL,
-  `v_2` varchar NULL,
-  `v_3` varchar NULL
-  ) ENGINE=OLAP
-  DUPLICATE KEY(`k_1`, `k_2`)
-  COMMENT 'OLAP'
-  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
-  PROPERTIES (
-  "replication_allocation" = "tag.location.default: 1"
-  );
-
-  ALTER TABLE example_db.my_table
-  ADD COLUMN col INT DEFAULT "0" AFTER v_1,
-  ORDER BY (k_2,k_1,v_3,v_2,v_1,col);
-
-  mysql> desc my_table;
-  +-------+------------+------+-------+---------+-------+
-  | Field | Type       | Null | Key   | Default | Extra |
-  +-------+------------+------+-------+---------+-------+
-  | k_2   | INT        | Yes  | true  | NULL    |       |
-  | k_1   | INT        | Yes  | true  | NULL    |       |
-  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-  | v_1   | INT        | Yes  | false | NULL    | NONE  |
-  | col   | INT        | Yes  | false | 0       | NONE  |
-  +-------+------------+------+-------+---------+-------+
-  ```
-
-注意：
-
-- All columns in index are written out
-- the value column comes after the key column
-- You can adjust the key column only within the range of the key column. The same applies to the value column
-
+  
+    ### Example
+  
+    1. Adjust the order of the key and value columns of example_db.my_table (non-aggregate model)
+  
+    ```sql
+    CREATE TABLE `my_table`(
+    `k_1` INT NULL,
+    `k_2` INT NULL,
+    `v_1` INT NULL,
+    `v_2` varchar NULL,
+    `v_3` varchar NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k_1`, `k_2`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+  
+    ALTER TABLE example_db.my_table ORDER BY (k_2,k_1,v_3,v_2,v_1);
+  
+    mysql> desc my_table;
+    +-------+------------+------+-------+---------+-------+
+    | Field | Type       | Null | Key   | Default | Extra |
+    +-------+------------+------+-------+---------+-------+
+    | k_2   | INT        | Yes  | true  | NULL    |       |
+    | k_1   | INT        | Yes  | true  | NULL    |       |
+    | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+    | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+    | v_1   | INT        | Yes  | false | NULL    | NONE  |
+    +-------+------------+------+-------+---------+-------+
+    ```
+  
+    2. Do Two Actions Simultaneously
+  
+    ```sql
+    CREATE TABLE `my_table` (
+    `k_1` INT NULL,
+    `k_2` INT NULL,
+    `v_1` INT NULL,
+    `v_2` varchar NULL,
+    `v_3` varchar NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k_1`, `k_2`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+  
+    ALTER TABLE example_db.my_table
+    ADD COLUMN col INT DEFAULT "0" AFTER v_1,
+    ORDER BY (k_2,k_1,v_3,v_2,v_1,col);
+  
+    mysql> desc my_table;
+    +-------+------------+------+-------+---------+-------+
+    | Field | Type       | Null | Key   | Default | Extra |
+    +-------+------------+------+-------+---------+-------+
+    | k_2   | INT        | Yes  | true  | NULL    |       |
+    | k_1   | INT        | Yes  | true  | NULL    |       |
+    | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+    | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+    | v_1   | INT        | Yes  | false | NULL    | NONE  |
+    | col   | INT        | Yes  | false | 0       | NONE  |
+    +-------+------------+------+-------+---------+-------+
+    ```
+  
+  注意：
+  
+  - All columns in index are written out
+  - the value column comes after the key column
+  - You can adjust the key column only within the range of the key column. The same applies to the value column
+  
 ### Keywords
 
 ```text
