@@ -75,8 +75,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         test_data_dir = std::string(buffer) + "/" + TMP_DATA_DIR;
         std::cout << "test data dir: " << test_data_dir << "\n";
-        static_cast<void>(
-                io::global_local_filesystem()->delete_and_create_directory(test_data_dir));
+        auto st = io::global_local_filesystem()->delete_directory(test_data_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(test_data_dir);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(test_data_dir, -1);

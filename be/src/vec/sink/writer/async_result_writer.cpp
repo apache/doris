@@ -111,7 +111,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             }
 
             auto block = _get_block_from_queue();
-            auto status = write(block);
+            auto status = write(*block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
                 _writer_status = status;

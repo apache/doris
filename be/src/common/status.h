@@ -79,6 +79,7 @@ namespace ErrorCode {
     E(FILE_ALREADY_EXIST, -122, true);                       \
     E(BAD_CAST, -123, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
+    E(PERMISSION_DENIED, -125, false);                       \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
@@ -433,14 +434,6 @@ public:
     void set_code(int code) { _code = code; }
 
     bool ok() const { return _code == ErrorCode::OK; }
-
-    // Convert into TStatus. Call this if 'status_container' contains an optional
-    // TStatus field named 'status'. This also sets __isset.status.
-    template <typename T>
-    void set_t_status(T* status_container) const {
-        to_thrift(&status_container->status);
-        status_container->__isset.status = true;
-    }
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;

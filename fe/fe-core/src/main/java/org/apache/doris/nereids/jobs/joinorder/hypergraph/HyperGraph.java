@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
@@ -32,8 +33,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -230,7 +231,8 @@ public class HyperGraph {
         for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
                 .entrySet()) {
             LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
-                    entry.getValue().second, JoinHint.NONE, join.getMarkJoinSlotReference(),
+                    entry.getValue().second,
+                    new DistributeHint(DistributeType.NONE), join.getMarkJoinSlotReference(),
                     Lists.newArrayList(join.left(), join.right()));
             Pair<Long, Long> ends = entry.getKey();
             JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,

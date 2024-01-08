@@ -51,15 +51,16 @@ import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
+import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
+import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
+import org.apache.doris.nereids.DorisParser.CommentDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
@@ -200,6 +201,7 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -316,7 +318,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -326,6 +328,7 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -351,6 +354,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -710,6 +714,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public ResumeMTMVCommand visitResumeMTMV(ResumeMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new ResumeMTMVCommand(new ResumeMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public CancelMTMVTaskCommand visitCancelMTMVTask(CancelMTMVTaskContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        long taskId = Long.parseLong(ctx.taskId.getText());
+        return new CancelMTMVTaskCommand(new CancelMTMVTaskInfo(new TableNameInfo(nameParts), taskId));
     }
 
     @Override
@@ -2442,7 +2453,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexName = ctx.indexName.getText();
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
-        String indexType = ctx.indexType != null ? ctx.indexType.getText() : null;
+        String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
     }
@@ -2716,16 +2727,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
-            JoinHint joinHint = Optional.ofNullable(join.joinHint()).map(hintCtx -> {
-                String hint = typedVisit(join.joinHint());
-                if (JoinHint.JoinHintType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
-                    return JoinHint.SHUFFLE_RIGHT;
-                } else if (JoinHint.JoinHintType.BROADCAST.toString().equalsIgnoreCase(hint)) {
-                    return JoinHint.BROADCAST_RIGHT;
+            DistributeType distributeType = Optional.ofNullable(join.distributeType()).map(hintCtx -> {
+                String hint = typedVisit(join.distributeType());
+                if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
+                    return DistributeType.SHUFFLE_RIGHT;
+                } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
+                    return DistributeType.BROADCAST_RIGHT;
                 } else {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
-            }).orElse(JoinHint.NONE);
+            }).orElse(DistributeType.NONE);
+            DistributeHint distributeHint = new DistributeHint(distributeType);
             // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
@@ -2751,14 +2763,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
-                        joinHint,
+                        distributeHint,
                         Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {
                 last = new UsingJoin<>(joinType, last,
-                        plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+                        plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
 
+            }
+            if (distributeHint.distributeType != DistributeType.NONE
+                    && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+                ConnectContext.get().getStatementContext().addHint(distributeHint);
             }
         }
         return last;
@@ -2807,12 +2823,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitBracketJoinHint(BracketJoinHintContext ctx) {
+    public String visitBracketDistributeType(BracketDistributeTypeContext ctx) {
         return ctx.identifier().getText();
     }
 
     @Override
-    public String visitCommentJoinHint(CommentJoinHintContext ctx) {
+    public String visitCommentDistributeType(CommentDistributeTypeContext ctx) {
         return ctx.identifier().getText();
     }
 
@@ -2864,7 +2880,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             JoinType.CROSS_JOIN,
                             ExpressionUtils.EMPTY_CONDITION,
                             ExpressionUtils.EMPTY_CONDITION,
-                            JoinHint.NONE,
+                            new DistributeHint(DistributeType.NONE),
                             Optional.empty(),
                             left,
                             right);

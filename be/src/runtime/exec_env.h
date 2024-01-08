@@ -51,9 +51,6 @@ struct RuntimeFilterTimerQueue;
 namespace taskgroup {
 class TaskGroupManager;
 }
-namespace stream_load {
-class LoadStreamStubPool;
-} // namespace stream_load
 namespace io {
 class S3FileBufferPool;
 class FileCacheFactory;
@@ -81,6 +78,7 @@ class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
+class LoadStreamStubPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -238,9 +236,7 @@ public:
     }
 
 #endif
-    stream_load::LoadStreamStubPool* load_stream_stub_pool() {
-        return _load_stream_stub_pool.get();
-    }
+    LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
 
     vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
@@ -352,7 +348,7 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
-    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
 

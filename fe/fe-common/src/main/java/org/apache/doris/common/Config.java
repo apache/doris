@@ -515,6 +515,10 @@ public class Config extends ConfigBase {
             "Default commit interval in ms for group commit"})
     public static int group_commit_interval_ms_default_value = 10000;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认128M",
+            "Default commit data bytes for group commit"})
+    public static int group_commit_data_bytes_default_value = 134217728;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
@@ -1021,6 +1025,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    /**
+     * if set to false, TabletScheduler will not do disk balance for replica num = 1.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_disk_balance_for_single_replica = false;
 
     // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
     // skip checking.
@@ -2220,7 +2230,7 @@ public class Config extends ConfigBase {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
-    public static boolean enable_convert_light_weight_schema_change = true;
+    public static boolean enable_convert_light_weight_schema_change = false;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
@@ -2395,4 +2405,16 @@ public class Config extends ConfigBase {
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/query中sql任务的最大线程池。",
+        "The max number work threads of http sql submitter."
+    })
+    public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/upload任务的最大线程池。",
+        "The max number work threads of http upload submitter."
+    })
+    public static int http_load_submitter_max_worker_threads = 2;
 }

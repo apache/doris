@@ -279,9 +279,20 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_performance }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "performance" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ]]; then
+          echo "PR target branch is master, need run performance"
+          trigger_or_skip_build \
+            "${{ steps.changes.outputs.changed_performance }}" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "performance" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        else
+          echo "PR target branch is not master, skip run performance"
+          trigger_or_skip_build \
+            "false" \
+            "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
+            "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
+            "performance" \
+            "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
+        fi

@@ -324,7 +324,7 @@ public:
         int on_received_messages(StreamId id, butil::IOBuf* const messages[],
                                  size_t size) override {
             for (size_t i = 0; i < size; i++) {
-                PWriteStreamSinkResponse response;
+                PLoadStreamResponse response;
                 butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
                 response.ParseFromZeroCopyStream(&wrapper);
                 LOG(INFO) << "response " << response.DebugString();
@@ -332,8 +332,8 @@ public:
                 for (auto& id : response.success_tablet_ids()) {
                     g_response_stat.success_tablet_ids.push_back(id);
                 }
-                for (auto& id : response.failed_tablet_ids()) {
-                    g_response_stat.failed_tablet_ids.push_back(id);
+                for (auto& tablet : response.failed_tablets()) {
+                    g_response_stat.failed_tablet_ids.push_back(tablet.id());
                 }
                 g_response_stat.num++;
             }
@@ -584,9 +584,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);

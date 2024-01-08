@@ -69,6 +69,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJd
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
+import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
@@ -165,6 +166,7 @@ public class RuleSet {
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalJdbcScanToPhysicalJdbcScan())
+            .add(new LogicalOdbcScanToPhysicalOdbcScan())
             .add(new LogicalEsScanToPhysicalEsScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())

@@ -50,7 +50,7 @@ suite("test_order_by") {
     """
 
     qt_select """
-        select * from test_order_by order by create_time desc;
+        select * from test_order_by order by create_time desc, run_time desc;
     """
 
     qt_select """

@@ -66,9 +66,8 @@ public class TopicPublisherThread extends MasterDaemon {
             topicPublisher.getTopicInfo(request);
         }
 
-        if (request.getTopicMap().size() == 0) {
-            return;
-        }
+        // even request contains no group and schedule policy, we still need to send an empty rpc.
+        // because it may means workload group/policy is dropped
 
         // step 2: publish topic info to all be
         Collection<Backend> nodesToPublish = clusterInfoService.getIdToBackend().values();

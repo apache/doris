@@ -79,6 +79,7 @@ import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -353,6 +354,10 @@ public class StmtExecutor {
 
     public boolean isForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
+            return false;
+        }
+
+        if (Config.enable_bdbje_debug_mode) {
             return false;
         }
 
@@ -1992,6 +1997,13 @@ public class StmtExecutor {
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
+                Table table = insertStmt.getTargetTable();
+                if (table instanceof OlapTable) {
+                    boolean isEnableMemtableOnSinkNode =
+                            ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                            ? coord.getQueryOptions().isEnableMemtableOnSinkNode() : false;
+                    coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
+                }
                 coord.exec();
                 int execTimeout = context.getExecTimeout();
                 LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);

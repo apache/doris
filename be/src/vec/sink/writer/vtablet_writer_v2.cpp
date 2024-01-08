@@ -196,10 +196,17 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._output_tuple_desc_null",
+                    { _output_tuple_desc = nullptr; });
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("unknown destination tuple descriptor, id = {}",
                                      _tuple_desc_id);
     }
+    DBUG_EXECUTE_IF("VTabletWriterV2._init._vec_output_expr_ctxs_not_equal_output_tuple_slot", {
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size() + 1, _vec_output_expr_ctxs.size());
+    });
     if (_vec_output_expr_ctxs.size() > 0 &&
         _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
         LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
@@ -261,9 +268,10 @@ Status VTabletWriterV2::_open_streams(int64_t src_id) {
     return Status::OK();
 }
 
-Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
-                                                 ::doris::stream_load::LoadStreams& streams) {
+Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& streams) {
     const auto* node_info = _nodes_info->find_node(dst_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.node_info_null",
+                    { node_info = nullptr; });
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
@@ -289,6 +297,8 @@ Status VTabletWriterV2::_build_tablet_node_mapping() {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
                 auto tablet_location = _location->find_tablet(tablet_id);
+                DBUG_EXECUTE_IF("VTabletWriterV2._build_tablet_node_mapping.tablet_location_null",
+                                { tablet_location = nullptr; });
                 if (tablet_location == nullptr) {
                     return Status::InternalError("unknown tablet location, tablet id = {}",
                                                  tablet_id);
@@ -338,6 +348,7 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         Streams& streams) {
     const auto* location = _location->find_tablet(tablet_id);
+    DBUG_EXECUTE_IF("VTabletWriterV2._select_streams.location_null", { location = nullptr; });
     if (location == nullptr) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
@@ -354,7 +365,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     return Status::OK();
 }
 
-Status VTabletWriterV2::append_block(Block& input_block) {
+Status VTabletWriterV2::write(Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -426,7 +437,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 break;
             }
         }
-        return DeltaWriterV2::open(&req, streams);
+        return DeltaWriterV2::open(&req, streams, _state);
     });
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
@@ -445,7 +456,7 @@ Status VTabletWriterV2::_cancel(Status status) {
         _delta_writer_for_tablet.reset();
     }
     for (const auto& [_, streams] : _streams_for_node) {
-        streams->release();
+        streams->release(status);
     }
     return Status::OK();
 }
@@ -459,9 +470,9 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -484,6 +495,8 @@ Status VTabletWriterV2::close(Status exec_status) {
         status = _send_new_partition_batch();
     }
 
+    DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
+                    { status = Status::InternalError("load cancel"); });
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
@@ -500,7 +513,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // defer stream release to prevent memory leak
         Defer defer([&] {
             for (const auto& [_, streams] : _streams_for_node) {
-                streams->release();
+                streams->release(status);
             }
             _streams_for_node.clear();
         });
@@ -528,38 +541,44 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
         }
 
+        std::unordered_map<int64_t, int> success_tablets;
+        std::unordered_map<int64_t, int> failed_tablets;
+
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (const auto& [node_id, streams] : _streams_for_node) {
             for (const auto& stream : streams->streams()) {
+                std::unordered_set<int64_t> known_tablets;
+                for (auto [tablet_id, _] : stream->failed_tablets()) {
+                    if (known_tablets.contains(tablet_id)) {
+                        continue;
+                    }
+                    known_tablets.insert(tablet_id);
+                    failed_tablets[tablet_id]++;
+                }
                 for (auto tablet_id : stream->success_tablets()) {
+                    if (known_tablets.contains(tablet_id)) {
+                        continue;
+                    }
+                    known_tablets.insert(tablet_id);
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet_id;
                     commit_info.backendId = node_id;
-                    _missing_tablets.erase(tablet_id);
                     tablet_commit_infos.emplace_back(std::move(commit_info));
+                    success_tablets[tablet_id]++;
                 }
             }
         }
-        if (!_missing_tablets.empty()) {
-            std::stringstream ss("pre-commit check failed, ");
-            ss << "missing " << _missing_tablets.size() << " tablets:";
-            int print_limit = 3;
-            for (auto tablet_id : _missing_tablets | std::ranges::views::take(print_limit)) {
-                ss << " (tablet_id=" << tablet_id;
-                auto backends = _location->find_tablet(tablet_id)->node_ids;
-                ss << ", backend_id=[";
-                bool first = true;
-                for (auto& backend_id : backends) {
-                    (first ? ss : ss << ',') << backend_id;
-                    first = false;
-                }
-                ss << "])";
+        for (auto [tablet_id, replicas] : success_tablets) {
+            if (replicas > _num_replicas / 2) {
+                continue;
             }
-            if (_missing_tablets.size() > print_limit) {
-                ss << ", ...";
+            return _failed_reason(tablet_id);
+        }
+        for (auto [tablet_id, replicas] : failed_tablets) {
+            if (replicas <= (_num_replicas - 1) / 2) {
+                continue;
             }
-            LOG(INFO) << ss.str() << ", load_id=" << print_id(_load_id);
-            return Status::InternalError(ss.str());
+            return _failed_reason(tablet_id);
         }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
@@ -585,13 +604,25 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
+Status VTabletWriterV2::_failed_reason(int64_t tablet_id) {
+    Status st = Status::InternalError("tablet {} failed", tablet_id);
+    auto backends = _location->find_tablet(tablet_id)->node_ids;
+    for (auto& backend_id : backends) {
+        auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
+        if (failed_tablets.contains(tablet_id)) {
+            st = failed_tablets[tablet_id];
+            break;
+        }
+    }
+    return st;
+}
+
 Status VTabletWriterV2::_close_load(const Streams& streams) {
     auto node_id = streams[0]->dst_id();
     std::vector<PTabletID> tablets_to_commit;
     for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
             tablets_to_commit.push_back(tablet);
-            _missing_tablets.insert(tablet_id);
         }
     }
     for (const auto& stream : streams) {

@@ -46,7 +46,6 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
-#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -256,7 +255,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             } else {
                 LOG(INFO) << "use a portion of data to request fe to obtain column information";
                 ctx->is_read_schema = false;
-                ctx->status = _process_put(req, ctx);
+                ctx->status = process_put(req, ctx);
             }
         }
 
@@ -272,7 +271,7 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
         LOG(INFO) << "after all the data has been read and it has not reached 1M, it will execute "
                   << "here";
         ctx->is_read_schema = false;
-        ctx->status = _process_put(req, ctx);
+        ctx->status = process_put(req, ctx);
     }
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
@@ -290,11 +289,17 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
-Status HttpStreamAction::_process_put(HttpRequest* http_req,
-                                      std::shared_ptr<StreamLoadContext> ctx) {
+Status HttpStreamAction::process_put(HttpRequest* http_req,
+                                     std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
+    if (http_req != nullptr) {
+        request.__set_load_sql(http_req->header(HTTP_SQL));
+    } else {
+        request.__set_token(ctx->auth.token);
+        request.__set_load_sql(ctx->sql_str);
+        ctx->auth.token = "";
+    }
     set_request_auth(&request, ctx->auth);
-    request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
     if (ctx->group_commit) {
@@ -330,21 +335,18 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
-    if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
-        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
-                content_length *= 3;
-            }
-            RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(
-                    ctx->id.to_thrift(), content_length));
+    if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
+        size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+            ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+            ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            content_length *= 3;
         }
+        ctx->put_result.params.__set_content_length(content_length);
     }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);

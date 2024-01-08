@@ -49,7 +49,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -217,7 +217,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
-    _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
+    _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
 
@@ -521,6 +521,7 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
+    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -560,7 +561,6 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _wal_manager.reset();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
@@ -588,9 +588,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_scanner_scheduler);
     // _storage_page_cache must be destoried before _cache_manager
     SAFE_DELETE(_storage_page_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
-    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
-    SAFE_DELETE(_cache_manager);
 
     SAFE_DELETE(_small_file_mgr);
     SAFE_DELETE(_broker_mgr);
@@ -628,6 +625,10 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+
+    // cache_manager must be destoried after all cache.
+    // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    SAFE_DELETE(_cache_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);

@@ -140,7 +140,7 @@ suite("outer_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -159,7 +159,7 @@ suite("outer_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 

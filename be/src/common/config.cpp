@@ -208,6 +208,8 @@ DEFINE_Int32(sys_log_roll_num, "10");
 DEFINE_Strings(sys_log_verbose_modules, "");
 // verbose log level
 DEFINE_Int32(sys_log_verbose_level, "10");
+// verbose log FLAGS_v
+DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
 
@@ -363,8 +365,8 @@ DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
 // This config can be set to limit thread number in compaction thread pool.
 DEFINE_mInt32(max_base_compaction_threads, "4");
-DEFINE_mInt32(max_cumu_compaction_threads, "10");
-DEFINE_mInt32(max_single_replica_compaction_threads, "10");
+DEFINE_mInt32(max_cumu_compaction_threads, "-1");
+DEFINE_mInt32(max_single_replica_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
 DEFINE_mInt64(base_compaction_min_rowset_num, "5");
@@ -775,7 +777,7 @@ DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
 DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
 // idle timeout for load stream in ms
-DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+DEFINE_mInt64(load_stream_idle_timeout_ms, "600000");
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
@@ -784,6 +786,8 @@ DEFINE_Int32(load_stream_messages_in_batch, "128");
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 // max tasks per flush token in load stream
 DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
+// max wait flush token time in load stream
+DEFINE_Int32(load_stream_max_wait_flush_token_time_ms, "600000");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1117,10 +1121,11 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
 // Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
-DEFINE_Int32(group_commit_max_queue_size, "67108864");
+DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
+DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
@@ -1153,6 +1158,12 @@ DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
+
+// Default 300s, if its value <= 0, then log is disabled
+DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1366,8 +1377,8 @@ bool Properties::load(const char* conf_file, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
-                                bool* is_retval_set) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                                std::string& rawval) const {
     const auto& it = file_conf_map.find(std::string(key));
     std::string valstr;
     if (it == file_conf_map.end()) {
@@ -1381,6 +1392,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
     } else {
         valstr = it->second;
     }
+    rawval = valstr;
     *is_retval_set = true;
     return convert(valstr, retval);
 }
@@ -1430,9 +1442,11 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                    \
         TYPE new_value = TYPE();                                                               \
         bool is_newval_set = false;                                                            \
+        std::string raw_value;                                                                 \
         if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), \
-                                  new_value, &is_newval_set)) {                                \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                  \
+                                  new_value, &is_newval_set, raw_value)) {                     \
+            std::cerr << "config field error: " << (FIELD).name << " = \"" << raw_value << '"' \
+                      << std::endl;                                                            \
             return false;                                                                      \
         }                                                                                      \
         if (!is_newval_set) {                                                                  \
