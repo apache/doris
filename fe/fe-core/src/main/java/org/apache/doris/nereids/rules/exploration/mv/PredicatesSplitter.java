@@ -66,8 +66,11 @@ public class PredicatesSplitter {
                 if (leftArgOnlyContainsColumnRef && rightArgOnlyContainsColumnRef) {
                     equalPredicates.add(comparisonPredicate);
                     return null;
-                } else {
+                } else if ((leftArgOnlyContainsColumnRef && rightArg instanceof Literal)
+                        || (rightArgOnlyContainsColumnRef && leftArg instanceof Literal)) {
                     rangePredicates.add(comparisonPredicate);
+                } else {
+                    residualPredicates.add(comparisonPredicate);
                 }
             } else if ((leftArgOnlyContainsColumnRef && rightArg instanceof Literal)
                     || (rightArgOnlyContainsColumnRef && leftArg instanceof Literal)) {
