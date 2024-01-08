@@ -518,6 +518,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 | --single-sink           | 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。 |
 | --multi-to-one-origin   | 将上游多张表写入同一张表时，源表的配置，比如：--multi-to-one-origin="a\_.\*\|b_.\*"， 具体参考[这里](https://github.com/apache/doris-flink-connector/pull/208) |
 | --multi-to-one-target   | 与multi-to-one-origin搭配使用，目标表的配置，比如：--multi-to-one-target="a\|b" |
+| --table-buckets         | 指定创建表时的buckets数量，比如 --table-buckets 10                             |
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
