@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -49,6 +48,7 @@ import com.google.common.collect.Sets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -104,18 +104,15 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalHaving(logicalAggregate()).whenNot(having -> having.child().isNormalized())
-                        .then(having -> normalizeAgg(having.child(), having))
-                        .toRule(RuleType.NORMALIZE_AGGREGATE),
-                logicalHaving()
-                        .then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
+                logicalHaving(logicalAggregate().whenNot(LogicalAggregate::isNormalized))
+                        .then(having -> normalizeAgg(having.child(), Optional.of(having)))
                         .toRule(RuleType.NORMALIZE_AGGREGATE),
                 logicalAggregate().whenNot(LogicalAggregate::isNormalized)
-                        .then(aggregate -> normalizeAgg(aggregate, null))
+                        .then(aggregate -> normalizeAgg(aggregate, Optional.empty()))
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
 
-    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, LogicalHaving having) {
+    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having) {
         // The LogicalAggregate node may contain window agg functions and usual agg functions
         // we call window agg functions as window-agg and usual agg functions as trival-agg for short
         // This rule simplify LogicalAggregate node by:
@@ -245,16 +242,18 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 bottomSlotContext, normalizedAggFuncsToSlotContext);
 
         // create a parent project node
-        LogicalProject<Plan> project = new LogicalProject(upperProjects, newAggregate);
-        if (having != null) {
+        LogicalProject<Plan> project = new LogicalProject<>(upperProjects, newAggregate);
+        if (having.isPresent()) {
             if (upperProjects.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance))) {
                 // when project contains window functions, in order to get the correct result
                 // push having through project to make it the parent node of logicalAgg
-                return project.withChildren(ImmutableList.of(new LogicalHaving(
-                                        ExpressionUtils.replace(having.getConjuncts(), project.getAliasToProducer()),
-                                        project.child())));
+                return project.withChildren(ImmutableList.of(
+                        new LogicalHaving<>(
+                                ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
+                                project.child()
+                        )));
             } else {
-                return (LogicalPlan) having.withChildren(project);
+                return (LogicalPlan) having.get().withChildren(project);
             }
         } else {
             return project;
