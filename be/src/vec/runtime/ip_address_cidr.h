@@ -29,7 +29,7 @@ public:
     explicit IPAddressVariant(std::string_view address_str) {
         vectorized::Int64 v4;
         if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(),
-                                       reinterpret_cast<unsigned char *>(&v4))) {
+                                       reinterpret_cast<unsigned char*>(&v4))) {
             _addr = static_cast<vectorized::UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
@@ -95,7 +95,7 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
 
 #else
 
-bool match_ipv6_subnet(const uint8_t * addr, const uint8_t * cidr_addr, uint8_t prefix) {
+bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
         prefix = IPV6_BINARY_LENGTH * 8U;
     }
