@@ -401,7 +401,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));
 
-    if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable) {
+    if (_input_row_num > 0 && stats.rowid_conversion && config::inverted_index_compaction_enable &&
+        !ctx.skip_inverted_index.empty()) {
         OlapStopWatch inverted_watch;
 
         // check rowid_conversion correctness
@@ -480,24 +481,57 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                       << ". tablet=" << _tablet->full_name()
                       << ", source index size=" << src_segment_num
                       << ", destination index size=" << dest_segment_num << ".";
+            Status status = Status::OK();
             std::for_each(
                     ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
                     [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                      &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
-                     this](int32_t column_uniq_id) {
-                        auto st = compact_column(
-                                _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id(),
-                                src_segment_num, dest_segment_num, src_index_files,
-                                dest_index_files, fs, index_writer_path, tablet_path, trans_vec,
-                                dest_segment_num_rows);
-                        if (!st.ok()) {
-                            LOG(ERROR) << "failed to do index compaction"
-                                       << ". tablet=" << _tablet->full_name()
-                                       << ". column uniq id=" << column_uniq_id << ". index_id= "
-                                       << _cur_tablet_schema->get_inverted_index(column_uniq_id)
-                                                  ->index_id();
+                     &status, this](int32_t column_uniq_id) {
+                        auto index_id =
+                                _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id();
+                        try {
+                            auto st = compact_column(index_id, src_segment_num, dest_segment_num,
+                                                     src_index_files, dest_index_files, fs,
+                                                     index_writer_path, tablet_path, trans_vec,
+                                                     dest_segment_num_rows);
+                            if (!st.ok()) {
+                                LOG(WARNING) << "failed to do index compaction"
+                                             << ". tablet=" << _tablet->full_name()
+                                             << ". column uniq id=" << column_uniq_id
+                                             << ". index_id=" << index_id;
+                                for (auto& rowset : _input_rowsets) {
+                                    rowset->set_skip_index_compaction(column_uniq_id);
+                                    LOG(INFO) << "mark skipping inverted index compaction next time"
+                                              << ". tablet=" << _tablet->full_name()
+                                              << ", rowset=" << rowset->rowset_id()
+                                              << ", column uniq id=" << column_uniq_id
+                                              << ", index_id=" << index_id;
+                                }
+                                status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                        st.msg());
+                            }
+                        } catch (CLuceneError& e) {
+                            LOG(WARNING) << "failed to do index compaction"
+                                         << ". tablet=" << _tablet->full_name()
+                                         << ", column uniq id=" << column_uniq_id
+                                         << ", index_id=" << index_id;
+                            for (auto& rowset : _input_rowsets) {
+                                rowset->set_skip_index_compaction(column_uniq_id);
+                                LOG(INFO) << "mark skipping inverted index compaction next time"
+                                          << ". tablet=" << _tablet->full_name()
+                                          << ", rowset=" << rowset->rowset_id()
+                                          << ", column uniq id=" << column_uniq_id
+                                          << ", index_id=" << index_id;
+                            }
+                            status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                    e.what());
                         }
                     });
+
+            // check index compaction status. If status is not ok, we should return error and end this compaction round.
+            if (!status.ok()) {
+                return status;
+            }
 
             LOG(INFO) << "succeed to do index compaction"
                       << ". tablet=" << _tablet->full_name()
@@ -569,9 +603,9 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
     if (config::inverted_index_compaction_enable &&
         ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
-        for (auto& index : _cur_tablet_schema->indexes()) {
+        for (const auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
-                auto unique_id = index.col_unique_ids()[0];
+                auto col_unique_id = index.col_unique_ids()[0];
                 //NOTE: here src_rs may be in building index progress, so it would not contain inverted index info.
                 bool all_have_inverted_index = std::all_of(
                         _input_rowsets.begin(), _input_rowsets.end(), [&](const auto& src_rs) {
@@ -582,13 +616,21 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                              << "] rowset is null, will skip index compaction";
                                 return false;
                             }
+                            if (rowset->is_skip_index_compaction(col_unique_id)) {
+                                LOG(WARNING)
+                                        << "tablet[" << _tablet->tablet_id() << "] rowset["
+                                        << rowset->rowset_id() << "] column_unique_id["
+                                        << col_unique_id
+                                        << "] skip inverted index compaction due to last failure";
+                                return false;
+                            }
                             auto fs = rowset->rowset_meta()->fs();
 
-                            auto index_meta =
-                                    rowset->tablet_schema()->get_inverted_index(unique_id);
+                            const auto* index_meta =
+                                    rowset->tablet_schema()->get_inverted_index(col_unique_id);
                             if (index_meta == nullptr) {
                                 LOG(WARNING) << "tablet[" << _tablet->tablet_id()
-                                             << "] index_unique_id[" << unique_id
+                                             << "] column_unique_id[" << col_unique_id
                                              << "] index meta is null, will skip index compaction";
                                 return false;
                             }
@@ -606,7 +648,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 }
                                 if (!exists) {
                                     LOG(WARNING) << "tablet[" << _tablet->tablet_id()
-                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << "] column_unique_id[" << col_unique_id << "],"
                                                  << inverted_index_src_file_path
                                                  << " is not exists, will skip index compaction";
                                     return false;
@@ -622,7 +664,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 }
                                 if (file_size == 0) {
                                     LOG(WARNING) << "tablet[" << _tablet->tablet_id()
-                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << "] column_unique_id[" << col_unique_id << "],"
                                                  << inverted_index_src_file_path
                                                  << " is empty file, will skip index compaction";
                                     return false;
@@ -644,7 +686,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 // bkd index will write at least 3 files
                                 if (files.size() < 3) {
                                     LOG(WARNING) << "tablet[" << _tablet->tablet_id()
-                                                 << "] index_unique_id[" << unique_id << "],"
+                                                 << "] column_unique_id[" << col_unique_id << "],"
                                                  << inverted_index_src_file_path
                                                  << " is corrupted, will skip index compaction";
                                     return false;
@@ -653,8 +695,8 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                             return true;
                         });
                 if (all_have_inverted_index &&
-                    field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
-                    ctx.skip_inverted_index.insert(unique_id);
+                    field_is_slice_type(_cur_tablet_schema->column_by_uid(col_unique_id).type())) {
+                    ctx.skip_inverted_index.insert(col_unique_id);
                 }
             }
         }
