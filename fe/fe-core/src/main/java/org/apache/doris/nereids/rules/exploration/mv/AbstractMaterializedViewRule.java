@@ -202,6 +202,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         cascadesContext.getCurrentJobContext().getRequiredProperties());
                 Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
                 rewrittenPlan = rewrittenPlanContext.getRewritePlan();
+                if (!checkOutput(queryPlan, rewrittenPlan, materializationContext)) {
+                    continue;
+                }
                 // check the partitions used by rewritten plan is valid or not
                 Set<Long> invalidPartitionsQueryUsed =
                         calcInvalidPartitions(rewrittenPlan, materializationContext, cascadesContext);
