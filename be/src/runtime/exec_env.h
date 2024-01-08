@@ -52,7 +52,6 @@ namespace taskgroup {
 class TaskGroupManager;
 }
 namespace io {
-class S3FileBufferPool;
 class FileCacheFactory;
 } // namespace io
 namespace segment_v2 {
@@ -248,7 +247,6 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     StorageEngine* get_storage_engine() { return _storage_engine; }
-    io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -362,7 +360,6 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
-    io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;

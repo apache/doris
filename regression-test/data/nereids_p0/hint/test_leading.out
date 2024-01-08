@@ -2609,7 +2609,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -2631,7 +2631,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -2745,7 +2745,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -2767,7 +2767,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -2881,7 +2881,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
@@ -2903,7 +2903,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------NestedLoopJoin[CROSS_JOIN]
+--------------NestedLoopJoin[CROSS_JOIN](t1.c1 = t3.c3)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecReplicated]

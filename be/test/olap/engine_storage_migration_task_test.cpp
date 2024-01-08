@@ -69,8 +69,14 @@ static void set_up() {
     path2 = std::string(buffer) + "/data_test_2";
     config::storage_root_path = path1 + ";" + path2;
     config::min_file_descriptor_number = 1000;
-    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path1).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(path2).ok());
+    auto st = io::global_local_filesystem()->delete_directory(path1);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(path1);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->delete_directory(path2);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(path2);
+    ASSERT_TRUE(st.ok()) << st;
     std::vector<StorePath> paths;
     paths.emplace_back(path1, -1);
     paths.emplace_back(path2, -1);

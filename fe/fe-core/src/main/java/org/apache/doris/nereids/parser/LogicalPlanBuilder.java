@@ -809,12 +809,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().getText();
         }
         if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
-            query = withFilter(query, Optional.of(ctx.whereClause()));
+            query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
         } else {
             // convert to insert into select
             query = withRelations(query, ctx.relation());
-            query = withFilter(query, Optional.of(ctx.whereClause()));
+            query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cte() != null) {
                 cte = Optional.ofNullable(withCte(query, ctx.cte()));
@@ -2453,7 +2453,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String indexName = ctx.indexName.getText();
         List<String> indexCols = visitIdentifierList(ctx.cols);
         Map<String, String> properties = visitPropertyItemList(ctx.properties);
-        String indexType = ctx.indexType != null ? ctx.indexType.getText() : null;
+        String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
         String comment = ctx.comment != null ? ctx.comment.getText() : "";
         return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
     }

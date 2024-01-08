@@ -18,10 +18,15 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
@@ -37,18 +42,44 @@ import java.io.IOException;
 @AllArgsConstructor
 @Getter
 public class DropPolicyLog implements Writable {
+
+    @SerializedName(value = "dbId")
+    private long dbId;
+
+    @SerializedName(value = "tableId")
+    private long tableId;
+
     @SerializedName(value = "type")
     private PolicyTypeEnum type;
 
     @SerializedName(value = "policyName")
     private String policyName;
 
+    @SerializedName(value = "user")
+    private UserIdentity user;
+
+    @SerializedName(value = "roleName")
+    private String roleName;
 
     /**
      * Generate delete logs through stmt.
      **/
     public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) throws AnalysisException {
-        return new DropPolicyLog(stmt.getType(), stmt.getPolicyName());
+        switch (stmt.getType()) {
+            case STORAGE:
+                return new DropPolicyLog(-1, -1, stmt.getType(), stmt.getPolicyName(), null, null);
+            case ROW:
+                String curDb = stmt.getTableName().getDb();
+                if (curDb == null) {
+                    curDb = ConnectContext.get().getDatabase();
+                }
+                Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(curDb);
+                Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
+                return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(),
+                        stmt.getPolicyName(), stmt.getUser(), stmt.getRoleName());
+            default:
+                throw new AnalysisException("Invalid policy type: " + stmt.getType().name());
+        }
     }
 
     @Override

@@ -1043,10 +1043,6 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
 DEFINE_mInt32(s3_write_buffer_size, "5242880");
-// the size of the whole s3 buffer pool, which indicates the s3 file writer
-// can at most buffer 50MB data. And the num of multi part upload task is
-// s3_write_buffer_whole_size / s3_write_buffer_size
-DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
@@ -1125,6 +1121,7 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
+DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
@@ -1160,6 +1157,9 @@ DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // Default 300s, if its value <= 0, then log is disabled
 DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1373,8 +1373,8 @@ bool Properties::load(const char* conf_file, bool must_exist) {
 }
 
 template <typename T>
-bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
-                                bool* is_retval_set) const {
+bool Properties::get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                                std::string& rawval) const {
     const auto& it = file_conf_map.find(std::string(key));
     std::string valstr;
     if (it == file_conf_map.end()) {
@@ -1388,6 +1388,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
     } else {
         valstr = it->second;
     }
+    rawval = valstr;
     *is_retval_set = true;
     return convert(valstr, retval);
 }
@@ -1437,9 +1438,11 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                    \
         TYPE new_value = TYPE();                                                               \
         bool is_newval_set = false;                                                            \
+        std::string raw_value;                                                                 \
         if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), \
-                                  new_value, &is_newval_set)) {                                \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                  \
+                                  new_value, &is_newval_set, raw_value)) {                     \
+            std::cerr << "config field error: " << (FIELD).name << " = \"" << raw_value << '"' \
+                      << std::endl;                                                            \
             return false;                                                                      \
         }                                                                                      \
         if (!is_newval_set) {                                                                  \

@@ -804,7 +804,6 @@ message PStreamHeader {
 
 message PGetWalQueueSizeRequest{
     optional int64 table_id = 1;
-    optional int64 txn_id = 2;
 }
 
 message PGetWalQueueSizeResponse{

@@ -81,15 +81,17 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
-        static_cast<void>(io::global_local_filesystem()->delete_and_create_directory(
-                config::storage_root_path));
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
         doris::EngineOptions options;
         options.store_paths = paths;
         _engine = std::make_unique<StorageEngine>(options);
-        Status st = _engine->open();
+        st = _engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();

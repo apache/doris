@@ -2047,7 +2047,9 @@ void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
-        st = _exec_env->wal_mgr()->get_wal_status_queue_size(request, response);
+        auto table_id = request->table_id();
+        auto count = _exec_env->wal_mgr()->get_wal_queue_size(table_id);
+        response->set_size(count);
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {

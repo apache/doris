@@ -184,42 +184,19 @@ using I256FixedKeyHashTableContext = FixedKeyHashTableContext<UInt256, has_null,
 template <bool has_null, typename RowRefListType>
 using I136FixedKeyHashTableContext = FixedKeyHashTableContext<UInt136, has_null, RowRefListType>;
 
-using HashTableVariants = std::variant<
-        std::monostate, SerializedHashTableContext<RowRefList>, I8HashTableContext<RowRefList>,
-        I16HashTableContext<RowRefList>, I32HashTableContext<RowRefList>,
-        I64HashTableContext<RowRefList>, I128HashTableContext<RowRefList>,
-        I256HashTableContext<RowRefList>, I64FixedKeyHashTableContext<true, RowRefList>,
-        I64FixedKeyHashTableContext<false, RowRefList>,
-        I128FixedKeyHashTableContext<true, RowRefList>,
-        I128FixedKeyHashTableContext<false, RowRefList>,
-        I256FixedKeyHashTableContext<true, RowRefList>,
-        I256FixedKeyHashTableContext<false, RowRefList>,
-        SerializedHashTableContext<RowRefListWithFlag>, I8HashTableContext<RowRefListWithFlag>,
-        I16HashTableContext<RowRefListWithFlag>, I32HashTableContext<RowRefListWithFlag>,
-        I64HashTableContext<RowRefListWithFlag>, I128HashTableContext<RowRefListWithFlag>,
-        I256HashTableContext<RowRefListWithFlag>,
-        I64FixedKeyHashTableContext<true, RowRefListWithFlag>,
-        I64FixedKeyHashTableContext<false, RowRefListWithFlag>,
-        I128FixedKeyHashTableContext<true, RowRefListWithFlag>,
-        I128FixedKeyHashTableContext<false, RowRefListWithFlag>,
-        I256FixedKeyHashTableContext<true, RowRefListWithFlag>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlag>,
-        SerializedHashTableContext<RowRefListWithFlags>, I8HashTableContext<RowRefListWithFlags>,
-        I16HashTableContext<RowRefListWithFlags>, I32HashTableContext<RowRefListWithFlags>,
-        I64HashTableContext<RowRefListWithFlags>, I128HashTableContext<RowRefListWithFlags>,
-        I256HashTableContext<RowRefListWithFlags>,
-        I64FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I64FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I136FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I136FixedKeyHashTableContext<true, RowRefListWithFlag>,
-        I136FixedKeyHashTableContext<false, RowRefListWithFlag>,
-        I136FixedKeyHashTableContext<true, RowRefList>,
-        I136FixedKeyHashTableContext<false, RowRefList>>;
+using HashTableVariants =
+        std::variant<std::monostate, SerializedHashTableContext<RowRefList>,
+                     I8HashTableContext<RowRefList>, I16HashTableContext<RowRefList>,
+                     I32HashTableContext<RowRefList>, I64HashTableContext<RowRefList>,
+                     I128HashTableContext<RowRefList>, I256HashTableContext<RowRefList>,
+                     I64FixedKeyHashTableContext<true, RowRefList>,
+                     I64FixedKeyHashTableContext<false, RowRefList>,
+                     I128FixedKeyHashTableContext<true, RowRefList>,
+                     I128FixedKeyHashTableContext<false, RowRefList>,
+                     I256FixedKeyHashTableContext<true, RowRefList>,
+                     I256FixedKeyHashTableContext<false, RowRefList>,
+                     I136FixedKeyHashTableContext<true, RowRefList>,
+                     I136FixedKeyHashTableContext<false, RowRefList>>;
 
 class VExprContext;
 
@@ -234,10 +211,6 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>>;
-
-using HashTableIteratorVariants =
-        std::variant<std::monostate, ForwardIterator<RowRefList>,
-                     ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -372,10 +345,6 @@ private:
     std::shared_ptr<HashTableVariants> _hash_table_variants;
 
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
-
-    // for full/right outer join
-    HashTableIteratorVariants _outer_join_pull_visited_iter;
-    HashTableIteratorVariants _probe_row_match_iter;
 
     std::shared_ptr<Block> _build_block;
     Block _probe_block;

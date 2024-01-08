@@ -480,9 +480,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        // can ignore precision of timestamp in jni
-        return "datetimev2";
+    case TYPE_TIMEV2: {
+        buffer << "datetimev2(" << type->get_scale() << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_DECIMALV2: {
@@ -563,9 +564,10 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
         return "datetimev1";
     case TYPE_DATETIMEV2:
         [[fallthrough]];
-    case TYPE_TIMEV2:
-        // can ignore precision of timestamp in jni
-        return "datetimev2";
+    case TYPE_TIMEV2: {
+        buffer << "datetimev2(" << desc.scale << ")";
+        return buffer.str();
+    }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {

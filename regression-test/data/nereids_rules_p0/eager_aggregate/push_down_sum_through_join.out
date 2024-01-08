@@ -89,12 +89,12 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[sum_t] apply RFs: RF0
 ------------hashAgg[LOCAL]
 --------------filter((sum_t.score > 10))
 ----------------PhysicalOlapScan[sum_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[sum_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -112,12 +112,12 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[sum_t] apply RFs: RF0
 ------------hashAgg[LOCAL]
 --------------filter((sum_t.score > 10))
 ----------------PhysicalOlapScan[sum_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[sum_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -224,12 +224,12 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[sum_t] apply RFs: RF0
 ------------hashAgg[LOCAL]
 --------------filter((t1.score > 50))
 ----------------PhysicalOlapScan[sum_t]
-------------hashAgg[LOCAL]
---------------PhysicalOlapScan[sum_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -295,9 +295,9 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ------------hashAgg[LOCAL]
---------------filter((sum_t.score > 20) and (t1.id < 100))
+--------------filter((sum_t.id < 100))
 ----------------PhysicalOlapScan[sum_t] apply RFs: RF0
 ------------hashAgg[LOCAL]
---------------filter((sum_t.id < 100))
+--------------filter((sum_t.score > 20) and (t1.id < 100))
 ----------------PhysicalOlapScan[sum_t]
 

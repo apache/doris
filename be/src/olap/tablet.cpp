@@ -2402,6 +2402,10 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     if (!rowset) {
         return nullptr;
     }
+    if (tablet_footprint() == 0) {
+        VLOG_DEBUG << "skip cooldown due to empty tablet_id = " << tablet_id();
+        return nullptr;
+    }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {
             LOG(WARNING) << "version not continuous. tablet_id=" << tablet_id()
@@ -2552,6 +2556,9 @@ void Tablet::remove_unused_remote_files() {
                 if (!rs_meta->is_local()) {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
+            }
+            if (cooldowned_rowsets.empty()) {
+                return;
             }
             cooldown_meta_id = t->_tablet_meta->cooldown_meta_id();
         }

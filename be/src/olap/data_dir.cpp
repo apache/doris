@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -149,17 +150,18 @@ Status DataDir::_init_cluster_id() {
 Status DataDir::read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+    *cluster_id = -1;
     if (exists) {
-        std::string content;
-        RETURN_IF_ERROR(
-                io::global_local_filesystem()->read_file_to_string(cluster_id_path, &content));
-        if (content.size() > 0) {
+        io::FileReaderSPtr reader;
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
+        size_t fsize = reader->size();
+        if (fsize > 0) {
+            std::string content;
+            content.reserve(fsize);
+            size_t bytes_read = 0;
+            RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
             *cluster_id = std::stoi(content);
-        } else {
-            *cluster_id = -1;
         }
-    } else {
-        *cluster_id = -1;
     }
     return Status::OK();
 }
@@ -409,6 +411,12 @@ Status DataDir::load() {
                 RETURN_IF_ERROR(_meta->put(META_COLUMN_FAMILY_INDEX, key, result));
             }
         }
+
+        if (rowset_meta->partition_id() == 0) {
+            LOG(WARNING) << "rs tablet=" << rowset_meta->tablet_id() << " rowset_id=" << rowset_id
+                         << " load from meta but partition id eq 0";
+        }
+
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
@@ -497,6 +505,19 @@ Status DataDir::load() {
     RETURN_IF_ERROR(
             TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
 
+    int64_t rowset_partition_id_eq_0_num = 0;
+    for (auto rowset_meta : dir_rowset_metas) {
+        if (rowset_meta->partition_id() == 0) {
+            ++rowset_partition_id_eq_0_num;
+        }
+    }
+    if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
+        LOG(FATAL) << fmt::format(
+                "roswet partition id eq 0 bigger than config {}, be exit, plz check be.INFO",
+                config::ignore_invalid_partition_id_rowset_num);
+        exit(-1);
+    }
+
     // traverse rowset
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
@@ -510,6 +531,13 @@ Status DataDir::load() {
                         << ", schema hash: " << rowset_meta->tablet_schema_hash()
                         << ", for rowset: " << rowset_meta->rowset_id() << ", skip this rowset";
             ++invalid_rowset_counter;
+            continue;
+        }
+
+        if (rowset_meta->partition_id() == 0) {
+            LOG(WARNING) << "skip tablet_id=" << tablet->tablet_id()
+                         << " rowset: " << rowset_meta->rowset_id()
+                         << " txn: " << rowset_meta->txn_id();
             continue;
         }
 
@@ -528,7 +556,7 @@ Status DataDir::load() {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
                                                         rowset_meta->rowset_id(),
-                                                        rowset_meta->get_rowset_pb()));
+                                                        rowset_meta->get_rowset_pb(), false));
             }
             Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
@@ -561,7 +589,7 @@ Status DataDir::load() {
                 rowset_meta->set_tablet_schema(tablet->tablet_schema());
                 RETURN_IF_ERROR(RowsetMetaManager::save(_meta, rowset_meta->tablet_uid(),
                                                         rowset_meta->rowset_id(),
-                                                        rowset_meta->get_rowset_pb()));
+                                                        rowset_meta->get_rowset_pb(), false));
             }
             Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {

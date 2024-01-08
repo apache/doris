@@ -265,17 +265,25 @@ JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
           _jdbc_url(tdesc.jdbcTable.jdbc_url),
           _jdbc_table_name(tdesc.jdbcTable.jdbc_table_name),
           _jdbc_user(tdesc.jdbcTable.jdbc_user),
-          _jdbc_passwd(tdesc.jdbcTable.jdbc_password) {}
+          _jdbc_passwd(tdesc.jdbcTable.jdbc_password),
+          _jdbc_min_pool_size(tdesc.jdbcTable.jdbc_min_pool_size),
+          _jdbc_max_pool_size(tdesc.jdbcTable.jdbc_max_pool_size),
+          _jdbc_max_idle_time(tdesc.jdbcTable.jdbc_max_idle_time),
+          _jdbc_max_wait_time(tdesc.jdbcTable.jdbc_max_wait_time),
+          _jdbc_keep_alive(tdesc.jdbcTable.jdbc_keep_alive) {}
 
 std::string JdbcTableDescriptor::debug_string() const {
     fmt::memory_buffer buf;
     fmt::format_to(buf,
                    "JDBCTable({} ,_jdbc_resource_name={} ,_jdbc_driver_url={} "
                    ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
-                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={})",
+                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={} ,_jdbc_min_pool_size={} "
+                   ",_jdbc_max_pool_size={} ,_jdbc_max_idle_time={} ,_jdbc_max_wait_time={} "
+                   ",_jdbc_keep_alive={})",
                    TableDescriptor::debug_string(), _jdbc_resource_name, _jdbc_driver_url,
                    _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url, _jdbc_table_name,
-                   _jdbc_user, _jdbc_passwd);
+                   _jdbc_user, _jdbc_passwd, _jdbc_min_pool_size, _jdbc_max_pool_size,
+                   _jdbc_max_idle_time, _jdbc_max_wait_time, _jdbc_keep_alive);
     return fmt::to_string(buf);
 }
 

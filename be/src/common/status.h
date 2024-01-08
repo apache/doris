@@ -79,6 +79,7 @@ namespace ErrorCode {
     E(FILE_ALREADY_EXIST, -122, true);                       \
     E(BAD_CAST, -123, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
+    E(PERMISSION_DENIED, -125, false);                       \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
@@ -269,6 +270,7 @@ namespace ErrorCode {
     E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007, false);        \
     E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
+    E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);
