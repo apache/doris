@@ -87,7 +87,7 @@ Status DataTypeJsonbSerDe::serialize_one_cell_to_json(const IColumn& column, int
         bw.write(str.c_str(), str.size());
     } else {
         bw.write(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
-                strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
+                 strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
     }
     return Status::OK();
 }
