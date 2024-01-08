@@ -610,10 +610,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
                 if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
-                         || colType == PrimitiveType.STRING) {
+                         || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
                     return canNotPush;
                 }
-                if (colType.isCharFamily() && column.getType().getLength() > 512) {
+                if (colType.isCharFamily() && column.getType().getLength() > 512 && !enablePushDownStringMinMax()) {
                     return canNotPush;
                 }
             }
@@ -663,6 +663,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             return canNotPush;
         }
+    }
+
+    private boolean enablePushDownStringMinMax() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
     }
 
     /**
