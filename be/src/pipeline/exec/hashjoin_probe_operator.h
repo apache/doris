@@ -193,7 +193,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
-    std::vector<TExpr> _partition_exprs;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

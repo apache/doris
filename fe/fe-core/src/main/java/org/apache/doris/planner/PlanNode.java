@@ -153,6 +153,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<Expr> projectList;
 
+    private List<List<Expr>> distributeExprLists = new ArrayList<>();
+
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
         this.id = id;
@@ -526,6 +528,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix).append("project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
+        if (!CollectionUtils.isEmpty(distributeExprLists)) {
+            for (List<Expr> distributeExprList : distributeExprLists) {
+                expBuilder.append(detailPrefix).append("distribute expr lists: ")
+                    .append(getExplainString(distributeExprList)).append("\n");
+            }
+        }
         // Output Tuple Ids only when explain plan level is set to verbose
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
             expBuilder.append(detailPrefix + "tuple ids: ");
@@ -616,6 +624,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (outputSlotIds != null) {
             for (SlotId slotId : outputSlotIds) {
                 msg.addToOutputSlotIds(slotId.asInt());
+            }
+        }
+        if (!CollectionUtils.isEmpty(distributeExprLists)) {
+            for (List<Expr> exprList : distributeExprLists) {
+                msg.addToDistributeExprLists(new ArrayList<>());
+                for (Expr expr : exprList) {
+                    msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1).add(expr.treeToThrift());
+                }
             }
         }
         toThrift(msg);
@@ -1172,6 +1188,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public void setDistributeExprLists(List<List<Expr>> distributeExprLists) {
+        this.distributeExprLists = distributeExprLists;
     }
 
     public TPushAggOp getPushDownAggNoGroupingOp() {
