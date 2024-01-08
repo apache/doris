@@ -168,7 +168,8 @@ Status EngineCloneTask::execute() {
 Status EngineCloneTask::_do_clone() {
     DBUG_EXECUTE_IF("EngineCloneTask.finish.random", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("EngineCloneTask.finish.random random failed");
+            LOG_WARNING("EngineCloneTask.finish.random random failed")
+                    .tag("tabletId", _clone_req.tablet_id);
             return Status::InternalError("debug engine clone task random failed");
         }
     });

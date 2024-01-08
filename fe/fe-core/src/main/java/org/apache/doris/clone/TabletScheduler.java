@@ -1806,20 +1806,19 @@ public class TabletScheduler extends MasterDaemon {
                 }
             } else if (e.getStatus() == Status.UNRECOVERABLE) {
                 // unrecoverable
-                Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).updateCloneFailedWindow();
                 stat.counterTabletScheduledDiscard.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
                 return true;
             } else if (e.getStatus() == Status.FINISHED) {
                 // tablet is already healthy, just remove
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
+                Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).clearCloneFailedWindow();
                 return true;
             }
         } catch (Exception e) {
             LOG.warn("got unexpected exception when finish clone task. tablet: {}",
                     tabletCtx.getTabletId(), e);
             stat.counterTabletScheduledDiscard.incrementAndGet();
-            Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).updateCloneFailedWindow();
             finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, Status.UNRECOVERABLE, e.getMessage());
             return true;
         }

@@ -948,45 +948,55 @@ public class Backend implements Writable {
     }
 
     public void updateCloneFailedWindow() {
-        lock.lock();
-        /*
-                       oldestTimeStamp            windowRight          currentTimeStamp
-                            ^                            ^                       ^
-                            |                            |                       |
-                            |                            |         window        |
-                            |            toDel           |
-        */
-        long curFailTimeStamp = System.currentTimeMillis();
-        Long windowRight = curFailTimeStamp - Config.be_check_health_window_length * 1000L;
+        try {
+            lock.lock();
+            /*
+                           oldestTimeStamp            windowRight          currentTimeStamp
+                                ^                            ^                       ^
+                                |                            |                       |
+                                |                            |         window        |
+                                |            toDel           |
+            */
+            long curFailTimeStamp = System.currentTimeMillis();
+            Long windowRight = curFailTimeStamp - Config.be_check_health_window_length * 1000L;
 
-        delExpireStatUnLock(windowRight);
+            delExpireStatUnLock(windowRight);
 
-        if (cloneFailedWindow.peekLast() != null
-                && curFailTimeStamp <= cloneFailedWindow.peekLast().first + 10 * 1000) {
-            cloneFailedWindow.peekLast().second++;
-        } else {
-            cloneFailedWindow.addLast(Pair.of(curFailTimeStamp, 1L));
+            if (cloneFailedWindow.peekLast() != null
+                    && curFailTimeStamp <= cloneFailedWindow.peekLast().first + 10 * 1000) {
+                cloneFailedWindow.peekLast().second++;
+            } else {
+                cloneFailedWindow.addLast(Pair.of(curFailTimeStamp, 1L));
+            }
+        } finally {
+            lock.unlock();
         }
-        lock.unlock();
     }
 
     public boolean isExceedCloneFailedLimit() {
-        lock.lock();
-        long currentTimeStamp = System.currentTimeMillis();
-        long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
+        try {
+            lock.lock();
+            long currentTimeStamp = System.currentTimeMillis();
+            long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
 
-        delExpireStatUnLock(windowRight);
+            delExpireStatUnLock(windowRight);
 
-        long count = cloneFailedWindow.stream()
-                .filter(stat -> (stat.first <= currentTimeStamp && stat.first >= windowRight))
-                .mapToLong(stat -> stat.second).sum();
-        lock.unlock();
-        return count > Config.clone_tablet_in_window_failed_limit_number;
+            long count = cloneFailedWindow.stream()
+                    .filter(stat -> (stat.first <= currentTimeStamp && stat.first >= windowRight))
+                    .mapToLong(stat -> stat.second).sum();
+            return count > Config.clone_tablet_in_window_failed_limit_number;
+        } finally {
+            lock.unlock();
+        }
+
     }
 
     public void clearCloneFailedWindow() {
-        lock.lock();
-        cloneFailedWindow.clear();
-        lock.unlock();
+        try {
+            lock.lock();
+            cloneFailedWindow.clear();
+        } finally {
+            lock.unlock();
+        }
     }
 }
