@@ -140,6 +140,26 @@ public class Config extends ConfigBase {
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
     public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
 
+    @ConfField(description = {"JDBC Catalog FE 连接池的最小连接数",
+            "The minimum number of JDBC Catalog FE connection pool"})
+    public static int jdbc_min_pool_size = 1;
+
+    @ConfField(description = {"JDBC Catalog FE 连接池的最大连接数",
+            "The maximum number of JDBC Catalog FE connection pool"})
+    public static int jdbc_max_pool_size = 100;
+
+    @ConfField(description = {"JDBC Catalog FE 连接池的最大空闲连接时间",
+            "The maximum idle time of JDBC Catalog FE connection pool"})
+    public static int jdbc_max_idle_time = 300000;
+
+    @ConfField(description = {"JDBC Catalog FE 连接池的最大等待时间",
+            "The maximum wait time of JDBC Catalog FE connection pool"})
+    public static int jdbc_max_wait_time = 5000;
+
+    @ConfField(description = {"JDBC Catalog FE 连接池的 KeepAlive 策略",
+            "The keep alive strategy of JDBC Catalog FE connection pool"})
+    public static boolean jdbc_keep_alive = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
     public static int default_load_parallelism = 1;
@@ -270,6 +290,16 @@ public class Config extends ConfigBase {
                     + "This is a semicolon-separated list, "
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
+
+    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
+            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
+            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
+                    + "and is supposed to start as Master. "
+                    + "If all the electable nodes can not start, we can copy the meta data "
+                    + "to another node and set this config to true to try to restart the FE. "
+                    + "For more information, please refer to the metadata failure recovery document "
+                    + "on the official website."})
+    public static String metadata_failure_recovery = "false";
 
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"

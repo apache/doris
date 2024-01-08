@@ -84,7 +84,7 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).setUninitialized(false);
+            ((ExternalCatalog) this).onRefresh(false);
         }
     }
 

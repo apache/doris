@@ -158,8 +158,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true, msg);
-
-        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+        LOG_WARNING("Query {} instance {} cancelled, reason {}, message {}", print_id(_query_id),
+                    print_id(_fragment_instance_id), PPlanFragmentCancelReason_Name(reason),
+                    msg.substr(0, 50));
 
         // Print detail informations below when you debugging here.
         //

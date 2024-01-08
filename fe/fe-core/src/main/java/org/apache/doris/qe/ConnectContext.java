@@ -290,7 +290,7 @@ public class ConnectContext {
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
         if (connection != null) {
-            mysqlChannel = new MysqlChannel(connection);
+            mysqlChannel = new MysqlChannel(connection, this);
         } else {
             mysqlChannel = new DummyMysqlChannel();
         }
@@ -889,6 +889,14 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
+    }
+
+    public int getNetReadTimeout() {
+        return this.sessionVariable.getNetReadTimeout();
+    }
+
+    public int getNetWriteTimeout() {
+        return this.sessionVariable.getNetWriteTimeout();
     }
 
 }

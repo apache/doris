@@ -44,8 +44,10 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -56,9 +58,11 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -169,6 +173,159 @@ TEST(BlockSerializeTest, Array) {
     }
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
+    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
+                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
+                                       new_block, default_values);
+    std::cout << block.dump_data() << std::endl;
+    std::cout << new_block.dump_data() << std::endl;
+    EXPECT_EQ(block.dump_data(), new_block.dump_data());
+}
+
+TEST(BlockSerializeTest, Map) {
+    TabletSchema schema;
+    TabletColumn map;
+    map.set_name("m");
+    map.set_unique_id(1);
+    map.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    schema.append_column(map);
+    // map string string
+    DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+    Array k1, k2, v1, v2;
+    k1.push_back("null");
+    k1.push_back("doris");
+    k1.push_back("clever amory");
+    v1.push_back("ss");
+    v1.push_back(Null());
+    v1.push_back("NULL");
+    k2.push_back("hello amory");
+    k2.push_back("NULL");
+    k2.push_back("cute amory");
+    k2.push_back("doris");
+    v2.push_back("s");
+    v2.push_back("0");
+    v2.push_back("sf");
+    v2.push_back(Null());
+    Map m1, m2;
+    m1.push_back(k1);
+    m1.push_back(v1);
+    m2.push_back(k2);
+    m2.push_back(v2);
+    MutableColumnPtr map_column = m->create_column();
+    map_column->reserve(2);
+    map_column->insert(m1);
+    map_column->insert(m2);
+    vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "test_map");
+    vectorized::Block block;
+    block.insert(type_and_name);
+
+    MutableColumnPtr col = ColumnString::create();
+    // serialize
+    std::cout << "serialize to jsonb" << std::endl;
+    JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
+                                       block.columns(),
+                                       create_data_type_serdes(block.get_data_types()));
+    // deserialize
+    TupleDescriptor read_desc(PTupleDescriptor(), true);
+    // slot
+    TSlotDescriptor tslot;
+    tslot.__set_colName("m");
+    tslot.nullIndicatorBit = -1;
+    tslot.nullIndicatorByte = 0;
+    TypeDescriptor type_desc(TYPE_MAP);
+    type_desc.children.push_back(TypeDescriptor(TYPE_STRING));
+    type_desc.children.push_back(TypeDescriptor(TYPE_INT));
+    type_desc.contains_nulls.push_back(true);
+    type_desc.contains_nulls.push_back(true);
+    tslot.__set_col_unique_id(1);
+    tslot.__set_slotType(type_desc.to_thrift());
+    SlotDescriptor* slot = new SlotDescriptor(tslot);
+    read_desc.add_slot(slot);
+
+    Block new_block = block.clone_empty();
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(read_desc.slots().size());
+    for (int i = 0; i < read_desc.slots().size(); ++i) {
+        col_uid_to_idx[read_desc.slots()[i]->col_unique_id()] = i;
+        default_values[i] = read_desc.slots()[i]->col_default_value();
+        std::cout << "uid " << read_desc.slots()[i]->col_unique_id() << ":" << i << std::endl;
+    }
+    std::cout << block.dump_data() << std::endl;
+    std::cout << new_block.dump_data() << std::endl;
+    std::cout << "deserialize from jsonb" << std::endl;
+    JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
+                                       static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
+                                       new_block, default_values);
+    std::cout << block.dump_data() << std::endl;
+    std::cout << new_block.dump_data() << std::endl;
+    EXPECT_EQ(block.dump_data(), new_block.dump_data());
+}
+
+TEST(BlockSerializeTest, Struct) {
+    TabletSchema schema;
+    TabletColumn struct_col;
+    struct_col.set_name("struct");
+    struct_col.set_unique_id(1);
+    struct_col.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
+    schema.append_column(struct_col);
+    vectorized::Block block;
+    {
+        DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+        DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+        DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
+        Tuple t1, t2;
+        t1.push_back(String("amory cute"));
+        t1.push_back(__int128_t(37));
+        t1.push_back(true);
+        t2.push_back("null");
+        t2.push_back(__int128_t(26));
+        t2.push_back(false);
+        MutableColumnPtr struct_column = st->create_column();
+        struct_column->reserve(2);
+        struct_column->insert(t1);
+        struct_column->insert(t2);
+        vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
+                                                        "test_struct");
+        block.insert(type_and_name);
+    }
+
+    MutableColumnPtr col = ColumnString::create();
+    // serialize
+    std::cout << "serialize to jsonb" << std::endl;
+    JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
+                                       block.columns(),
+                                       create_data_type_serdes(block.get_data_types()));
+    // deserialize
+    TupleDescriptor read_desc(PTupleDescriptor(), true);
+    // slot
+    TSlotDescriptor tslot;
+    tslot.__set_colName("struct");
+    tslot.nullIndicatorBit = -1;
+    tslot.nullIndicatorByte = 0;
+    TypeDescriptor type_desc(TYPE_STRUCT);
+    type_desc.add_sub_type(TYPE_STRING, "name", true);
+    type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
+    type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
+    tslot.__set_col_unique_id(1);
+    tslot.__set_slotType(type_desc.to_thrift());
+    SlotDescriptor* slot = new SlotDescriptor(tslot);
+    read_desc.add_slot(slot);
+
+    Block new_block = block.clone_empty();
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(read_desc.slots().size());
+    for (int i = 0; i < read_desc.slots().size(); ++i) {
+        col_uid_to_idx[read_desc.slots()[i]->col_unique_id()] = i;
+        default_values[i] = read_desc.slots()[i]->col_default_value();
+        std::cout << "uid " << read_desc.slots()[i]->col_unique_id() << ":" << i << std::endl;
+    }
+    std::cout << block.dump_data() << std::endl;
+    std::cout << new_block.dump_data() << std::endl;
+    std::cout << "deserialize from jsonb" << std::endl;
     JsonbSerializeUtil::jsonb_to_block(create_data_type_serdes(read_desc.slots()),
                                        static_cast<ColumnString&>(*col.get()), col_uid_to_idx,
                                        new_block, default_values);

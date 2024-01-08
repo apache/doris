@@ -201,12 +201,10 @@ Status EngineStorageMigrationTask::_migrate() {
     // compaction will be prohibited for the mow table when migration. Moreover, it is useless
     // to perform a compaction operation on the migration data, as the migration still migrates
     // the data of rowsets before the compaction operation.
-    std::unique_lock full_compaction_lock(_tablet->get_full_compaction_lock(), std::defer_lock);
     std::unique_lock base_compaction_lock(_tablet->get_base_compaction_lock(), std::defer_lock);
     std::unique_lock cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(),
                                           std::defer_lock);
     if (_tablet->enable_unique_key_merge_on_write()) {
-        full_compaction_lock.lock();
         base_compaction_lock.lock();
         cumu_compaction_lock.lock();
     }

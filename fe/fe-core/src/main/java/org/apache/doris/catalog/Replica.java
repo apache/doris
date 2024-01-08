@@ -209,6 +209,11 @@ public class Replica implements Writable {
         return this.backendId;
     }
 
+    // just for ut
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
     public long getDataSize() {
         return dataSize;
     }

@@ -372,6 +372,7 @@ public class AggregationNode extends PlanNode {
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         for (int i = 0; i < groupingExprs.size(); i++) {
             aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getIntermediateTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
             aggInfo.getOutputTupleDesc().computeMemLayout();
         }
     }

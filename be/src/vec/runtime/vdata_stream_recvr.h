@@ -96,12 +96,10 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
+    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics = nullptr);
 
-    void remove_sender(int sender_id, int be_number);
-
-    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics);
-
-    void cancel_stream();
+    // We need msg to make sure we can pass existing regression test.
+    void cancel_stream(const std::string& msg = "");
 
     void close();
 
@@ -203,7 +201,7 @@ public:
 
     void decrement_senders(int sender_id);
 
-    void cancel();
+    void cancel(const std::string& msg = "");
 
     void close();
 
@@ -219,6 +217,7 @@ protected:
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
     bool _is_cancelled;
+    std::string _cancel_msg = "";
     int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;

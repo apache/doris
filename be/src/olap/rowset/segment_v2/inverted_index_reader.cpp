@@ -197,7 +197,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         if (!dir) {
             dir = new DorisCompoundReader(
-                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
                     index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
@@ -734,8 +734,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
     }
     _file_full_path = index_file;
     _compoundReader = std::make_unique<DorisCompoundReader>(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
-            config::inverted_index_read_buffer_size);
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+            index_file_name.c_str(), config::inverted_index_read_buffer_size);
 }
 
 Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, RuntimeState* runtime_state,
@@ -1095,14 +1095,18 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
                                                        uint32_t segment_num_rows,
                                                        roaring::Roaring* bit_map, bool skip_try) {
     if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
-        auto query_bkd_limit_percent = config::query_bkd_inverted_index_limit_percent;
-        uint32_t hit_count = 0;
-        RETURN_IF_ERROR(
-                try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
-        if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}", hit_count,
-                    query_bkd_limit_percent, segment_num_rows);
+        if (_runtime_state->query_options().inverted_index_skip_threshold > 0 &&
+            _runtime_state->query_options().inverted_index_skip_threshold < 100) {
+            auto query_bkd_limit_percent =
+                    _runtime_state->query_options().inverted_index_skip_threshold;
+            uint32_t hit_count = 0;
+            RETURN_IF_ERROR(
+                    try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+            if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "hit count: {}, bkd inverted reached limit {}%, segment num rows:{}",
+                        hit_count, query_bkd_limit_percent, segment_num_rows);
+            }
         }
     }
 

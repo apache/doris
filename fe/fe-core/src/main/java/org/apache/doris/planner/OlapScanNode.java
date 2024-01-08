@@ -550,7 +550,6 @@ public class OlapScanNode extends ScanNode {
             computePartitionInfo();
         }
         computeTupleState(analyzer);
-        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -922,6 +921,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(selectedIndexId != -1);
         // compute tablet info by selected index id and selected partition ids
         long start = System.currentTimeMillis();
+        computeSampleTabletIds();
         computeTabletInfo();
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
@@ -944,9 +944,7 @@ public class OlapScanNode extends ScanNode {
         long selectedRows = 0;
         long totalSampleRows = 0;
         List<Long> selectedPartitionList = new ArrayList<>();
-        if (FeConstants.runningUnitTest && selectedIndexId == -1) {
-            selectedIndexId = olapTable.getBaseIndexId();
-        }
+        Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);

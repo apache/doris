@@ -75,7 +75,7 @@ Status VStatisticsIterator::next_batch(Block* block) {
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
             for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+                columns[i]->insert_many_defaults(size);
             }
         } else {
             for (int i = 0; i < block->columns(); ++i) {

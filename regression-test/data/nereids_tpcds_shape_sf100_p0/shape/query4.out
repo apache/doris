@@ -59,11 +59,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL) > if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL))
+------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_w_firstyear.customer_id)
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL) > if((year_total > 0.000000), (cast(year_total as DOUBLE) / cast(year_total as DOUBLE)), NULL))
+--------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_secyear.customer_id)(if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](t_s_secyear.customer_id = t_s_firstyear.customer_id)
 --------------------------hashJoin[INNER_JOIN](t_s_firstyear.customer_id = t_c_firstyear.customer_id)

@@ -909,7 +909,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
@@ -941,10 +940,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/STOP-JOB"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE"
                                     ]
                                 },
                                 {
@@ -1056,8 +1052,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-WARNINGS",

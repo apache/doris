@@ -39,7 +39,32 @@ class Http {
 
     final static Logger logger = LoggerFactory.getLogger(this.class)
 
-    static Object http_post(url, data = null, isJson = false) {
+    static void checkHttpResult(Object result, NodeType type) {
+        if (type == NodeType.FE) {
+            assert result.code == 0 : result.toString()
+        } else if (type == NodeType.BE) {
+            assert result.status == 'OK' : result.toString()
+        }
+    }
+
+    static Object GET(url, isJson = false) {
+        def conn = new URL(url).openConnection()
+        conn.setRequestMethod('GET')
+        conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
+        def code = conn.responseCode
+        def text = conn.content.text
+        logger.info("http post url=${url}, isJson=${isJson}, response code=${code}, text=${text}")
+        Assert.assertEquals(200, code)
+        if (isJson) {
+            def json = new JsonSlurper()
+            def result = json.parseText(text)
+            return result
+        } else {
+            return text
+        }
+    }
+
+    static Object POST(url, data = null, isJson = false) {
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('POST')
         conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
