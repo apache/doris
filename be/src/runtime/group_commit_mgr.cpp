@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 
 #include <chrono>
-#include <streambuf>
 
 #include "client_cache.h"
 #include "common/config.h"
