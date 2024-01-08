@@ -34,16 +34,16 @@ import java.util.stream.Collectors;
 /**
  * add constraint command
  */
-public class ShowConstraintCommand extends Command implements NoForward {
+public class ShowConstraintsCommand extends Command implements NoForward {
 
-    public static final Logger LOG = LogManager.getLogger(ShowConstraintCommand.class);
+    public static final Logger LOG = LogManager.getLogger(ShowConstraintsCommand.class);
     private final List<String> nameParts;
 
     /**
      * constructor
      */
-    public ShowConstraintCommand(List<String> nameParts) {
-        super(PlanType.SHOW_CONSTRAINT_COMMAND);
+    public ShowConstraintsCommand(List<String> nameParts) {
+        super(PlanType.SHOW_CONSTRAINTS_COMMAND);
         this.nameParts = nameParts;
     }
 
@@ -53,7 +53,7 @@ public class ShowConstraintCommand extends Command implements NoForward {
                 RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv()).value();
         List<List<String>> res = tableIf.getConstraintMap().entrySet().stream()
                         .map(e -> Lists.newArrayList(e.getKey(),
-                                e.getValue().getClass().getSimpleName(),
+                                e.getValue().getType().getName(),
                                 e.getValue().toString()))
                     .collect(Collectors.toList());
         executor.handleShowConstraintStmt(res);
@@ -61,6 +61,6 @@ public class ShowConstraintCommand extends Command implements NoForward {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        throw new RuntimeException("");
+        return visitor.visitShowConstraintsCommand(this, context);
     }
 }

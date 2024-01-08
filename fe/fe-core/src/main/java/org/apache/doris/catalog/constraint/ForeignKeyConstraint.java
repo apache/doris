@@ -109,6 +109,10 @@ public class ForeignKeyConstraint extends Constraint {
     public String toString() {
         String foreignKeys = "(" + String.join(", ", foreignToReference.keySet()) + ")";
         String primaryKeys = "(" + String.join(", ", foreignToReference.values()) + ")";
-        return String.format("%s references %s %s", foreignKeys, referencedTable, primaryKeys);
+        return String.format("FOREIGN KEY %s REFERENCES %s %s", foreignKeys, referencedTable, primaryKeys);
+    }
+
+    public String getTypeName() {
+        return "FOREIGN KEY";
     }
 }

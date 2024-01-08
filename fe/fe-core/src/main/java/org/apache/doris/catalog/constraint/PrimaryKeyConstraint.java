@@ -59,7 +59,7 @@ public class PrimaryKeyConstraint extends Constraint {
 
     @Override
     public String toString() {
-        return "(" + String.join(", ", columns) + ")";
+        return "PRIMARY KEY (" + String.join(", ", columns) + ")";
     }
 
     @Override

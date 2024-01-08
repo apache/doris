@@ -348,7 +348,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -753,7 +753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowConstraint(ShowConstraintContext ctx) {
         Set<UnboundRelation> unboundRelation = visitRelation(ctx.table)
                 .collect(UnboundRelation.class::isInstance);
-        return new ShowConstraintCommand(unboundRelation.iterator().next().getNameParts());
+        return new ShowConstraintsCommand(unboundRelation.iterator().next().getNameParts());
     }
 
     @Override

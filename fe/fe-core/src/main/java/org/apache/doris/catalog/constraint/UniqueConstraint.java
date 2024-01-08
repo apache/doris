@@ -55,7 +55,7 @@ public class UniqueConstraint extends Constraint {
 
     @Override
     public String toString() {
-        return "(" + String.join(", ", columns) + ")";
+        return "UNIQUE (" + String.join(", ", columns) + ")";
     }
 
     @Override
