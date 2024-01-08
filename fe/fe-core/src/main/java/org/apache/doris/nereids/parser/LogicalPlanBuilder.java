@@ -156,6 +156,7 @@ import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
+import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
@@ -347,6 +348,7 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -429,6 +431,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -744,6 +747,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
         }
         return new AlterMTMVCommand(alterMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitShowConstraint(ShowConstraintContext ctx) {
+        Set<UnboundRelation> unboundRelation = visitRelation(ctx.table)
+                .collect(UnboundRelation.class::isInstance);
+        return new ShowConstraintCommand(unboundRelation.iterator().next().getNameParts());
     }
 
     @Override

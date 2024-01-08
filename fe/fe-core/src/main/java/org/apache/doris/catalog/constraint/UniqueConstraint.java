@@ -54,6 +54,11 @@ public class UniqueConstraint extends Constraint {
     }
 
     @Override
+    public String toString() {
+        return "(" + String.join(", ", columns) + ")";
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hashCode(columns);
     }

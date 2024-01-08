@@ -104,4 +104,11 @@ public class ForeignKeyConstraint extends Constraint {
         return Objects.equals(foreignToReference, other.foreignToReference)
                 && Objects.equals(referencedTable, other.referencedTable);
     }
+
+    @Override
+    public String toString() {
+        String foreignKeys = "(" + String.join(", ", foreignToReference.keySet()) + ")";
+        String primaryKeys = "(" + String.join(", ", foreignToReference.values()) + ")";
+        return String.format("%s references %s %s", foreignKeys, referencedTable, primaryKeys);
+    }
 }

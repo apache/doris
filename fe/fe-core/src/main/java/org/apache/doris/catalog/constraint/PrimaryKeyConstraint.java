@@ -58,6 +58,11 @@ public class PrimaryKeyConstraint extends Constraint {
     }
 
     @Override
+    public String toString() {
+        return "(" + String.join(", ", columns) + ")";
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
