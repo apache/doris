@@ -2052,29 +2052,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int restore_download_task_num_per_be = 3;
 
-    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
-            "Whether to enable the function of getting log files through http interface"})
-    public static boolean enable_get_log_file_api = false;
-
-    @ConfField(description = {"用于SQL方言转换的服务地址。",
-            "The service address for SQL dialect conversion."})
-    public static String sql_convertor_service = "";
-
-    @ConfField(mutable = true)
-    public static boolean enable_profile_when_analyze = false;
-    @ConfField(mutable = true)
-    public static boolean enable_collect_internal_query_profile = false;
-
-    @ConfField(mutable = false, masterOnly = false, description = {
-        "http请求处理/api/query中sql任务的最大线程池。",
-        "The max number work threads of http sql submitter."
-    })
+    @ConfField(muteble = false, masterOnly = false)
     public static int http_sql_submitter_max_worker_threads = 2;
 
-    @ConfField(mutable = false, masterOnly = false, description = {
-        "http请求处理/api/upload任务的最大线程池。",
-        "The max number work threads of http upload submitter."
-    })
+    @ConfField(mutable = false, masterOnly = false)
     public static int http_load_submitter_max_worker_threads = 2;
 }
 
