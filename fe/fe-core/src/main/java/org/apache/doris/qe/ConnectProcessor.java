@@ -291,7 +291,7 @@ public abstract class ConnectProcessor {
     private String convertOriginStmt(String originStmt) {
         String convertedStmt = originStmt;
         @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
-        if (sqlDialect != null) {
+        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
             PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
             List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
             for (DialectConverterPlugin plugin : plugins) {

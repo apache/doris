@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin;
+package org.apache.doris.plugin.audit;
 
 
 import java.lang.annotation.Retention;
@@ -56,6 +56,8 @@ public class AuditEvent {
     public String clientIp = "";
     @AuditField(value = "User")
     public String user = "";
+    @AuditField(value = "Ctl")
+    public String ctl = "";
     @AuditField(value = "Db")
     public String db = "";
     @AuditField(value = "State")
@@ -130,6 +132,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setUser(String user) {
             auditEvent.user = user;
+            return this;
+        }
+
+        public AuditEventBuilder setCtl(String ctl) {
+            auditEvent.ctl = ctl;
             return this;
         }
 

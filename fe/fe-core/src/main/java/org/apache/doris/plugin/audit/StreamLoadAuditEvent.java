@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin;
+package org.apache.doris.plugin.audit;
 
 public class StreamLoadAuditEvent extends AuditEvent {
 

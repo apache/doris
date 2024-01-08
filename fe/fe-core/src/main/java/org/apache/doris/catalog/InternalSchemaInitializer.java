@@ -24,6 +24,8 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.Config;
@@ -33,6 +35,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.plugin.audit.AuditLoaderPlugin;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -52,6 +55,33 @@ public class InternalSchemaInitializer extends Thread {
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
+
+    public static final List<ColumnDef> AUDIT_TABLE_COLUMNS;
+
+    static {
+        AUDIT_TABLE_COLUMNS = new ArrayList<>();
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("query_id", TypeDef.createVarchar(48)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("time", TypeDef.create(PrimitiveType.DATETIME)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("client_ip", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("user", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("catalog", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("db", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("state", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("error_code", TypeDef.create(PrimitiveType.INT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("error_message", TypeDef.create(PrimitiveType.STRING)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("query_time", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("return_rows", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("stmt_id", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("is_query", TypeDef.create(PrimitiveType.TINYINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("cpu_time_ms", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("sql_hash", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("sql_digest", TypeDef.createVarchar(128)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT)));
+        AUDIT_TABLE_COLUMNS.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING)));
+    }
 
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
@@ -83,6 +113,7 @@ public class InternalSchemaInitializer extends Thread {
         Database database = op.get();
         modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
+        modifyTblReplicaCount(database, AuditLoaderPlugin.AUDIT_LOG_TABLE);
     }
 
     public void modifyTblReplicaCount(Database database, String tblName) {
@@ -103,8 +134,8 @@ public class InternalSchemaInitializer extends Thread {
                             >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                         return;
                     }
+                    colStatsTbl.writeLock();
                     try {
-                        colStatsTbl.writeLock();
                         Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) colStatsTbl, props);
                     } finally {
                         colStatsTbl.writeUnlock();
@@ -123,8 +154,11 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     private void createTbl() throws UserException {
+        // statistics
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
+        // audit table
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
     }
 
     @VisibleForTesting
@@ -212,7 +246,40 @@ public class InternalSchemaInitializer extends Thread {
         return createTableStmt;
     }
 
+    private CreateTableStmt buildAuditTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, AuditLoaderPlugin.AUDIT_LOG_TABLE);
+
+        String engineName = "olap";
+        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
+        KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, dupKeys);
+        // partition
+        PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());
+        // distribution
+        int bucketNum = 2;
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, Lists.newArrayList("query_id"));
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("dynamic_partition.time_unit", "DAY");
+                put("dynamic_partition.start", "-30");
+                put("dynamic_partition.end", "3");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", String.valueOf(bucketNum));
+                put("dynamic_partition.enable", "true");
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, AUDIT_TABLE_COLUMNS, engineName, keysDesc, partitionDesc, distributionDesc,
+                properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
+    }
+
+
     private boolean created() {
+        // 1. check database exist
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
                         .getDb(FeConstants.INTERNAL_DB_NAME);
@@ -225,6 +292,7 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
+        // 2. check statistic tables
         Table statsTbl = optionalStatsTbl.get();
         Optional<Column> optionalColumn =
                 statsTbl.fullSchema.stream().filter(c -> c.getName().equals("count")).findFirst();
@@ -238,7 +306,17 @@ public class InternalSchemaInitializer extends Thread {
             }
             return false;
         }
-        return db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
+        optionalStatsTbl = db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME);
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
+
+        // 3. check audit table
+        optionalStatsTbl = db.getTable(AuditLoaderPlugin.AUDIT_LOG_TABLE);
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
+        return true;
     }
 
 }

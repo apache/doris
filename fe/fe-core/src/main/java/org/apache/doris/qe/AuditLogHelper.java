@@ -24,8 +24,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.plugin.AuditEvent.EventType;
+import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
@@ -40,7 +42,9 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
 
+        CatalogIf catalog = ctx.getCurrentCatalog();
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+                .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
