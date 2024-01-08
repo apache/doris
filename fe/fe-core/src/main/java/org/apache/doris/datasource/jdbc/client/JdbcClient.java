@@ -520,7 +520,7 @@ public abstract class JdbcClient {
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
 
     protected Type createDecimalOrStringType(int precision, int scale) {
-        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
