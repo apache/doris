@@ -645,7 +645,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
-            olapScanNode.computeSampleTabletIds();
         }
 
         // TODO:  remove this switch?

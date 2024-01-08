@@ -438,6 +438,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
+    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1069,6 +1071,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
         "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
     public boolean enablePushDownMinMaxOnUnique = false;
+
+    // Whether enable push down string type minmax to scan node.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
+        "是否启用string类型min max下推。", "Set whether to enable push down string type minmax."})
+    public boolean enablePushDownStringMinMax = false;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -2198,6 +2205,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
         this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
+    public boolean isEnablePushDownStringMinMax() {
+        return enablePushDownStringMinMax;
     }
 
     /**
