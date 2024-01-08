@@ -1200,6 +1200,8 @@ DECLARE_Bool(group_commit_wait_replay_wal_finish);
 DECLARE_Int32(scan_thread_nice_value);
 // Used to modify the recycle interval of tablet schema cache
 DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+// Granularity is at the column level
+DECLARE_mInt32(tablet_schema_cache_capacity);
 
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);

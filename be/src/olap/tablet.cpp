@@ -2143,7 +2143,8 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
               << ", tp=" << old_rowset->data_disk_size() / duration.count();
 
     // gen a new rowset
-    auto new_rowset_meta = std::make_shared<RowsetMeta>(*old_rowset->rowset_meta());
+    auto new_rowset_meta = std::make_shared<RowsetMeta>();
+    new_rowset_meta->init(old_rowset->rowset_meta().get());
     new_rowset_meta->set_rowset_id(new_rowset_id);
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
