@@ -135,10 +135,6 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants _probe_row_match_iter;
-
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
