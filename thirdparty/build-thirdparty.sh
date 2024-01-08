@@ -485,7 +485,7 @@ build_glog() {
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DWITH_UNWIND=OFF \
             -DBUILD_SHARED_LIBS=OFF \
-	     -DWITH_TLS=OFF
+         -DWITH_TLS=OFF
 
         cmake --build build --target install
     fi
