@@ -54,8 +54,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -73,8 +71,6 @@ import java.util.stream.Collectors;
 public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
     public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET = Sets.newHashSet(JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN);
-    protected final String currentClassName = this.getClass().getSimpleName();
-    private final Logger logger = LogManager.getLogger(this.getClass());
 
     /**
      * The abstract template method for query rewrite, it contains the main logic and different query
@@ -204,7 +200,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         cascadesContext.getCurrentJobContext().getRequiredProperties());
                 Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
                 rewrittenPlan = rewrittenPlanContext.getRewritePlan();
-                // checkout the partitions used by rewritten plan is valid or not
+                // check the partitions used by rewritten plan is valid or not
                 Set<Long> invalidPartitionsQueryUsed =
                         calcInvalidPartitions(rewrittenPlan, materializationContext, cascadesContext);
                 if (!invalidPartitionsQueryUsed.isEmpty()) {
