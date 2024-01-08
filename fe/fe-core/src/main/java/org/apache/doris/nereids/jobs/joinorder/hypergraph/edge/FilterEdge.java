@@ -47,4 +47,8 @@ public class FilterEdge extends Edge {
     public List<? extends Expression> getExpressions() {
         return filter.getExpressions();
     }
+
+    public FilterEdge clear() {
+        return new FilterEdge(filter, getIndex(), getLeftChildEdges(), getSubTreeNodes(), getLeftRequiredNodes());
+    }
 }
