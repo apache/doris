@@ -88,7 +88,8 @@ public class MTMVTask extends AbstractTask {
             new Column("RefreshMode", ScalarType.createStringType()),
             new Column("NeedRefreshPartitions", ScalarType.createStringType()),
             new Column("CompletedPartitions", ScalarType.createStringType()),
-            new Column("Progress", ScalarType.createStringType()));
+            new Column("Progress", ScalarType.createStringType()),
+            new Column("LastQueryId", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -123,6 +124,8 @@ public class MTMVTask extends AbstractTask {
     List<String> completedPartitions;
     @SerializedName("refreshMode")
     MTMVTaskRefreshMode refreshMode;
+    @SerializedName("lastQueryId")
+    String lastQueryId;
 
     private MTMV mtmv;
     private MTMVRelation relation;
@@ -175,6 +178,7 @@ public class MTMVTask extends AbstractTask {
     private void exec(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
             throws Exception {
         TUniqueId queryId = generateQueryId();
+        lastQueryId = queryId.toString();
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
@@ -290,6 +294,8 @@ public class MTMVTask extends AbstractTask {
                                 completedPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));
+        trow.addToColumnValue(
+                new TCell().setStringVal(lastQueryId));
         return trow;
     }
 
