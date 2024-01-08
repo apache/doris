@@ -27,7 +27,7 @@ namespace doris {
 class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
-        vectorized::Int64 v4;
+        vectorized::Int64 v4 = 0;
         if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(),
                                        reinterpret_cast<unsigned char*>(&v4))) {
             _addr = static_cast<vectorized::UInt32>(v4);
@@ -72,29 +72,6 @@ bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
     return (addr & mask) == (cidr_addr & mask);
 }
 
-#if defined(__SSE2__)
-#include <emmintrin.h>
-
-bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
-    uint16_t mask = _mm_movemask_epi8(
-            _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
-                           _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
-
-    if (mask) {
-        auto offset = std::countr_zero(mask);
-
-        if (prefix / 8 != offset) {
-            return prefix / 8 < offset;
-        }
-
-        auto cmpmask = ~(0xff >> (prefix % 8));
-        return (addr[offset] & cmpmask) == (cidr_addr[offset] & cmpmask);
-    }
-    return true;
-}
-
-#else
-
 bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
         prefix = IPV6_BINARY_LENGTH * 8U;
@@ -114,8 +91,6 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
     auto mask = ~(0xff >> prefix);
     return (addr[i] & mask) == (cidr_addr[i] & mask);
 }
-
-#endif // __SSE2__
 
 IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');
