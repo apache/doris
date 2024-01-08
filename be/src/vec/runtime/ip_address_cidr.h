@@ -28,13 +28,15 @@ class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
         vectorized::Int64 v4;
-        if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(), reinterpret_cast<unsigned char *>(&v4))) {
+        if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(),
+                                       reinterpret_cast<unsigned char *>(&v4))) {
             _addr = static_cast<vectorized::UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
-            if (!vectorized::parseIPv6whole(
-                    address_str.begin(), address_str.end(), std::get<IPv6AddrType>(_addr).data())) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'", address_str);
+            if (!vectorized::parseIPv6whole(address_str.begin(), address_str.end(),
+                                            std::get<IPv6AddrType>(_addr).data())) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'",
+                                address_str);
             }
         }
     }
@@ -73,11 +75,10 @@ bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
 #if defined(__SSE2__)
 #include <emmintrin.h>
 
-bool match_ipv6_subnet(const uint8_t * addr, const uint8_t * cidr_addr, uint8_t prefix) {
-    uint16_t mask = _mm_movemask_epi8(_mm_cmpeq_epi8(
-            _mm_loadu_si128(reinterpret_cast<const __m128i *>(addr)),
-            _mm_loadu_si128(reinterpret_cast<const __m128i *>(cidr_addr))));
-    mask = ~mask;
+bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
+    uint16_t mask = _mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
+                           _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
 
     if (mask) {
         auto offset = std::countr_zero(mask);
@@ -92,7 +93,7 @@ bool match_ipv6_subnet(const uint8_t * addr, const uint8_t * cidr_addr, uint8_t 
     return true;
 }
 
-# else
+#else
 
 bool match_ipv6_subnet(const uint8_t * addr, const uint8_t * cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
@@ -114,17 +115,19 @@ bool match_ipv6_subnet(const uint8_t * addr, const uint8_t * cidr_addr, uint8_t 
     return (addr[i] & mask) == (cidr_addr[i] & mask);
 }
 
-#endif  // __SSE2__
+#endif // __SSE2__
 
 IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');
 
     if (pos_slash == 0) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Error parsing IP address with prefix: {}", std::string(cidr_str));
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Error parsing IP address with prefix: {}",
+                        std::string(cidr_str));
     }
 
     if (pos_slash == std::string_view::npos) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "The text does not contain '/': {}", std::string(cidr_str));
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "The text does not contain '/': {}",
+                        std::string(cidr_str));
     }
 
     std::string_view addr_str = cidr_str.substr(0, pos_slash);
@@ -133,18 +136,19 @@ IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     uint8_t prefix = 0;
     auto prefix_str = cidr_str.substr(pos_slash + 1);
 
-    const auto * prefix_str_end = prefix_str.data() + prefix_str.size();
+    const auto* prefix_str_end = prefix_str.data() + prefix_str.size();
     auto [parse_end, parse_error] = std::from_chars(prefix_str.data(), prefix_str_end, prefix);
     uint8_t max_prefix = (addr.as_v6() ? IPV6_BINARY_LENGTH : IPV4_BINARY_LENGTH) * 8;
 
     if (parse_error != std::errc() || parse_end != prefix_str_end || prefix > max_prefix) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "The CIDR has a malformed prefix bits: {}", std::string(cidr_str));
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "The CIDR has a malformed prefix bits: {}",
+                        std::string(cidr_str));
     }
 
     return {addr, static_cast<uint8_t>(prefix)};
 }
 
-inline bool is_address_in_range(const IPAddressVariant & address, const IPAddressCIDR & cidr) {
+inline bool is_address_in_range(const IPAddressVariant& address, const IPAddressCIDR& cidr) {
     const auto* cidr_v6 = cidr._address.as_v6();
     const auto* addr_v6 = address.as_v6();
     if (cidr_v6) {
@@ -159,4 +163,4 @@ inline bool is_address_in_range(const IPAddressVariant & address, const IPAddres
     return false;
 }
 
-}
+} // namespace doris

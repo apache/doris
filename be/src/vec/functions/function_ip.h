@@ -80,9 +80,7 @@ private:
 
 public:
     static constexpr auto name = "ipv4_num_to_string";
-    static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4NumToString>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4NumToString>(); }
 
     String get_name() const override { return name; }
 
@@ -753,14 +751,16 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments.size() != 2) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Number of arguments for function {} doesn't match: passed {}, should be 2",
-                            get_name(), arguments.size());
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Number of arguments for function {} doesn't match: passed {}, should be 2",
+                    get_name(), arguments.size());
         }
         const auto& addr_type = arguments[0];
         const auto& cidr_type = arguments[1];
         if (!is_string(remove_nullable(addr_type)) || !is_string(remove_nullable(cidr_type))) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "The arguments of function {} must be String", get_name());
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "The arguments of function {} must be String", get_name());
         }
         return std::make_shared<DataTypeUInt8>();
     }
@@ -777,16 +777,20 @@ public:
         const NullMap* nullmap_cidr = nullptr;
 
         if (addr_column->is_nullable()) {
-            const auto* addr_column_nullable = assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column = check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            const auto* addr_column_nullable =
+                    assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column =
+                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
             nullmap_addr = &addr_column_nullable->get_null_map_data();
         } else {
             str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
         }
 
         if (cidr_column->is_nullable()) {
-            const auto* cidr_column_nullable = assert_cast<const ColumnNullable*>(cidr_column.get());
-            str_cidr_column = check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
+            const auto* cidr_column_nullable =
+                    assert_cast<const ColumnNullable*>(cidr_column.get());
+            str_cidr_column =
+                    check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
             nullmap_cidr = &cidr_column_nullable->get_null_map_data();
         } else {
             str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
@@ -810,11 +814,13 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (nullmap_addr && (*nullmap_addr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "The arguments of function {} must be String, not NULL", get_name());
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
             }
             if (nullmap_cidr && (*nullmap_cidr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "The arguments of function {} must be String, not NULL", get_name());
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
             }
             const auto addr = IPAddressVariant(str_addr_column->get_data_at(i).to_string_view());
             const auto cidr = parse_ip_with_cidr(str_cidr_column->get_data_at(i).to_string_view());
