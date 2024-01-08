@@ -409,27 +409,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process(
         HashTableType& hash_table_ctx, ConstNullMapPtr null_map, MutableBlock& mutable_block,
         Block* output_block, size_t probe_rows, bool is_mark_join, bool have_other_join_conjunct) {
     Status res;
-    if constexpr (!std::is_same_v<typename HashTableType::Mapped, RowRefListWithFlags>) {
-        if (have_other_join_conjunct) {
-            res = Status::InvalidArgument("Invalid HashTableType::Mapped");
-        } else {
-            std::visit(
-                    [&](auto is_mark_join) {
-                        res = do_process<need_null_map_for_probe, ignore_null, HashTableType, false,
-                                         is_mark_join>(hash_table_ctx, null_map, mutable_block,
-                                                       output_block, probe_rows);
-                    },
-                    make_bool_variant(is_mark_join));
-        }
-    } else {
-        std::visit(
-                [&](auto is_mark_join, auto have_other_join_conjunct) {
-                    res = do_process<need_null_map_for_probe, ignore_null, HashTableType,
-                                     have_other_join_conjunct, is_mark_join>(
-                            hash_table_ctx, null_map, mutable_block, output_block, probe_rows);
-                },
-                make_bool_variant(is_mark_join), make_bool_variant(have_other_join_conjunct));
-    }
+    std::visit(
+            [&](auto is_mark_join, auto have_other_join_conjunct) {
+                res = do_process<need_null_map_for_probe, ignore_null, HashTableType,
+                                 have_other_join_conjunct, is_mark_join>(
+                        hash_table_ctx, null_map, mutable_block, output_block, probe_rows);
+            },
+            make_bool_variant(is_mark_join), make_bool_variant(have_other_join_conjunct));
     return res;
 }
 
@@ -468,54 +454,24 @@ struct ExtractType<T(U)> {
                                         MutableBlock & mutable_block, Block * output_block,       \
                                         bool* eos)
 
-#define INSTANTIATION_FOR1(JoinOpType, Parent)                                                     \
-    template struct ProcessHashTableProbe<JoinOpType, Parent>;                                     \
-                                                                                                   \
-    INSTANTIATION(JoinOpType, Parent, (SerializedHashTableContext<RowRefList>));                   \
-    INSTANTIATION(JoinOpType, Parent, (I8HashTableContext<RowRefList>));                           \
-    INSTANTIATION(JoinOpType, Parent, (I16HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, Parent, (I32HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, Parent, (I64HashTableContext<RowRefList>));                          \
-    INSTANTIATION(JoinOpType, Parent, (I128HashTableContext<RowRefList>));                         \
-    INSTANTIATION(JoinOpType, Parent, (I256HashTableContext<RowRefList>));                         \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<true, RowRefList>));            \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<false, RowRefList>));           \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<true, RowRefList>));           \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<false, RowRefList>));          \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<true, RowRefList>));           \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<false, RowRefList>));          \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<true, RowRefList>));           \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<false, RowRefList>));          \
-    INSTANTIATION(JoinOpType, Parent, (SerializedHashTableContext<RowRefListWithFlag>));           \
-    INSTANTIATION(JoinOpType, Parent, (I8HashTableContext<RowRefListWithFlag>));                   \
-    INSTANTIATION(JoinOpType, Parent, (I16HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, Parent, (I32HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, Parent, (I64HashTableContext<RowRefListWithFlag>));                  \
-    INSTANTIATION(JoinOpType, Parent, (I128HashTableContext<RowRefListWithFlag>));                 \
-    INSTANTIATION(JoinOpType, Parent, (I256HashTableContext<RowRefListWithFlag>));                 \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<true, RowRefListWithFlag>));    \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<false, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<true, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<false, RowRefListWithFlag>));  \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<true, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<false, RowRefListWithFlag>));  \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<true, RowRefListWithFlag>));   \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<false, RowRefListWithFlag>));  \
-    INSTANTIATION(JoinOpType, Parent, (SerializedHashTableContext<RowRefListWithFlags>));          \
-    INSTANTIATION(JoinOpType, Parent, (I8HashTableContext<RowRefListWithFlags>));                  \
-    INSTANTIATION(JoinOpType, Parent, (I16HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, Parent, (I32HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, Parent, (I64HashTableContext<RowRefListWithFlags>));                 \
-    INSTANTIATION(JoinOpType, Parent, (I128HashTableContext<RowRefListWithFlags>));                \
-    INSTANTIATION(JoinOpType, Parent, (I256HashTableContext<RowRefListWithFlags>));                \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<true, RowRefListWithFlags>));   \
-    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<false, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<true, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<false, RowRefListWithFlags>)); \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<true, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<false, RowRefListWithFlags>)); \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<true, RowRefListWithFlags>));  \
-    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<false, RowRefListWithFlags>))
+#define INSTANTIATION_FOR1(JoinOpType, Parent)                                            \
+    template struct ProcessHashTableProbe<JoinOpType, Parent>;                            \
+                                                                                          \
+    INSTANTIATION(JoinOpType, Parent, (SerializedHashTableContext<RowRefList>));          \
+    INSTANTIATION(JoinOpType, Parent, (I8HashTableContext<RowRefList>));                  \
+    INSTANTIATION(JoinOpType, Parent, (I16HashTableContext<RowRefList>));                 \
+    INSTANTIATION(JoinOpType, Parent, (I32HashTableContext<RowRefList>));                 \
+    INSTANTIATION(JoinOpType, Parent, (I64HashTableContext<RowRefList>));                 \
+    INSTANTIATION(JoinOpType, Parent, (I128HashTableContext<RowRefList>));                \
+    INSTANTIATION(JoinOpType, Parent, (I256HashTableContext<RowRefList>));                \
+    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<true, RowRefList>));   \
+    INSTANTIATION(JoinOpType, Parent, (I64FixedKeyHashTableContext<false, RowRefList>));  \
+    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<true, RowRefList>));  \
+    INSTANTIATION(JoinOpType, Parent, (I128FixedKeyHashTableContext<false, RowRefList>)); \
+    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<true, RowRefList>));  \
+    INSTANTIATION(JoinOpType, Parent, (I256FixedKeyHashTableContext<false, RowRefList>)); \
+    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<true, RowRefList>));  \
+    INSTANTIATION(JoinOpType, Parent, (I136FixedKeyHashTableContext<false, RowRefList>));
 
 #define INSTANTIATION_FOR(JoinOpType)             \
     INSTANTIATION_FOR1(JoinOpType, HashJoinNode); \
