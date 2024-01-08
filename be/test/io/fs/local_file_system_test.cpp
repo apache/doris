@@ -17,15 +17,15 @@
 
 #include "io/fs/local_file_system.h"
 
-#include <asm-generic/errno-base.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <vector>
 
