@@ -45,7 +45,8 @@ public class NonNullable extends ScalarFunction implements UnaryExpression, Cust
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1,
+                "the child expression of NonNullable should be only one");
         return new NonNullable(children.get(0));
     }
 }

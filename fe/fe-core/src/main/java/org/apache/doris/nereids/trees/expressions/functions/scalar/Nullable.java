@@ -45,7 +45,8 @@ public class Nullable extends ScalarFunction implements UnaryExpression, CustomS
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 1,
+                "the child expression of NonNullable should be only one");
         return new Nullable(children.get(0));
     }
 }

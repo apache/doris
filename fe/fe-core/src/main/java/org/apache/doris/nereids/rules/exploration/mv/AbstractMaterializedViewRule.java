@@ -397,25 +397,25 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 comparisonResult);
         // if the join type in query and mv plan is different, we should check and add filter on mv to make
         // the mv join type is accord with query
-        Set<Set<Slot>> viewNoNullableSlot = comparisonResult.getViewNoNullableSlot();
+        Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
         // check query is use the null reject slot which view comparison need
-        if (!viewNoNullableSlot.isEmpty()) {
+        if (!requireNoNullableViewSlot.isEmpty()) {
             Set<Expression> queryPulledUpPredicates = queryStructInfo.getPredicates().getPulledUpPredicates();
             Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
                     cascadesContext);
             if (nullRejectPredicates.isEmpty() || queryPulledUpPredicates.containsAll(nullRejectPredicates)) {
                 // query has not null reject predicates, so return
-                return SplitPredicate.empty();
+                return SplitPredicate.invalid();
             }
-            Set<Expression> queryUsedRejectNullSlotsViewBased = nullRejectPredicates.stream()
+            Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
                     .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
                     .filter(Objects::nonNull)
                     .map(expr -> ExpressionUtils.replace((Expression) expr,
                             queryToViewSlotMapping.toSlotReferenceMap()))
                     .collect(Collectors.toSet());
-            if (viewNoNullableSlot.stream().anyMatch(
-                    set -> Sets.intersection(set, queryUsedRejectNullSlotsViewBased).isEmpty())) {
-                return SplitPredicate.empty();
+            if (requireNoNullableViewSlot.stream().anyMatch(
+                    set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty())) {
+                return SplitPredicate.invalid();
             }
         }
         return SplitPredicate.of(ExpressionUtils.and(equalCompensateConjunctions),

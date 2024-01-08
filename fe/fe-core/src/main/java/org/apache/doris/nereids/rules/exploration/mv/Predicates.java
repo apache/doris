@@ -103,7 +103,7 @@ public class Predicates {
             return residualPredicate.orElse(BooleanLiteral.TRUE);
         }
 
-        public static SplitPredicate empty() {
+        public static SplitPredicate invalid() {
             return new SplitPredicate(null, null, null);
         }
 
