@@ -94,6 +94,7 @@ create table doris_audit_db__.doris_audit_log_tbl__
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
+    query_tables string comment "Query tables and indexs",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
     error_message string comment "Error message of failing query.",
@@ -130,6 +131,7 @@ create table doris_audit_db__.doris_slow_log_tbl__
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
+    query_tables string comment "Query tables and indexs",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
     error_message string comment "Error message of failing query.",
@@ -162,7 +164,7 @@ properties(
 
 >**Notice**
 >
-> In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar
+> In the above table structure: stmt string, this can only be used in 0.15 and later versions, in previous versions, the field type used varchar. query_tables string, This field is added in 2.1 and is used to record the table name, rollup, or materialized view name that the query matches. If you upgrade the audit log plugin to doris 2.1 and later versions, you need to add this field to the old audit log table.
 
 ### Deployment
 

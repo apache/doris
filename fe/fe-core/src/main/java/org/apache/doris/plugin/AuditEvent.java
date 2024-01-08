@@ -58,6 +58,9 @@ public class AuditEvent {
     public String user = "";
     @AuditField(value = "Db")
     public String db = "";
+    // query table is formatted as db.table, and db.table.index if table is OlapTable
+    @AuditField(value = "QueryTables")
+    public String queryTables = "";
     @AuditField(value = "State")
     public String state = "";
     @AuditField(value = "ErrorCode")
@@ -133,6 +136,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setDb(String db) {
             auditEvent.db = db;
+            return this;
+        }
+
+        public AuditEventBuilder setQueryTables(String queryTables) {
+            auditEvent.queryTables = queryTables;
             return this;
         }
 

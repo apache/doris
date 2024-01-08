@@ -94,6 +94,7 @@ create table doris_audit_db__.doris_audit_log_tbl__
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
+    query_tables string comment "Query tables and indexs",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
     error_message string comment "Error message of failing query.",
@@ -130,6 +131,7 @@ create table doris_audit_db__.doris_slow_log_tbl__
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
     db varchar(96) comment "Database of this query",
+    query_tables string comment "Query tables and indexs",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
     error_message string comment "Error message of failing query.",
@@ -162,7 +164,7 @@ properties(
 
 >**注意**
 >
-> 上面表结构中：stmt string ，这个只能在0.15及之后版本中使用，之前版本，字段类型使用varchar
+> 上面表结构中：stmt string ，这个只能在0.15及之后版本中使用，之前版本，字段类型使用varchar。query_tables string，这个字段为2.1新添加字段，用于记录查询命中的表名、rollup或者物化视图名称，如果升级审计日志插件到doris 2.1以及之后的版本，需要在老的审计日志表中添加该字段。
 
 ### 部署
 

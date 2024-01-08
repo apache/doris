@@ -21,15 +21,22 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
 import org.apache.commons.codec.digest.DigestUtils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class AuditLogHelper {
 
@@ -117,6 +124,35 @@ public class AuditLogHelper {
                     ctx.getAuditEventBuilder().setErrorCode(proxyStatusCode);
                     ctx.getAuditEventBuilder().setErrorMessage(ctx.executor.getProxyErrMsg());
                 }
+            }
+        }
+
+        // build query tables
+        if (ctx.getState().isQuery() && ctx.executor != null && ctx.executor.planner() != null) {
+            Planner planner = ctx.executor.planner();
+            List<String> queryTables = new ArrayList<>();
+            List<ScanNode> scanNodes = planner.getScanNodes();
+            for (ScanNode scanNode : scanNodes) {
+                if (scanNode.getTupleDesc() == null || scanNode.getTupleDesc().getTable() == null) {
+                    continue;
+                }
+                TableIf tableIf = scanNode.getTupleDesc().getTable();
+                String dbName = tableIf.getDatabase() == null ? "" : tableIf.getDatabase().getFullName();
+                String tableName = tableIf.getName();
+                if (dbName.isEmpty() || tableName.isEmpty()) {
+                    continue;
+                }
+                String queryTable;
+                if (scanNode instanceof OlapScanNode) {
+                    String indexName = ((OlapScanNode) scanNode).getSelectedIndexName();
+                    queryTable = String.join(".", dbName, tableName, indexName);
+                } else {
+                    queryTable = String.join(".", dbName, tableName);
+                }
+                queryTables.add(queryTable);
+            }
+            if (!queryTables.isEmpty()) {
+                ctx.auditEventBuilder.setQueryTables(String.join(",", queryTables));
             }
         }
         Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
