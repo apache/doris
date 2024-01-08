@@ -196,7 +196,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIPAddressInRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -1147,8 +1147,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(isIpv6String, context);
     }
 
-    default R visitIsIPAddressInRange(IsIPAddressInRange isIPAddressInRange, C context) {
-        return visitScalarFunction(isIPAddressInRange, context);
+    default R visitIsIPAddressInRange(IsIpAddressInRange isIpAddressInRange, C context) {
+        return visitScalarFunction(isIpAddressInRange, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

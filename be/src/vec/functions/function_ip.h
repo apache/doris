@@ -36,9 +36,6 @@
 
 namespace doris::vectorized {
 
-/** If mask_tail_octets > 0, the last specified number of octets will be filled with "xxx".
-  */
-template <size_t mask_tail_octets, typename Name>
 class FunctionIPv4NumToString : public IFunction {
 private:
     template <typename ArgType>
@@ -67,8 +64,7 @@ private:
                     offsets_res[i] = pos - begin;
                     null_map->get_data()[i] = 1;
                 } else {
-                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos,
-                               mask_tail_octets, "xxx");
+                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
                     offsets_res[i] = pos - begin;
                 }
             }
@@ -85,7 +81,7 @@ private:
 public:
     static constexpr auto name = "ipv4_num_to_string";
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4NumToString<mask_tail_octets, Name>>();
+        return std::make_shared<FunctionIPv4NumToString>();
     }
 
     String get_name() const override { return name; }
@@ -655,7 +651,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "isipv4string";
+    static constexpr auto name = "is_ipv4_string";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPv4String>(); }
 
     String get_name() const override { return name; }
@@ -725,7 +721,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "isipv6string";
+    static constexpr auto name = "is_ipv6_string";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPv6String>(); }
 
     String get_name() const override { return name; }

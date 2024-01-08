@@ -35,24 +35,24 @@ import java.util.List;
 /**
  * scalar function `is_ip_address_in_range`
  */
-public class IsIPAddressInRange extends ScalarFunction
+public class IsIpAddressInRange extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE));
 
-    public IsIPAddressInRange(Expression arg0, Expression arg1) {
+    public IsIpAddressInRange(Expression arg0, Expression arg1) {
         super("is_ip_address_in_range", arg0, arg1);
     }
 
     @Override
-    public IsIPAddressInRange withChildren(List<Expression> children) {
+    public IsIpAddressInRange withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
                 "is_ip_address_in_range accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIPAddressInRange(children.get(0), children.get(1));
+        return new IsIpAddressInRange(children.get(0), children.get(1));
     }
 
     @Override

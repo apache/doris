@@ -33,7 +33,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function IsIpv6String
+ * scalar function is_ipv6_string
  */
 public class IsIpv6String extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
@@ -43,13 +43,13 @@ public class IsIpv6String extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
     public IsIpv6String(Expression arg0) {
-        super("isipv6string", arg0);
+        super("is_ipv6_string", arg0);
     }
 
     @Override
     public IsIpv6String withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "isipv6string accept 1 args, but got %s (%s)",
+                "is_ipv6_string accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new IsIpv6String(children.get(0));
