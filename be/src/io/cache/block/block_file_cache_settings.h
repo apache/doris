@@ -27,9 +27,6 @@
 namespace doris {
 namespace io {
 
-// [query:disposable:index:total]
-constexpr std::array<size_t, 4> percentage {17, 2, 1, 20};
-static_assert(percentage[0] + percentage[1] + percentage[2] == percentage[3]);
 struct FileCacheSettings {
     size_t total_size {0};
     size_t disposable_queue_size {0};
