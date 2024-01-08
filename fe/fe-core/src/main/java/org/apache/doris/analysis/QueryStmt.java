@@ -824,6 +824,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.fromInsert = value;
     }
 
+    public boolean isFromInsert() {
+        return fromInsert;
+    }
+
     @Override
     public abstract QueryStmt clone();
 

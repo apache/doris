@@ -42,9 +42,10 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                                  const TFileRangeDesc& range)
         : _file_slot_descs(file_slot_descs), _state(state), _profile(profile) {
     std::vector<std::string> column_names;
+    std::vector<std::string> column_types;
     for (auto& desc : _file_slot_descs) {
-        std::string field = desc->col_name();
-        column_names.emplace_back(field);
+        column_names.emplace_back(desc->col_name());
+        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
     }
     std::map<String, String> params;
     params["db_name"] = range.table_format_params.paimon_params.db_name;
@@ -57,6 +58,8 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     params["tbl_id"] = std::to_string(range.table_format_params.paimon_params.tbl_id);
     params["last_update_time"] =
             std::to_string(range.table_format_params.paimon_params.last_update_time);
+    params["required_fields"] = join(column_names, ",");
+    params["columns_types"] = join(column_types, "#");
 
     // Used to create paimon option
     for (auto& kv : range.table_format_params.paimon_params.paimon_options) {

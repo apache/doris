@@ -70,6 +70,12 @@ After executing install, the AuditLoader directory will be automatically generat
     * user: Cluster username. The user must have INSERT permission on the corresponding table.
     * password: Cluster user password.
 
+4. Repackaging the Audit Loader plugin
+
+    ```shell
+    zip -r -q -m auditloader.zip auditloader.jar plugin.properties plugin.conf
+    ```
+
 ### 创建库表
 
 In Doris, you need to create the library and table of the audit log. The table structure is as follows:

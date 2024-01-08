@@ -197,6 +197,14 @@
                         "query-acceleration/join-optimization/runtime-filter",
                         "query-acceleration/join-optimization/doris-join-optimization"
                     ]
+                },
+                {
+                    "type": "category",
+                    "label": "Async Materialized View",
+                    "items": [
+                        "query-acceleration/async-materialized-view/async-materialized-view",
+                        "query-acceleration/async-materialized-view/query-async-materialized-view"
+                    ]
                 }
             ]
         },
@@ -754,7 +762,10 @@
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
                                 "sql-manual/sql-functions/table-functions/frontends_disks",
-                                "sql-manual/sql-functions/table-functions/queries"
+                                "sql-manual/sql-functions/table-functions/queries",
+                                "sql-manual/sql-functions/table-functions/jobs",
+                                "sql-manual/sql-functions/table-functions/mv_infos",
+                                "sql-manual/sql-functions/table-functions/tasks"
                             ]
                         },
                         {
@@ -789,7 +800,12 @@
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-default",
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
                                 "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
-                                "sql-manual/sql-functions/ip-functions/inet6-ntoa"
+                                "sql-manual/sql-functions/ip-functions/inet6-ntoa",
+                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/inet6-aton",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null"
+
                             ]
                         },
                         {
@@ -923,7 +939,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW"
                                     ]
                                 },
                                 {
@@ -946,7 +963,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW"
                                     ]
                                 },
                                 {
@@ -965,7 +983,8 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW"
                                     ]
                                 },
                                 {
@@ -1123,7 +1142,11 @@
                                 "sql-manual/sql-reference/Utility-Statements/SWITCH",
                                 "sql-manual/sql-reference/Utility-Statements/REFRESH",
                                 "sql-manual/sql-reference/Utility-Statements/SYNC",
-                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS"
+                                "sql-manual/sql-reference/Utility-Statements/CLEAN-QUERY-STATS",
+                                "sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK",
+                                "sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW"
                             ]
                         }
                     ]

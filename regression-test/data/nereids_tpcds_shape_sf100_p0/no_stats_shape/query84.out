@@ -2,11 +2,11 @@
 -- !ds_shape_84 --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_cdemo_sk = customer_demographics.cd_demo_sk)) otherCondition=() build RFs:RF4 cd_demo_sk->[sr_cdemo_sk]
-------------PhysicalDistribute
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[store_returns] apply RFs: RF4
 ------------PhysicalProject
@@ -16,20 +16,20 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
 ------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[c_current_cdemo_sk]
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1 RF2
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer_demographics]
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------filter((customer_address.ca_city = 'Oakwood'))
 ------------------------------PhysicalOlapScan[customer_address]
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
-----------------PhysicalDistribute
+----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
 --------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
 ----------------------PhysicalOlapScan[income_band]

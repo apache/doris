@@ -2,11 +2,11 @@
 -- !select --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------PhysicalDistribute
+------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
@@ -15,17 +15,17 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------filter((lineitem.l_returnflag = 'R'))
 ----------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
 ------------------------------------PhysicalOlapScan[orders]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[customer]
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[nation]
 

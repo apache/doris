@@ -46,6 +46,7 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -67,7 +68,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -84,7 +84,7 @@ import java.util.stream.Collectors;
 @EqualsAndHashCode(callSuper = true)
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
+public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
@@ -156,6 +156,31 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     // max save task num, do we need to config it?
     private static final int MAX_SAVE_TASK_NUM = 100;
 
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (null == plans) {
+            plans = new ArrayList<>();
+        }
+        if (null == idToTasks) {
+            idToTasks = new ConcurrentHashMap<>();
+        }
+        if (null == loadStatistic) {
+            loadStatistic = new LoadStatistic();
+        }
+        if (null == finishedTaskIds) {
+            finishedTaskIds = new HashSet<>();
+        }
+        if (null == errorTabletInfos) {
+            errorTabletInfos = new ArrayList<>();
+        }
+        if (null == commitInfos) {
+            commitInfos = new ArrayList<>();
+        }
+        if (null == historyTaskIdList) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
+        }
+    }
+
     /**
      * load job type
      */
@@ -192,18 +217,18 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
                      Long createTimeMs,
                      String executeSql) {
         super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
-                jobConfig, createTimeMs, executeSql, null);
+                jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
     }
 
     public InsertJob(ConnectContext ctx,
-                      StmtExecutor executor,
-                      String labelName,
-                      List<InsertIntoTableCommand> plans,
-                      Set<String> sinkTableNames,
-                      Map<String, String> properties,
-                      String comment,
-                      JobExecutionConfiguration jobConfig) {
+                     StmtExecutor executor,
+                     String labelName,
+                     List<InsertIntoTableCommand> plans,
+                     Set<String> sinkTableNames,
+                     Map<String, String> properties,
+                     String comment,
+                     JobExecutionConfiguration jobConfig) {
         super(getNextJobId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
@@ -458,14 +483,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
         }
         return Config.broker_load_default_timeout_second;
-    }
-
-
-    public static InsertJob readFields(DataInput in) throws IOException {
-        String jsonJob = Text.readString(in);
-        InsertJob job = GsonUtils.GSON.fromJson(jsonJob, InsertJob.class);
-        job.setRunningTasks(new ArrayList<>());
-        return job;
     }
 
     @Override

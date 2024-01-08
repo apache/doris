@@ -221,7 +221,7 @@ std::string VFileResultWriter::_file_format_to_name() {
     }
 }
 
-Status VFileResultWriter::append_block(Block& block) {
+Status VFileResultWriter::write(Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }

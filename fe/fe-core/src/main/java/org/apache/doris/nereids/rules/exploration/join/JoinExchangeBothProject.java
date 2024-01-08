@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -56,8 +57,8 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), logicalProject(innerLogicalJoin()))
             .when(JoinExchange::checkReorder)
             .when(join -> join.left().isAllSlots() && join.right().isAllSlots())
-            .whenNot(join -> join.hasJoinHint()
-                    || join.left().child().hasJoinHint() || join.right().child().hasJoinHint())
+            .whenNot(join -> join.hasDistributeHint()
+                    || join.left().child().hasDistributeHint() || join.right().child().hasDistributeHint())
             .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin() || join.right().child().isMarkJoin())
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> leftJoin = topJoin.left().child();
@@ -90,16 +91,19 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), a, c);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE), b, d);
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newLeftJoin);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newRightJoin);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
+                            new DistributeHint(DistributeType.NONE),
                             left, right);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
