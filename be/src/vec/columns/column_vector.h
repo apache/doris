@@ -202,7 +202,9 @@ public:
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
 
-    void insert_range_of_integer(T begin, T end) {
+    void insert_range_of_integer(T begin, T end)
+        requires std::is_fundamental_v<T>
+    {
         auto old_size = data.size();
         data.resize(old_size + (end - begin));
         for (int i = 0; i < end - begin; i++) {
