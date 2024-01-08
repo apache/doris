@@ -2623,9 +2623,9 @@ pause_job_stmt ::=
     ;
 
 stop_job_stmt ::=
-    KW_DROP KW_JOB opt_wild_where
+    KW_DROP KW_JOB opt_if_exists:ifExists opt_wild_where 
     {:
-      RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.STOPPED);
+      RESULT = new AlterJobStatusStmt(parser.where,true,ifExists);
     :}
     ;    
 resume_job_stmt ::=
