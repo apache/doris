@@ -12,7 +12,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 
@@ -22,7 +22,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 
@@ -114,7 +114,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 
@@ -401,7 +401,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 
@@ -683,7 +683,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t1]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------PhysicalOlapScan[t2]
 
@@ -754,7 +754,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute[DistributionSpecHash]
@@ -794,7 +794,7 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((subq.id = t3.id)) otherCondition=()
 ----------hashJoin[INNER_JOIN] hashCondition=((subq.id = t2.id)) otherCondition=()
-------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute[DistributionSpecHash]
@@ -807,7 +807,7 @@ PhysicalResultSink
 ------PhysicalTopN[LOCAL_SORT]
 --------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=()
 ----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=()
-------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute[DistributionSpecHash]
@@ -821,7 +821,7 @@ PhysicalResultSink
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t3.id)) otherCondition=()
 ------------hashJoin[INNER_JOIN] hashCondition=((subq2.id = t2.id)) otherCondition=()
---------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+--------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecHash]
