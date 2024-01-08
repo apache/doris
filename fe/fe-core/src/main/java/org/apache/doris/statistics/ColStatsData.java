@@ -81,7 +81,7 @@ public class ColStatsData {
 
     public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);
-        this.count = (long) Double.parseDouble(row.get(7));
+        this.count = (long) Double.parseDouble(row.getWithDefault(7, "0"));
         this.ndv = (long) Double.parseDouble(row.getWithDefault(8, "0"));
         this.nullCount = (long) Double.parseDouble(row.getWithDefault(9, "0"));
         this.minLit = row.get(10);
