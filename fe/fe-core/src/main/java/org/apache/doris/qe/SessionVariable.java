@@ -567,6 +567,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
 
+    @VariableMgr.VarAttr(name = "runtime_filter_prune_for_external")
+    public boolean runtimeFilterPruneForExternal = true;
+
+    @VariableMgr.VarAttr(name = "runtime_filter_jump_threshold")
+    public int runtimeFilterJumpThreshold = 2;
+
     // using hashset instead of group by + count can improve performance
     //        but may cause rpc failed when cluster has less BE
     // Whether this switch is turned on depends on the BE number
