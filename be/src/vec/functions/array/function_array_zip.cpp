@@ -150,25 +150,37 @@ public:
                 res_array_offset_column_data.push_back(last_size + 1);
                 res_array_null_map->get_data().push_back(1);
             } else {
-                size_t column_length = 0;
-                const auto* first_array_column =
-                        check_and_get_column<ColumnArray>(first_column.get());
+                size_t current_column_row_length = 0;
+                const auto& first_array_column = static_cast<const ColumnArray&>(*first_column);
+                const auto& first_array_offset_data =
+                        static_cast<const ColumnArray::ColumnOffsets&>(
+                                first_array_column.get_offsets_column())
+                                .get_data();
+                auto first_offset_row_length = first_array_offset_data.data()[row] -
+                                               first_array_offset_data.data()[row - 1];
                 for (size_t col = 0; col < column_size; ++col) {
                     const auto& current_array_col =
                             static_cast<const ColumnArray&>(*argument_columns[col]);
-                    if (!first_array_column->has_equal_offsets(current_array_col)) {
+                    const auto& current_array_offset_data =
+                            static_cast<const ColumnArray::ColumnOffsets&>(
+                                    current_array_col.get_offsets_column())
+                                    .get_data();
+                    current_column_row_length = current_array_offset_data.data()[row] -
+                                                current_array_offset_data.data()[row - 1];
+                    if (first_offset_row_length != current_column_row_length) {
                         return Status::RuntimeError(fmt::format(
                                 "execute failed, function {}'s {}-th argument should have same "
-                                "offsets with first argument",
-                                get_name(), col + 1));
+                                "offsets with first argument on rows: {}. {} vs {}",
+                                get_name(), col + 1, row, first_offset_row_length,
+                                current_column_row_length));
                     }
                     auto nested_nullable_column = current_array_col.get_data_ptr();
-                    column_length = nested_nullable_column->size();
-                    tuple_columns[col]->insert_range_from(*nested_nullable_column, 0,
-                                                          column_length);
+                    tuple_columns[col]->insert_range_from(*nested_nullable_column,
+                                                          current_array_offset_data.data()[row - 1],
+                                                          current_column_row_length);
                 }
-                res_array_offset_column_data.push_back(last_size + column_length);
-                res_array_null_map->insert_many_defaults(column_length);
+                res_array_offset_column_data.push_back(last_size + current_column_row_length);
+                res_array_null_map->insert_many_defaults(current_column_row_length);
             }
         }
 
