@@ -2052,7 +2052,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int restore_download_task_num_per_be = 3;
 
-    @ConfField(muteble = false, masterOnly = false)
+    @ConfField(mutable = false, masterOnly = false)
     public static int http_sql_submitter_max_worker_threads = 2;
 
     @ConfField(mutable = false, masterOnly = false)
