@@ -131,6 +131,7 @@ public class AnalysisJob {
             try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
                 stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
                 executeWithExceptionOnFail(stmtExecutor);
+                LOG.info("Job id {} insert value to column_statistics: [{}]", jobInfo.jobId, insertStmt);
             } catch (Exception t) {
                 throw new RuntimeException("Failed to analyze: " + t.getMessage());
             }

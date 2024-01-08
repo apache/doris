@@ -63,9 +63,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
         if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
                 || partitionNames == null || partitionNames.isEmpty()) {
-            if (partitionNames == null) {
-                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
-                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
+            if (partitionNames == null || partitionNames.isEmpty()) {
+                LOG.info("Table {}.{}.{}, partitionNames for column {} is null or empty."
+                        + "ColToPartitions:[{}]. Job id {}. task id {}",
+                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions,
+                        info.jobId, info.taskId);
+            }
+            if (info.emptyJob) {
+                LOG.info("Table {}.{}.{} column {} is empty job. Job id {}. task id {}",
+                        info.catalogId, info.dbId, info.tblId, info.colName, info.jobId, info.taskId);
             }
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);

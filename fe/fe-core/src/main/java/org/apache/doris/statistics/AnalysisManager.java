@@ -218,6 +218,8 @@ public class AnalysisManager implements Writable {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(stmt);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
+            LOG.info("Col to partitions is empty. catalog {}, db {}, table {}, job id {}",
+                    stmt.getCatalogId(), stmt.getDBName(), stmt.getTable().getName(), jobInfo.jobId);
             return null;
         }
         // Only OlapTable and Hive HMSExternalTable support sample analyze.
@@ -236,6 +238,9 @@ public class AnalysisManager implements Writable {
         }
         constructJob(jobInfo, analysisTaskInfos.values());
         if (isSync) {
+            LOG.info("Task count {} for catalog {}, db {}, table {}. Job id {}",
+                    analysisTaskInfos.values().size(), stmt.getCatalogId(), stmt.getDBName(),
+                    stmt.getTable().getName(), jobInfo.jobId);
             syncExecute(analysisTaskInfos.values());
             jobInfo.state = AnalysisState.FINISHED;
             updateTableStats(jobInfo);
