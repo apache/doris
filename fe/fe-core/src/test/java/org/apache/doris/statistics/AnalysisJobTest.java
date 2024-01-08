@@ -206,7 +206,7 @@ public class AnalysisJobTest {
 
             @Mock
             protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
-                throw new RuntimeException();
+                // DO NOTHING
             }
 
             @Mock
@@ -218,7 +218,7 @@ public class AnalysisJobTest {
         job.queryFinished = new HashSet<>();
         job.queryFinished.add(task2);
         job.writeBuf();
-        Assertions.assertEquals(1, job.queryFinished.size());
+        Assertions.assertEquals(0, job.queryFinished.size());
     }
 
 }

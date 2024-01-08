@@ -31,10 +31,9 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.text.StringSubstitutor;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -48,8 +47,8 @@ import java.util.stream.Collectors;
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
-            + "MIN(`${colName}`) as min, "
-            + "MAX(`${colName}`) as max "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
             + "FROM `${dbName}`.`${tblName}`";
 
     @VisibleForTesting
@@ -61,7 +60,18 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-
+        Set<String> partitionNames = info.colToPartitions.get(info.colName);
+        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+                || partitionNames == null || partitionNames.isEmpty()) {
+            if (partitionNames == null) {
+                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
+                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
+            }
+            StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
+                    info.tblId, info.indexId, info.colName, null);
+            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
+            return;
+        }
         if (tableSample != null) {
             doSample();
         } else {
@@ -94,8 +104,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             long rowCount = tbl.getRowCount();
-            String min = Base64.getEncoder().encodeToString(basicStats.get(0).getBytes(StandardCharsets.UTF_8));
-            String max = Base64.getEncoder().encodeToString(basicStats.get(1).getBytes(StandardCharsets.UTF_8));
+            String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
+                    ? basicStats.get(0) : null);
+            String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
+                    ? basicStats.get(1) : null);
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
@@ -107,7 +119,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("dbId", String.valueOf(db.getId()));
             params.put("tblId", String.valueOf(tbl.getId()));
             params.put("idxId", String.valueOf(info.indexId));
-            params.put("colId", String.valueOf(info.colName));
+            params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
             params.put("dataSizeFunction", getDataSizeFunction(col, false));
             params.put("dbName", db.getFullName());
             params.put("colName", info.colName);
@@ -115,24 +127,25 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("scaleFactor", String.valueOf(scaleFactor));
             params.put("sampleHints", tabletStr.isEmpty() ? "" : String.format("TABLET(%s)", tabletStr));
             params.put("ndvFunction", getNdvFunction(String.valueOf(rowCount)));
-            params.put("min", min);
-            params.put("max", max);
+            params.put("min", StatisticsUtil.quote(min));
+            params.put("max", StatisticsUtil.quote(max));
             params.put("rowCount", String.valueOf(rowCount));
             params.put("type", col.getType().toString());
             params.put("limit", "");
             if (needLimit()) {
                 // If the tablets to be sampled are too large, use limit to control the rows to read, and re-calculate
                 // the scaleFactor.
-                limitFlag = true;
                 rowsToSample = Math.min(getSampleRows(), pair.second);
-                params.put("limit", "limit " + rowsToSample);
-                params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
+                // Empty table doesn't need to limit.
+                if (rowsToSample > 0) {
+                    limitFlag = true;
+                    params.put("limit", "limit " + rowsToSample);
+                    params.put("scaleFactor", String.valueOf(scaleFactor * (double) pair.second / rowsToSample));
+                }
             }
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql;
             if (useLinearAnalyzeTemplate()) {
-                params.put("min", StatisticsUtil.quote(min));
-                params.put("max", StatisticsUtil.quote(max));
                 // For single unique key, use count as ndv.
                 if (isSingleUniqueKey()) {
                     params.put("ndvFunction", String.valueOf(rowCount));
@@ -150,11 +163,18 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     col.getName(), params.get("rowCount"), rowsToSample, params.get("scaleFactor"),
                     limitFlag, tbl.isDistributionColumn(col.getName()),
                     tbl.isPartitionColumn(col.getName()), col.isKey(), isSingleUniqueKey());
-            runQuery(sql, false);
+            runQuery(sql);
         }
     }
 
     protected ResultRow collectBasicStat(AutoCloseConnectContext context) {
+        // Agg table value columns has no zone map.
+        // For these columns, skip collecting min and max value to avoid scan whole table.
+        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
+            LOG.info("Aggregation table {} column {} is not a key column, skip collecting min and max.",
+                    tbl.getName(), col.getName());
+            return null;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("dbName", db.getFullName());
         params.put("colName", info.colName);
@@ -171,11 +191,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
      */
     protected void doFull() throws Exception {
         LOG.debug("Will do full collection for column {}", col.getName());
-        Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if (partitionNames.isEmpty()) {
-            job.appendBuf(this, Collections.emptyList());
-            return;
-        }
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -183,7 +198,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
-        params.put("colId", String.valueOf(info.colName));
+        params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         params.put("catalogName", catalog.getName());
         params.put("dbName", db.getFullName());
@@ -191,7 +206,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("tblName", String.valueOf(tbl.getName()));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String collectColStats = stringSubstitutor.replace(COLLECT_COL_STATISTICS);
-        runQuery(collectColStats, true);
+        runQuery(collectColStats);
     }
 
     // Get sample tablets id and scale up scaleFactor
@@ -307,5 +322,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return col.isKey()
             && keysNum == 1
             && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.AGG_KEYS));
+    }
+
+    protected String concatColumnStatsId() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(info.tblId);
+        stringBuilder.append("-");
+        stringBuilder.append(info.indexId);
+        stringBuilder.append("-");
+        stringBuilder.append(info.colName);
+        return stringBuilder.toString();
     }
 }

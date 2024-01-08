@@ -62,6 +62,10 @@ public:
         return Status::OK();
     }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == T || (is_string_type(input_type) && is_string_type(T));
+    }
+
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override;
 
@@ -163,7 +167,7 @@ private:
     using StateType = vectorized::LikeState;
     StringRef pattern;
 
-    StateType* _state;
+    StateType* _state = nullptr;
 
     // A separate scratch region is required for every concurrent caller of the
     // Hyperscan API. So here _like_state is separate for each instance of

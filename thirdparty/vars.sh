@@ -161,10 +161,10 @@ HYPERSCAN_MD5SUM="202f4b42f5dd4a7bb2506445e51a33b9"
 MACHINE_TYPE=$(uname -m)
 if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
     echo "use vectorscan instead of hyperscan on aarch64"
-    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.7.tar.gz"
-    HYPERSCAN_NAME=vectorscan-5.4.7.tar.gz
-    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.7
-    HYPERSCAN_MD5SUM="ae924ccce79ef9bf6bf118693ae14fe5"
+    HYPERSCAN_DOWNLOAD="https://github.com/VectorCamp/vectorscan/archive/refs/tags/vectorscan/5.4.11.tar.gz"
+    HYPERSCAN_NAME=vectorscan-5.4.11.tar.gz
+    HYPERSCAN_SOURCE=vectorscan-vectorscan-5.4.11
+    HYPERSCAN_MD5SUM="e67b70403cba6c1654a9fef4fd15a2f2"
 fi
 
 # ragel (dependency for hyperscan)
@@ -174,7 +174,7 @@ RAGEL_SOURCE=ragel-6.10
 RAGEL_MD5SUM="748cae8b50cffe9efcaa5acebc6abf0d"
 
 # boost
-BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.gz"
+BOOST_DOWNLOAD="https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.gz"
 BOOST_NAME=boost_1_81_0.tar.gz
 BOOST_SOURCE=boost_1_81_0
 BOOST_MD5SUM="4bf02e84afb56dfdccd1e6aec9911f4b"
@@ -215,11 +215,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-1.8.2
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.8.2.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.8.2.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.8.2
-LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
+# librdkafka-1.9.2
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.9.2.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-1.9.2.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.9.2
+LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
@@ -478,6 +478,18 @@ AVX2NEON_NAME=v1.0.0.tar.gz
 AVX2NEON_SOURCE=AvxToNeon-1.0.0
 AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
 
+# libdeflate
+LIBDEFLATE_DOWNLOAD="https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.19.tar.gz"
+LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
+LIBDEFLATE_SOURCE=libdeflate-1.19
+LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
+
+# streamvbyte
+STREAMVBYTE_DOWNLOAD="https://github.com/lemire/streamvbyte/archive/refs/tags/v1.0.0.tar.gz"
+STREAMVBYTE_NAME=streamvbyte-1.0.0.tar.gz
+STREAMVBYTE_SOURCE=streamvbyte-1.0.0
+STREAMVBYTE_MD5SUM="f334219db5a832b6dae3589a56a29563"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -548,6 +560,8 @@ export TP_ARCHIVES=(
     'HADOOP_LIBS'
     'DRAGONBOX'
     'AVX2NEON'
+    'LIBDEFLATE'
+    'STREAMVBYTE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -30,11 +30,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SQLDialectUtils;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -90,10 +92,6 @@ public abstract class ConnectProcessor {
 
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
-        if (Strings.isNullOrEmpty(ctx.getClusterName())) {
-            ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
-            return;
-        }
         String catalogName = null;
         String dbName = null;
         String[] dbNames = fullDbName.split("\\.");
@@ -106,7 +104,6 @@ public abstract class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
             return;
         }
-        dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
 
         // check catalog and db exists
         if (catalogName != null) {
@@ -165,6 +162,9 @@ public abstract class ConnectProcessor {
 
     protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
             Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+        if (Config.enable_bdbje_debug_mode) {
+            return;
+        }
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
     }
 
@@ -174,7 +174,9 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
-        String sqlHash = DigestUtils.md5Hex(originStmt);
+        String convertedStmt = SQLDialectUtils.convertStmtWithDialect(originStmt, ctx, mysqlCommand);
+
+        String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
@@ -184,29 +186,36 @@ public abstract class ConnectProcessor {
                 .setSqlHash(ctx.getSqlHash());
 
         List<StatementBase> stmts = null;
-
+        Exception nereidsParseException = null;
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
-                stmts = new NereidsParser().parseSQL(originStmt);
+                stmts = new NereidsParser().parseSQL(convertedStmt, ctx.getSessionVariable());
             } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
-                handleQueryException(e, originStmt, null, null);
+                handleQueryException(e, convertedStmt, null, null);
                 return;
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                        e.getMessage(), originStmt);
+                        e.getMessage(), convertedStmt);
+                nereidsParseException = e;
             }
         }
 
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
             try {
-                stmts = parse(originStmt);
+                stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
+                // if NereidsParser and oldParser both failed,
+                // prove is a new feature implemented only on the nereids,
+                // so an error message for the new nereids is thrown
+                if (nereidsParseException != null) {
+                    throwable = nereidsParseException;
+                }
                 // Parse sql failed, audit it and return
-                handleQueryException(throwable, originStmt, null, null);
+                handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
         }
@@ -215,15 +224,15 @@ public abstract class ConnectProcessor {
         // if stmts.size() > 1, split originStmt to multi singleStmts
         if (stmts.size() > 1) {
             try {
-                origSingleStmtList = SqlUtils.splitMultiStmts(originStmt);
+                origSingleStmtList = SqlUtils.splitMultiStmts(convertedStmt);
             } catch (Exception ignore) {
-                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
             }
         }
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
-            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
+            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
 
             ctx.getState().reset();
             if (i > 0) {
@@ -231,7 +240,7 @@ public abstract class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+            parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
@@ -446,9 +455,6 @@ public abstract class ConnectProcessor {
         ctx.setQualifiedUser(request.user);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.getState().reset();
-        if (request.isSetCluster()) {
-            ctx.setCluster(request.cluster);
-        }
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }
@@ -553,6 +559,12 @@ public abstract class ConnectProcessor {
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket(getResultPacket());
         result.setStatus(ctx.getState().toString());
+        if (ctx.getState().getStateType() == MysqlStateType.OK) {
+            result.setStatusCode(0);
+        } else {
+            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            result.setErrMessage(ctx.getState().getErrorMessage());
+        }
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());
         }

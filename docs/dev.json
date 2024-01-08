@@ -75,6 +75,10 @@
     "message": "Join 优化",
     "description": "The label for category Join Optimization in sidebar docs"
   },
+  "sidebar.docs.category.Async Materialized View": {
+    "message": "异步物化视图",
+    "description": "The label for category Async Materialized View in sidebar docs"
+  },
   "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
     "description": "The label for category Data Cache in sidebar docs"

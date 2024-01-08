@@ -41,8 +41,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSourceOperator final
-        : public SourceOperator<PartitionSortSourceOperatorBuilder> {
+class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : SourceOperator(operator_builder, sort_node) {}
@@ -55,24 +54,6 @@ public:
     PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
     ~PartitionSortSourceDependency() override = default;
-
-    void block() override {
-        if (_always_ready) {
-            return;
-        }
-        Dependency::block();
-    }
-
-    void set_always_ready() {
-        if (_always_ready) {
-            return;
-        }
-        _always_ready = true;
-        set_ready();
-    }
-
-private:
-    std::atomic<bool> _always_ready {false};
 };
 
 class PartitionSortSourceOperatorX;

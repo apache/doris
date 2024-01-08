@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AggSourceOperator final : public SourceOperator<AggSourceOperatorBuilder> {
+class AggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
 public:
     AggSourceOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
@@ -121,12 +121,12 @@ protected:
         }
     }
 
-    RuntimeProfile::Counter* _get_results_timer;
-    RuntimeProfile::Counter* _serialize_result_timer;
-    RuntimeProfile::Counter* _hash_table_iterate_timer;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _get_results_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
 
     using vectorized_get_result = std::function<Status(
             RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;
@@ -137,7 +137,7 @@ protected:
 
     executor _executor;
 
-    vectorized::AggregatedDataVariants* _agg_data;
+    vectorized::AggregatedDataVariants* _agg_data = nullptr;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {

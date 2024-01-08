@@ -40,24 +40,38 @@ suite("test_truncate_table") {
 			"replication_num" = "1"
 		);
 		"""
-    List<List<Object>> result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")	
+
+    def getPartitionIds = { ->
+        def result = sql_return_maparray("show partitions from ${testTable}")
+        return result.collectEntries { [it.PartitionName, it.PartitionId as long] }
+    }
+
+    def partitionIds1 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds1.keySet())
+
+    sql "insert into ${testTable} values ('2020-01-01', 1.0, 'a', 1)"
+    sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
+    order_qt_select_1 "SELECT * FROM ${testTable}"
 
     sql """truncate table ${testTable};"""
-    result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")
+    def partitionIds2 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds2.keySet())
+    assertNotEquals(partitionIds1.get("p1"), partitionIds2.get("p1"))
+    assertEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
+    assertNotEquals(partitionIds1.get("p3"), partitionIds2.get("p3"))
+    order_qt_select_2 "SELECT * FROM ${testTable}"
 
-    sql """truncate table ${testTable} partitions (p1, p1);"""
+    sql "insert into ${testTable} values ('2020-02-10', 1.0, 'a', 1)"
+    order_qt_select_3 "SELECT * FROM ${testTable}"
+    sql """truncate table ${testTable} partitions (p1, p2);"""
+    order_qt_select_4 "SELECT * FROM ${testTable}"
 
-    result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")
-	
+    def partitionIds3 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds3.keySet())
+    assertEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
+    assertNotEquals(partitionIds2.get("p2"), partitionIds3.get("p2"))
+    assertEquals(partitionIds2.get("p3"), partitionIds3.get("p3"))
+
     sql "DROP TABLE IF EXISTS ${testTable}"
 }
 

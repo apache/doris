@@ -241,16 +241,15 @@ public:
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
 
     // it's same with auto now because we only support transformed partition in auto partition. may expand in future
-    bool is_projection_partition() const { return _is_auto_partiton; }
-    bool is_auto_partition() const { return _is_auto_partiton; }
+    bool is_projection_partition() const { return _is_auto_partition; }
+    bool is_auto_partition() const { return _is_auto_partition; }
 
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
 
-    //TODO: use vector when we support multi partition column for auto-partition
-    vectorized::VExprContextSPtr get_part_func_ctx() { return _part_func_ctx; }
-    vectorized::VExprSPtr get_partition_function() { return _partition_function; }
+    vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
+    vectorized::VExprSPtrs get_partition_function() { return _partition_function; }
 
     // which will affect _partition_block
     Status generate_partition_from(const TOlapTablePartition& t_part,
@@ -293,9 +292,9 @@ private:
     VOlapTablePartition* _default_partition = nullptr;
 
     // for auto partition, now only support 1 column. TODO: use vector to save them when we support multi column auto-partition.
-    bool _is_auto_partiton = false;
-    vectorized::VExprContextSPtr _part_func_ctx = nullptr;
-    vectorized::VExprSPtr _partition_function = nullptr;
+    bool _is_auto_partition = false;
+    vectorized::VExprContextSPtrs _part_func_ctx = {nullptr};
+    vectorized::VExprSPtrs _partition_function = {nullptr};
     TPartitionType::type _part_type; // support list or range
 };
 

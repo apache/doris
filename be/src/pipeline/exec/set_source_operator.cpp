@@ -42,7 +42,7 @@ OperatorPtr SetSourceOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSourceOperator<is_intersect>::SetSourceOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : SourceOperator<SetSourceOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : SourceOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSourceOperatorBuilder<true>;
 template class SetSourceOperatorBuilder<false>;
@@ -140,23 +140,18 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
     auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
-    if constexpr (std::is_same_v<typename HashTableContext::Mapped,
-                                 vectorized::RowRefListWithFlags>) {
-        for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-            auto& value = iter->get_second();
-            auto it = value.begin();
-            if constexpr (is_intersect) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    _add_result_columns(local_state, value, block_size);
-                }
-            } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    _add_result_columns(local_state, value, block_size);
-                }
+    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+        auto& value = iter->get_second();
+        auto it = value.begin();
+        if constexpr (is_intersect) {
+            if (it->visited) { //intersected: have done probe, so visited values it's the result
+                _add_result_columns(local_state, value, block_size);
+            }
+        } else {
+            if (!it->visited) { //except: haven't visited values it's the needed result
+                _add_result_columns(local_state, value, block_size);
             }
         }
-    } else {
-        return Status::InternalError("Invalid RowRefListType!");
     }
 
     if (iter == hash_table_ctx.hash_table->end()) {
@@ -180,12 +175,12 @@ void SetSourceOperatorX<is_intersect>::_add_result_columns(
         SetSourceLocalState<is_intersect>& local_state, vectorized::RowRefListWithFlags& value,
         int& block_size) {
     auto& build_col_idx = local_state._shared_state->build_col_idx;
-    auto& build_blocks = local_state._shared_state->build_blocks;
+    auto& build_block = local_state._shared_state->build_block;
 
     auto it = value.begin();
     for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_blocks[it->block_offset].get_by_position(idx->first).column;
-        if (local_state._mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+        auto& column = *build_block.get_by_position(idx->first).column;
+        if (local_state._mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
             DCHECK(local_state._mutable_cols[idx->second]->is_nullable());
             ((vectorized::ColumnNullable*)(local_state._mutable_cols[idx->second].get()))
                     ->insert_from_not_nullable(column, it->row_num);

@@ -76,6 +76,8 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
             order_qt_filter1  """ select * from test_char where 1 = 1 order by id; """
             order_qt_filter2  """ select * from test_char where 1 = 1 and id = 1  order by id; """
             order_qt_filter3  """ select * from test_char where id = 1  order by id; """
+            order_qt_filter4  """ select * from student where name not like '%doris%'  order by id; """
+            order_qt_filter4_old  """ select /*+ SET_VAR(enable_nereids_planner=false) */  * from student where name not like '%doris%'  order by id; """
             order_qt_id """ select count(*) from (select * from t_id) as a; """
             order_qt_all_type """ select * from all_type order by id; """
             sql """ drop table if exists internal.${internal_db_name}.all_type; """

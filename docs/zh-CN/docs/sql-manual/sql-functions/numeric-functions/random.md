@@ -28,18 +28,50 @@ under the License.
 #### Syntax
 
 `DOUBLE random()`
-返回0-1的随机数。
+返回0-1之间的随机数。
+
+`DOUBLE random(DOUBLE seed)`
+返回0-1之间的随机数，以`seed`作为种子。
+
+`BIGINT random(BIGINT a, BIGINT b)`
+返回a-b之间的随机数，a必须小于b。
+
+别名：`rand`
 
 ### example
 
-```
+```sql
 mysql> select random();
 +---------------------+
 | random()            |
 +---------------------+
 | 0.35446706030596947 |
 +---------------------+
+
+mysql> select rand(1.2);
++---------------------+
+| rand(1)             |
++---------------------+
+| 0.13387664401253274 |
++---------------------+
+1 row in set (0.13 sec)
+
+mysql> select rand(1.2);
++---------------------+
+| rand(1)             |
++---------------------+
+| 0.13387664401253274 |
++---------------------+
+1 row in set (0.11 sec)
+
+mysql> select rand(-20, -10);
++------------------+
+| random(-20, -10) |
++------------------+
+|              -13 |
++------------------+
+1 row in set (0.10 sec)
 ```
 
 ### keywords
-	RANDOM
+	RANDOM, RAND

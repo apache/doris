@@ -54,6 +54,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
     auto create_tablet = [&](int64_t tablet_id) {
         auto tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = tablet_id;
+        (void)tablet_meta->set_partition_id(10000);
         tablet_meta->set_tablet_uid({tablet_id, 0});
         tablet_meta->set_shard_id(tablet_id % 4);
         tablet_meta->_schema_hash = tablet_id;
@@ -175,7 +176,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         st = create_rowset_files(*rs, false);
         ASSERT_TRUE(st.ok()) << st;
         st = RowsetMetaManager::save(data_dir.get_meta(), rs->rowset_meta()->tablet_uid(),
-                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb());
+                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb(), false);
         ASSERT_TRUE(st.ok()) << st;
     }
     // Prepare garbage rowset files

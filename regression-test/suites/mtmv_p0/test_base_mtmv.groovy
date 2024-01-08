@@ -48,18 +48,18 @@ suite("test_base_mtmv") {
         SELECT * FROM ${tableName};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
      sql """
         REFRESH MATERIALIZED VIEW ${mvName}
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     // alter table
     sql """
         alter table ${tableName} add COLUMN new_col INT AFTER username;
     """
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         alter table ${tableName} drop COLUMN new_col;
     """
@@ -67,13 +67,13 @@ suite("test_base_mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName}
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     // drop table
     sql """
         drop table ${tableName}
     """
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
             event_day DATE,
@@ -89,7 +89,7 @@ suite("test_base_mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName}
     """
     waitingMTMVTaskFinished(jobName)
-    order_qt_status "select Name,State,RefreshState  from mtmvs('database'='${dbName}') where Name='${mvName}'"
+    order_qt_status "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """

@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <variant>
@@ -37,6 +38,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/runtime_filter.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
@@ -76,6 +78,11 @@ namespace doris::vectorized {
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
+        return true;
+    }
+    // Variant slot cast could be eliminated
+    // We could use predicate to speed up query, so ignore cast to build predicate
+    if (slot->type().is_variant_type()) {
         return true;
     }
     if (slot->type().is_array_type()) {
@@ -190,10 +197,13 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
                 RETURN_IF_ERROR(_scanner_ctx->init());
-                RETURN_IF_ERROR(
-                        _state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+                //LOG(INFO) << "yyyy instance " << print_id(state->fragment_instance_id())
+                //          << " submit scanner ctx " << _scanner_ctx->debug_string();
+                RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
+                LOG(INFO) << "instance shared scan enabled"
+                          << print_id(state->fragment_instance_id());
                 _shared_scanner_controller->set_scanner_context(id(),
                                                                 _eos ? nullptr : _scanner_ctx);
             }
@@ -211,7 +221,7 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
                               : Status::OK());
         if (_scanner_ctx) {
             RETURN_IF_ERROR(_scanner_ctx->init());
-            RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+            RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
         }
     }
 
@@ -267,7 +277,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     reached_limit(block, eos);
     if (*eos) {
         // reach limit, stop the scanners.
-        _scanner_ctx->set_should_stop();
+        _scanner_ctx->stop_scanners(state);
     }
 
     return Status::OK();
@@ -312,74 +322,53 @@ Status VScanNode::_init_profile() {
     return Status::OK();
 }
 
-Status VScanNode::_start_scanners(const std::list<VScannerSPtr>& scanners,
-                                  const int query_parallel_instance_num) {
+void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
+                                const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
         int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
         _scanner_ctx = pipeline::PipScannerContext::create_shared(
-                _state, this, _output_tuple_desc, scanners, limit(), _state->scan_queue_mem_limit(),
-                _col_distribute_ids, max_queue_size);
+                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
+                _state->scan_queue_mem_limit(), _col_distribute_ids, max_queue_size);
     } else {
-        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc, scanners,
+        _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
+                                                     _output_row_descriptor.get(), scanners,
                                                      limit(), _state->scan_queue_mem_limit());
     }
-    return Status::OK();
 }
 
 Status VScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+
     RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK();
 }
 
 void VScanNode::release_resource(RuntimeState* state) {
-    if (_scanner_ctx.get()) {
-        if (!state->enable_pipeline_exec()) {
+    if (_scanner_ctx) {
+        if (!state->enable_pipeline_exec() || _should_create_scanner) {
             // stop and wait the scanner scheduler to be done
             // _scanner_ctx may not be created for some short circuit case.
-            _scanner_ctx->set_should_stop();
-            _scanner_ctx->clear_and_join(this, state);
-        } else if (_should_create_scanner) {
-            _scanner_ctx->clear_and_join(this, state);
+            _scanner_ctx->stop_scanners(state);
         }
     }
-
+    _scanners.clear();
     ExecNode::release_resource(state);
-}
-
-Status VScanNode::try_close(RuntimeState* state) {
-    if (_scanner_ctx.get()) {
-        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
-        // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        _scanner_ctx->set_should_stop();
-    }
-    return Status::OK();
 }
 
 Status VScanNode::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
-    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
-
-        auto type = slots[slot_idx]->type().type;
-        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
-            type = slots[slot_idx]->type().children[0].type;
-            if (type == TYPE_ARRAY) {
-                continue;
-            }
-        }
+    auto init_value_range = [&](SlotDescriptor* slot, PrimitiveType type) {
         switch (type) {
-#define M(NAME)                                                                              \
-    case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(                                                 \
-                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
-                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
-        _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
-        break;                                                                               \
+#define M(NAME)                                                                          \
+    case TYPE_##NAME: {                                                                  \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),       \
+                                            slot->type().precision, slot->type().scale); \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                   \
+        break;                                                                           \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -404,11 +393,29 @@ Status VScanNode::_normalize_conjuncts() {
             APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
         default: {
-            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slots[slot_idx]->col_name()
-                          << "]";
+            VLOG_CRITICAL << "Unsupported Normalize Slot [ColName=" << slot->col_name() << "]";
             break;
         }
         }
+    };
+
+    for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        _colname_to_slot_id[slots[slot_idx]->col_name()] = slots[slot_idx]->id();
+        _slot_id_to_slot_desc[slots[slot_idx]->id()] = slots[slot_idx];
+
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
+            if (type == TYPE_ARRAY) {
+                continue;
+            }
+        }
+        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+    }
+
+    get_cast_types_for_variants();
+    for (const auto& [colname, type] : _cast_types_for_variants) {
+        init_value_range(_slot_id_to_slot_desc[_colname_to_slot_id[colname]], type);
     }
 
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
@@ -494,6 +501,14 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 output_expr = nullptr;
                 return Status::OK();
             }
+            std::shared_ptr<VSlotRef> slotref;
+            for (const auto& child : cur_expr->children()) {
+                if (VExpr::expr_without_cast(child)->node_type() != TExprNodeType::SLOT_REF) {
+                    // not a slot ref(column)
+                    continue;
+                }
+                slotref = std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(child));
+            }
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 Status status = Status::OK();
@@ -549,6 +564,14 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                 TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // match_predicate failed to apply inverted index in the storage layer
+                output_expr = conjunct_expr_root; // remaining in conjunct tree
+                return Status::OK();
+            }
+
+            if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
+                slotref->type().is_variant_type()) {
+                // remaining it in the expr tree, in order to filter by function if the pushdown
+                // predicate is not applied
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -1299,11 +1322,15 @@ VScanNode::PushDownType VScanNode::_should_push_down_in_predicate(VInPredicate* 
 Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     std::list<VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
+    // Init scanner wrapper
+    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+    }
     if (scanners.empty()) {
         _eos = true;
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners, query_parallel_instance_num));
+        _start_scanners(_scanners, query_parallel_instance_num);
     }
     return Status::OK();
 }

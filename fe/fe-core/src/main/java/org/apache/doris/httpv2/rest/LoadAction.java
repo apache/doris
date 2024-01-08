@@ -20,7 +20,6 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -63,6 +62,8 @@ public class LoadAction extends RestBaseController {
 
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
+    private int lastSelectedBackendIndex = 0;
+
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
@@ -86,11 +87,10 @@ public class LoadAction extends RestBaseController {
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equals("true")) {
+        if (groupCommitStr != null && groupCommitStr.equals("async_mode")) {
             groupCommit = true;
             try {
                 String[] pair = new String[] {db, table};
-                LOG.info(pair[0] + ":" + pair[1]);
                 if (isGroupCommitBlock(pair)) {
                     String msg = "insert table " + pair[1] + " is blocked on schema change";
                     return new RestBaseResult(msg);
@@ -129,7 +129,7 @@ public class LoadAction extends RestBaseController {
         LOG.info("streaming load sql={}", sql);
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equals("true")) {
+        if (groupCommitStr != null && groupCommitStr.equals("async_mode")) {
             groupCommit = true;
             try {
                 String[] pair = parseDbAndTb(sql);
@@ -149,14 +149,9 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("There is no 100-continue header");
             }
 
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return new RestBaseResult("No cluster selected.");
-            }
-
             String label = request.getHeader(LABEL_KEY);
             TNetworkAddress redirectAddr;
-            redirectAddr = selectRedirectBackend(clusterName, groupCommit);
+            redirectAddr = selectRedirectBackend(groupCommit);
 
             LOG.info("redirect load action to destination={}, label: {}",
                     redirectAddr.toString(), label);
@@ -242,11 +237,6 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("There is no 100-continue header");
             }
 
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return new RestBaseResult("No cluster selected.");
-            }
-
             if (Strings.isNullOrEmpty(dbName)) {
                 return new RestBaseResult("No database selected.");
             }
@@ -255,7 +245,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No table selected.");
             }
 
-            String fullDbName = ClusterNamespace.getFullName(clusterName, dbName);
+            String fullDbName = dbName;
 
             String label = request.getParameter(LABEL_KEY);
             if (isStreamLoad) {
@@ -284,7 +274,7 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                redirectAddr = selectRedirectBackend(clusterName, groupCommit);
+                redirectAddr = selectRedirectBackend(groupCommit);
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
@@ -301,11 +291,6 @@ public class LoadAction extends RestBaseController {
         try {
             String dbName = db;
 
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return new RestBaseResult("No cluster selected.");
-            }
-
             if (Strings.isNullOrEmpty(dbName)) {
                 return new RestBaseResult("No database selected.");
             }
@@ -320,7 +305,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(clusterName, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(false);
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
@@ -332,12 +317,28 @@ public class LoadAction extends RestBaseController {
         }
     }
 
-    private TNetworkAddress selectRedirectBackend(String clusterName, boolean groupCommit) throws LoadException {
+    private final synchronized int getLastSelectedBackendIndexAndUpdate() {
+        int index = lastSelectedBackendIndex;
+        lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
+        return index;
+    }
+
+    private TNetworkAddress selectRedirectBackend(boolean groupCommit) throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
+        String qualifiedUser = ConnectContext.get().getQualifiedUser();
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+        policy = new BeSelectionPolicy.Builder()
+                .addTags(userTags)
+                .setEnableRoundRobin(true)
+                .needLoadAvailable().build();
+        policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (backendIds.isEmpty()) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
         if (groupCommit) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            for (Long backendId : allBackendIds) {
+            for (Long backendId : backendIds) {
                 Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (!candidateBe.isDecommissioned()) {
                     backend = candidateBe;
@@ -345,15 +346,6 @@ public class LoadAction extends RestBaseController {
                 }
             }
         } else {
-            String qualifiedUser = ConnectContext.get().getQualifiedUser();
-            Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-            policy = new BeSelectionPolicy.Builder()
-                    .addTags(userTags)
-                    .needLoadAvailable().build();
-            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-            if (backendIds.isEmpty()) {
-                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
-            }
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
         if (backend == null) {
@@ -390,7 +382,6 @@ public class LoadAction extends RestBaseController {
             ConnectContext ctx = new ConnectContext();
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setRemoteIP(request.getRemoteAddr());
 
             String dbName = db;
@@ -398,11 +389,6 @@ public class LoadAction extends RestBaseController {
             // A 'Load' request must have 100-continue header
             if (request.getHeader(HttpHeaderNames.EXPECT.toString()) == null) {
                 return new RestBaseResult("There is no 100-continue header");
-            }
-
-            final String clusterName = ConnectContext.get().getClusterName();
-            if (Strings.isNullOrEmpty(clusterName)) {
-                return new RestBaseResult("No cluster selected.");
             }
 
             if (Strings.isNullOrEmpty(dbName)) {
@@ -423,7 +409,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No label selected.");
             }
 
-            TNetworkAddress redirectAddr = selectRedirectBackend(clusterName, false);
+            TNetworkAddress redirectAddr = selectRedirectBackend(false);
 
             LOG.info("Redirect load action with auth token to destination={},"
                         + "stream: {}, db: {}, tbl: {}, label: {}",

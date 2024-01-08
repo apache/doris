@@ -234,8 +234,14 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     }
 
     if (null_presence.has_nullable) {
-        auto [temporary_block, new_args, new_result] =
-                create_block_with_nested_columns(block, args, result);
+        bool check_overflow_for_decimal = false;
+        if (context) {
+            check_overflow_for_decimal = context->check_overflow_for_decimal();
+        }
+        auto [temporary_block, new_args, new_result] = create_block_with_nested_columns(
+                block, args, result,
+                check_overflow_for_decimal && need_replace_null_data_to_default());
+
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(
                 context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
         block.get_by_position(result).column =

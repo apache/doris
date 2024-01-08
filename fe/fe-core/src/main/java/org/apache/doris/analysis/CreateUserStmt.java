@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -109,7 +108,7 @@ public class CreateUserStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        userIdent.analyze(analyzer.getClusterName());
+        userIdent.analyze();
 
         if (userIdent.isRootUser()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "Can not create root user");
@@ -124,7 +123,6 @@ public class CreateUserStmt extends DdlStmt {
                 role = Role.ADMIN_ROLE;
             }
             FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         passwordOptions.analyze();

@@ -21,9 +21,11 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -32,7 +34,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class DatabaseInfo implements Writable {
+public class DatabaseInfo implements Writable, GsonPostProcessable {
 
     @SerializedName(value = "dbName")
     private String dbName;
@@ -104,24 +106,12 @@ public class DatabaseInfo implements Writable {
 
     @Deprecated
     public void readFields(DataInput in) throws IOException {
-        this.dbName = Text.readString(in);
-        newDbName = Text.readString(in);
+        this.dbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
+        newDbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
         this.quota = in.readLong();
         this.clusterName = Text.readString(in);
         this.dbState = DbState.valueOf(Text.readString(in));
         this.quotaType = QuotaType.valueOf(Text.readString(in));
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
-    public DbState getDbState() {
-        return dbState;
     }
 
     public QuotaType getQuotaType() {
@@ -135,5 +125,11 @@ public class DatabaseInfo implements Writable {
     @Override
     public String toString() {
         return toJson();
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
+        newDbName = ClusterNamespace.getNameFromFullName(newDbName);
     }
 }

@@ -44,201 +44,184 @@ namespace doris {
 
 class DorisMetrics {
 public:
-    IntCounter* fragment_requests_total;
-    IntCounter* fragment_request_duration_us;
-    IntCounter* query_scan_bytes;
-    IntCounter* query_scan_rows;
+    IntCounter* fragment_requests_total = nullptr;
+    IntCounter* fragment_request_duration_us = nullptr;
+    IntCounter* query_scan_bytes = nullptr;
+    IntCounter* query_scan_rows = nullptr;
 
-    IntCounter* push_requests_success_total;
-    IntCounter* push_requests_fail_total;
-    IntCounter* push_request_duration_us;
-    IntCounter* push_request_write_bytes;
-    IntCounter* push_request_write_rows;
-    IntCounter* create_tablet_requests_total;
-    IntCounter* create_tablet_requests_failed;
-    IntCounter* drop_tablet_requests_total;
+    IntCounter* push_requests_success_total = nullptr;
+    IntCounter* push_requests_fail_total = nullptr;
+    IntCounter* push_request_duration_us = nullptr;
+    IntCounter* push_request_write_bytes = nullptr;
+    IntCounter* push_request_write_rows = nullptr;
+    IntCounter* create_tablet_requests_total = nullptr;
+    IntCounter* create_tablet_requests_failed = nullptr;
+    IntCounter* drop_tablet_requests_total = nullptr;
 
-    IntCounter* report_all_tablets_requests_total;
-    IntCounter* report_all_tablets_requests_failed;
-    IntCounter* report_tablet_requests_total;
-    IntCounter* report_tablet_requests_failed;
-    IntCounter* report_all_tablets_requests_skip;
-    IntCounter* report_disk_requests_total;
-    IntCounter* report_disk_requests_failed;
-    IntCounter* report_task_requests_total;
-    IntCounter* report_task_requests_failed;
+    IntCounter* report_all_tablets_requests_skip = nullptr;
 
-    IntCounter* schema_change_requests_total;
-    IntCounter* schema_change_requests_failed;
-    IntCounter* create_rollup_requests_total;
-    IntCounter* create_rollup_requests_failed;
-    IntCounter* storage_migrate_requests_total;
-    IntCounter* storage_migrate_v2_requests_total;
-    IntCounter* storage_migrate_v2_requests_failed;
-    IntCounter* delete_requests_total;
-    IntCounter* delete_requests_failed;
-    IntCounter* clone_requests_total;
-    IntCounter* clone_requests_failed;
-    IntCounter* alter_inverted_index_requests_total;
-    IntCounter* alter_inverted_index_requests_failed;
+    IntCounter* schema_change_requests_total = nullptr;
+    IntCounter* schema_change_requests_failed = nullptr;
+    IntCounter* create_rollup_requests_total = nullptr;
+    IntCounter* create_rollup_requests_failed = nullptr;
+    IntCounter* storage_migrate_requests_total = nullptr;
+    IntCounter* storage_migrate_v2_requests_total = nullptr;
+    IntCounter* storage_migrate_v2_requests_failed = nullptr;
+    IntCounter* delete_requests_total = nullptr;
+    IntCounter* delete_requests_failed = nullptr;
+    IntCounter* clone_requests_total = nullptr;
+    IntCounter* clone_requests_failed = nullptr;
+    IntCounter* alter_inverted_index_requests_total = nullptr;
+    IntCounter* alter_inverted_index_requests_failed = nullptr;
 
-    IntCounter* finish_task_requests_total;
-    IntCounter* finish_task_requests_failed;
+    IntCounter* finish_task_requests_total = nullptr;
+    IntCounter* finish_task_requests_failed = nullptr;
 
-    IntCounter* base_compaction_request_total;
-    IntCounter* base_compaction_request_failed;
-    IntCounter* cumulative_compaction_request_total;
-    IntCounter* cumulative_compaction_request_failed;
+    IntCounter* base_compaction_request_total = nullptr;
+    IntCounter* base_compaction_request_failed = nullptr;
+    IntCounter* cumulative_compaction_request_total = nullptr;
+    IntCounter* cumulative_compaction_request_failed = nullptr;
 
-    IntCounter* base_compaction_deltas_total;
-    IntCounter* base_compaction_bytes_total;
-    IntCounter* cumulative_compaction_deltas_total;
-    IntCounter* cumulative_compaction_bytes_total;
+    IntCounter* base_compaction_deltas_total = nullptr;
+    IntCounter* base_compaction_bytes_total = nullptr;
+    IntCounter* cumulative_compaction_deltas_total = nullptr;
+    IntCounter* cumulative_compaction_bytes_total = nullptr;
 
-    IntCounter* publish_task_request_total;
-    IntCounter* publish_task_failed_total;
-
-    IntCounter* meta_write_request_total;
-    IntCounter* meta_write_request_duration_us;
-    IntCounter* meta_read_request_total;
-    IntCounter* meta_read_request_duration_us;
+    IntCounter* publish_task_request_total = nullptr;
+    IntCounter* publish_task_failed_total = nullptr;
 
     // Counters for segment_v2
     // -----------------------
     // total number of segments read
-    IntCounter* segment_read_total;
+    IntCounter* segment_read_total = nullptr;
     // total number of rows in queried segments (before index pruning)
-    IntCounter* segment_row_total;
+    IntCounter* segment_row_total = nullptr;
 
-    IntCounter* stream_load_txn_begin_request_total;
-    IntCounter* stream_load_txn_commit_request_total;
-    IntCounter* stream_load_txn_rollback_request_total;
-    IntCounter* stream_receive_bytes_total;
-    IntCounter* stream_load_rows_total;
-    IntCounter* load_rows;
-    IntCounter* load_bytes;
+    IntCounter* stream_load_txn_begin_request_total = nullptr;
+    IntCounter* stream_load_txn_commit_request_total = nullptr;
+    IntCounter* stream_load_txn_rollback_request_total = nullptr;
+    IntCounter* stream_receive_bytes_total = nullptr;
+    IntCounter* stream_load_rows_total = nullptr;
+    IntCounter* load_rows = nullptr;
+    IntCounter* load_bytes = nullptr;
 
-    IntCounter* memtable_flush_total;
-    IntCounter* memtable_flush_duration_us;
+    IntCounter* memtable_flush_total = nullptr;
+    IntCounter* memtable_flush_duration_us = nullptr;
 
-    IntGauge* memory_pool_bytes_total;
-    IntGauge* process_thread_num;
-    IntGauge* process_fd_num_used;
-    IntGauge* process_fd_num_limit_soft;
-    IntGauge* process_fd_num_limit_hard;
+    IntGauge* memory_pool_bytes_total = nullptr;
+    IntGauge* process_thread_num = nullptr;
+    IntGauge* process_fd_num_used = nullptr;
+    IntGauge* process_fd_num_limit_soft = nullptr;
+    IntGauge* process_fd_num_limit_hard = nullptr;
 
     // the max compaction score of all tablets.
     // Record base and cumulative scores separately, because
     // we need to get the larger of the two.
-    IntGauge* tablet_cumulative_max_compaction_score;
-    IntGauge* tablet_base_max_compaction_score;
+    IntGauge* tablet_cumulative_max_compaction_score = nullptr;
+    IntGauge* tablet_base_max_compaction_score = nullptr;
 
-    IntGauge* all_rowsets_num;
-    IntGauge* all_segments_num;
+    IntGauge* all_rowsets_num = nullptr;
+    IntGauge* all_segments_num = nullptr;
 
     // permits have been used for all compaction tasks
-    IntGauge* compaction_used_permits;
+    IntGauge* compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
-    IntGauge* compaction_waitting_permits;
+    IntGauge* compaction_waitting_permits = nullptr;
 
-    HistogramMetric* tablet_version_num_distribution;
+    HistogramMetric* tablet_version_num_distribution = nullptr;
 
     // The following metrics will be calculated
     // by metric calculator
-    IntGauge* query_scan_bytes_per_second;
+    IntGauge* query_scan_bytes_per_second = nullptr;
 
     // Metrics related with file reader/writer
-    IntCounter* local_file_reader_total;
-    IntCounter* s3_file_reader_total;
-    IntCounter* hdfs_file_reader_total;
-    IntCounter* broker_file_reader_total;
-    IntCounter* local_file_writer_total;
-    IntCounter* s3_file_writer_total;
-    IntCounter* file_created_total;
-    IntCounter* s3_file_created_total;
-    IntCounter* local_bytes_read_total;
-    IntCounter* s3_bytes_read_total;
-    IntCounter* local_bytes_written_total;
-    IntCounter* s3_bytes_written_total;
-    IntGauge* local_file_open_reading;
-    IntGauge* s3_file_open_reading;
-    IntGauge* hdfs_file_open_reading;
-    IntGauge* broker_file_open_reading;
-    IntGauge* local_file_open_writing;
-    IntGauge* s3_file_open_writing;
+    IntCounter* local_file_reader_total = nullptr;
+    IntCounter* s3_file_reader_total = nullptr;
+    IntCounter* hdfs_file_reader_total = nullptr;
+    IntCounter* broker_file_reader_total = nullptr;
+    IntCounter* local_file_writer_total = nullptr;
+    IntCounter* s3_file_writer_total = nullptr;
+    IntCounter* file_created_total = nullptr;
+    IntCounter* s3_file_created_total = nullptr;
+    IntCounter* local_bytes_read_total = nullptr;
+    IntCounter* s3_bytes_read_total = nullptr;
+    IntCounter* local_bytes_written_total = nullptr;
+    IntCounter* s3_bytes_written_total = nullptr;
+    IntGauge* local_file_open_reading = nullptr;
+    IntGauge* s3_file_open_reading = nullptr;
+    IntGauge* hdfs_file_open_reading = nullptr;
+    IntGauge* broker_file_open_reading = nullptr;
+    IntGauge* local_file_open_writing = nullptr;
+    IntGauge* s3_file_open_writing = nullptr;
 
     // Size of some global containers
-    UIntGauge* rowset_count_generated_and_in_use;
-    UIntGauge* unused_rowsets_count;
-    UIntGauge* broker_count;
-    UIntGauge* data_stream_receiver_count;
-    UIntGauge* fragment_endpoint_count;
-    UIntGauge* active_scan_context_count;
-    UIntGauge* fragment_instance_count;
-    UIntGauge* load_channel_count;
-    UIntGauge* result_buffer_block_count;
-    UIntGauge* result_block_queue_count;
-    UIntGauge* routine_load_task_count;
-    UIntGauge* small_file_cache_count;
-    UIntGauge* stream_load_pipe_count;
-    UIntGauge* new_stream_load_pipe_count;
-    UIntGauge* brpc_endpoint_stub_count;
-    UIntGauge* brpc_function_endpoint_stub_count;
-    UIntGauge* tablet_writer_count;
+    UIntGauge* rowset_count_generated_and_in_use = nullptr;
+    UIntGauge* unused_rowsets_count = nullptr;
+    UIntGauge* broker_count = nullptr;
+    UIntGauge* data_stream_receiver_count = nullptr;
+    UIntGauge* fragment_endpoint_count = nullptr;
+    UIntGauge* active_scan_context_count = nullptr;
+    UIntGauge* fragment_instance_count = nullptr;
+    UIntGauge* load_channel_count = nullptr;
+    UIntGauge* result_buffer_block_count = nullptr;
+    UIntGauge* result_block_queue_count = nullptr;
+    UIntGauge* routine_load_task_count = nullptr;
+    UIntGauge* small_file_cache_count = nullptr;
+    UIntGauge* stream_load_pipe_count = nullptr;
+    UIntGauge* new_stream_load_pipe_count = nullptr;
+    UIntGauge* brpc_endpoint_stub_count = nullptr;
+    UIntGauge* brpc_function_endpoint_stub_count = nullptr;
+    UIntGauge* tablet_writer_count = nullptr;
 
-    UIntGauge* segcompaction_mem_consumption;
-    UIntGauge* compaction_mem_consumption;
-    UIntGauge* load_mem_consumption;
-    UIntGauge* load_channel_mem_consumption;
-    UIntGauge* memtable_memory_limiter_mem_consumption;
-    UIntGauge* query_mem_consumption;
-    UIntGauge* schema_change_mem_consumption;
-    UIntGauge* storage_migration_mem_consumption;
-    UIntGauge* tablet_meta_mem_consumption;
+    UIntGauge* segcompaction_mem_consumption = nullptr;
+    UIntGauge* compaction_mem_consumption = nullptr;
+    UIntGauge* load_mem_consumption = nullptr;
+    UIntGauge* load_channel_mem_consumption = nullptr;
+    UIntGauge* memtable_memory_limiter_mem_consumption = nullptr;
+    UIntGauge* query_mem_consumption = nullptr;
+    UIntGauge* schema_change_mem_consumption = nullptr;
+    UIntGauge* storage_migration_mem_consumption = nullptr;
+    UIntGauge* tablet_meta_mem_consumption = nullptr;
 
     // Cache metrics
-    UIntGauge* query_cache_memory_total_byte;
-    UIntGauge* query_cache_sql_total_count;
-    UIntGauge* query_cache_partition_total_count;
+    UIntGauge* query_cache_memory_total_byte = nullptr;
+    UIntGauge* query_cache_sql_total_count = nullptr;
+    UIntGauge* query_cache_partition_total_count = nullptr;
 
-    IntCounter* tablet_schema_cache_count;
-    UIntGauge* tablet_schema_cache_memory_bytes;
-    IntGauge* lru_cache_memory_bytes;
+    IntGauge* lru_cache_memory_bytes = nullptr;
 
-    UIntGauge* scanner_thread_pool_queue_size;
-    UIntGauge* add_batch_task_queue_size;
-    UIntGauge* send_batch_thread_pool_thread_num;
-    UIntGauge* send_batch_thread_pool_queue_size;
-    UIntGauge* download_cache_thread_pool_thread_num;
-    UIntGauge* download_cache_thread_pool_queue_size;
-    UIntGauge* fragment_thread_pool_queue_size;
+    UIntGauge* scanner_thread_pool_queue_size = nullptr;
+    UIntGauge* add_batch_task_queue_size = nullptr;
+    UIntGauge* send_batch_thread_pool_thread_num = nullptr;
+    UIntGauge* send_batch_thread_pool_queue_size = nullptr;
+    UIntGauge* fragment_thread_pool_queue_size = nullptr;
 
     // Upload metrics
-    UIntGauge* upload_total_byte;
-    IntCounter* upload_rowset_count;
-    IntCounter* upload_fail_count;
+    UIntGauge* upload_total_byte = nullptr;
+    IntCounter* upload_rowset_count = nullptr;
+    IntCounter* upload_fail_count = nullptr;
 
-    UIntGauge* light_work_pool_queue_size;
-    UIntGauge* heavy_work_pool_queue_size;
-    UIntGauge* heavy_work_active_threads;
-    UIntGauge* light_work_active_threads;
+    UIntGauge* light_work_pool_queue_size = nullptr;
+    UIntGauge* heavy_work_pool_queue_size = nullptr;
+    UIntGauge* heavy_work_active_threads = nullptr;
+    UIntGauge* light_work_active_threads = nullptr;
 
-    UIntGauge* heavy_work_pool_max_queue_size;
-    UIntGauge* light_work_pool_max_queue_size;
-    UIntGauge* heavy_work_max_threads;
-    UIntGauge* light_work_max_threads;
+    UIntGauge* heavy_work_pool_max_queue_size = nullptr;
+    UIntGauge* light_work_pool_max_queue_size = nullptr;
+    UIntGauge* heavy_work_max_threads = nullptr;
+    UIntGauge* light_work_max_threads = nullptr;
 
-    UIntGauge* flush_thread_pool_queue_size;
-    UIntGauge* flush_thread_pool_thread_num;
+    UIntGauge* flush_thread_pool_queue_size = nullptr;
+    UIntGauge* flush_thread_pool_thread_num = nullptr;
 
-    UIntGauge* local_scan_thread_pool_queue_size;
-    UIntGauge* local_scan_thread_pool_thread_num;
-    UIntGauge* remote_scan_thread_pool_queue_size;
-    UIntGauge* remote_scan_thread_pool_thread_num;
-    UIntGauge* limited_scan_thread_pool_queue_size;
-    UIntGauge* limited_scan_thread_pool_thread_num;
-    UIntGauge* group_local_scan_thread_pool_queue_size;
-    UIntGauge* group_local_scan_thread_pool_thread_num;
+    UIntGauge* local_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* local_scan_thread_pool_thread_num = nullptr;
+    UIntGauge* remote_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* remote_scan_thread_pool_thread_num = nullptr;
+    UIntGauge* limited_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* limited_scan_thread_pool_thread_num = nullptr;
+    UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
+    UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

@@ -24,18 +24,13 @@ suite("query13") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_13 '''
-    explain shape plan
-
-
-select avg(ss_quantity)
+    def ds = """select avg(ss_quantity)
        ,avg(ss_ext_sales_price)
        ,avg(ss_ext_wholesale_cost)
        ,sum(ss_ext_wholesale_cost)
@@ -83,7 +78,9 @@ select avg(ss_quantity)
   and ca_state in ('NH', 'OH', 'TX')
   and ss_net_profit between 50 and 250  
      ))
-;
-
-    '''
+"""
+    qt_ds_shape_13 """
+    explain shape plan
+    ${ds}
+    """
 }

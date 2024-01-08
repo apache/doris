@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
 
 import com.google.common.base.Preconditions;

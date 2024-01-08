@@ -23,12 +23,12 @@ import com.lmax.disruptor.EventFactory;
 import lombok.Data;
 
 @Data
-public class TimerJobEvent<T extends AbstractJob<?>> {
+public class TimerJobEvent<T extends AbstractJob> {
 
 
     private T job;
 
-    public static <T extends AbstractJob<?>> EventFactory<TimerJobEvent<T>> factory() {
+    public static <T extends AbstractJob> EventFactory<TimerJobEvent<T>> factory() {
         return TimerJobEvent::new;
     }
 

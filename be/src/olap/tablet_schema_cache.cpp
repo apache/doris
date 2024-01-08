@@ -17,7 +17,12 @@
 
 #include "olap/tablet_schema_cache.h"
 
+#include "bvar/bvar.h"
+
 namespace doris {
+
+bvar::Adder<int64_t> g_tablet_schema_cache_count("tablet_schema_cache_count");
+bvar::Adder<int64_t> g_tablet_schema_cache_columns_count("tablet_schema_cache_columns_count");
 
 TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
     std::lock_guard guard(_mtx);
@@ -28,9 +33,8 @@ TabletSchemaSPtr TabletSchemaCache::insert(const std::string& key) {
         pb.ParseFromString(key);
         tablet_schema_ptr->init_from_pb(pb);
         _cache[key] = tablet_schema_ptr;
-        DorisMetrics::instance()->tablet_schema_cache_count->increment(1);
-        DorisMetrics::instance()->tablet_schema_cache_memory_bytes->increment(
-                tablet_schema_ptr->mem_size());
+        g_tablet_schema_cache_count << 1;
+        g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
         return tablet_schema_ptr;
     }
     return iter->second;
@@ -69,9 +73,8 @@ void TabletSchemaCache::_recycle() {
         LOG(INFO) << "Tablet Schema Cache Capacity " << _cache.size();
         for (auto iter = _cache.begin(), last = _cache.end(); iter != last;) {
             if (iter->second.unique()) {
-                DorisMetrics::instance()->tablet_schema_cache_memory_bytes->increment(
-                        -iter->second->mem_size());
-                DorisMetrics::instance()->tablet_schema_cache_count->increment(-1);
+                g_tablet_schema_cache_count << -1;
+                g_tablet_schema_cache_columns_count << -iter->second->num_columns();
                 iter = _cache.erase(iter);
             } else {
                 ++iter;

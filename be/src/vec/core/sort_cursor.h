@@ -244,6 +244,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
             }
             MergeSortCursorImpl::reset(_block);
             return status.ok();
+        } else if (!status.ok()) {
+            throw std::runtime_error(status.msg());
         }
         return false;
     }
@@ -317,7 +319,7 @@ struct MergeSortCursor {
 
 /// For easy copying.
 struct MergeSortBlockCursor {
-    MergeSortCursorImpl* impl;
+    MergeSortCursorImpl* impl = nullptr;
 
     MergeSortBlockCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
     MergeSortCursorImpl* operator->() const { return impl; }

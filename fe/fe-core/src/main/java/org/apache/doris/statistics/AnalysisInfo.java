@@ -97,10 +97,8 @@ public class AnalysisInfo implements Writable {
     public final long tblId;
 
     // TODO: Map here is wired, List is enough
-    @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
-    @SerializedName("partitionNames")
     public final Set<String> partitionNames;
 
     @SerializedName("colName")
@@ -190,6 +188,9 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("endTime")
     public long endTime;
+
+    @SerializedName("emptyJob")
+    public final boolean emptyJob;
     /**
      *
      * Used to store the newest partition version of tbl when creating this job.
@@ -204,7 +205,7 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -240,6 +241,7 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
         this.tblUpdateTime = tblUpdateTime;
+        this.emptyJob = emptyJob;
     }
 
     @Override
@@ -281,6 +283,7 @@ public class AnalysisInfo implements Writable {
         }
         sj.add("forceFull: " + forceFull);
         sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
+        sj.add("emptyJob: " + emptyJob);
         return sj.toString();
     }
 

@@ -93,7 +93,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -112,6 +111,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -146,6 +146,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
@@ -182,6 +183,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -228,6 +230,8 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -281,11 +285,13 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -358,7 +364,8 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private ExportTaskRegister exportTaskRegister;
-    private JobManager<? extends AbstractJob> jobManager;
+    private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
+    private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -381,6 +388,7 @@ public class Env {
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
+    private String toMasterProgress = "";
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // node name is used for bdbje NodeName.
@@ -482,6 +490,7 @@ public class Env {
 
     private WorkloadGroupMgr workloadGroupMgr;
 
+    private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -503,7 +512,11 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
+    private WorkloadActionPublishThread workloadActionPublisherThread;
+
     private MTMVService mtmvService;
+
+    private InsertOverwriteManager insertOverwriteManager;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -634,8 +647,11 @@ public class Env {
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
+        this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
+        this.transientTaskManager = new TransientTaskManager();
+
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -722,6 +738,7 @@ public class Env {
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
+        this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -731,7 +748,10 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
+                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
+        this.insertOverwriteManager = new InsertOverwriteManager();
     }
 
     public static void destroyCheckpoint() {
@@ -791,6 +811,10 @@ public class Env {
         return mtmvService;
     }
 
+    public InsertOverwriteManager getInsertOverwriteManager() {
+        return insertOverwriteManager;
+    }
+
     public TabletScheduler getTabletScheduler() {
         return tabletScheduler;
     }
@@ -805,6 +829,10 @@ public class Env {
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
         return workloadGroupMgr;
+    }
+
+    public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
+        return workloadSchedPolicyMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -959,8 +987,7 @@ public class Env {
         createTxnCleaner();
 
         // 6. start state listener thread
-        createStateListener();
-        listener.start();
+        startStateListener();
 
         // 7. create fe disk updater
         createFeDiskUpdater();
@@ -980,7 +1007,13 @@ public class Env {
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+
+        workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadActionPublisherThread.start();
     }
 
     // wait until FE is ready.
@@ -993,9 +1026,10 @@ public class Env {
             }
 
             Thread.sleep(100);
-            if (counter++ % 20 == 0) {
-                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
-                        counter);
+            if (counter++ % 100 == 0) {
+                String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
+                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
+                        feType, isReady.get(), counter, reason);
             }
         }
     }
@@ -1386,6 +1420,7 @@ public class Env {
         isReady.set(false);
         canRead.set(false);
 
+        toMasterProgress = "open editlog";
         editLog.open();
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
@@ -1395,6 +1430,7 @@ public class Env {
             }
         }
 
+        toMasterProgress = "replay journal";
         long replayStartTime = System.currentTimeMillis();
         // replay journals. -1 means replay all the journals larger than current journal id.
         replayJournal(-1);
@@ -1405,11 +1441,13 @@ public class Env {
 
         checkBeExecVersion();
 
+        toMasterProgress = "roll editlog";
         editLog.rollEditLog();
 
         // Log meta_version
         long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
+            toMasterProgress = "log meta version";
             editLog.logMetaVersion(FeConstants.meta_version);
             MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
@@ -1451,6 +1489,7 @@ public class Env {
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
 
+        toMasterProgress = "log master info";
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
                 Config.http_port,
                 Config.rpc_port);
@@ -1464,6 +1503,10 @@ public class Env {
         // so no need to check 'isReady' flag in this method
         postProcessAfterMetadataReplayed(false);
 
+        insertOverwriteManager.allTaskFail();
+
+        toMasterProgress = "start daemon threads";
+
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
         // start other daemon threads that should running on all FE
@@ -1471,6 +1514,7 @@ public class Env {
 
         MetricRepo.init();
 
+        toMasterProgress = "finished";
         canRead.set(true);
         isReady.set(true);
         checkLowerCaseTableNames();
@@ -1491,11 +1535,22 @@ public class Env {
      * 2. register some hook.
      * If there is, add them here.
      */
-    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
+    public boolean postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
+                // Avoid endless waiting if the state has changed.
+                //
+                // Consider the following situation:
+                // 1. The follower replay journals and is not set to ready because the synchronization internval
+                //    exceeds meta delay toleration seconds.
+                // 2. The underlying BEBJE node of this follower is selected as the master, but the state listener
+                //    thread is waiting for catalog ready.
+                if (typeTransferQueue.peek() != null) {
+                    return false;
+                }
+
                 try {
-                    Thread.sleep(10 * 1000);
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
                     LOG.warn("", e);
                 }
@@ -1504,6 +1559,7 @@ public class Env {
 
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
+        return true;
     }
 
     // start all daemon threads only running on Master
@@ -1580,6 +1636,7 @@ public class Env {
         // binlog gcer
         binlogGcer.start();
         columnIdFlusher.start();
+        insertOverwriteManager.start();
     }
 
     // start threads that should running on all FE
@@ -1617,7 +1674,10 @@ public class Env {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        postProcessAfterMetadataReplayed(true);
+        if (!postProcessAfterMetadataReplayed(true)) {
+            // the state has changed, exit early.
+            return;
+        }
 
         checkLowerCaseTableNames();
 
@@ -2039,6 +2099,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
+        workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
+        LOG.info("finished replay workload sched policy from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2090,6 +2156,18 @@ public class Env {
     public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
         this.analysisManager = AnalysisManager.readFields(in);
         LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
+    public long loadInsertOverwrite(DataInputStream in, long checksum) throws IOException {
+        this.insertOverwriteManager = InsertOverwriteManager.read(in);
+        LOG.info("finished replay iot from image");
+        return checksum;
+    }
+
+    public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
+        this.insertOverwriteManager.write(out);
+        LOG.info("finished save iot to image");
         return checksum;
     }
 
@@ -2306,6 +2384,11 @@ public class Env {
         return checksum;
     }
 
+    public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2372,7 +2455,7 @@ public class Env {
     }
 
     public void createFeDiskUpdater() {
-        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+        feDiskUpdater = new Daemon("feDiskUpdater", Config.heartbeat_interval_second * 1000L) {
             @Override
             protected void runOneCycle() {
                 ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
@@ -2433,8 +2516,8 @@ public class Env {
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
             // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
-                    currentTimeMs, synchronizedTimeMs, hasLog, feType);
+            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
+                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
             if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
@@ -2444,6 +2527,13 @@ public class Env {
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
                 canRead.set(false);
                 isReady.set(false);
+
+                if (editLog != null) {
+                    String reason = editLog.getNotReadyReason();
+                    if (!Strings.isNullOrEmpty(reason)) {
+                        LOG.warn("Not ready reason:{}", reason);
+                    }
+                }
             }
 
             // sleep 5s to avoid numerous 'meta out of date' log
@@ -2470,7 +2560,7 @@ public class Env {
         }
     }
 
-    public void createStateListener() {
+    public void startStateListener() {
         listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
             @Override
             protected synchronized void runOneCycle() {
@@ -2578,6 +2668,7 @@ public class Env {
         };
 
         listener.setMetaContext(metaContext);
+        listener.start();
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -2740,6 +2831,10 @@ public class Env {
                 throw new DdlException(role.toString() + " does not exist[" + NetUtils
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
+            if (role == FrontendNodeType.FOLLOWER && fe.isAlive()) {
+                // Try drop an alive follower, check the quorum safety.
+                ensureSafeToDropAliveFollower();
+            }
 
             int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
@@ -2766,6 +2861,30 @@ public class Env {
         // ip may be changed, so we need use both ip and hostname to check.
         // use node.getIdent() for simplicity here.
         helperNodes.removeIf(node -> node.getHost().equals(host) && node.getPort() == port);
+    }
+
+    private void ensureSafeToDropAliveFollower() throws DdlException {
+        int numFollower = 0;
+        int numAliveFollower = 0;
+        for (Frontend fe : frontends.values()) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER) {
+                numFollower += 1;
+                if (fe.isAlive()) {
+                    numAliveFollower += 1;
+                }
+            }
+        }
+
+        int nextMajority = ((numFollower - 1) / 2) + 1;
+        if (nextMajority + 1 <= numAliveFollower) {
+            return;
+        }
+
+        LOG.warn("Drop an alive follower is not safety. Current alive followers {}, followers {}, next majority: {}",
+                numAliveFollower, numFollower, nextMajority);
+        throw new DdlException("Unable to drop this alive follower, because the quorum requirements "
+                + "are not met after this command execution. Current num alive followers "
+                + numAliveFollower + ", num followers " + numFollower + ", majority after execution " + nextMajority);
     }
 
     public Frontend checkFeExist(String host, int port) {
@@ -3171,6 +3290,11 @@ public class Env {
                 sb.append(olapTable.isInMemory()).append("\"");
             }
 
+            // storage medium
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+            sb.append(olapTable.getStorageMedium() == null ? "" : olapTable.getStorageMedium().name().toLowerCase());
+            sb.append("\"");
+
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
@@ -3187,8 +3311,8 @@ public class Env {
                 sb.append(olapTable.getEstimatePartitionSize()).append("\"");
             }
 
-            // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            // unique key table with merge on write, always print this property for unique table
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
@@ -3261,6 +3385,14 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
+            // time series compaction empty rowsets threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3278,6 +3410,10 @@ public class Env {
             // group commit interval ms
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
             sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
@@ -3819,6 +3955,10 @@ public class Env {
         return jobManager;
     }
 
+    public LabelProcessor getLabelProcessor() {
+        return labelProcessor;
+    }
+
     public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
     }
@@ -3951,8 +4091,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
         // sort by cluster keys for mow if set, otherwise by index columns
         List<Column> sortKeyColumns = clusterColumns.isEmpty() ? indexColumns
@@ -4670,7 +4810,9 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
-                .buildEnableSingleReplicaCompaction();
+                .buildDisableAutoCompaction()
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4837,8 +4979,7 @@ public class Env {
             ctx.setDatabase(lastDb);
         }
         if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
-                    + EsExternalCatalog.DEFAULT_DB);
+            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
         }
     }
 
@@ -5813,5 +5954,63 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         this.alter.processAlterMTMV(alter, false);
+    }
+
+    // Ensure the env is ready, otherwise throw an exception.
+    public void checkReadyOrThrow() throws Exception {
+        if (isReady()) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Node catalog is not ready, please wait for a while. ")
+                .append("To master progress: " + toMasterProgress + ".\n")
+                .append("Frontends: \n");
+
+        for (String name : frontends.keySet()) {
+            Frontend frontend = frontends.get(name);
+            if (name == null) {
+                continue;
+            }
+            sb.append(frontend.toString()).append("\n");
+        }
+
+        String reason = editLog.getNotReadyReason();
+        if (!Strings.isNullOrEmpty(reason)) {
+            sb.append("Reason: ").append(reason).append("%\n");
+        }
+
+        if (haProtocol instanceof BDBHA) {
+            try {
+                BDBHA ha = (BDBHA) haProtocol;
+                List<InetSocketAddress> electableNodes = ha.getElectableNodes(true);
+                if (!electableNodes.isEmpty()) {
+                    sb.append("Electable nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+                List<InetSocketAddress> observerNodes = ha.getObserverNodes();
+                if (!observerNodes.isEmpty()) {
+                    sb.append("Observer nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+
+            } catch (Exception e) {
+                LOG.warn("checkReadyOrThrow:", e);
+            }
+        }
+
+        throw new Exception(sb.toString());
+    }
+
+    public void checkReadyOrThrowTException() throws TException {
+        try {
+            checkReadyOrThrow();
+        } catch (Exception e) {
+            throw new TException(e);
+        }
     }
 }

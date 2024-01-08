@@ -88,7 +88,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     /**
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
-    private void getTableColumnStats() throws Exception {
+    protected void getTableColumnStats() throws Exception {
         if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
             try {
                 getPartitionColumnStats();
@@ -159,7 +159,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         }
         stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql, true);
+        runQuery(sql);
     }
 
     // Collect the partition column stats through HMS metadata.
@@ -201,12 +201,12 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("row_count", String.valueOf(count));
         params.put("ndv", String.valueOf(ndv));
         params.put("null_count", String.valueOf(numNulls));
-        params.put("min", min);
-        params.put("max", max);
+        params.put("min", StatisticsUtil.quote(min));
+        params.put("max", StatisticsUtil.quote(max));
         params.put("data_size", String.valueOf(dataSize));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
-        runQuery(sql, true);
+        runQuery(sql);
     }
 
     private String updateMinValue(String currentMin, String value) {
@@ -312,6 +312,9 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         // Calculate the total size of this HMS table.
         for (long size : chunkSizes) {
             total += size;
+        }
+        if (total == 0) {
+            return Pair.of(1.0, 0L);
         }
         // Calculate the sample target size for percent and rows sample.
         if (tableSample.isPercent()) {

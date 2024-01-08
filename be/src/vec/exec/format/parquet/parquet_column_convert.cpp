@@ -71,7 +71,11 @@ ColumnPtr get_column(tparquet::Type::type parquet_physical_type, PrimitiveType s
     }
 
     if (*need_convert && doris_type->is_nullable()) {
-        auto doris_nullable_column = static_cast<const ColumnNullable*>(doris_column.get());
+        // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
+        // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
+        // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
+        auto doris_nullable_column =
+                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(doris_column.get()));
         ans_column = ColumnNullable::create(ans_column,
                                             doris_nullable_column->get_null_map_column_ptr());
     }

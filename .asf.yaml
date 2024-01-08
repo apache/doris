@@ -59,7 +59,7 @@ github:
           - BE UT (Doris BE UT)
           - Build Broker
           - Build Documents
-          - ShellCheck
+          - ShellCheck          
           - clickbench-new (clickbench)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
@@ -94,8 +94,8 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
-          - Build Documents
           - ShellCheck
+          - Build Documents
           - clickbench-new (clickbench)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
@@ -112,10 +112,11 @@ github:
     - platoneko
     - Lchangliang
     - freemandealer
-    - nanfeng1999
-    - gitccl
     - shuke987
     - wm1581066
+    - KassieZ
+    - yujun777
+    - gavinchou
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

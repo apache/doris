@@ -186,6 +186,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
@@ -193,6 +194,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv4StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -283,6 +290,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpt
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
@@ -581,13 +589,20 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(HoursDiff.class, "hours_diff"),
             scalar(HoursSub.class, "hours_sub"),
             scalar(If.class, "if"),
+            scalar(Ignore.class, "ignore"),
             scalar(Initcap.class, "initcap"),
             scalar(InnerProduct.class, "inner_product"),
             scalar(Instr.class, "instr"),
-            scalar(Ipv4NumToString.class, "ipv4numtostring", "inet_ntoa"),
-            scalar(Ipv4StringToNum.class, "ipv4stringtonum", "inet_aton"),
-            scalar(Ipv4StringToNumOrDefault.class, "ipv4stringtonumordefault"),
-            scalar(Ipv4StringToNumOrNull.class, "ipv4stringtonumornull"),
+            scalar(Ipv4NumToString.class, "ipv4_num_to_string", "inet_ntoa"),
+            scalar(Ipv4StringToNum.class, "ipv4_string_to_num", "inet_aton"),
+            scalar(Ipv4StringToNumOrDefault.class, "ipv4_string_to_num_or_default"),
+            scalar(Ipv4StringToNumOrNull.class, "ipv4_string_to_num_or_null"),
+            scalar(Ipv6NumToString.class, "ipv6_num_to_string", "inet6_ntoa"),
+            scalar(Ipv6StringToNum.class, "ipv6_string_to_num", "inet6_aton"),
+            scalar(Ipv6StringToNumOrDefault.class, "ipv6_string_to_num_or_default"),
+            scalar(Ipv6StringToNumOrNull.class, "ipv6_string_to_num_or_null"),
+            scalar(IsIpv4String.class, "isipv4string"),
+            scalar(IsIpv6String.class, "isipv6string"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
@@ -696,6 +711,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NonNullable.class, "non_nullable"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
             scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
+            scalar(Nullable.class, "nullable"),
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),

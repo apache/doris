@@ -255,7 +255,7 @@ using namespace std; // Just like VC++, we need a using here.
 #define GOOGLE_OBSCURE_SIGNAL 0
 
 struct stack_t {
-    void* ss_sp;
+    void* ss_sp = nullptr;
     int ss_flags;
     size_t ss_size;
 };

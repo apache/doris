@@ -325,13 +325,6 @@ public class OutFileClause {
                 break;
             case STRUCT: {
                 StructType structType = (StructType) dorisType;
-                ArrayList<StructField> fields = structType.getFields();
-                for (StructField field : fields) {
-                    if (!(field.getType() instanceof ScalarType)) {
-                        throw new AnalysisException("currently ORC outfile do not support field type: "
-                                + field.getType().toSql() + " for STRUCT");
-                    }
-                }
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("struct<");
@@ -350,11 +343,6 @@ public class OutFileClause {
             }
             case MAP: {
                 MapType mapType = (MapType) dorisType;
-                if ((!(mapType.getKeyType() instanceof ScalarType)
-                        || !(mapType.getValueType() instanceof ScalarType))) {
-                    throw new AnalysisException("currently ORC outfile do not support data type: MAP<"
-                            + mapType.getKeyType().toSql() + "," + mapType.getValueType().toSql() + ">");
-                }
                 StringBuilder sb = new StringBuilder();
                 sb.append("map<")
                         .append(dorisTypeToOrcTypeMap(mapType.getKeyType()))
@@ -365,11 +353,6 @@ public class OutFileClause {
                 break;
             }
             case ARRAY: {
-                Type itemType = ((ArrayType) dorisType).getItemType();
-                if (!(itemType instanceof ScalarType)) {
-                    throw new AnalysisException("currently ORC outfile do not support data type: ARRAY<"
-                            + itemType.toSql() + ">");
-                }
                 StringBuilder sb = new StringBuilder();
                 ArrayType arrayType = (ArrayType) dorisType;
                 sb.append("array<")

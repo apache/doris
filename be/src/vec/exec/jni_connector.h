@@ -48,8 +48,6 @@ template <typename T>
 class ColumnDecimal;
 template <typename T>
 class ColumnVector;
-template <typename T>
-struct Decimal;
 } // namespace vectorized
 } // namespace doris
 
@@ -282,11 +280,11 @@ private:
     std::vector<std::string> _column_names;
     bool _is_table_schema = false;
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    RuntimeProfile::Counter* _open_scanner_time;
-    RuntimeProfile::Counter* _java_scan_time;
-    RuntimeProfile::Counter* _fill_block_time;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _open_scanner_time = nullptr;
+    RuntimeProfile::Counter* _java_scan_time = nullptr;
+    RuntimeProfile::Counter* _fill_block_time = nullptr;
     std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
 
     size_t _has_read = 0;
@@ -306,7 +304,7 @@ private:
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
-    std::unique_ptr<char[]> _predicates = nullptr;
+    std::unique_ptr<char[]> _predicates;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta

@@ -299,18 +299,22 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
 template <bool is_binary_format>
 Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,
-                                                  int row_idx, bool col_const) const {
+                                                  int row_idx_of_mysql, bool col_const) const {
     auto& column_array = assert_cast<const ColumnArray&>(column);
     auto& offsets = column_array.get_offsets();
     auto& data = column_array.get_data();
     bool is_nested_string = data.is_column_string();
-    const auto col_index = index_check_const(row_idx, col_const);
+    const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
     result.open_dynamic_mode();
+
     if (0 != result.push_string("[", 1)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    for (int j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
-        if (j != offsets[col_index - 1]) {
+
+    const auto begin_arr_element = offsets[row_idx_of_col_arr - 1];
+    const auto end_arr_element = offsets[row_idx_of_col_arr];
+    for (int j = begin_arr_element; j < end_arr_element; ++j) {
+        if (j != begin_arr_element) {
             if (0 != result.push_string(", ", 2)) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
@@ -357,24 +361,18 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
-    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
-    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
     const IColumn& nested_column = array_col.get_data();
-    auto& offsets = array_col.get_offsets();
-
-    cur_batch->elements->resize(nested_column.size());
+    const auto& offsets = array_col.get_offsets();
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
-
-        if (cur_batch->notNull[row_id] == 1) {
-            static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
-                                                                cur_batch->elements.get(), offset,
-                                                                next_offset, buffer_list));
-        }
-
+        RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
+                                                          cur_batch->elements.get(), offset,
+                                                          next_offset, buffer_list));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();

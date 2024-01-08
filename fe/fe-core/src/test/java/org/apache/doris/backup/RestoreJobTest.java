@@ -39,6 +39,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -60,6 +61,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
@@ -159,12 +161,14 @@ public class RestoreJobTest {
 
         new Expectations() {
             {
-                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, (TStorageMedium) any,
-                        false, true);
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
+                        Maps.newHashMap(), (TStorageMedium) any, false, true);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> selectBackendIdsForReplicaCreation(
-                            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium medium) {
+                            ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
+                            TStorageMedium medium, boolean isStorageMediumSpecified,
+                            boolean isOnlyForCheck) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
                         beIds.add(CatalogMocker.BACKEND2_ID);

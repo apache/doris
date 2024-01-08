@@ -19,71 +19,88 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors.PredicatesSpliter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * This record the predicates which can be pulled up or some other type predicates
- * */
+ */
 public class Predicates {
 
     // Predicates that can be pulled up
-    private final Set<Expression> pulledUpPredicates;
+    private final Set<Expression> pulledUpPredicates = new HashSet<>();
 
-    public Predicates(Set<Expression> pulledUpPredicates) {
-        this.pulledUpPredicates = pulledUpPredicates;
+    private Predicates() {
     }
 
-    public static Predicates of(Set<Expression> pulledUpPredicates) {
-        return new Predicates(pulledUpPredicates);
+    public static Predicates of() {
+        return new Predicates();
     }
 
-    public Set<Expression> getPulledUpPredicates() {
+    public static Predicates of(List<? extends Expression> pulledUpPredicates) {
+        Predicates predicates = new Predicates();
+        pulledUpPredicates.forEach(predicates::addPredicate);
+        return predicates;
+    }
+
+    public Set<? extends Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 
+    public void addPredicate(Expression expression) {
+        this.pulledUpPredicates.add(expression);
+    }
+
     public Expression composedExpression() {
-        return ExpressionUtils.and(pulledUpPredicates);
+        return ExpressionUtils.and(pulledUpPredicates.stream().map(Expression.class::cast)
+                .collect(Collectors.toList()));
     }
 
     /**
      * Split the expression to equal, range and residual predicate.
-     * */
+     */
     public static SplitPredicate splitPredicates(Expression expression) {
-        PredicatesSpliter predicatesSplit = new PredicatesSpliter(expression);
-        expression.accept(predicatesSplit, null);
+        PredicatesSplitter predicatesSplit = new PredicatesSplitter(expression);
         return predicatesSplit.getSplitPredicate();
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("Predicates", "pulledUpPredicates", pulledUpPredicates);
     }
 
     /**
      * The split different representation for predicate expression, such as equal, range and residual predicate.
-     * */
+     */
     public static final class SplitPredicate {
-        private final Expression equalPredicates;
-        private final Expression rangePredicates;
-        private final Expression residualPredicates;
+        private Optional<Expression> equalPredicate;
+        private Optional<Expression> rangePredicate;
+        private Optional<Expression> residualPredicate;
 
-        public SplitPredicate(Expression equalPredicates, Expression rangePredicates, Expression residualPredicates) {
-            this.equalPredicates = equalPredicates;
-            this.rangePredicates = rangePredicates;
-            this.residualPredicates = residualPredicates;
+        public SplitPredicate(Expression equalPredicate, Expression rangePredicate, Expression residualPredicate) {
+            this.equalPredicate = Optional.ofNullable(equalPredicate);
+            this.rangePredicate = Optional.ofNullable(rangePredicate);
+            this.residualPredicate = Optional.ofNullable(residualPredicate);
         }
 
-        public Expression getEqualPredicates() {
-            return equalPredicates;
+        public Expression getEqualPredicate() {
+            return equalPredicate.orElse(BooleanLiteral.TRUE);
         }
 
-        public Expression getRangePredicates() {
-            return rangePredicates;
+        public Expression getRangePredicate() {
+            return rangePredicate.orElse(BooleanLiteral.TRUE);
         }
 
-        public Expression getResidualPredicates() {
-            return residualPredicates;
+        public Expression getResidualPredicate() {
+            return residualPredicate.orElse(BooleanLiteral.TRUE);
         }
 
         public static SplitPredicate empty() {
@@ -92,7 +109,7 @@ public class Predicates {
 
         /**
          * SplitPredicate construct
-         * */
+         */
         public static SplitPredicate of(Expression equalPredicates,
                 Expression rangePredicates,
                 Expression residualPredicates) {
@@ -101,31 +118,40 @@ public class Predicates {
 
         /**
          * isEmpty
-         * */
+         */
         public boolean isEmpty() {
-            return equalPredicates == null
-                    && rangePredicates == null
-                    && residualPredicates == null;
-        }
-
-        public Expression composedExpression() {
-            return ExpressionUtils.and(equalPredicates, rangePredicates, residualPredicates);
+            return !equalPredicate.isPresent()
+                    && !rangePredicate.isPresent()
+                    && !residualPredicate.isPresent();
         }
 
         public List<Expression> toList() {
-            return ImmutableList.of(equalPredicates, rangePredicates, residualPredicates);
+            return ImmutableList.of(equalPredicate.orElse(BooleanLiteral.TRUE),
+                    rangePredicate.orElse(BooleanLiteral.TRUE),
+                    residualPredicate.orElse(BooleanLiteral.TRUE));
         }
 
         /**
          * Check the predicates in SplitPredicate is whether all true or not
          */
         public boolean isAlwaysTrue() {
-            return equalPredicates instanceof BooleanLiteral
-                    && rangePredicates instanceof BooleanLiteral
-                    && residualPredicates instanceof BooleanLiteral
-                    && ((BooleanLiteral) equalPredicates).getValue()
-                    && ((BooleanLiteral) rangePredicates).getValue()
-                    && ((BooleanLiteral) residualPredicates).getValue();
+            Expression equalExpr = equalPredicate.orElse(BooleanLiteral.TRUE);
+            Expression rangeExpr = rangePredicate.orElse(BooleanLiteral.TRUE);
+            Expression residualExpr = residualPredicate.orElse(BooleanLiteral.TRUE);
+            return equalExpr instanceof BooleanLiteral
+                    && rangeExpr instanceof BooleanLiteral
+                    && residualExpr instanceof BooleanLiteral
+                    && ((BooleanLiteral) equalExpr).getValue()
+                    && ((BooleanLiteral) rangeExpr).getValue()
+                    && ((BooleanLiteral) residualExpr).getValue();
+        }
+
+        @Override
+        public String toString() {
+            return Utils.toSqlString("SplitPredicate",
+                    "equalPredicate", equalPredicate,
+                    "rangePredicate", rangePredicate,
+                    "residualPredicate", residualPredicate);
         }
     }
 }

@@ -55,7 +55,7 @@ void register_function_bitmap_variadic(SimpleFunctionFactory& factory);
 void register_function_quantile_state(SimpleFunctionFactory& factory);
 void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
-void register_function_non_nullable(SimpleFunctionFactory& factory);
+void register_function_nullables(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
@@ -92,6 +92,7 @@ void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
 void register_function_width_bucket(SimpleFunctionFactory& factory);
+void register_function_ignore(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -156,7 +157,7 @@ public:
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
-        if (function_alias.count(name)) {
+        if (function_alias.contains(name)) {
             key_str = function_alias[name];
         }
 
@@ -164,7 +165,7 @@ public:
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
-            for (auto& arg : arguments) {
+            for (const auto& arg : arguments) {
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
                                                  ->get_nested_type()
@@ -230,7 +231,7 @@ public:
             register_function_bit(instance);
             register_function_is_null(instance);
             register_function_is_not_null(instance);
-            register_function_non_nullable(instance);
+            register_function_nullables(instance);
             register_function_to_time_function(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
@@ -274,6 +275,7 @@ public:
             register_function_match(instance);
             register_function_ip(instance);
             register_function_tokenize(instance);
+            register_function_ignore(instance);
         });
         return instance;
     }

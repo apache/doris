@@ -441,7 +441,7 @@ If enable_https is true, you need to configure ssl certificate information in fe
 
 Default：true
 
-If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+If set to true, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -587,6 +587,16 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### `abort_txn_after_lost_heartbeat_time_second`
+
+Abort transaction time after lost heartbeat. The default value is 300, which means transactions of be will be aborted after lost heartbeat 300s.
+
+Default: 300(s)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
 #### `enable_access_file_without_broker`
 
 Default：false
@@ -639,7 +649,7 @@ Cluster token used for internal authentication.
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
 
-HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
+HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when HTTPv2 is enabled can users use the new front-end UI interface.
 
 #### `http_api_extra_base_path`
 
@@ -677,6 +687,18 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 1M.
+
+#### `http_sql_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http sql submitter
+
+#### `http_load_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http upload submitter
 
 ### Query Engine
 
@@ -906,9 +928,9 @@ This may reduce network transmission in following case:
 
 -  The data has N replicas.
 
--  High concurrency queries are syyuyuient to all Frontends evenly
+-  High concurrency queries are evenly sent to all Frontends evenly
 
-In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to nonlocal replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
+In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to non-local replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
 
 #### `enable_local_replica_selection_fallback`
 
@@ -916,7 +938,7 @@ Default：false
 
 IsMutable：true
 
-Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
+Used with enable_local_replica_selection. If the local replicas is not available, fallback to the non-local replicas.
 
 #### `expr_depth_limit`
 
@@ -987,7 +1009,7 @@ Default：1
 
 IsMutable：true
 
-colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
+Colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
 
 #### `rewrite_count_distinct_to_bitmap_hll`
 
@@ -996,7 +1018,7 @@ Default: true
 This variable is a session variable, and the session level takes effect.
 
 - Type: boolean
-- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
+- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distinct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
 
 ### Load And Export
 
@@ -1143,7 +1165,7 @@ Max bytes a broker scanner can process in one broker load job. Commonly, each Ba
 
 #### `default_load_parallelism`
 
-Default: 1
+Default: 8
 
 IsMutable：true
 
@@ -1359,7 +1381,7 @@ Default：false
 
 IsMutable：true
 
-MasterOnly：false
+MasterOnly：true
 
 Enable memtable on sink node for stream load by default.
 When HTTP header `memtable_on_sink_node` is not set.
@@ -2012,7 +2034,7 @@ Dynamically configured: true
 Only for Master FE: true
 
 The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
-Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+Relocation usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
 
 ####` allow_replica_on_same_host`
 
@@ -2169,7 +2191,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 Default：HDD
 
-When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.
+When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when create.
 
 #### `enable_storage_policy`
 
@@ -2252,6 +2274,16 @@ MasterOnly：true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
+#### `delete_job_max_timeout_second`
+
+Default: 300(s)
+
+Mutable: true
+
+Master only: true
+
+Maximal timeout for delete job, in seconds.
+
 #### `alter_table_timeout_second`
 
 Default：86400 * 30（1 month）
@@ -2322,7 +2354,7 @@ IsMutable：true
 
 MasterOnly：false
 
-Starting from version 2.1, we no longer support create odbc, jdbc and broker external table. For odbc and mysql external table, use jdbc table or jdbc catalog instead. For broker table, use table valued function instead.
+Starting from version 2.1, we no longer support create ODBC, JDBC and broker external table. For odbc and mysql external table, use JDBC table or JDBC catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 
@@ -2547,6 +2579,26 @@ MasterOnly：true
 
 default timeout of backup job
 
+#### `backup_upload_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of upload tasks assigned to each be during the backup process, the default value is 3.
+
+#### `restore_download_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of download tasks assigned to each be during the restore process, the default value is 3.
+
 #### `max_backup_restore_job_num_per_db`
 
 Default: 10
@@ -2599,7 +2651,7 @@ IsMutable：true
 
 MasterOnly：false
 
-Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+Whether to push the filter conditions with functions down to MYSQL, when execute query of ODBC、JDBC external tables
 
 #### `jdbc_drivers_dir`
 

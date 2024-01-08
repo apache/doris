@@ -86,6 +86,8 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
+    private boolean isColocate = false;
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, StatisticalType statisticalType) {
         super(id, tupleId.asList(), planNodeName, statisticalType);
         this.setOpResultExprs = Lists.newArrayList();
@@ -122,6 +124,10 @@ public abstract class SetOperationNode extends PlanNode {
 
     public void addResultExprLists(List<Expr> exprs) {
         resultExprLists.add(exprs);
+    }
+
+    public void setColocate(boolean colocate) {
+        this.isColocate = colocate;
     }
 
     /**
@@ -395,11 +401,13 @@ public abstract class SetOperationNode extends PlanNode {
             case INTERSECT_NODE:
                 msg.intersect_node = new TIntersectNode(
                         tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                msg.intersect_node.setIsColocate(isColocate);
                 msg.node_type = TPlanNodeType.INTERSECT_NODE;
                 break;
             case EXCEPT_NODE:
                 msg.except_node = new TExceptNode(
                         tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                msg.except_node.setIsColocate(isColocate);
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:

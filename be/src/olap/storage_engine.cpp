@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <iterator>
 #include <list>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <random>
@@ -45,6 +46,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -57,6 +59,7 @@
 #include "olap/data_dir.h"
 #include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
@@ -117,7 +120,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -398,7 +402,9 @@ Status StorageEngine::_check_file_descriptor_number() {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return Status::InternalError("file descriptors limit is too small");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "file descriptors limit {} is small than {}", l.rlim_cur,
+                config::min_file_descriptor_number);
     }
     return Status::OK();
 }
@@ -444,102 +450,42 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
-    struct DirInfo {
-        DataDir* data_dir;
-
-        size_t disk_available;
-        //if disk_available is high, then available_level is small
-        int available_level;
-
-        int tablet_num;
-
-        bool operator<(const DirInfo& other) const {
-            if (available_level != other.available_level) {
-                return available_level < other.available_level;
-            }
-            if (tablet_num != other.tablet_num) {
-                return tablet_num < other.tablet_num;
-            }
-            return data_dir->path_hash() < other.data_dir->path_hash();
-        }
-    };
-    std::map<size_t, int> available_levels;
-    std::vector<DirInfo> dir_infos;
-    int next_index = 0;
-    size_t max_disk_capacity = 0;
+    std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        next_index = _store_next_index[storage_medium]++;
-        if (next_index < 0) {
-            next_index = 0;
-            _store_next_index[storage_medium] = next_index + 1;
-        }
         for (auto& it : _store_map) {
-            DataDir* data_dir = it.second;
-            if (data_dir->is_used()) {
-                if (_available_storage_medium_type_count == 1 ||
-                    data_dir->storage_medium() == storage_medium) {
-                    size_t disk_available = data_dir->disk_available();
-                    DirInfo dir_info;
-                    dir_info.data_dir = data_dir;
-                    dir_info.available_level = disk_available;
-                    dir_infos.push_back(dir_info);
-                    available_levels[disk_available] = 0;
-                    size_t disk_capacity = data_dir->disk_capacity();
-                    if (max_disk_capacity < disk_capacity) {
-                        max_disk_capacity = disk_capacity;
-                    }
+            if (it.second->is_used()) {
+                if ((_available_storage_medium_type_count == 1 ||
+                     it.second->storage_medium() == storage_medium) &&
+                    !it.second->reach_capacity_limit(0)) {
+                    stores.push_back(it.second);
                 }
             }
         }
     }
 
-    std::vector<DataDir*> stores;
-    if (dir_infos.empty()) {
-        return stores;
-    }
+    std::sort(stores.begin(), stores.end(),
+              [](DataDir* a, DataDir* b) { return a->get_usage(0) < b->get_usage(0); });
 
-    // if two disk available diff not exceeds 20% capacity, then they are the same available level.
-    size_t same_level_available_diff = std::max<size_t>(max_disk_capacity / 5, 1);
-    int level = 0;
-    size_t level_start_available = available_levels.rbegin()->first;
-    for (auto rit = available_levels.rbegin(); rit != available_levels.rend(); rit++) {
-        if (level_start_available - rit->first >= same_level_available_diff) {
-            level_start_available = rit->first;
-            level++;
+    size_t seventy_percent_index = stores.size();
+    size_t eighty_five_percent_index = stores.size();
+    for (size_t index = 0; index < stores.size(); index++) {
+        // If the usage of the store is less than 70%, we choose disk randomly.
+        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
+            seventy_percent_index = index;
         }
-        rit->second = level;
-    }
-
-    for (auto& dir_info : dir_infos) {
-        dir_info.tablet_num = dir_info.data_dir->tablet_num();
-        dir_info.available_level = available_levels[dir_info.disk_available];
-    }
-
-    std::sort(dir_infos.begin(), dir_infos.end());
-
-    // Suppose there are five data dirs (D1, D2, D3, D4, D5).
-    // D1/D2/D3 contain 1 tablet,  D4/D5 contain 2 tablets.
-    // If three creating tablets threads simultaneously invoke this function to get stores,
-    // then the return stores will be as below:
-    // thread 1: (D1, D2, D3, D4, D5)
-    // thread 2: (D2, D3, D1, D5, D4)
-    // thread 3: (D3, D1, D2, D4, D5)
-    stores.reserve(dir_infos.size());
-    for (size_t i = 0; i < dir_infos.size();) {
-        size_t end = i + 1;
-        while (end < dir_infos.size() && dir_infos[i].tablet_num == dir_infos[end].tablet_num &&
-               dir_infos[i].available_level == dir_infos[end].available_level) {
-            end++;
+        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size()) {
+            eighty_five_percent_index = index;
+            break;
         }
-        // data dirs [i, end) have the same tablet size, round robin range [i, end)
-        size_t count = end - i;
-        for (size_t k = 0; k < count; k++) {
-            size_t index = i + (k + next_index) % count;
-            stores.push_back(dir_infos[index].data_dir);
-        }
-        i = end;
     }
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
+    std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index,
+                 g);
+    std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
 
     return stores;
 }
@@ -1201,36 +1147,40 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
     return res;
 }
 
-void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::register_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    CHECK(_report_listeners.find(listener) == _report_listeners.end());
-    _report_listeners.insert(listener);
+    if (std::find(_report_listeners.begin(), _report_listeners.end(), listener) !=
+        _report_listeners.end()) [[unlikely]] {
+        return;
+    }
+    _report_listeners.push_back(listener);
 }
 
-void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::deregister_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    _report_listeners.erase(listener);
+    if (auto it = std::find(_report_listeners.begin(), _report_listeners.end(), listener);
+        it != _report_listeners.end()) {
+        _report_listeners.erase(it);
+    }
 }
 
 void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        listener->notify_thread();
+        listener->notify();
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+bool StorageEngine::notify_listener(std::string_view name) {
+    bool found = false;
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        if (listener->task_worker_type() == task_worker_type) {
-            listener->notify_thread();
+        if (listener->name() == name) {
+            listener->notify();
+            found = true;
         }
     }
-}
-
-Status StorageEngine::execute_task(EngineTask* task) {
-    RETURN_IF_ERROR(task->execute());
-    return task->finish();
+    return found;
 }
 
 // check whether any unused rowsets's id equal to rowset_id
@@ -1244,28 +1194,6 @@ PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& 
         return _pending_local_rowsets.add(ctx.rowset_id);
     }
     return _pending_remote_rowsets.add(ctx.rowset_id);
-}
-
-void StorageEngine::create_cumulative_compaction(
-        TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
-}
-
-void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<BaseCompaction>& base_compaction) {
-    base_compaction.reset(new BaseCompaction(best_tablet));
-}
-
-void StorageEngine::create_full_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<FullCompaction>& full_compaction) {
-    full_compaction.reset(new FullCompaction(best_tablet));
-}
-
-void StorageEngine::create_single_replica_compaction(
-        TabletSharedPtr best_tablet,
-        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-        CompactionType compaction_type) {
-    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
 }
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
@@ -1420,6 +1348,26 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return true;
+    }
+    std::lock_guard l(_low_priority_task_nums_mutex);
+    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
+        _low_priority_task_nums[dir]++;
+        return true;
+    }
+    return false;
+}
+
+void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
+    if (config::enable_compaction_priority_scheduling) {
+        std::lock_guard l(_low_priority_task_nums_mutex);
+        _low_priority_task_nums[dir]--;
+        DCHECK(_low_priority_task_nums[dir] >= 0);
+    }
 }
 
 } // namespace doris

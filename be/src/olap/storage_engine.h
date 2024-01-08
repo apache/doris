@@ -30,12 +30,12 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -69,6 +69,7 @@ class TabletManager;
 class Thread;
 class ThreadPool;
 class TxnManager;
+class ReportWorker;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -135,12 +136,10 @@ public:
     Status load_header(const std::string& shard_path, const TCloneReq& request,
                        bool restore = false);
 
-    void register_report_listener(TaskWorkerPool* listener);
-    void deregister_report_listener(TaskWorkerPool* listener);
+    void register_report_listener(ReportWorker* listener);
+    void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
-
-    Status execute_task(EngineTask* task);
+    bool notify_listener(std::string_view name);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
@@ -181,18 +180,6 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    void create_cumulative_compaction(TabletSharedPtr best_tablet,
-                                      std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
-    void create_base_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<BaseCompaction>& base_compaction);
-
-    void create_full_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<FullCompaction>& full_compaction);
-
-    void create_single_replica_compaction(
-            TabletSharedPtr best_tablet,
-            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-            CompactionType compaction_type);
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
     bool should_fetch_from_peer(int64_t tablet_id);
@@ -209,7 +196,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(SegcompactionWorker* worker,
+    Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -326,8 +313,9 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    Status _handle_seg_compaction(SegcompactionWorker* worker,
-                                  SegCompactionCandidatesSharedPtr segments);
+    Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
+                                  SegCompactionCandidatesSharedPtr segments,
+                                  uint64_t submission_time);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
 
@@ -335,7 +323,13 @@ private:
 
     void _async_publish_callback();
 
+    void _process_async_publish();
+
     Status _persist_broken_paths();
+
+    bool _increase_low_priority_task_nums(DataDir* dir);
+
+    void _decrease_low_priority_task_nums(DataDir* dir);
 
 private:
     struct CompactionCandidate {
@@ -394,6 +388,9 @@ private:
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
+    // maybe have to use ColumnReader count as segment meta size.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
@@ -419,7 +416,7 @@ private:
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
-    std::set<TaskWorkerPool*> _report_listeners;
+    std::vector<ReportWorker*> _report_listeners;
 
     std::mutex _engine_task_mutex;
 
@@ -435,7 +432,7 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    HeartbeatFlags* _heartbeat_flags;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
@@ -454,6 +451,9 @@ private:
     // a tablet can do base and cumulative compaction at same time
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
+
+    std::mutex _low_priority_task_nums_mutex;
+    std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
 
     std::mutex _peer_replica_infos_mutex;
     // key: tabletId
@@ -486,13 +486,11 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _async_publish_mutex;
+    std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
-    // next index for create tablet
-    std::map<TStorageMedium::type, int> _store_next_index;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

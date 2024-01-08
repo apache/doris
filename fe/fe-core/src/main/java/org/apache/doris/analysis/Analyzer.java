@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
@@ -48,6 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
@@ -91,6 +93,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -123,6 +126,11 @@ public class Analyzer {
     // protected final Map<String, TupleDescriptor> aliasMap             = Maps.newHashMap();
     // map from lowercase qualified column name ("alias.col") to descriptor
     private final Map<String, SlotDescriptor>  slotRefMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+
+    // Notice: it's case sensitive
+    // Variant column name -> Paths of sub columns
+    private final Map<String, Map<List<String>, SlotDescriptor>> subColumnSlotRefMap
+                                           = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // map from tuple id to list of conjuncts referencing tuple
     private final Map<TupleId, List<ExprId>> tuplePredicates = Maps.newHashMap();
@@ -447,6 +455,7 @@ public class Analyzer {
             rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
+            rules.add(ElementAtToSlotRefRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -846,6 +855,13 @@ public class Analyzer {
                     View hmsView = new View(table.getId(), table.getName(), table.getFullSchema());
                     hmsView.setInlineViewDefWithSqlMode(((HMSExternalTable) table).getViewText(),
                             ConnectContext.get().getSessionVariable().getSqlMode());
+                    // for user experience consideration, parse hive view ddl first to avoid NPE
+                    // if legacy parser can not parse hive view ddl properly
+                    try {
+                        hmsView.init();
+                    } catch (UserException e) {
+                        throw new AnalysisException(e.getMessage(), e);
+                    }
                     InlineViewRef inlineViewRef = new InlineViewRef(hmsView, tableRef);
                     if (StringUtils.isNotEmpty(tableName.getCtl())) {
                         inlineViewRef.setExternalCtl(tableName.getCtl());
@@ -922,7 +938,8 @@ public class Analyzer {
      * @param colName
      * @throws AnalysisException
      */
-    public SlotDescriptor registerColumnRef(TableName tblName, String colName) throws AnalysisException {
+    public SlotDescriptor registerColumnRef(TableName tblName, String colName, List<String> subColNames)
+                throws AnalysisException {
         TupleDescriptor d;
         TableName newTblName = tblName;
         if (newTblName == null) {
@@ -1004,11 +1021,55 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
+        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
+            if (!col.getType().isVariantType()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
+                        Joiner.on(".").join(tblName.getTbl(), colName));
+            }
+            if (subColNames == null) {
+                // Root
+                subColNames = new ArrayList<String>();
+            }
+            String key = d.getAlias() + "." + col.getName();
+            if (subColumnSlotRefMap.get(key) == null) {
+                subColumnSlotRefMap.put(key, Maps.newTreeMap(
+                    new Comparator<List<String>>() {
+                        public int compare(List<String> lst1, List<String> lst2) {
+                            Iterator<String> it1 = lst1.iterator();
+                            Iterator<String> it2 = lst2.iterator();
+                            while (it1.hasNext() && it2.hasNext()) {
+                                int result = it1.next().compareTo(it2.next());
+                                if (result != 0) {
+                                    return result;
+                                }
+                            }
+                            return Integer.compare(lst1.size(), lst2.size());
+                        }
+                    }));
+            }
+            SlotDescriptor result = subColumnSlotRefMap.get(key).get(subColNames);
+            if (result != null) {
+                // avoid duplicate slots
+                return result;
+            }
+            result = globalState.descTbl.addSlotDescriptor(d);
+            LOG.debug("register slot descriptor {}", result);
+            result.setSubColLables(subColNames);
+            result.setColumn(col);
+            if (!subColNames.isEmpty()) {
+                result.setMaterializedColumnName(col.getName() + "." + String.join(".", subColNames));
+            }
+            result.setIsMaterialized(true);
+            result.setIsNullable(col.isAllowNull());
+            subColumnSlotRefMap.get(key).put(subColNames, result);
+            return result;
+        }
+
         // Make column name case insensitive
         String key = d.getAlias() + "." + col.getName();
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
-            result.setMultiRef(true);
             return result;
         }
         result = globalState.descTbl.addSlotDescriptor(d);
@@ -1032,7 +1093,6 @@ public class Analyzer {
         String key = colName;
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
-            result.setMultiRef(true);
             return result;
         }
         result = addSlotDescriptor(tupleDescriptor);
@@ -1110,6 +1170,7 @@ public class Analyzer {
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
         result.setIsNullable(srcSlotDesc.getIsNullable());
+        result.setSubColLables(srcSlotDesc.getSubColLables());
         if (srcSlotDesc.getColumn() != null) {
             result.setColumn(srcSlotDesc.getColumn());
         }
@@ -1276,6 +1337,14 @@ public class Analyzer {
     public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
         for (Expr conjunct : e.getConjuncts()) {
             registerConjunct(conjunct);
+            if (!conjunct.isConstant()) {
+                ArrayList<TupleId> tupleIds = Lists.newArrayList();
+                ArrayList<SlotId> slotIds = Lists.newArrayList();
+                conjunct.getIds(tupleIds, slotIds);
+                if (tupleIds.isEmpty() && slotIds.isEmpty()) {
+                    conjunct.setBoundTupleIds(ids);
+                }
+            }
             if (ids != null) {
                 for (TupleId id : ids) {
                     registerConstantConjunct(id, conjunct);
@@ -2253,10 +2322,6 @@ public class Analyzer {
 
     public String getDefaultDb() {
         return globalState.context.getDatabase();
-    }
-
-    public String getClusterName() {
-        return globalState.context.getClusterName();
     }
 
     public String getQualifiedUser() {

@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <glog/logging.h>
@@ -286,14 +287,23 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
     }
 
     if (t_param.__isset.enable_automatic_partition && t_param.enable_automatic_partition) {
-        _is_auto_partiton = true;
-        Status st = vectorized::VExpr::create_expr_tree(t_param.partition_function_exprs[0],
-                                                        _part_func_ctx);
-        if (!st.ok()) {
-            throw Exception(Status::InternalError("Partition function expr is not valid"),
-                            "Partition function expr is not valid");
+        _is_auto_partition = true;
+        auto size = t_param.partition_function_exprs.size();
+        _part_func_ctx.resize(size);
+        _partition_function.resize(size);
+        DCHECK((t_param.partition_type == TPartitionType::RANGE_PARTITIONED && size == 1) ||
+               (t_param.partition_type == TPartitionType::LIST_PARTITIONED && size >= 1))
+                << "now support only 1 partition column for auto range partitions. "
+                << t_param.partition_type << " " << size;
+        for (int i = 0; i < size; ++i) {
+            Status st = vectorized::VExpr::create_expr_tree(t_param.partition_function_exprs[i],
+                                                            _part_func_ctx[i]);
+            if (!st.ok()) {
+                throw Exception(Status::InternalError("Partition function expr is not valid"),
+                                "Partition function expr is not valid");
+            }
+            _partition_function[i] = _part_func_ctx[i]->root();
         }
-        _partition_function = _part_func_ctx->root();
     }
 }
 

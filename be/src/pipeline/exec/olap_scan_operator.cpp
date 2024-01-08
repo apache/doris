@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "pipeline/exec/scan_operator.h"
@@ -28,8 +29,6 @@
 #include "util/to_string.h"
 #include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/new_olap_scanner.h"
-#include "vec/exec/scan/pip_scanner_context.h"
-#include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -63,6 +62,14 @@ Status OlapScanLocalState::_init_profile() {
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
+    _block_conditions_filtered_bf_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _block_conditions_filtered_zonemap_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
+    _block_conditions_filtered_zonemap_rp_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapRuntimePredicateTime");
+    _block_conditions_filtered_dict_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredDictTime");
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -87,6 +94,8 @@ Status OlapScanLocalState::_init_profile() {
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _stats_rp_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsZonemapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -127,6 +136,7 @@ Status OlapScanLocalState::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
     return Status::OK();
 }
 
@@ -219,7 +229,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty()) {
+    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -245,6 +255,70 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     if (_cond_ranges.empty()) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
     }
+
+    bool enable_parallel_scan = state()->enable_parallel_scan();
+    bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
+                         state()->query_options().resource_limit.__isset.cpu_limit;
+
+    if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
+        p._push_down_agg_type == TPushAggOp::NONE) {
+        std::vector<TabletWithVersion> tablets;
+        bool is_dup_mow_key = true;
+        for (auto&& scan_range : _scan_ranges) {
+            auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
+            is_dup_mow_key =
+                    tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
+                                                        tablet->enable_unique_key_merge_on_write());
+            if (!is_dup_mow_key) {
+                break;
+            }
+
+            int64_t version = 0;
+            std::from_chars(scan_range->version.data(),
+                            scan_range->version.data() + scan_range->version.size(), version);
+            tablets.emplace_back(
+                    TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
+        }
+
+        if (is_dup_mow_key) {
+            std::vector<OlapScanRange*> key_ranges;
+            for (auto& range : _cond_ranges) {
+                if (range->begin_scan_range.size() == 1 &&
+                    range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+                    continue;
+                }
+                key_ranges.emplace_back(range.get());
+            }
+
+            ParallelScannerBuilder<OlapScanLocalState> scanner_builder(
+                    this, tablets, _scanner_profile, key_ranges, state(), p._limit_per_scanner,
+                    is_dup_mow_key, p._olap_scan_node.is_preaggregation);
+
+            int max_scanners_count = state()->parallel_scan_max_scanners_count();
+
+            // If the `max_scanners_count` was not set,
+            // use `config::doris_scanner_thread_pool_thread_num` as the default value.
+            if (max_scanners_count <= 0) {
+                max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            }
+
+            // Too small value of `min_rows_per_scanner` is meaningless.
+            auto min_rows_per_scanner =
+                    std::max<int64_t>(1024, state()->parallel_scan_min_rows_per_scanner());
+            scanner_builder.set_max_scanners_count(max_scanners_count);
+            scanner_builder.set_min_rows_per_scanner(min_rows_per_scanner);
+
+            RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
+            for (auto& scanner : *scanners) {
+                auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
+                RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
+                olap_scanner->set_compound_filters(_compound_filters);
+            }
+            LOG(INFO) << "parallel scanners count: " << scanners->size();
+            return Status::OK();
+        }
+    }
+
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
@@ -297,7 +371,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
-TOlapScanNode& OlapScanLocalState::olap_scan_node() {
+TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 
@@ -477,11 +551,21 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 
     // add info
     _segment_profile->add_info_string(filter_name, info_str);
+
+    const std::string rf_name = "filter id = " + std::to_string(id) + " ";
+
+    // add counter
+    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "input",
+                                                     TUnit::UNIT, "RuntimeFilterInfo", 1);
+    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
+                                                        TUnit::UNIT, "RuntimeFilterInfo", 1);
+    COUNTER_UPDATE(input_count, info.input_row);
+    COUNTER_UPDATE(filtered_count, info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                     const DescriptorTbl& descs)
-        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs),
+                                     const DescriptorTbl& descs, int parallel_tasks)
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;

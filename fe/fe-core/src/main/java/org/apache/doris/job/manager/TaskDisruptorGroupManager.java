@@ -46,7 +46,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private final Map<JobType, TaskDisruptor<T>> disruptorMap = new EnumMap<>(JobType.class);
 
     @Getter
-    private TaskDisruptor<TimerJobEvent<AbstractJob<?>>> dispatchDisruptor;
+    private TaskDisruptor<TimerJobEvent<AbstractJob>> dispatchDisruptor;
 
     private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
 
@@ -76,14 +76,14 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     }
 
     private void registerDispatchDisruptor() {
-        EventFactory<TimerJobEvent<AbstractJob<T>>> dispatchEventFactory = TimerJobEvent.factory();
+        EventFactory<TimerJobEvent<AbstractJob>> dispatchEventFactory = TimerJobEvent.factory();
         ThreadFactory dispatchThreadFactory = new CustomThreadFactory("dispatch-task");
         WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM];
         for (int i = 0; i < DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM; i++) {
             dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap);
         }
-        EventTranslatorVararg<TimerJobEvent<AbstractJob<T>>> eventTranslator =
-                (event, sequence, args) -> event.setJob((AbstractJob<T>) args[0]);
+        EventTranslatorVararg<TimerJobEvent<AbstractJob>> eventTranslator =
+                (event, sequence, args) -> event.setJob((AbstractJob) args[0]);
         this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DISPATCH_TIMER_JOB_QUEUE_SIZE,
                 dispatchThreadFactory,
                 new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
@@ -120,10 +120,10 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                 };
         TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
                 mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.MTMV, mtmvDisruptor);
+        disruptorMap.put(JobType.MV, mtmvDisruptor);
     }
 
-    public void dispatchTimerJob(AbstractJob<T> job) {
+    public void dispatchTimerJob(AbstractJob job) {
         dispatchDisruptor.publishEvent(job);
     }
 

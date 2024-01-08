@@ -47,11 +47,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -89,7 +91,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
-            if (!(plan instanceof Unbound)) {
+            if (!(plan instanceof Unbound) && plan instanceof Relation) {
                 // init output and allocate slot id immediately, so that the slot id increase
                 // in the order in which the table appears.
                 LogicalProperties logicalProperties = plan.getLogicalProperties();
@@ -128,9 +130,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             if (analyzedCte.isPresent()) {
                 LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
                         cteContext.getCteId(), tableName, analyzedCte.get());
-                if (cascadesContext.getStatementContext().isLeadingJoin()) {
-                    LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext()
-                            .getHintMap().get("Leading");
+                if (cascadesContext.isLeadingJoin()) {
+                    LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
@@ -156,8 +157,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-        if (cascadesContext.getStatementContext().isLeadingJoin()) {
-            LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading");
+        if (cascadesContext.isLeadingJoin()) {
+            LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
             leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
             leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
         }
@@ -242,6 +243,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
                 return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+            case ODBC:
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:
@@ -269,7 +272,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.newAnalyzer().analyze();
+        viewContext.newAnalyzer(true, customTableResolver).analyze();
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

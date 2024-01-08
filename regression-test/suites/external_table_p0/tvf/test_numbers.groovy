@@ -23,6 +23,11 @@
     qt_basic3 """ select * from numbers("number" = "100"); """
     qt_basic4_limit """ select * from numbers("number" = "10") limit 5; """
 
+    qt_const1 """ select * from numbers("number" = "5", "const_value" = "1"); """
+    qt_const2 """ select * from numbers("number" = "5", "const_value" = "-123"); """
+    qt_const3 """ select * from numbers("number" = "-10", "const_value" = "1"); """
+    qt_const4 """ select avg(number) from numbers("number" = "100", "const_value" = "123"); """
+
     // Test aggregate function withh numbers("number" = N)
     qt_agg_sum """ select sum(number) from numbers("number" = "100"); """
     qt_agg_avg """ select avg(number) from numbers("number" = "100"); """
@@ -129,13 +134,13 @@
         sql """ select * from numbers('number' = 'abc'); """
 
         // check exception
-        exception "can not parse `number` param to natural number"
+        exception "cannot parse param value abc"
     }
 
     test {
         sql """ select * from numbers(); """
 
         // check exception
-        exception """can not find `number` param, please specify `number`, like: numbers("number" = "10")"""
+        exception """number not set"""
     }
  }

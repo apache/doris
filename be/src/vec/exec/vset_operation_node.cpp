@@ -55,12 +55,8 @@ namespace vectorized {
 template <bool is_intersect>
 VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs),
-          _valid_element_in_hash_tbl(0),
-          _mem_used(0),
-          _build_block_index(0),
-          _build_finished(false) {
-    _hash_table_variants = std::make_unique<HashTableVariants>();
+        : ExecNode(pool, tnode, descs), _valid_element_in_hash_tbl(0), _build_finished(false) {
+    _hash_table_variants = std::make_unique<SetHashTableVariants>();
 }
 
 template <bool is_intersect>
@@ -90,7 +86,7 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
         return Status::NotSupported("Not Implemented, Check The Operation Node.");
     }
 
-    for (auto& texprs : *result_texpr_lists) {
+    for (const auto& texprs : *result_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
@@ -219,7 +215,7 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         }
         return;
     }
-    if (!try_get_hash_map_context_fixed<PartitionedHashMap, HashCRC32, RowRefListWithFlags>(
+    if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32, RowRefListWithFlags>(
                 *_hash_table_variants, _child_expr_lists[0])) {
         _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
     }
@@ -228,36 +224,36 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, bool eos) {
     SCOPED_TIMER(_exec_timer);
-    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
 
     if (block->rows() != 0) {
-        _mem_used += block->allocated_bytes();
         RETURN_IF_ERROR(_mutable_block.merge(*block));
+        if (_mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
+            return Status::NotSupported("set operator do not support build table rows over:" +
+                                        std::to_string(std::numeric_limits<uint32_t>::max()));
+        }
     }
 
-    if (eos || _mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
-        _build_blocks.emplace_back(_mutable_block.to_block());
-        RETURN_IF_ERROR(
-                process_build_block(_build_blocks[_build_block_index], _build_block_index, state));
-        _mutable_block.clear();
-        ++_build_block_index;
-
-        if (eos) {
-            if constexpr (is_intersect) {
-                _valid_element_in_hash_tbl = 0;
-            } else {
-                std::visit(
-                        [&](auto&& arg) {
-                            using HashTableCtxType = std::decay_t<decltype(arg)>;
-                            if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                _valid_element_in_hash_tbl = arg.hash_table->size();
-                            }
-                        },
-                        *_hash_table_variants);
-            }
-            _build_finished = true;
-            _can_read = _children.size() == 1;
+    if (eos) {
+        if (!_mutable_block.empty()) {
+            _build_block = _mutable_block.to_block();
         }
+        RETURN_IF_ERROR(process_build_block(_build_block, state));
+        _mutable_block.clear();
+
+        if constexpr (is_intersect) {
+            _valid_element_in_hash_tbl = 0;
+        } else {
+            std::visit(
+                    [&](auto&& arg) {
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            _valid_element_in_hash_tbl = arg.hash_table->size();
+                        }
+                    },
+                    *_hash_table_variants);
+        }
+        _build_finished = true;
+        _can_read = _children.size() == 1;
     }
     return Status::OK();
 }
@@ -310,8 +306,7 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_t offset,
-                                                            RuntimeState* state) {
+Status VSetOperationNode<is_intersect>::process_build_block(Block& block, RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -326,7 +321,7 @@ Status VSetOperationNode<is_intersect>::process_build_block(Block& block, uint8_
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
-                            this, rows, raw_ptrs, offset, state);
+                            this, rows, raw_ptrs, state);
                     st = hash_table_build_process(arg, _arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -342,8 +337,8 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
                                                          int& block_size) {
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
-        auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+        const auto& column = *_build_block.get_by_position(idx->first).column;
+        if (_mutable_cols[idx->second]->is_nullable() ^ column.is_nullable()) {
             DCHECK(_mutable_cols[idx->second]->is_nullable());
             ((ColumnNullable*)(_mutable_cols[idx->second].get()))
                     ->insert_from_not_nullable(column, it->row_num);
@@ -429,10 +424,10 @@ Status VSetOperationNode<is_intersect>::extract_build_column(Block& block,
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (_build_not_ignore_null[i]) {
                 raw_ptrs[i] = nullable;
             } else {
@@ -457,10 +452,10 @@ Status VSetOperationNode<is_intersect>::extract_probe_column(Block& block, Colum
 
         block.get_by_position(result_col_id).column =
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        auto column = block.get_by_position(result_col_id).column.get();
+        const auto* column = block.get_by_position(result_col_id).column.get();
 
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
-            auto& col_nested = nullable->get_nested_column();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+            const auto& col_nested = nullable->get_nested_column();
             if (_build_not_ignore_null[i]) { //same as build column
                 raw_ptrs[i] = nullable;
             } else {
@@ -501,8 +496,8 @@ void VSetOperationNode<is_intersect>::debug_string(int indentation_level,
                                                    std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << " _child_expr_lists=[";
-    for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        *out << VExpr::debug_string(_child_expr_lists[i]) << ", ";
+    for (const auto& _child_expr_list : _child_expr_lists) {
+        *out << VExpr::debug_string(_child_expr_list) << ", ";
     }
     *out << "] \n";
     ExecNode::debug_string(indentation_level, out);
@@ -512,10 +507,6 @@ void VSetOperationNode<is_intersect>::debug_string(int indentation_level,
 template <bool is_intersect>
 void VSetOperationNode<is_intersect>::release_mem() {
     _hash_table_variants = nullptr;
-
-    std::vector<Block> tmp_build_blocks;
-    _build_blocks.swap(tmp_build_blocks);
-
     _probe_block.clear();
 }
 
@@ -525,50 +516,45 @@ void VSetOperationNode<is_intersect>::refresh_hash_table() {
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    if constexpr (std::is_same_v<typename HashTableCtxType::Mapped,
-                                                 RowRefListWithFlags>) {
-                        auto tmp_hash_table =
-                                std::make_shared<typename HashTableCtxType::HashMapType>();
-                        bool is_need_shrink =
-                                arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
-                        if (is_intersect || is_need_shrink) {
-                            tmp_hash_table->init_buf_size(
-                                    _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
-                        }
+                    auto tmp_hash_table =
+                            std::make_shared<typename HashTableCtxType::HashMapType>();
+                    bool is_need_shrink =
+                            arg.hash_table->should_be_shrink(_valid_element_in_hash_tbl);
+                    if (is_intersect || is_need_shrink) {
+                        tmp_hash_table->init_buf_size(
+                                _valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1);
+                    }
 
-                        arg.init_iterator();
-                        auto& iter = arg.iterator;
-                        auto iter_end = arg.hash_table->end();
-                        std::visit(
-                                [&](auto is_need_shrink_const) {
-                                    while (iter != iter_end) {
-                                        auto& mapped = iter->get_second();
-                                        auto it = mapped.begin();
+                    arg.init_iterator();
+                    auto& iter = arg.iterator;
+                    auto iter_end = arg.hash_table->end();
+                    std::visit(
+                            [&](auto is_need_shrink_const) {
+                                while (iter != iter_end) {
+                                    auto& mapped = iter->get_second();
+                                    auto it = mapped.begin();
 
-                                        if constexpr (is_intersect) { //intersected
-                                            if (it->visited) {
-                                                it->visited = false;
+                                    if constexpr (is_intersect) { //intersected
+                                        if (it->visited) {
+                                            it->visited = false;
+                                            tmp_hash_table->insert(iter->get_value());
+                                        }
+                                        ++iter;
+                                    } else { //except
+                                        if constexpr (is_need_shrink_const) {
+                                            if (!it->visited) {
                                                 tmp_hash_table->insert(iter->get_value());
                                             }
-                                            ++iter;
-                                        } else { //except
-                                            if constexpr (is_need_shrink_const) {
-                                                if (!it->visited) {
-                                                    tmp_hash_table->insert(iter->get_value());
-                                                }
-                                            }
-                                            ++iter;
                                         }
+                                        ++iter;
                                     }
-                                },
-                                make_bool_variant(is_need_shrink));
+                                }
+                            },
+                            make_bool_variant(is_need_shrink));
 
-                        arg.reset();
-                        if (is_intersect || is_need_shrink) {
-                            arg.hash_table = std::move(tmp_hash_table);
-                        }
-                    } else {
-                        LOG(FATAL) << "FATAL: Invalid RowRefList";
+                    arg.reset();
+                    if (is_intersect || is_need_shrink) {
+                        arg.hash_table = std::move(tmp_hash_table);
                     }
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -587,22 +573,18 @@ Status VSetOperationNode<is_intersected>::get_data_in_hashtable(HashTableContext
     auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
-    if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {
-        for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-            auto& value = iter->get_second();
-            auto it = value.begin();
-            if constexpr (is_intersected) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    add_result_columns(value, block_size);
-                }
-            } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    add_result_columns(value, block_size);
-                }
+    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+        auto& value = iter->get_second();
+        auto it = value.begin();
+        if constexpr (is_intersected) {
+            if (it->visited) { //intersected: have done probe, so visited values it's the result
+                add_result_columns(value, block_size);
+            }
+        } else {
+            if (!it->visited) { //except: haven't visited values it's the needed result
+                add_result_columns(value, block_size);
             }
         }
-    } else {
-        return Status::InternalError("Invalid RowRefListType!");
     }
 
     *eos = iter == hash_table_ctx.hash_table->end();

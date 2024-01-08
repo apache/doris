@@ -36,8 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-// import org.junit.jupiter.api.RepeatedTest; only for debug
+import org.junit.jupiter.api.RepeatedTest;
 
 import java.io.DataOutput;
 import java.io.File;
@@ -74,7 +73,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
     @AfterAll
     public static void cleanUp() throws Exception {
         for (File dir : tmpDirs) {
-            LOG.info("deleteTmpDir path {}", dir.getAbsolutePath());
+            LOG.debug("deleteTmpDir path {}", dir.getAbsolutePath());
             FileUtils.deleteDirectory(dir);
         }
     }
@@ -98,8 +97,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         return port;
     }
 
-    // @RepeatedTest(100) only for debug
-    @Test
+    @RepeatedTest(1)
     public void testNormal() throws Exception {
         int port = findValidPort();
         Preconditions.checkArgument(((port > 0) && (port < 65535)));
@@ -197,14 +195,16 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(5, journal.getDatabaseNames().size());
         Assertions.assertEquals(41, journal.getDatabaseNames().get(4));
 
-        JournalCursor cursor = journal.read(1, 50);
+        JournalCursor cursor = journal.read(1, 51);
         Assertions.assertNotNull(cursor);
-        for (int i = 1; i < 50; i++) {
+        for (int i = 0; i < 50; i++) {
             Pair<Long, JournalEntity> kv = cursor.next();
             Assertions.assertNotNull(kv);
             JournalEntity entity = kv.second;
             Assertions.assertEquals(OperationType.OP_TIMESTAMP, entity.getOpCode());
         }
+
+        Assertions.assertEquals(null, cursor.next());
 
         journal.close();
         Assertions.assertEquals(null, journal.getBDBEnvironment());
@@ -223,7 +223,7 @@ public class BDBJEJournalTest { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use
         Assertions.assertEquals(ReplicatedEnvironment.State.MASTER,
                 journal.getBDBEnvironment().getReplicatedEnvironment().getState());
         journal.deleteJournals(21);
-        LOG.info("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
+        LOG.debug("journal.getDatabaseNames(): {}", journal.getDatabaseNames());
         Assertions.assertEquals(3, journal.getDatabaseNames().size());
         Assertions.assertEquals(21, journal.getDatabaseNames().get(0));
         journal.close();

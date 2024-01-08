@@ -393,11 +393,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `system_time_zone`
 
-    Displays the current system time zone. Cannot be changed.
+    Set to the current system time zone when the cluster is initialised. It cannot be changed.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
+    Used to set the time zone for the current session. Defaults to the value of `system_time_zone`. It affects the results of certain time functions. For more information, see the [time zone](./time-zone) documentation.
     
 * `tx_isolation`
 
@@ -700,6 +700,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
   <version since="2.0.2">
   Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
   </version>
+
+* `describe_extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
 
 ***
 

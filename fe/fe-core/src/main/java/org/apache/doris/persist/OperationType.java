@@ -304,6 +304,9 @@ public class OperationType {
     public static final short OP_CREATE_WORKLOAD_GROUP = 410;
     public static final short OP_DROP_WORKLOAD_GROUP = 411;
     public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+    public static final short OP_CREATE_WORKLOAD_SCHED_POLICY = 413;
+    public static final short OP_ALTER_WORKLOAD_SCHED_POLICY = 414;
+    public static final short OP_DROP_WORKLOAD_SCHED_POLICY = 415;
 
     // query stats 440 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
@@ -347,6 +350,10 @@ public class OperationType {
     public static final short OP_ALTER_CATALOG_COMMENT = 458;
 
     public static final short OP_ALTER_MTMV = 459;
+
+    public static final short OP_ALTER_REPOSITORY = 460;
+
+    public static final short OP_INSERT_OVERWRITE = 461;
 
     /**
      * Get opcode name by op code.

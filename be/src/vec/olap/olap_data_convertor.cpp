@@ -131,7 +131,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal64>>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128I>>();
+        return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal128V3>>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
         return std::make_unique<OlapColumnDataConvertorDecimalV3<Decimal256>>();
@@ -838,14 +838,14 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap() {
     assert(_typed_column.column);
-    const vectorized::ColumnDecimal<vectorized::Decimal128>* column_decimal = nullptr;
+    const vectorized::ColumnDecimal<vectorized::Decimal128V2>* column_decimal = nullptr;
     if (_nullmap) {
         auto nullable_column =
                 assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
+        column_decimal = assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
                 _typed_column.column.get());
     }
 
@@ -1061,16 +1061,24 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
 void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     // set
-    auto variant = assert_cast<const ColumnObject&>(*typed_column.column);
-    if (!variant.is_finalized()) {
-        variant.finalize();
+    const ColumnNullable* nullable_column = nullptr;
+    if (typed_column.column->is_nullable()) {
+        nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
+        _nullmap = nullable_column->get_null_map_data().data();
     }
-    auto root = variant.get_root();
-    auto nullable = assert_cast<const ColumnNullable*>(root.get());
+    const auto& variant =
+            nullable_column == nullptr
+                    ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
+                    : assert_cast<const vectorized::ColumnObject&>(
+                              nullable_column->get_nested_column());
+
+    const_cast<ColumnObject&>(variant).finalize_if_not();
+    auto root_of_variant = variant.get_root();
+    auto nullable = assert_cast<const ColumnNullable*>(root_of_variant.get());
     CHECK(nullable);
     _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
-    _nullmap = nullable->get_null_map_data().data();
-    _root_data_convertor->set_source_column({root->get_ptr(), nullptr, ""}, row_pos, num_rows);
+    _root_data_convertor->set_source_column({root_of_variant->get_ptr(), nullptr, ""}, row_pos,
+                                            num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }

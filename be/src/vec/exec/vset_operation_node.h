@@ -49,6 +49,20 @@ namespace vectorized {
 class VExprContext;
 struct RowRefListWithFlags;
 
+using SetHashTableVariants = std::variant<
+        std::monostate, SerializedHashTableContext<RowRefListWithFlags>,
+        I8HashTableContext<RowRefListWithFlags>, I16HashTableContext<RowRefListWithFlags>,
+        I32HashTableContext<RowRefListWithFlags>, I64HashTableContext<RowRefListWithFlags>,
+        I128HashTableContext<RowRefListWithFlags>, I256HashTableContext<RowRefListWithFlags>,
+        I64FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I64FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+
 template <bool is_intersect>
 class VSetOperationNode final : public ExecNode {
 public:
@@ -74,7 +88,6 @@ public:
     bool is_child_finished(int child_id) const;
 
     int64_t* valid_element_in_hash_tbl() { return &_valid_element_in_hash_tbl; }
-    int64_t* mem_used() { return &_mem_used; };
 
 private:
     void _finalize_probe(int child_id);
@@ -82,7 +95,7 @@ private:
     //It's time to abstract out the same methods and provide them directly to others;
     void hash_table_init();
     Status hash_table_build(RuntimeState* state);
-    Status process_build_block(Block& block, uint8_t offset, RuntimeState* state);
+    Status process_build_block(Block& block, RuntimeState* state);
     Status extract_build_column(Block& block, ColumnRawPtrs& raw_ptrs);
     Status extract_probe_column(Block& block, ColumnRawPtrs& raw_ptrs, int child_id);
     void refresh_hash_table();
@@ -96,7 +109,7 @@ private:
     void create_mutable_cols(Block* output_block);
     void release_mem();
 
-    std::unique_ptr<HashTableVariants> _hash_table_variants;
+    std::unique_ptr<SetHashTableVariants> _hash_table_variants;
 
     std::vector<bool> _build_not_ignore_null;
 
@@ -110,22 +123,19 @@ private:
     //first:column_id, could point to origin column or cast column
     //second:idx mapped to column types
     std::unordered_map<int, int> _build_col_idx;
-    //record memory during running
-    int64_t _mem_used;
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
 
-    std::vector<Block> _build_blocks;
+    Block _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     std::vector<MutableColumnPtr> _mutable_cols;
-    int _build_block_index;
     bool _build_finished;
     std::vector<bool> _probe_finished_children_index;
     MutableBlock _mutable_block;
-    RuntimeProfile::Counter* _build_timer; // time to build hash table
-    RuntimeProfile::Counter* _probe_timer; // time to probe
-    RuntimeProfile::Counter* _pull_timer;  // time to pull data
+    RuntimeProfile::Counter* _build_timer = nullptr; // time to build hash table
+    RuntimeProfile::Counter* _probe_timer = nullptr; // time to probe
+    RuntimeProfile::Counter* _pull_timer = nullptr;  // time to pull data
     Arena _arena;
 
     template <class HashTableContext, bool is_intersected>

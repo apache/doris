@@ -65,7 +65,7 @@ public:
     }
 
 private:
-    char* _data;
+    char* _data = nullptr;
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size;
     size_t _capacity = 0;
@@ -157,46 +157,33 @@ public:
     void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
-    // Page cache available check.
-    // When percentage is set to 0 or 100, the index or data cache will not be allocated.
-    bool is_cache_available(segment_v2::PageTypePB page_type) {
-        return _get_page_cache(page_type) != nullptr;
-    }
-
 private:
     StoragePageCache();
 
     int32_t _index_cache_percentage = 0;
-    std::unique_ptr<DataPageCache> _data_page_cache = nullptr;
-    std::unique_ptr<IndexPageCache> _index_page_cache = nullptr;
+    std::unique_ptr<DataPageCache> _data_page_cache;
+    std::unique_ptr<IndexPageCache> _index_page_cache;
     // Cache data for primary key index data page, seperated from data
     // page cache to make it for flexible. we need this cache When construct
     // delete bitmap in unique key with mow
-    std::unique_ptr<PKIndexPageCache> _pk_index_page_cache = nullptr;
+    std::unique_ptr<PKIndexPageCache> _pk_index_page_cache;
 
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
-            if (_data_page_cache) {
-                return _data_page_cache->get();
-            }
-            return nullptr;
+            return _data_page_cache->cache();
         }
         case segment_v2::INDEX_PAGE: {
-            if (_index_page_cache) {
-                return _index_page_cache->get();
-            }
-            return nullptr;
+            return _index_page_cache->cache();
         }
         case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
-            if (_pk_index_page_cache) {
-                return _pk_index_page_cache->get();
-            }
-            return nullptr;
+            return _pk_index_page_cache->cache();
         }
         default:
-            return nullptr;
+            LOG(FATAL) << "get error type page cache";
         }
+        LOG(FATAL) << "__builtin_unreachable";
+        __builtin_unreachable();
     }
 };
 

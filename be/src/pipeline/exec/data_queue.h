@@ -25,10 +25,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "util/spinlock.h"
 #include "vec/core/block.h"
 
-namespace doris {
-namespace pipeline {
+namespace doris::pipeline {
 
 class Dependency;
 
@@ -60,12 +60,15 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
-    void set_source_dependency(Dependency* source_dependency) {
+    void set_source_dependency(std::shared_ptr<Dependency> source_dependency) {
         _source_dependency = source_dependency;
     }
     void set_sink_dependency(Dependency* sink_dependency, int child_idx) {
         _sink_dependencies[child_idx] = sink_dependency;
     }
+
+    void set_source_ready();
+    void set_source_block();
 
 private:
     friend class AggSourceDependency;
@@ -101,9 +104,9 @@ private:
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
     // data queue is multi sink one source
-    Dependency* _source_dependency = nullptr;
+    std::shared_ptr<Dependency> _source_dependency = nullptr;
     std::vector<Dependency*> _sink_dependencies;
+    SpinLock _source_lock;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

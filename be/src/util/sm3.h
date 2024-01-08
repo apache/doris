@@ -36,8 +36,8 @@ public:
     const std::string& hex() const { return _hex; }
 
 private:
-    EVP_MD_CTX* _ctx;
-    const EVP_MD* _md;
+    EVP_MD_CTX* _ctx = nullptr;
+    const EVP_MD* _md = nullptr;
 
     std::string _hex;
 };

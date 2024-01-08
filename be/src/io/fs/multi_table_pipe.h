@@ -80,7 +80,7 @@ private:
     // note: Use raw pointer here to avoid cycle reference with StreamLoadContext.
     // Life cycle of MultiTablePipe is under control of StreamLoadContext, which means StreamLoadContext is created
     // before NultiTablePipe and released after it. It is safe to use raw pointer here.
-    StreamLoadContext* _ctx;
+    StreamLoadContext* _ctx = nullptr;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
     std::mutex _tablet_commit_infos_lock;

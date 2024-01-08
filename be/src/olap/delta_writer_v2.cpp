@@ -53,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -64,16 +65,18 @@ namespace doris {
 using namespace ErrorCode;
 
 std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+        RuntimeState* state) {
     std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance()));
+            new DeltaWriterV2(req, streams, StorageEngine::instance(), state));
     return writer;
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine)
-        : _req(*req),
+                             StorageEngine* storage_engine, RuntimeState* state)
+        : _state(state),
+          _req(*req),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -81,8 +84,10 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
 void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
     auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
     auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto wait_flush_limit_timer = ADD_TIMER(child, "WaitFlushLimitTime");
     auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
     COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(wait_flush_limit_timer, _wait_flush_limit_time);
     COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
@@ -100,6 +105,7 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
+    DBUG_EXECUTE_IF("DeltaWriterV2.init.stream_size", { _streams.clear(); });
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
@@ -113,6 +119,7 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -139,8 +146,9 @@ Status DeltaWriterV2::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                             bool is_append) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
@@ -149,6 +157,18 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
+    }
+    {
+        SCOPED_RAW_TIMER(&_wait_flush_limit_time);
+        auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
+        DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
+                        { memtable_flush_running_count_limit = 0; });
+        while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
+            if (_state->is_cancelled()) {
+                return Status::Cancelled(_state->cancel_reason());
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
@@ -196,14 +216,6 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
     _is_cancelled = true;
     return Status::OK();
-}
-
-int64_t DeltaWriterV2::mem_consumption(MemType mem) {
-    return _memtable_writer->mem_consumption(mem);
-}
-
-int64_t DeltaWriterV2::partition_id() const {
-    return _req.partition_id;
 }
 
 void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,

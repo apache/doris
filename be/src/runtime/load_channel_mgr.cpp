@@ -72,10 +72,6 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
-LoadChannelMgr::~LoadChannelMgr() {
-    delete _last_success_channel;
-}
-
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
@@ -86,7 +82,7 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
+    _last_success_channels = std::make_unique<LastSuccessChannelCache>(1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
@@ -127,10 +123,10 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
     if (it == _load_channels.end()) {
-        auto handle = _last_success_channel->lookup(load_id.to_string());
+        auto handle = _last_success_channels->cache()->lookup(load_id.to_string());
         // success only when eos be true
         if (handle != nullptr) {
-            _last_success_channel->release(handle);
+            _last_success_channels->cache()->release(handle);
             if (request.has_eos() && request.eos()) {
                 is_eof = true;
                 return Status::OK();
@@ -186,8 +182,9 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
         if (_load_channels.find(load_id) != _load_channels.end()) {
             _load_channels.erase(load_id);
         }
-        auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
-        _last_success_channel->release(handle);
+        auto handle = _last_success_channels->cache()->insert(load_id.to_string(), nullptr, 1,
+                                                              dummy_deleter);
+        _last_success_channels->cache()->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
 }

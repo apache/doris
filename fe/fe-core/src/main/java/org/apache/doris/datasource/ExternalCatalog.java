@@ -287,7 +287,7 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
-    public void setUninitialized(boolean invalidCache) {
+    public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;

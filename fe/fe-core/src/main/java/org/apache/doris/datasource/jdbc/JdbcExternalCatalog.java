@@ -19,7 +19,6 @@ package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -27,6 +26,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +64,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
+        }
+    }
+
+    @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
         }
     }
 
@@ -127,7 +135,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     public String getLowerCaseTableNames() {
         // Forced to true if Config.lower_case_table_names has a value of 1 or 2
-        if (Config.lower_case_table_names == 1 || Config.lower_case_table_names == 2) {
+        if (GlobalVariable.lowerCaseTableNames == 1 || GlobalVariable.lowerCaseTableNames == 2) {
             return "true";
         }
 
@@ -202,5 +210,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                         + "only_specified_database is false");
             }
         }
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     * @param stmt, the raw stmt string
+     */
+    public void executeStmt(String stmt) {
+        makeSureInitialized();
+        jdbcClient.executeStmt(stmt);
     }
 }

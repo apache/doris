@@ -61,7 +61,7 @@ protected:
     TupleId _tuple_id;
 
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };

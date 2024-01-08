@@ -54,7 +54,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>> {
+class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
 
@@ -123,7 +123,12 @@ public:
     friend class SetProbeSinkLocalState<is_intersect>;
     SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                           const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id),
+              _cur_child_id(child_id),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate),
+              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
+                                            : tnode.except_node.result_expr_lists[child_id]) {}
     ~SetProbeSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
@@ -139,6 +144,10 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+    }
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
@@ -149,6 +158,8 @@ private:
     const int _cur_child_id;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child_x;
 };
 

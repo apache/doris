@@ -157,7 +157,7 @@ public:
 
     private:
         Constructor(Cell* cell) : _cell(cell) {}
-        Cell* _cell;
+        Cell* _cell = nullptr;
     };
 
     template <typename KeyHolder, typename Func, typename Origin>
@@ -254,7 +254,7 @@ protected:
     class iterator_base {
         using Container = std::conditional_t<is_const, const Self, Self>;
 
-        Container* container;
+        Container* container = nullptr;
         int sub_table_index;
         typename T1::iterator iterator1;
         typename T2::iterator iterator2;

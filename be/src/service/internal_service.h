@@ -204,6 +204,10 @@ public:
                              const PGroupCommitInsertRequest* request,
                              PGroupCommitInsertResponse* response,
                              google::protobuf::Closure* done) override;
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
 
     void get_wal_queue_size(google::protobuf::RpcController* controller,
                             const PGetWalQueueSizeRequest* request,
@@ -236,11 +240,6 @@ private:
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
 
-    void _tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                  const PTabletWriterAddBlockRequest* request,
-                                  PTabletWriterAddBlockResult* response,
-                                  google::protobuf::Closure* done);
-
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);
@@ -252,7 +251,7 @@ private:
                                        google::protobuf::Closure* done);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
     // the reason see issue #16634

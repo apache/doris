@@ -18,10 +18,7 @@
 package org.apache.doris.clone;
 
 import org.apache.doris.catalog.CatalogRecycleBin;
-import org.apache.doris.catalog.DataProperty;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -30,11 +27,12 @@ import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -213,12 +211,22 @@ public class DiskRebalancer extends Rebalancer {
                 if (alternativeTabletIds.contains(tabletId)) {
                     continue;
                 }
+                if (!Config.enable_disk_balance_for_single_replica
+                        && invertedIndex.getReplicasByTabletId(tabletId).size() <= 1) {
+                    continue;
+                }
                 Replica replica = invertedIndex.getReplica(tabletId, beStat.getBeId());
                 if (replica == null) {
                     continue;
                 }
                 // ignore empty replicas as they do not make disk more balance. (disk usage)
                 if (replica.getDataSize() == 0) {
+                    continue;
+                }
+
+                // backend not support migrate cooldown tablets
+                TUniqueId cooldownMetaId = replica.getCooldownMetaId();
+                if (cooldownMetaId != null && (cooldownMetaId.getLo() != 0 || cooldownMetaId.getHi() != 0)) {
                     continue;
                 }
 
@@ -302,21 +310,6 @@ public class DiskRebalancer extends Rebalancer {
         // ignore empty replicas as they do not make disk more balance
         if (replica.getDataSize() == 0) {
             throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "size of src replica is zero");
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrException(tabletCtx.getDbId(),
-                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                        "db " + tabletCtx.getDbId() + " does not exist"));
-        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(),
-                s -> new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                        "tbl " + tabletCtx.getTblId() + " does not exist"));
-        DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(tabletCtx.getPartitionId());
-        if (dataProperty == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "data property is null");
-        }
-        String storagePolicy = dataProperty.getStoragePolicy();
-        if (!Strings.isNullOrEmpty(storagePolicy)) {
-            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                    "disk balance not support for cooldown storage");
         }
 
         // check src slot

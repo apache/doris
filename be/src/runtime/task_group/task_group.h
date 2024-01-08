@@ -43,7 +43,6 @@ namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-class ScanTaskQueue;
 
 template <typename QueueType>
 class TaskGroupEntity {
@@ -70,10 +69,10 @@ public:
     void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
 
 private:
-    QueueType* _task_queue;
+    QueueType* _task_queue = nullptr;
 
     uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg;
+    taskgroup::TaskGroup* _tg = nullptr;
 
     std::string _type;
 
@@ -88,9 +87,6 @@ private:
 using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
 using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
 
-using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue>;
-using TGSTEntityPtr = TaskGroupScanTaskEntity*;
-
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
@@ -101,7 +97,6 @@ public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
 
     TaskGroupPipelineTaskEntity* task_entity() { return &_task_entity; }
-    TGSTEntityPtr local_scan_task_entity() { return &_local_scan_entity; }
 
     int64_t version() const { return _version; }
 
@@ -155,7 +150,6 @@ private:
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
     TaskGroupPipelineTaskEntity _task_entity;
-    TaskGroupScanTaskEntity _local_scan_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
 };
@@ -173,7 +167,7 @@ struct TaskGroupInfo {
     bool enable_cpu_hard_limit;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
-    uint64_t cgroup_cpu_hard_limit = 0;
+    int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
                                    taskgroup::TaskGroupInfo* task_group_info);

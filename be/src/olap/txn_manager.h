@@ -44,6 +44,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/time.h"
 #include "vec/core/block.h"
 
@@ -85,7 +86,6 @@ public:
         delete[] _txn_mutex;
         delete[] _txn_tablet_delta_writer_map;
         delete[] _txn_tablet_delta_writer_map_locks;
-        delete _tablet_version_cache;
     }
 
     // add a txn to manager
@@ -221,26 +221,34 @@ private:
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
+    class TabletVersionCache : public LRUCachePolicy {
+    public:
+        TabletVersionCache(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+    };
+
 private:
     const int32_t _txn_map_shard_size;
 
     const int32_t _txn_shard_size;
 
     // _txn_map_locks[i] protect _txn_tablet_maps[i], i=0,1,2...,and i < _txn_map_shard_size
-    txn_tablet_map_t* _txn_tablet_maps;
+    txn_tablet_map_t* _txn_tablet_maps = nullptr;
     // transaction_id -> corresponding partition ids
     // This is mainly for the clear txn task received from FE, which may only has transaction id,
     // so we need this map to find out which partitions are corresponding to a transaction id.
     // The _txn_partition_maps[i] should be constructed/deconstructed/modified alongside with '_txn_tablet_maps[i]'
-    txn_partition_map_t* _txn_partition_maps;
+    txn_partition_map_t* _txn_partition_maps = nullptr;
 
-    std::shared_mutex* _txn_map_locks;
+    std::shared_mutex* _txn_map_locks = nullptr;
 
-    std::shared_mutex* _txn_mutex;
+    std::shared_mutex* _txn_mutex = nullptr;
 
-    txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map;
-    ShardedLRUCache* _tablet_version_cache;
-    std::shared_mutex* _txn_tablet_delta_writer_map_locks;
+    txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map = nullptr;
+    std::unique_ptr<TabletVersionCache> _tablet_version_cache;
+    std::shared_mutex* _txn_tablet_delta_writer_map_locks = nullptr;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 

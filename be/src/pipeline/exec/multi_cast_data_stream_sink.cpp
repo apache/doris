@@ -25,7 +25,7 @@ OperatorPtr MultiCastDataStreamSinkOperatorBuilder::build_operator() {
     return std::make_shared<MultiCastDataStreamSinkOperator>(this, _sink);
 }
 
-std::string MultiCastDataStreamSinkLocalState::id_name() {
+std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto& sinks = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent)->sink_node().sinks;
     std::string id_name = " (dst id : ";
     for (auto& sink : sinks) {

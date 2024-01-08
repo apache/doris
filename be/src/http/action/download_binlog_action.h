@@ -44,7 +44,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 };
 
 } // namespace doris

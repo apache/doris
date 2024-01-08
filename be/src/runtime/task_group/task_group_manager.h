@@ -51,7 +51,7 @@ public:
     void get_resource_groups(const std::function<bool(const TaskGroupPtr& ptr)>& pred,
                              std::vector<TaskGroupPtr>* task_groups);
 
-    Status upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
+    Status upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info, ExecEnv* exec_env);
 
     void delete_task_group_by_ids(std::set<uint64_t> id_set);
 
@@ -65,7 +65,11 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
-    bool set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr);
+    bool set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr);
+
+    // currently cgroup both support cpu soft limit and cpu hard limit
+    // doris task group only support cpu soft limit
+    bool enable_cgroup() { return enable_cpu_hard_limit() || config::enable_cgroup_cpu_soft_limit; }
 
 private:
     std::shared_mutex _group_mutex;
@@ -73,10 +77,14 @@ private:
 
     // map for workload group id and task scheduler pool
     // used for cpu hard limit
-    std::mutex _task_scheduler_lock;
+    std::shared_mutex _task_scheduler_lock;
     std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
     std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
     std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
+
+    std::shared_mutex _init_cg_ctl_lock;
+    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
+    bool _is_init_succ = false;
 };
 
 } // namespace taskgroup

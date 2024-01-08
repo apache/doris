@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
@@ -125,5 +127,15 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
         return withProjects(prunedOutputs);
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies.Builder builder = new FunctionalDependencies.Builder();
+        outputSupplier.get().forEach(s -> {
+            builder.addUniformSlot(s);
+            builder.addUniqueSlot(s);
+        });
+        return builder.build();
     }
 }

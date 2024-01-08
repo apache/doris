@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,7 +36,7 @@ public class StructInfoNode extends AbstractNode {
     private List<HyperGraph> graphs = new ArrayList<>();
 
     public StructInfoNode(int index, Plan plan, List<Edge> edges) {
-        super(plan, index, edges);
+        super(extractPlan(plan), index, edges);
     }
 
     public StructInfoNode(int index, Plan plan) {
@@ -44,6 +48,18 @@ public class StructInfoNode extends AbstractNode {
         this.graphs = graphs;
     }
 
+    private static Plan extractPlan(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            //TODO: Note mv can be in logicalExpression, how can we choose it
+            plan = ((GroupPlan) plan).getGroup().getLogicalExpressions().get(0)
+                    .getPlan();
+        }
+        List<Plan> children = plan.children().stream()
+                .map(StructInfoNode::extractPlan)
+                .collect(ImmutableList.toImmutableList());
+        return plan.withChildren(children);
+    }
+
     public boolean needToFlat() {
         return !graphs.isEmpty();
     }
@@ -52,4 +68,9 @@ public class StructInfoNode extends AbstractNode {
         return graphs;
     }
 
+    @Override
+    public String toString() {
+        return Utils.toSqlString("StructInfoNode[" + this.getName() + "]",
+                "plan", this.plan.treeString());
+    }
 }

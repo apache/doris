@@ -240,10 +240,8 @@ public:
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
-    /// Warning:
-    ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
-                                     const int* indices_end) = 0;
+    virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                     const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
@@ -455,6 +453,7 @@ public:
       * For example, if nan_direction_hint == -1 is used by descending sorting, NaNs will be at the end.
       *
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
+      * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
@@ -552,6 +551,7 @@ public:
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
     using ColumnCallback = std::function<void(WrappedPtr&)>;
+    using ImutableColumnCallback = std::function<void(const IColumn&)>;
     virtual void for_each_subcolumn(ColumnCallback) {}
 
     /// Columns have equal structure.
@@ -697,6 +697,8 @@ public:
 
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
+
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }

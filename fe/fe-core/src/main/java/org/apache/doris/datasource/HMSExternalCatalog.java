@@ -25,8 +25,10 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.hive.HMSCachedClient;
+import org.apache.doris.datasource.hive.HMSCachedClientFactory;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -54,7 +56,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     private static final int MIN_CLIENT_POOL_SIZE = 8;
-    protected PooledHiveMetaStoreClient client;
+    protected HMSCachedClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
     // Reference to https://github.com/apDdlache/doris/issues/18251
@@ -144,33 +146,44 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        HiveConf hiveConf = new HiveConf();
-        for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-            hiveConf.set(kv.getKey(), kv.getValue());
-        }
-        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                String.valueOf(Config.hive_metastore_client_timeout_second));
-        String authentication = catalogProperty.getOrDefault(
-                HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
-        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(hiveConf);
-            try {
-                /**
-                 * Because metastore client is created by using
-                 * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
-                 * it will relogin when TGT is expired, so we don't need to relogin manually.
-                 */
-                UserGroupInformation.loginUserFromKeytab(
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
-                        catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
-            } catch (IOException e) {
-                throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
+        HiveConf hiveConf = null;
+        JdbcClientConfig jdbcClientConfig = null;
+        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
+        if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
+            jdbcClientConfig = new JdbcClientConfig();
+            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
+            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
+            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
+            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
+            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
+        } else {
+            hiveConf = new HiveConf();
+            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
+                hiveConf.set(kv.getKey(), kv.getValue());
+            }
+            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                    String.valueOf(Config.hive_metastore_client_timeout_second));
+            String authentication = catalogProperty.getOrDefault(
+                    HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
+            if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+                hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+                UserGroupInformation.setConfiguration(hiveConf);
+                try {
+                    /**
+                     * Because metastore client is created by using
+                     * {@link org.apache.hadoop.hive.metastore.RetryingMetaStoreClient#getProxy}
+                     * it will relogin when TGT is expired, so we don't need to relogin manually.
+                     */
+                    UserGroupInformation.loginUserFromKeytab(
+                            catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_PRINCIPAL, ""),
+                            catalogProperty.getOrDefault(HdfsResource.HADOOP_KERBEROS_KEYTAB, ""));
+                } catch (IOException e) {
+                    throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
+                }
             }
         }
-
-        client = new PooledHiveMetaStoreClient(hiveConf,
-                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
+        client = HMSCachedClientFactory.createCachedClient(hiveConf,
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size), jdbcClientConfig);
     }
 
     @Override
@@ -201,7 +214,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
     }
 
-    public PooledHiveMetaStoreClient getClient() {
+    public HMSCachedClient getClient() {
         makeSureInitialized();
         return client;
     }

@@ -60,6 +60,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -98,17 +99,24 @@ private:
 
         bool is_closed() { return _is_closed.load(); }
 
+        bool is_eos() { return _is_eos.load(); }
+
         Status close_wait(int64_t timeout_ms) {
+            DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
             std::unique_lock<bthread::Mutex> lock(_mutex);
             if (_is_closed) {
                 return Status::OK();
             }
-            if (timeout_ms > 0) {
-                int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-                return ret == 0 ? Status::OK()
-                                : Status::Error<true>(ret, "stream close_wait timeout");
+            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+            if (ret != 0) {
+                return Status::InternalError(
+                        "stream close_wait timeout, load_id={}, be_id={}, error={}",
+                        _load_id.to_string(), _dst_id, ret);
             }
-            _close_cv.wait(lock);
+            if (!_is_eos.load()) {
+                return Status::InternalError("stream closed without eos, load_id={} be_id={}",
+                                             _load_id.to_string(), _dst_id);
+            }
             return Status::OK();
         };
 
@@ -117,7 +125,7 @@ private:
             return _success_tablets;
         }
 
-        std::vector<int64_t> failed_tablets() {
+        std::unordered_map<int64_t, Status> failed_tablets() {
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             return _failed_tablets;
         }
@@ -129,15 +137,16 @@ private:
         UniqueId _load_id;    // for logging
         int64_t _dst_id = -1; // for logging
         std::atomic<bool> _is_closed;
+        std::atomic<bool> _is_eos;
         bthread::Mutex _mutex;
         bthread::ConditionVariable _close_cv;
 
         bthread::Mutex _success_tablets_mutex;
         bthread::Mutex _failed_tablets_mutex;
         std::vector<int64_t> _success_tablets;
-        std::vector<int64_t> _failed_tablets;
+        std::unordered_map<int64_t, Status> _failed_tablets;
 
-        LoadStreamStub* _stub;
+        LoadStreamStub* _stub = nullptr;
     };
 
 public:
@@ -166,11 +175,13 @@ public:
             // APPEND_DATA
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                        int64_t segment_id, std::span<const Slice> data, bool segment_eos = false);
+                        int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                        bool segment_eos = false);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                       int64_t segment_id, const SegmentStatistics& segment_stat);
+                       int64_t segment_id, const SegmentStatistics& segment_stat,
+                       TabletSchemaSPtr flush_schema);
 
     // CLOSE_LOAD
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);
@@ -178,11 +189,22 @@ public:
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
 
+    // close stream, usually close is initiated by the remote.
+    // in case of remote failure, we should be able to close stream locally.
+    Status close_stream();
+
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     Status close_wait(int64_t timeout_ms = 0) {
+        DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
+            while (true) {
+            };
+        });
         if (!_is_init.load() || _handler.is_closed()) {
             return Status::OK();
+        }
+        if (timeout_ms <= 0) {
+            timeout_ms = config::close_load_stream_timeout_ms;
         }
         return _handler.close_wait(timeout_ms);
     }
@@ -212,7 +234,7 @@ public:
 
     std::vector<int64_t> success_tablets() { return _handler.success_tablets(); }
 
-    std::vector<int64_t> failed_tablets() { return _handler.failed_tablets(); }
+    std::unordered_map<int64_t, Status> failed_tablets() { return _handler.failed_tablets(); }
 
     brpc::StreamId stream_id() const { return _stream_id; }
 

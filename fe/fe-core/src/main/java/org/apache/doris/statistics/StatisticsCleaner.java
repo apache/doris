@@ -28,7 +28,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -75,11 +74,20 @@ public class StatisticsCleaner extends MasterDaemon {
     }
 
     public synchronized void clear() {
-        if (!init()) {
-            return;
+        try {
+            if (!init()) {
+                return;
+            }
+            clearStats(colStatsTbl);
+            clearStats(histStatsTbl);
+        } finally {
+            colStatsTbl = null;
+            histStatsTbl = null;
+            idToCatalog = null;
+            idToDb = null;
+            idToTbl = null;
+            idToMVIdx = null;
         }
-        clearStats(colStatsTbl);
-        clearStats(histStatsTbl);
     }
 
     private void clearStats(OlapTable statsTbl) {
@@ -94,7 +102,7 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private boolean init() {
         try {
-            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+            String dbName = FeConstants.INTERNAL_DB_NAME;
             colStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,

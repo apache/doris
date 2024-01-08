@@ -65,7 +65,7 @@ private:
     friend class BitmapIndexIterator;
 
     io::FileReaderSPtr _file_reader;
-    const TypeInfo* _type_info;
+    const TypeInfo* _type_info = nullptr;
     bool _has_null = false;
     DorisCallOnce<Status> _load_once;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
@@ -112,7 +112,7 @@ public:
     rowid_t current_ordinal() const { return _current_rowid; }
 
 private:
-    BitmapIndexReader* _reader;
+    BitmapIndexReader* _reader = nullptr;
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
     rowid_t _current_rowid;

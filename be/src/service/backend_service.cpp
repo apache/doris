@@ -405,7 +405,7 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    start_plan_fragment_execution(params).set_t_status(&return_val);
+    return_val.__set_status(start_plan_fragment_execution(params).to_thrift());
 }
 
 Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params) {
@@ -522,7 +522,7 @@ int64_t BackendService::get_trash_used_capacity() {
                                                                        false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         result += root_path_info.trash_used_capacity;
@@ -537,7 +537,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
                                                                        false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
@@ -679,8 +679,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BackendService::clean_trash() {
     static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener(
-            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE));
+    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {

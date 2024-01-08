@@ -82,10 +82,11 @@ Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWrite
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
+Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                                       TabletSchemaSPtr flush_schema) {
     for (const auto& stream : _streams) {
         RETURN_IF_ERROR(stream->add_segment(_context.partition_id, _context.index_id,
-                                            _context.tablet_id, segment_id, segstat));
+                                            _context.tablet_id, segment_id, segstat, flush_schema));
     }
     return Status::OK();
 }
@@ -96,11 +97,9 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
         return Status::OK();
     }
 
-    TabletSchemaSPtr flush_schema;
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        RETURN_IF_ERROR(
-                _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
+        RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));
     }
     // delete bitmap and seg compaction are done on the destination BE.
     return Status::OK();

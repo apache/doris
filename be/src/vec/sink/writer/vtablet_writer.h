@@ -30,8 +30,6 @@
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
-#include "olap/wal_writer.h"
-#include "vwal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <atomic>
 #include <chrono> // IWYU pragma: keep
@@ -58,7 +56,6 @@
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
-#include "olap/wal_writer.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -368,7 +365,7 @@ protected:
     std::mutex _pending_batches_lock;          // reuse for vectorized
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
-    std::shared_ptr<PBackendService_Stub> _stub = nullptr;
+    std::shared_ptr<PBackendService_Stub> _stub;
     // because we have incremantal open, we should keep one relative closure for one request. it's similarly for adding block.
     std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
 
@@ -394,7 +391,7 @@ protected:
     std::mutex _closed_lock;
     bool _is_closed = false;
 
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
     // rows number filtered per tablet, tablet_id -> filtered_rows_num
@@ -476,7 +473,7 @@ private:
     friend class VTabletWriter;
     friend class VRowDistribution;
 
-    VTabletWriter* _parent;
+    VTabletWriter* _parent = nullptr;
     int64_t _index_id;
     vectorized::VExprContextSPtr _where_clause;
 
@@ -519,9 +516,9 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status close(Status) override;
 
@@ -566,7 +563,7 @@ private:
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     bthread_t _sender_thread = 0;
 
@@ -660,11 +657,9 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
-    std::shared_ptr<VWalWriter> _v_wal_writer = nullptr;
 };
 } // namespace doris::vectorized

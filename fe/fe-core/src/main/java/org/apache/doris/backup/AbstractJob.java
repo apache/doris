@@ -173,6 +173,8 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract Status updateRepo(Repository repo);
+
     public static AbstractJob read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
             AbstractJob job = null;

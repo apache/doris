@@ -138,7 +138,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
 
    设置完成后，user1 在发起对 UserTable 表的查询时，只会访问 `group_a` 资源组内节点上的数据副本，并且查询仅会使用 `group_a` 资源组内的节点计算资源。而 user3 的查询可以使用任意资源组内的副本和计算资源。
 
-   > 注：默认情况下，用户的 `resource_tags.location` 属性为空，在2.0.2（含）之前的版本中，默认情况下，用户不受 tag 的限制，可以使用任意资源组。在 2.0.3 版本之后，默认情况下，用户只能使用 `default` 资源组。
+   > 注：默认情况下，用户的 `resource_tags.location` 属性为空，在2.0.2（含）之前的版本中，默认情况下，用户不受 tag 的限制，可以使用任意资源组。在 2.0.3 版本之后，默认情况下，普通用户只能使用 `default` 资源组。root 和 admin 用户可以使用任意资源组。
 
    这样，我们通过对节点的划分，以及对用户的资源使用限制，实现了不同用户查询上的物理资源隔离。更进一步，我们可以给不同的业务部门创建不同的用户，并限制每个用户使用不同的资源组。以避免不同业务部分之间使用资源干扰。比如集群内有一张业务表需要共享给所有9个业务部门使用，但是希望能够尽量避免不同部门之间的资源抢占。则我们可以为这张表创建3个副本，分别存储在3个资源组中。接下来，我们为9个业务部门创建9个用户，每3个用户限制使用一个资源组。这样，资源的竞争程度就由9降低到了3。
 
@@ -249,7 +249,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
 
   ```sql
    CREATE DATABASE db1 PROPERTIES (
-   "replication_allocation" = "tag.location.group_a:1, tag.location.group_b:2"
+   "replication_allocation" = "tag.location.group_c:1, tag.location.group_b:2"
    )
    ```
    
@@ -260,7 +260,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
    (k1 int, k2 int)
    distributed by hash(k1) buckets 1
    properties(
-   "replication_allocation"="tag.location.group_c:1, tag.location.group_b:2"
+   "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
    )
    ```
 

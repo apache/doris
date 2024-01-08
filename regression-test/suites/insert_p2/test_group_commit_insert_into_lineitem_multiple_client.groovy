@@ -35,22 +35,22 @@ String[] getFiles(String dirName, int num) {
 suite("test_group_commit_insert_into_lineitem_multiple_client") {
     String[] file_array;
     def prepare = {
-        def dataDir = "${context.config.cacheDataPath}/lineitem/"
+        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_multiple_client"
         File dir = new File(dataDir)
         if (!dir.exists()) {
-            new File("${context.config.cacheDataPath}/lineitem/").mkdir()
-            for (int i = 1; i <= 10; i++) {
-                logger.info("download lineitem.tbl.${i}")
-                def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.${i}
---output ${context.config.cacheDataPath}/lineitem/lineitem.tbl.${i}""".execute().getText()
-            }
+            new File(dataDir).mkdir()
+            logger.info("download lineitem")
+            def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.1
+--output ${dataDir}/lineitem.tbl.1""".execute().getText()
+            def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
+            def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 10)
+        file_array = getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
     }
-    def insert_table = "test_insert_into_lineitem_multiple_client_sf1"
+    def insert_table = "test_insert_into_lineitem_multiple_client"
     def batch = 100;
     def total = 0;
     def rwLock = new ReentrantReadWriteLock();
@@ -103,13 +103,30 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 
-    def do_insert_into = { file_name ->
+    def do_insert_into = { exp_str, num ->
+        def i = 0;
+        while (true) {
+            try {
+                def result = insert_into_sql(exp_str, num);
+                logger.info("result:" + result);
+                break
+            } catch (Exception e) {
+                logger.info("got exception:" + e)
+            }
+            i++;
+            if (i >= 30) {
+                throw new Exception("""fail to much time""")
+            }
+        }
+    }
+
+    def insert_file = { file_name ->
         logger.info("file:" + file_name)
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
         //read and insert
         BufferedReader reader;
@@ -128,15 +145,7 @@ PROPERTIES (
                 if (c == batch) {
                     sb.append(";");
                     String exp = sb.toString();
-                    while (true) {
-                        try {
-                            def result = insert_into_sql(exp, c);
-                            logger.info("result:" + result);
-                            break
-                        } catch (Exception e) {
-                            logger.info("got exception:" + e)
-                        }
-                    }
+                    do_insert_into(exp, c);
                     c = 0;
                 }
                 s = reader.readLine();
@@ -162,15 +171,7 @@ PROPERTIES (
                 } else if (c > 0) {
                     sb.append(";");
                     String exp = sb.toString();
-                    while (true) {
-                        try {
-                            def result = insert_into_sql(exp, c);
-                            logger.info("result:" + result);
-                            break
-                        } catch (Exception e) {
-                            logger.info("got exception:" + e)
-                        }
-                    }
+                    do_insert_into(exp, c);
                     break;
                 } else {
                     break;
@@ -198,7 +199,7 @@ PROPERTIES (
             String file_name = file_array[n]
             logger.info("insert into file:" + file_name)
             threads.add(Thread.startDaemon {
-                do_insert_into(file_name)
+                insert_file(file_name)
             })
         }
         for (Thread th in threads) {

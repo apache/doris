@@ -59,17 +59,17 @@ class VRowDistribution {
 public:
     // only used to pass parameters for VRowDistribution
     struct VRowDistributionContext {
-        RuntimeState* state;
-        OlapTableBlockConvertor* block_convertor;
-        OlapTabletFinder* tablet_finder;
-        VOlapTablePartitionParam* vpartition;
-        RuntimeProfile::Counter* add_partition_request_timer;
+        RuntimeState* state = nullptr;
+        OlapTableBlockConvertor* block_convertor = nullptr;
+        OlapTabletFinder* tablet_finder = nullptr;
+        VOlapTablePartitionParam* vpartition = nullptr;
+        RuntimeProfile::Counter* add_partition_request_timer = nullptr;
         int64_t txn_id = -1;
-        ObjectPool* pool;
-        OlapTableLocationParam* location;
-        const VExprContextSPtrs* vec_output_expr_ctxs;
+        ObjectPool* pool = nullptr;
+        OlapTableLocationParam* location = nullptr;
+        const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
-        void* caller;
+        void* caller = nullptr;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -96,11 +96,13 @@ public:
 
     Status open(RowDescriptor* output_row_desc) {
         if (_vpartition->is_auto_partition()) {
-            auto [part_ctx, part_func] = _get_partition_function();
-            RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
-            RETURN_IF_ERROR(part_ctx->open(_state));
+            auto [part_ctxs, part_funcs] = _get_partition_function();
+            for (auto part_ctx : part_ctxs) {
+                RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
+                RETURN_IF_ERROR(part_ctx->open(_state));
+            }
         }
-        for (auto& index : _schema->indexes()) {
+        for (const auto& index : _schema->indexes()) {
             auto& where_clause = index->where_clause;
             if (where_clause != nullptr) {
                 RETURN_IF_ERROR(where_clause->prepare(_state, *output_row_desc));
@@ -125,9 +127,9 @@ public:
     void clear_batching_stats();
 
 private:
-    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
+    std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
-    Status _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
+    Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
                                 Block* block, std::vector<int64_t> filter);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -142,11 +144,12 @@ private:
     Status _filter_block(vectorized::Block* block,
                          std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
-    Status _generate_rows_distribution_for_auto_parititon(
-            vectorized::Block* block, int partition_col_idx, bool has_filtered_rows,
-            std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val);
+    Status _generate_rows_distribution_for_auto_partition(
+            vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
+            bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+            int64_t& rows_stat_val);
 
-    Status _generate_rows_distribution_for_non_auto_parititon(
+    Status _generate_rows_distribution_for_non_auto_partition(
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
@@ -157,25 +160,22 @@ private:
     int _batch_size = 0;
 
     // for auto partitions
-    std::vector<std::vector<TStringLiteral>>
-            _partitions_need_create; // support only one partition column now
+    std::vector<std::vector<TStringLiteral>> _partitions_need_create;
     std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
     size_t _batching_rows = 0, _batching_bytes = 0;
-    std::set<std::string> _deduper;
 
-    MonotonicStopWatch _row_distribution_watch;
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
     VOlapTablePartitionParam* _vpartition = nullptr;
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     int64_t _txn_id = -1;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     OlapTableLocationParam* _location = nullptr;
     // int64_t _number_output_rows = 0;
-    const VExprContextSPtrs* _vec_output_expr_ctxs;
+    const VExprContextSPtrs* _vec_output_expr_ctxs = nullptr;
     CreatePartitionCallback _create_partition_callback = nullptr;
-    void* _caller;
+    void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
 
     // reuse for find_tablet.

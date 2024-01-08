@@ -31,6 +31,10 @@ MaxCompute (previously known as ODPS) is a data warehousing solution that can pr
 
 > [What is MaxCompute](https://www.alibabacloud.com/help/en/maxcompute/product-overview/what-is-maxcompute)
 
+## Instructions
+1. Max Compute Catalog is developed based on [Max Compute Tunnel SDK](https://www.alibabacloud.com/help/en/maxcompute/user-guide/overview-28?spm=a2c63.p38356.0.0.7d951a91knT73F), and Query performance is limited.
+2. During a query, Max Compute DownloadSession objects are created for each Scan. Therefore, performance will degrade when Max Compute is accessed in parallel. It is recommended that minimize the number of partitions and the size of the queried data when using the Max Compute Catalog.
+
 ## Connect to MaxCompute
 
 ```sql

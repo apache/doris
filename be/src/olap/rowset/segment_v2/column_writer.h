@@ -51,7 +51,7 @@ struct ColumnWriterOptions {
     // input and output parameter:
     // - input: column_id/unique_id/type/length/encoding/compression/is_nullable members
     // - output: encoding/indexes/dict_page members
-    ColumnMetaPB* meta;
+    ColumnMetaPB* meta = nullptr;
     size_t data_page_size = 64 * 1024;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size

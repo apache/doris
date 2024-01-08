@@ -18,6 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -25,6 +27,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -35,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -54,7 +58,7 @@ public class TableStatsMeta implements Writable {
 
     // Used for external table.
     @SerializedName("rowCount")
-    public final long rowCount;
+    public long rowCount;
 
     @SerializedName("updateTime")
     public long updatedTime;
@@ -64,6 +68,15 @@ public class TableStatsMeta implements Writable {
 
     @SerializedName("trigger")
     public JobType jobType;
+
+    @SerializedName("newPartitionLoaded")
+    public AtomicBoolean newPartitionLoaded = new AtomicBoolean(false);
+
+    @VisibleForTesting
+    public TableStatsMeta() {
+        tblId = 0;
+        idxId = 0;
+    }
 
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
@@ -133,14 +146,29 @@ public class TableStatsMeta implements Writable {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+                colStatsMeta.jobType = analyzedJob.jobType;
             }
         }
         jobType = analyzedJob.jobType;
-        if (tableIf != null && analyzedJob.colToPartitions.keySet()
-                .containsAll(tableIf.getBaseSchema().stream()
-                    .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                    .map(Column::getName).collect(Collectors.toSet()))) {
-            updatedRows.set(0);
+        if (tableIf != null) {
+            if (tableIf instanceof OlapTable) {
+                rowCount = tableIf.getRowCount();
+            }
+            if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
+                    .containsAll(tableIf.getBaseSchema().stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .map(Column::getName).collect(Collectors.toSet()))) {
+                updatedRows.set(0);
+                newPartitionLoaded.set(false);
+            }
+            if (tableIf instanceof OlapTable) {
+                PartitionInfo partitionInfo = ((OlapTable) tableIf).getPartitionInfo();
+                if (partitionInfo != null && analyzedJob.colToPartitions.keySet()
+                        .containsAll(partitionInfo.getPartitionColumns().stream()
+                            .map(Column::getName).collect(Collectors.toSet()))) {
+                    newPartitionLoaded.set(false);
+                }
+            }
         }
     }
 }

@@ -54,6 +54,7 @@ public:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
+    std::string name_suffix() const override;
 
 private:
     std::vector<TScanRangeParams> _scan_ranges;
@@ -69,8 +70,10 @@ private:
 class FileScanOperatorX final : public ScanOperatorX<FileScanLocalState> {
 public:
     FileScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs)
-            : ScanOperatorX<FileScanLocalState>(pool, tnode, operator_id, descs) {
+                      const DescriptorTbl& descs, int parallel_tasks)
+            : ScanOperatorX<FileScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
+              _table_name(tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name
+                                                                  : "") {
         _output_tuple_id = tnode.file_scan_node.tuple_id;
     }
 
@@ -78,6 +81,8 @@ public:
 
 private:
     friend class FileScanLocalState;
+
+    const std::string _table_name;
 };
 
 } // namespace doris::pipeline

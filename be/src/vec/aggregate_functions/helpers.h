@@ -44,8 +44,8 @@
 #define FOR_DECIMAL_TYPES(M) \
     M(Decimal32)             \
     M(Decimal64)             \
-    M(Decimal128)            \
-    M(Decimal128I)           \
+    M(Decimal128V2)          \
+    M(Decimal128V3)          \
     M(Decimal256)
 
 /** If the serialized type is not the default type(string),

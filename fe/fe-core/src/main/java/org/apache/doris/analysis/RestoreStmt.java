@@ -112,6 +112,10 @@ public class RestoreStmt extends AbstractBackupStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
             isLocal = true;
+            if (jobInfo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "restore from the local repo via SQL call is not supported");
+            }
         }
         super.analyze(analyzer);
     }

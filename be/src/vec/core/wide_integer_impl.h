@@ -1452,6 +1452,18 @@ constexpr bool operator!=(const Arithmetic& lhs, const Arithmetic2& rhs) {
     return CT(lhs) != CT(rhs);
 }
 
+template <size_t Bits, typename Signed, size_t Bits2, typename Signed2>
+constexpr auto operator<=>(const integer<Bits, Signed>& lhs, const integer<Bits2, Signed2>& rhs) {
+    return (lhs == rhs ? std::strong_ordering::equal
+                       : (lhs > rhs ? std::strong_ordering::greater : std::strong_ordering::less));
+}
+
+template <typename Arithmetic, typename Arithmetic2, class>
+constexpr auto operator<=>(const Arithmetic& rhs, const Arithmetic2& lhs) {
+    return (lhs == rhs ? std::strong_ordering::equal
+                       : (lhs > rhs ? std::strong_ordering::greater : std::strong_ordering::less));
+}
+
 #undef CT
 
 } // namespace wide

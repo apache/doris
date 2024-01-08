@@ -34,9 +34,11 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -54,26 +56,54 @@ namespace lucene {
 namespace search {
 class IndexSearcher;
 } // namespace search
+namespace util {
+namespace bkd {
+class bkd_reader;
+}
+} // namespace util
 } // namespace lucene
 
 namespace doris {
 struct OlapReaderStatistics;
 
 namespace segment_v2 {
-using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
+using FulltextIndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
+using BKDIndexSearcherPtr = std::shared_ptr<lucene::util::bkd::bkd_reader>;
+using IndexSearcherPtr = std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>;
+using OptionalIndexSearcherPtr = std::optional<IndexSearcherPtr>;
 
 class InvertedIndexCacheHandle;
+class DorisCompoundReader;
 
-class InvertedIndexSearcherCache : public LRUCachePolicy {
+class IndexSearcherBuilder {
+public:
+    virtual Status build(DorisCompoundReader* directory,
+                         OptionalIndexSearcherPtr& output_searcher) = 0;
+    virtual ~IndexSearcherBuilder() = default;
+};
+
+class FulltextIndexSearcherBuilder : public IndexSearcherBuilder {
+public:
+    Status build(DorisCompoundReader* directory,
+                 OptionalIndexSearcherPtr& output_searcher) override;
+};
+
+class BKDIndexSearcherBuilder : public IndexSearcherBuilder {
+public:
+    Status build(DorisCompoundReader* directory,
+                 OptionalIndexSearcherPtr& output_searcher) override;
+};
+
+class InvertedIndexSearcherCache {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
-        CacheKey(std::string index_file_path) : index_file_path(index_file_path) {}
+        CacheKey(std::string index_file_path) : index_file_path(std::move(index_file_path)) {}
         std::string index_file_path;
     };
 
     // The cache value of index_searcher lru cache.
-    // Holding a opened index_searcher.
+    // Holding an opened index_searcher.
     struct CacheValue : public LRUCacheValueBase {
         IndexSearcherPtr index_searcher;
     };
@@ -83,39 +113,51 @@ public:
     static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
                                                               uint32_t num_shards = 16);
 
-    void reset() {
-        _cache.reset();
-        _mem_tracker.reset();
-        // Reset or clear the state of the object.
-    }
-
     // Return global instance.
     // Client should call create_global_cache before.
     static InvertedIndexSearcherCache* instance() {
         return ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
     }
 
-    static IndexSearcherPtr build_index_searcher(const io::FileSystemSPtr& fs,
-                                                 const std::string& index_dir,
-                                                 const std::string& file_name);
-
     InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards);
 
     Status get_index_searcher(const io::FileSystemSPtr& fs, const std::string& index_dir,
                               const std::string& file_name, InvertedIndexCacheHandle* cache_handle,
-                              OlapReaderStatistics* stats, bool use_cache = true);
+                              OlapReaderStatistics* stats, InvertedIndexReaderType reader_type,
+                              bool& has_null, bool use_cache = true);
 
     // function `insert` called after inverted index writer close
     Status insert(const io::FileSystemSPtr& fs, const std::string& index_dir,
-                  const std::string& file_name);
+                  const std::string& file_name, InvertedIndexReaderType reader_type);
 
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
+
+    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
 
     int64_t mem_consumption();
 
 private:
     InvertedIndexSearcherCache();
+
+    class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
+    public:
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, true) {}
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity,
+                                         CacheValueTimeExtractor cache_value_time_extractor,
+                                         bool cache_value_check_timestamp)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, cache_value_time_extractor,
+                                 cache_value_check_timestamp, true) {}
+    };
 
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
@@ -127,8 +169,7 @@ private:
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
 
-private:
-    std::unique_ptr<MemTracker> _mem_tracker = nullptr;
+    std::unique_ptr<InvertedIndexSearcherCachePolicy> _policy;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;
@@ -184,6 +225,8 @@ public:
 public:
     // If set to true, the loaded index_searcher will be saved in index_searcher, not in lru cache;
     bool owned = false;
+    // If index searcher include non-null bitmap.
+    bool has_null = true;
     IndexSearcherPtr index_searcher;
 
 private:
@@ -211,7 +254,7 @@ public:
             key_buf.append("/");
             key_buf.append(column_name);
             key_buf.append("/");
-            auto query_type_str = InvertedIndexQueryType_toString(query_type);
+            auto query_type_str = query_type_to_string(query_type);
             if (query_type_str.empty()) {
                 return "";
             }

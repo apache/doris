@@ -79,8 +79,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
                 auto column_uid = index.col_unique_ids()[0];
-                const TabletIndex* exist_index =
-                        output_rs_tablet_schema->get_inverted_index(column_uid);
+                const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
+                const TabletIndex* exist_index = output_rs_tablet_schema->get_inverted_index(col);
                 if (exist_index && exist_index->index_id() != index.index_id()) {
                     LOG(WARNING) << fmt::format(
                             "column: {} has a exist inverted index, but the index id not equal "
@@ -153,6 +153,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         std::string segment_dir = _tablet->tablet_path();
         auto fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string segment_filename = fmt::format(
                     "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
@@ -173,11 +174,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     continue;
                 }
                 auto column = output_rowset_schema->column(column_idx);
-                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
+                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                auto index_meta = output_rowset_schema->get_inverted_index(column.unique_id());
+                auto index_meta = output_rowset_schema->get_inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
                     RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(
@@ -243,11 +244,18 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
                 }
+                inverted_index_size += _inverted_index_builders[writer_sign]->file_size();
             }
 
             _olap_data_convertor->reset();
         }
         _inverted_index_builders.clear();
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                               inverted_index_size);
+        output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                inverted_index_size);
+        output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                inverted_index_size);
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
     }
 

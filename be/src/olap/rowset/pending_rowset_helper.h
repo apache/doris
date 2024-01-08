@@ -56,7 +56,7 @@ private:
     explicit PendingRowsetGuard(const RowsetId& rowset_id, PendingRowsetSet* set);
 
     RowsetId _rowset_id;
-    PendingRowsetSet* _pending_rowset_set {nullptr};
+    PendingRowsetSet* _pending_rowset_set = nullptr;
 };
 
 // Pending rowsets refer to those rowsets that are under construction, and have not been added to

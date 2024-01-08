@@ -58,6 +58,7 @@ public:
         for (int i = 0; i < mutable_columns.size(); ++i) {
             columns[i]->append_data_by_selector(mutable_columns[i], selector);
         }
+        blocks.back()->set_columns(std::move(mutable_columns));
         init_rows = init_rows - selector.size();
         total_rows = total_rows + selector.size();
         selector.clear();
@@ -221,19 +222,19 @@ private:
     int _num_partition = 0;
     int64_t _partition_inner_limit = 0;
     int _sort_idx = 0;
-    std::unique_ptr<SortCursorCmp> _previous_row = nullptr;
+    std::unique_ptr<SortCursorCmp> _previous_row;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;
     TPartTopNPhase::type _topn_phase;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _partition_sort_timer = nullptr;
+    RuntimeProfile::Counter* _get_sorted_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     //only for profile record
     std::vector<int> partition_profile_output_rows;
 };

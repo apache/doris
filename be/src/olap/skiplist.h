@@ -59,7 +59,7 @@ public:
     // Note: The user should guarantee that there must not be any other insertion
     // between calling Find() and InsertWithHint().
     struct Hint {
-        Node* curr;
+        Node* curr = nullptr;
         Node* prev[kMaxHeight];
     };
 
@@ -114,8 +114,8 @@ public:
         void SeekToLast();
 
     private:
-        const SkipList* list_;
-        Node* node_;
+        const SkipList* list_ = nullptr;
+        Node* node_ = nullptr;
         // Intentionally copyable
     };
 

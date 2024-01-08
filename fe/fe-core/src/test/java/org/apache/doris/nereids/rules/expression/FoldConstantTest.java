@@ -263,7 +263,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 : new DateTimeLiteral(1995, 5, 1, 0, 0, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval 3 + 3 / 2 hour + '1991-05-01 10:00:00'";
+        interval = "interval 3 + 3 / 3 hour + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = Config.enable_date_conversion
                 ? new DateTimeV2Literal(1991, 5, 1, 14, 0, 0)
@@ -277,7 +277,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 : new DateTimeLiteral(1991, 5, 1, 10, 2, 0);
         assertRewrite(e7, e8);
 
-        interval = "interval 3 / 2 + 1 second + '1991-05-01 10:00:00'";
+        interval = "interval 3 / 3 + 1 second + '1991-05-01 10:00:00'";
         e7 = process((TimestampArithmetic) PARSER.parseExpression(interval));
         e8 = Config.enable_date_conversion
                 ? new DateTimeV2Literal(1991, 5, 1, 10, 0, 2)

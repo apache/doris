@@ -101,6 +101,15 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows);
             }
         } else {
+            if (ctx->group_commit && status->is<DATA_QUALITY_ERROR>()) {
+                ctx->number_total_rows = state->num_rows_load_total();
+                ctx->number_loaded_rows = state->num_rows_load_success();
+                ctx->number_filtered_rows = state->num_rows_load_filtered();
+                ctx->number_unselected_rows = state->num_rows_load_unselected();
+                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+                }
+            }
             LOG(WARNING) << "fragment execute failed"
                          << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();

@@ -62,6 +62,15 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     }
 }
 
+void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
+    DCHECK(statistics != nullptr);
+    statistics->scan_bytes = scan_bytes;
+    statistics->scan_rows = scan_rows;
+    statistics->cpu_ms = cpu_ms;
+    statistics->returned_rows = returned_rows;
+    statistics->max_peak_memory_bytes = max_peak_memory_bytes;
+}
+
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     scan_rows = statistics.scan_rows();
     scan_bytes = statistics.scan_bytes();
@@ -107,7 +116,7 @@ QueryStatistics::~QueryStatistics() {
 }
 
 void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender_id) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (!_query_statistics.contains(sender_id)) {
         _query_statistics[sender_id] = std::make_shared<QueryStatistics>();
     }
@@ -117,12 +126,12 @@ void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender
 void QueryStatisticsRecvr::insert(QueryStatisticsPtr statistics, int sender_id) {
     if (!statistics->collected()) return;
     if (_query_statistics.contains(sender_id)) return;
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     _query_statistics[sender_id] = statistics;
 }
 
 QueryStatisticsPtr QueryStatisticsRecvr::find(int sender_id) {
-    std::lock_guard<SpinLock> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     auto it = _query_statistics.find(sender_id);
     if (it != _query_statistics.end()) {
         return it->second;

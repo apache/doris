@@ -35,7 +35,8 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
           _local_state(nullptr),
           _limit(limit),
           _profile(profile),
-          _output_tuple_desc(parent->output_tuple_desc()) {
+          _output_tuple_desc(parent->output_tuple_desc()),
+          _output_row_descriptor(_parent->_output_row_descriptor.get()) {
     _total_rf_num = _parent->runtime_filter_num();
 }
 
@@ -46,7 +47,8 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
           _local_state(local_state),
           _limit(limit),
           _profile(profile),
-          _output_tuple_desc(_local_state->output_tuple_desc()) {
+          _output_tuple_desc(_local_state->output_tuple_desc()),
+          _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
     _total_rf_num = _local_state->runtime_filter_num();
 }
 
@@ -58,7 +60,28 @@ Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts
         }
     }
 
+    const auto& projections = _parent ? _parent->_projections : _local_state->_projections;
+    if (!projections.empty()) {
+        _projections.resize(projections.size());
+        for (size_t i = 0; i != projections.size(); ++i) {
+            RETURN_IF_ERROR(projections[i]->clone(state, _projections[i]));
+        }
+    }
+
     return Status::OK();
+}
+
+Status VScanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                          bool* eos) {
+    auto& row_descriptor =
+            _parent ? _parent->_row_descriptor : _local_state->_parent->row_descriptor();
+    if (_output_row_descriptor) {
+        _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        auto status = get_block(state, &_origin_block, eos);
+        if (UNLIKELY(!status.ok())) return status;
+        return _do_projections(&_origin_block, block);
+    }
+    return get_block(state, block, eos);
 }
 
 Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
@@ -106,19 +129,17 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
-        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+        } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
 
     if (state->is_cancelled()) {
         return Status::Cancelled("cancelled");
     }
-
+    *eof = *eof || _should_stop;
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
-    if (_limit > 0 && _num_rows_return >= _limit) {
-        *eof = true;
-    }
+    *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
 
     return Status::OK();
 }
@@ -138,6 +159,47 @@ Status VScanner::_filter_output_block(Block* block) {
         }
     }
     return st;
+}
+
+Status VScanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+    auto projection_timer = _parent ? _parent->_projection_timer : _local_state->_projection_timer;
+    auto exec_timer = _parent ? _parent->_exec_timer : _local_state->_exec_timer;
+    SCOPED_TIMER(exec_timer);
+    SCOPED_TIMER(projection_timer);
+
+    MutableBlock mutable_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
+    auto rows = origin_block->rows();
+
+    if (rows != 0) {
+        auto& mutable_columns = mutable_block.mutable_columns();
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error in scanner, output of projections {} mismatches with "
+                    "scanner output {}",
+                    _projections.size(), mutable_columns.size());
+        }
+
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            auto result_column_id = -1;
+            RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
+            auto column_ptr = origin_block->get_by_position(result_column_id)
+                                      .column->convert_to_full_column_if_const();
+            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
+        }
+        DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
+    }
+
+    return Status::OK();
 }
 
 Status VScanner::try_append_late_arrival_runtime_filter() {

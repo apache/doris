@@ -52,7 +52,6 @@ public:
 
     size_t get_number_of_arguments() const override { return _argument_types.size(); }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     String get_name() const override { return fmt::format("{}_state", _agg_function->get_name()); }

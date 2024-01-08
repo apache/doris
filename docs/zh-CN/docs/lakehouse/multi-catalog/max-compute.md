@@ -31,6 +31,10 @@ MaxCompute是阿里云上的企业级SaaS（Software as a Service）模式云数
 
 > [什么是 MaxCompute](https://help.aliyun.com/zh/maxcompute/product-overview/what-is-maxcompute?spm=a2c4g.11174283.0.i1)
 
+## 使用须知
+1. Max Compute Catalog基于[Max Compute Tunnel SDK](https://help.aliyun.com/zh/maxcompute/user-guide/overview-28?spm=a2c4g.11186623.0.0.376d66c2FNv6aS)开发。查询性能有一定限制。
+2. 在一次查询中，每个Scan都会创建Max Compute的DownloadSession对象，并行访问Max Compute时性能会下降，建议使用Max Compute Catalog时，尽量减少查询的分区数量和数据大小。
+
 ## 连接 Max Compute
 
 ```sql

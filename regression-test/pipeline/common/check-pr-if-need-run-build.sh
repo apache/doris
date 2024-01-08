@@ -169,7 +169,12 @@ need_run_ckb() {
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
-            [[ "${af}" == 'env.sh' ]]; then
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/github-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
+            [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
             echo "clickbench performance related file changed, return need" && return 0
         fi
     done

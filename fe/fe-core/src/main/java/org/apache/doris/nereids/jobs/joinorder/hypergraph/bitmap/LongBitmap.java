@@ -150,9 +150,17 @@ public class LongBitmap {
         return Long.numberOfTrailingZeros(bitmap);
     }
 
+    /**
+     * use to calculate table bitmap
+     * @param relationIdSet relationIds
+     * @return bitmap
+     */
     public static Long computeTableBitmap(Set<RelationId> relationIdSet) {
         Long totalBitmap = 0L;
         for (RelationId id : relationIdSet) {
+            if (id == null) {
+                continue;
+            }
             totalBitmap = LongBitmap.set(totalBitmap, (id.asInt()));
         }
         return totalBitmap;

@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class DataGenOperator : public SourceOperator<DataGenOperatorBuilder> {
+class DataGenOperator : public SourceOperator<vectorized::VDataGenFunctionScanNode> {
 public:
     DataGenOperator(OperatorBuilderBase* operator_builder, ExecNode* datagen_node);
 
@@ -84,7 +84,7 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };

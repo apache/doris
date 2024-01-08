@@ -43,6 +43,8 @@ class TxnManager;
 class OlapMeta;
 class RowsetIdGenerator;
 
+const char* const kTestFilePath = ".testfile";
+
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
@@ -127,15 +129,18 @@ public:
 
     void update_remote_data_size(int64_t size);
 
-    size_t disk_capacity() const;
-
-    size_t disk_available() const;
-
-    size_t tablet_num() const;
+    size_t tablet_size() const;
 
     void disks_compaction_score_increment(int64_t delta);
 
     void disks_compaction_num_increment(int64_t delta);
+
+    double get_usage(int64_t incoming_data_size) const {
+        return _disk_capacity_bytes == 0
+                       ? 0
+                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                                 (double)_disk_capacity_bytes;
+    }
 
     // Move tablet to trash.
     Status move_to_trash(const std::string& tablet_path);
@@ -175,8 +180,8 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    TabletManager* _tablet_manager;
-    TxnManager* _txn_manager;
+    TabletManager* _tablet_manager = nullptr;
+    TxnManager* _txn_manager = nullptr;
     int32_t _cluster_id;
     bool _cluster_id_incomplete = false;
     // This flag will be set true if this store was not in root path when reloading
@@ -193,14 +198,14 @@ private:
     RowsetIdGenerator* _id_generator = nullptr;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
-    IntGauge* disks_total_capacity;
-    IntGauge* disks_avail_capacity;
-    IntGauge* disks_local_used_capacity;
-    IntGauge* disks_remote_used_capacity;
-    IntGauge* disks_trash_used_capacity;
-    IntGauge* disks_state;
-    IntGauge* disks_compaction_score;
-    IntGauge* disks_compaction_num;
+    IntGauge* disks_total_capacity = nullptr;
+    IntGauge* disks_avail_capacity = nullptr;
+    IntGauge* disks_local_used_capacity = nullptr;
+    IntGauge* disks_remote_used_capacity = nullptr;
+    IntGauge* disks_trash_used_capacity = nullptr;
+    IntGauge* disks_state = nullptr;
+    IntGauge* disks_compaction_score = nullptr;
+    IntGauge* disks_compaction_num = nullptr;
 };
 
 } // namespace doris

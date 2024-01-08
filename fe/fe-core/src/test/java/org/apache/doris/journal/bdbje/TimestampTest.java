@@ -17,39 +17,73 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.common.AnalysisException;
-
-import org.junit.Assert;
-import org.junit.Test;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.RepeatedTest;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 public class TimestampTest {
-    @Test
-    public void testSerialization() throws IOException, AnalysisException {
-        // 1. Write objects to file
-        final Path path = Files.createTempFile("timestamp", "tmp");
-        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+    private static final Logger LOG = LogManager.getLogger(TimestampTest.class);
+    private static List<String> testFiles = new ArrayList<>();
 
-        Timestamp timestamp1 = new Timestamp();
+    public static String createTestFile() throws Exception {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
+        }
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(dorisHome));
+        Path mockDir = Paths.get(dorisHome, "fe", "mocked");
+        if (!Files.exists(mockDir)) {
+            Files.createDirectories(mockDir);
+        }
+        UUID uuid = UUID.randomUUID();
+        File testFile = Files.createFile(Paths.get(dorisHome, "fe", "mocked", "TimestampTest-" + uuid.toString())).toFile();
+        LOG.debug("createTmpFile path {}", testFile.getAbsolutePath());
+        testFiles.add(testFile.getAbsolutePath());
+        return testFile.getAbsolutePath();
+    }
 
-        timestamp1.write(out);
+    @AfterAll
+    public static void cleanUp() throws Exception {
+        for (String testFile : testFiles) {
+            LOG.info("delete testFile path {}", testFile);
+            Files.deleteIfExists(Paths.get(testFile));
+        }
+    }
+
+    // @Test
+    @RepeatedTest(1)
+    public void testSerialization() throws Exception {
+        Timestamp timestamp = new Timestamp();
+        long ts = timestamp.getTimestamp();
+        Assertions.assertTrue(ts > 0);
+
+        File testFile = new File(createTestFile());
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(testFile));
+        timestamp.write(out);
         out.flush();
         out.close();
 
-        // 2. Read objects from file
-        DataInputStream in = new DataInputStream(Files.newInputStream(path));
-
+        DataInputStream in = new DataInputStream(new FileInputStream(testFile));
+        Thread.sleep(1000);
         Timestamp timestamp2 = Timestamp.read(in);
 
-        Assert.assertEquals(timestamp1.getTimestamp(), timestamp2.getTimestamp());
-
-        // 3. delete files
-        in.close();
-        Files.delete(path);
+        Assertions.assertEquals(ts, timestamp2.getTimestamp());
+        Assertions.assertEquals("" + ts, timestamp2.toString());
     }
 }

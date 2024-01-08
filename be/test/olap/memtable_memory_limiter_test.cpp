@@ -33,6 +33,7 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 30002;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 3;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -80,15 +81,17 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
-        static_cast<void>(io::global_local_filesystem()->delete_and_create_directory(
-                config::storage_root_path));
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
         doris::EngineOptions options;
         options.store_paths = paths;
         _engine = std::make_unique<StorageEngine>(options);
-        Status st = _engine->open();
+        st = _engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
@@ -140,9 +143,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
@@ -174,10 +177,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
     res = _engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 } // namespace doris

@@ -35,6 +35,7 @@ comment_to_pipeline=(
     ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
     ['tpch']='Tpch_TpchSf100'
+    ['performance']='Doris_PerformanceNew_Performance'
 )
 
 # github中评论的要触发的流水线名字
@@ -54,6 +55,7 @@ conment_to_context=(
     ['clickbench']='clickbench-new (clickbench)'
     ['arm']='P0 Regression (ARM pipeline)'
     ['tpch']='tpch-sf100 (tpch)'
+    ['performance']='performance (Performance New)'
 )
 
 get_commit_id_of_build() {
@@ -241,7 +243,7 @@ trigger_build() {
         -u OneMoreChance:OneMoreChance \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
+        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
         set +x
         echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
     else

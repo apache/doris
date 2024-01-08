@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -41,12 +43,14 @@ import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -68,7 +72,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -89,6 +92,7 @@ public class NereidsPlanner extends Planner {
     private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
+    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -98,6 +102,8 @@ public class NereidsPlanner extends Planner {
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
+        } else {
+            NereidsTracer.disable();
         }
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -259,35 +265,32 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
-        if (statementContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
-            // TODO Pre handle materialized view to materializationContext and
-            //  call cascadesContext.addMaterializationContext() to add it
-        }
     }
 
     private void analyze() {
-        LOG.info("Start analyze plan");
+        LOG.debug("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
+        getHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
-        LOG.info("End analyze plan");
+        LOG.debug("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        LOG.info("Start rewrite plan");
+        LOG.debug("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
-        LOG.info("End rewrite plan");
+        LOG.debug("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
-        LOG.info("Start optimize plan");
+        LOG.debug("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
-        LOG.info("End optimize plan");
+        LOG.debug("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -351,30 +354,38 @@ public class NereidsPlanner extends Planner {
 
     /**
      * getting hints explain string, which specified by enumerate and show in lists
-     * @param hintMap hint map recorded in statement context
+     * @param hints hint map recorded in statement context
      * @return explain string shows using of hint
      */
-    public String getHintExplainString(Map<String, Hint> hintMap) {
+    public String getHintExplainString(List<Hint> hints) {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
-            switch (entry.getValue().getStatus()) {
+        int distributeHintIndex = 1;
+        for (Hint hint : hints) {
+            String distributeIndex = "";
+            if (hint instanceof DistributeHint) {
+                distributeHintIndex++;
+                if (!hint.getExplainString().equals("")) {
+                    distributeIndex = "_" + String.valueOf(distributeHintIndex);
+                }
+            }
+            switch (hint.getStatus()) {
                 case UNUSED:
-                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    unUsed = unUsed + " " + hint.getExplainString() + distributeIndex;
                     break;
                 case SYNTAX_ERROR:
-                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
-                        + " Msg:" + entry.getValue().getErrorMessage();
+                    syntaxError = syntaxError + " " + hint.getExplainString() + distributeIndex
+                        + " Msg:" + hint.getErrorMessage();
                     break;
                 case SUCCESS:
-                    used = used + " " + entry.getValue().getExplainString();
+                    used = used + " " + hint.getExplainString() + distributeIndex;
                     break;
                 default:
                     break;
             }
         }
-        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
+        return "\nHint log:" + "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override
@@ -400,7 +411,9 @@ public class NereidsPlanner extends Planner {
             case MEMO_PLAN:
                 plan = cascadesContext.getMemo().toString()
                     + "\n\n========== OPTIMIZED PLAN ==========\n"
-                    + optimizedPlan.treeString();
+                    + optimizedPlan.treeString()
+                    + "\n\n========== MATERIALIZATIONS ==========\n"
+                    + MaterializationContext.toString(cascadesContext.getMaterializationContexts());
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN ==========\n"
@@ -413,10 +426,17 @@ public class NereidsPlanner extends Planner {
                         + optimizedPlan.treeString();
                 break;
             default:
-                plan = super.getExplainString(explainOptions);
+                List<MTMV> materializationListChosenByCbo = this.getPhysicalPlan()
+                        .collectToList(node -> node instanceof PhysicalCatalogRelation
+                                && ((PhysicalCatalogRelation) node).getTable() instanceof MTMV).stream()
+                        .map(node -> (MTMV) ((PhysicalCatalogRelation) node).getTable())
+                        .collect(Collectors.toList());
+                plan = super.getExplainString(explainOptions)
+                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                        materializationListChosenByCbo);
         }
-        if (!statementContext.getHintMap().isEmpty()) {
-            String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            String hint = getHintExplainString(statementContext.getHints());
             return plan + hint;
         }
         return plan;
@@ -464,7 +484,7 @@ public class NereidsPlanner extends Planner {
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                super.handleLiteralInFe(legacyExpr, data);
+                data.add(legacyExpr.getStringValueInFe());
             } else {
                 return Optional.empty();
             }
@@ -523,5 +543,13 @@ public class NereidsPlanner extends Planner {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    public List<PlannerHook> getHooks() {
+        return hooks;
+    }
+
+    public void addHook(PlannerHook hook) {
+        this.hooks.add(hook);
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("lateral_view") {
+suite("lateral_view", "arrow_flight_sql") {
     sql """ DROP TABLE IF EXISTS `test_explode_bitmap` """
 	sql """
 		CREATE TABLE `test_explode_bitmap` (

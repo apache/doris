@@ -90,7 +90,7 @@ public:
 
 private:
     BloomFilterOptions _bf_options;
-    const TypeInfo* _type_info;
+    const TypeInfo* _type_info = nullptr;
     vectorized::Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;

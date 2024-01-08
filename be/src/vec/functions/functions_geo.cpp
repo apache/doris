@@ -98,8 +98,7 @@ struct StAsText {
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
             auto shape_value = input->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
-
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
             if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
@@ -355,8 +354,8 @@ struct StAreaSquareMeters {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
-            if (shape == nullptr) {
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -390,8 +389,8 @@ struct StAreaSquareKm {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
-            if (shape == nullptr) {
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -646,8 +645,8 @@ struct StAsBinary {
 
         for (int row = 0; row < size; ++row) {
             auto shape_value = col->get_data_at(row);
-            shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
-            if (shape == nullptr) {
+            shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+            if (!shape) {
                 res->insert_data(nullptr, 0);
                 continue;
             }

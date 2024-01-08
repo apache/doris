@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 
 import java.util.List;
 
 /**
  * This is responsible for single table rewriting according to different pattern
  * */
-public class MaterializedViewScanRule extends AbstractMaterializedViewRule implements RewriteRuleFactory {
+public class MaterializedViewScanRule extends AbstractMaterializedViewRule {
 
     @Override
     public List<Rule> buildRules() {

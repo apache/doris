@@ -150,6 +150,7 @@ struct TCreateTabletReq {
     23: optional i64 time_series_compaction_goal_size_mbytes = 1024
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
+    26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
 }
 
 struct TDropTabletReq {
@@ -258,7 +259,7 @@ struct TCloneReq {
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
     // these are visible version(hash) actually
-    5: optional Types.TVersion committed_version
+    5: optional Types.TVersion version
     6: optional Types.TVersionHash committed_version_hash // Deprecated
     7: optional i32 task_version;
     8: optional i64 src_path_hash;
@@ -418,6 +419,8 @@ struct TTabletMetaInfo {
     13: optional i64 time_series_compaction_time_threshold_seconds
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
+    16: optional bool disable_auto_compaction
+    17: optional i64 time_series_compaction_empty_rowsets_threshold
 }
 
 struct TUpdateTabletMetaInfoReq {

@@ -32,6 +32,14 @@ import java.nio.ByteBuffer;
 public class DecimalLiteralTest {
 
     @Test
+    public void testGetStringInFe() {
+        BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
+        DecimalLiteral literal = new DecimalLiteral(decimal);
+        String s = literal.getStringValueInFe();
+        Assert.assertEquals("-123456789123456789.123456789", s);
+    }
+
+    @Test
     public void testHashValue() throws AnalysisException {
         BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
         DecimalLiteral literal = new DecimalLiteral(decimal);

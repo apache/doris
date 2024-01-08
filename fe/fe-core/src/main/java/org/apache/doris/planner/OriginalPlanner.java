@@ -42,6 +42,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -247,9 +248,14 @@ public class OriginalPlanner extends Planner {
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
-            List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
-            rootFragment.setOutputExprs(resExprs);
+            if (analyzer.getContext().getConnectionId() == 0) {
+                // stream load tvf
+                rootFragment.setOutputExprs(exprs);
+            } else {
+                List<Expr> resExprs = Expr.substituteList(exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer,
+                        true);
+                rootFragment.setOutputExprs(resExprs);
+            }
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
@@ -257,6 +263,7 @@ public class OriginalPlanner extends Planner {
             LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
+        rootFragment.setResultSinkType(ConnectContext.get().getResultSinkType());
         LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
@@ -669,7 +676,7 @@ public class OriginalPlanner extends Planner {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                super.handleLiteralInFe((LiteralExpr) expr, data);
+                data.add(((LiteralExpr) expr).getStringValueInFe());
             } else {
                 return Optional.empty();
             }
@@ -678,4 +685,7 @@ public class OriginalPlanner extends Planner {
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
         return Optional.of(resultSet);
     }
+
+    @Override
+    public void addHook(PlannerHook hook) {}
 }

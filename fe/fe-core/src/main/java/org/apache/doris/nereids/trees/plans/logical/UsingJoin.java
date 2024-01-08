@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,17 +42,17 @@ import java.util.Optional;
  * select col1 from t1 join t2 using(col1);
  */
 public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join, BlockFuncDepsPropagation {
 
     private final JoinType joinType;
     private final ImmutableList<Expression> otherJoinConjuncts;
     private final ImmutableList<Expression> hashJoinConjuncts;
-    private final JoinHint hint;
+    private final DistributeHint hint;
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
 
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts,
-            JoinHint hint) {
+            DistributeHint hint) {
         this(joinType, leftChild, rightChild, expressions,
                 hashJoinConjuncts, Optional.empty(), Optional.empty(), hint, Optional.empty());
     }
@@ -62,7 +63,7 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     public UsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> expressions, List<Expression> hashJoinConjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
-            JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference) {
+            DistributeHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference) {
         super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = joinType;
         this.otherJoinConjuncts = ImmutableList.copyOf(expressions);
@@ -154,7 +155,7 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
         return hashJoinConjuncts;
     }
 
-    public JoinHint getHint() {
+    public DistributeHint getDistributeHint() {
         return hint;
     }
 
@@ -172,7 +173,7 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     }
 
     @Override
-    public boolean hasJoinHint() {
+    public boolean hasDistributeHint() {
         return hint != null;
     }
 

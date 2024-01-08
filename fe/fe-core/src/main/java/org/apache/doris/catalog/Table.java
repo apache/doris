@@ -19,7 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -48,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,11 +119,20 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // sql for creating this table, default is "";
     protected String ddlSql = "";
 
+    @SerializedName(value = "constraints")
+    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
+
+    // check read lock leaky
+    private Map<Long, String> readLockThreads = null;
+
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         this.rwLock = new QueryableReentrantReadWriteLock(true);
+        if (Config.check_table_lock_leaky) {
+            this.readLockThreads = Maps.newConcurrentMap();
+        }
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -141,6 +154,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
         this.rwLock = new QueryableReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
+        if (Config.check_table_lock_leaky) {
+            this.readLockThreads = Maps.newConcurrentMap();
+        }
     }
 
     public void markDropped() {
@@ -153,14 +169,27 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void readLock() {
         this.rwLock.readLock().lock();
+        if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 1) {
+            Thread thread = Thread.currentThread();
+            this.readLockThreads.put(thread.getId(),
+                    "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
+        }
     }
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
             boolean res = this.rwLock.readLock().tryLock(timeout, unit);
-            if (!res && unit.toSeconds(timeout) >= 1) {
-                LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+            if (res) {
+                if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 1) {
+                    Thread thread = Thread.currentThread();
+                    this.readLockThreads.put(thread.getId(),
+                            "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
+                }
+            } else {
+                if (unit.toSeconds(timeout) >= 1) {
+                    LOG.warn("Failed to try table {}'s read lock. timeout {} {}. Current owner: {}",
+                            name, timeout, unit.name(), rwLock.getOwner());
+                }
             }
             return res;
         } catch (InterruptedException e) {
@@ -171,6 +200,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void readUnlock() {
         this.rwLock.readLock().unlock();
+        if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 0) {
+            this.readLockThreads.remove(Thread.currentThread().getId());
+        }
     }
 
     public void writeLock() {
@@ -186,12 +218,21 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return true;
     }
 
+    // TabletStatMgr will invoke all olap tables' tryWriteLock every one minute,
+    // we can set Config.check_table_lock_leaky = true
+    // and check log to find out whether if the table has lock leaky.
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
             boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
-                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                if (readLockThreads == null) {
+                    LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
+                            name, timeout, unit.name(), rwLock.getOwner());
+                } else {
+                    LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}, "
+                            + "current reader: {}",
+                            name, timeout, unit.name(), rwLock.getOwner(), readLockThreads);
+                }
             }
             return res;
         } catch (InterruptedException e) {
@@ -217,19 +258,23 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void writeLockOrDdlException() throws DdlException {
-        writeLockOrException(new DdlException("unknown table, tableName=" + name));
+        writeLockOrException(new DdlException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public void writeLockOrMetaException() throws MetaNotFoundException {
-        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
+        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public void writeLockOrAlterCancelException() throws AlterCancelException {
-        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
-        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
+        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name,
+                                                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
@@ -289,6 +334,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         } else {
             return qualifiedDbName + "." + name;
         }
+    }
+
+    public Constraint getConstraint(String name) {
+        return constraintsMap.get(name);
+    }
+
+    @Override
+    public Map<String, Constraint> getConstraintsMap() {
+        return constraintsMap;
     }
 
     public TableType getType() {
@@ -447,8 +501,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     // return if this table is partitioned.
+    // For OlapTable, return true only if its partition type is RANGE or HASH
+    public boolean isPartitionedTable() {
+        return false;
+    }
+
+    // return if this table is partitioned, for planner.
     // For OlapTable ture when is partitioned, or distributed by hash when no partition
-    public boolean isPartitioned() {
+    public boolean isPartitionDistributed() {
         return false;
     }
 
