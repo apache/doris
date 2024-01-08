@@ -68,7 +68,9 @@ public class MTMVPlanUtil {
         SessionVariable sessionVariable = ctx.getSessionVariable();
         Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
         sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
-        ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        if (ctx.getStatementContext() != null) {
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         Plan plan;
         try {
             plan = getPlanBySql(mtmv.getQuerySql(), ctx);

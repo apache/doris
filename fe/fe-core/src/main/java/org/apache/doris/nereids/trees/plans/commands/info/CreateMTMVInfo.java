@@ -232,7 +232,22 @@ public class CreateMTMVInfo {
     }
 
     private void getRelation(NereidsPlanner planner) {
-        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+        // Should not make table without data to empty relation when analyze the related table,
+        // so add disable rules
+        ConnectContext ctx = planner.getCascadesContext().getConnectContext();
+        SessionVariable sessionVariable = ctx.getSessionVariable();
+        Set<String> tempDisableRules = sessionVariable.getDisableNereidsRuleNames();
+        sessionVariable.setDisableNereidsRules(CreateMTMVInfo.MTMV_PLANER_DISABLE_RULES);
+        if (ctx.getStatementContext() != null) {
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
+        Plan plan;
+        try {
+            plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+        } finally {
+            sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
     }
 
