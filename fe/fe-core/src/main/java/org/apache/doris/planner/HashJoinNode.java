@@ -276,7 +276,17 @@ public class HashJoinNode extends JoinNodeBase {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+                newEqJoinConjuncts.stream().map(entity -> {
+                            BinaryPredicate predicate = (BinaryPredicate) entity;
+                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
+                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
+                                    predicate.setOp(BinaryPredicate.Operator.EQ);
+                                }
+                            }
+                            return predicate;
+                        }
+                ).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         computeOutputTuple(analyzer);
