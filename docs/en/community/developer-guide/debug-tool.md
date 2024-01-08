@@ -290,7 +290,7 @@ Requires addr2line 2.35.2, see below QA 1.
 
 1. Many errors occurred after running jeprof: `addr2line: Dwarf Error: found dwarf version xxx, this reader only handles version xxx`
 
-After GCC 11, DWARF-v5 is used by default, which requires Binutils 2.35.2 and above. Doris Ldb_toolchain uses GCC 11. See: https://gcc.gnu.org/gcc-11/changes.html.
+After GCC 11, DWARF-v5 is used by default, which requires Binutils 2.35.2 and above. See: https://gcc.gnu.org/gcc-11/changes.html.
 
 Replace addr2line to 2.35.2, refer to:
 ```

@@ -52,14 +52,14 @@ namespace doris::vectorized {
 
 // currently only bitmap_or and bitmap_or_count will call this function,
 // other bitmap functions will use default implementation for nulls
-#define BITMAP_OR_NULLABLE(nullable, input_rows_count, res, op)                                \
-    const auto& nested_col_ptr = nullable->get_nested_column_ptr();                            \
-    const auto* __restrict null_map_data = nullable->get_null_map_data().data();               \
-    const auto& mid_data = assert_cast<const ColumnBitmap*>(nested_col_ptr.get())->get_data(); \
-    for (size_t row = 0; row < input_rows_count; ++row) {                                      \
-        if (!null_map_data[row]) {                                                             \
-            res[row] op mid_data[row];                                                         \
-        }                                                                                      \
+#define BITMAP_OR_NULLABLE(nullable, input_rows_count, res, op)                          \
+    const auto& nested_col_ptr = nullable->get_nested_column_ptr();                      \
+    const auto* __restrict null_map_data = nullable->get_null_map_data().data();         \
+    const auto& mid_data = assert_cast<const ColumnBitmap&>(*nested_col_ptr).get_data(); \
+    for (size_t row = 0; row < input_rows_count; ++row) {                                \
+        if (!null_map_data[row]) {                                                       \
+            res[row] op mid_data[row];                                                   \
+        }                                                                                \
     }
 
 #define BITMAP_FUNCTION_VARIADIC(CLASS, FUNCTION_NAME, OP)                                        \
@@ -73,14 +73,14 @@ namespace doris::vectorized {
             int nullable_cols_count = 0;                                                          \
             ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                         \
             if (res_nulls) {                                                                      \
-                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();         \
+                res_nulls_data = assert_cast<ColumnUInt8&>(*res_nulls).get_data().data();         \
             }                                                                                     \
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
                 null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();     \
                 BITMAP_OR_NULLABLE(nullable, input_rows_count, res, =);                           \
             } else {                                                                              \
                 const auto& mid_data =                                                            \
-                        assert_cast<const ColumnBitmap*>(argument_columns[0].get())->get_data();  \
+                        assert_cast<const ColumnBitmap&>(*argument_columns[0]).get_data();        \
                 for (size_t row = 0; row < input_rows_count; ++row) {                             \
                     res[row] = mid_data[row];                                                     \
                 }                                                                                 \
@@ -92,8 +92,7 @@ namespace doris::vectorized {
                     BITMAP_OR_NULLABLE(nullable, input_rows_count, res, OP);                      \
                 } else {                                                                          \
                     const auto& col_data =                                                        \
-                            assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
-                                    ->get_data();                                                 \
+                            assert_cast<const ColumnBitmap&>(*argument_columns[col]).get_data();  \
                     for (size_t row = 0; row < input_rows_count; ++row) {                         \
                         res[row] OP col_data[row];                                                \
                     }                                                                             \
@@ -136,8 +135,7 @@ namespace doris::vectorized {
                     BITMAP_OR_NULLABLE(nullable, input_rows_count, vals, OP);                     \
                 } else {                                                                          \
                     const auto& col_data =                                                        \
-                            assert_cast<const ColumnBitmap*>(argument_columns[col].get())         \
-                                    ->get_data();                                                 \
+                            assert_cast<const ColumnBitmap&>(*argument_columns[col]).get_data();  \
                     for (size_t row = 0; row < input_rows_count; ++row) {                         \
                         vals[row] OP col_data[row];                                               \
                     }                                                                             \
@@ -181,8 +179,8 @@ public:
         if (std::is_same_v<Impl, BitmapOr> || is_count()) {
             bool return_nullable = false;
             // result is nullable only when any columns is nullable for bitmap_or and bitmap_or_count
-            for (size_t i = 0; i < arguments.size(); ++i) {
-                if (arguments[i]->is_nullable()) {
+            for (const auto& argument : arguments) {
+                if (argument->is_nullable()) {
                     return_nullable = true;
                     break;
                 }
@@ -198,11 +196,7 @@ public:
         // result is null only when all columns is null for bitmap_or.
         // for count functions, result is always not null, and if the bitmap op result is null,
         // the count is 0
-        if (std::is_same_v<Impl, BitmapOr> || is_count()) {
-            return false;
-        } else {
-            return true;
-        }
+        return !static_cast<bool>(std::is_same_v<Impl, BitmapOr> || is_count());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

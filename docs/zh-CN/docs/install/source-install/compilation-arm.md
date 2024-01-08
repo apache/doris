@@ -57,7 +57,7 @@ under the License.
 
 该方法适用于 [commit 7f3564](https://github.com/apache/doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1) 之后的 Doris 版本。
 
-下载 [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+下载 [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh)
 
 之后的编译方式参阅 [使用 LDB toolchain 编译](./compilation-with-ldb-toolchain.md)
 
@@ -149,7 +149,7 @@ under the License.
   ```shell
   cd /opt/tools
   # 下载 LDB-Toolchain ARM 版本
-  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh && \
   	sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
   ```
 
@@ -272,7 +272,7 @@ under the License.
   ```shell
   cd /opt/tools
   # 下载 LDB-Toolchain ARM 版本
-  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh && \
   sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
   ```
 

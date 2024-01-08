@@ -37,8 +37,8 @@ if [[ -z $(command -v clang-format) ]]; then
 fi
 
 CLANG_FORMAT_VERSION=$(clang-format --version | perl -nle 'print $& if m{version \K[0-9]+}')
-if [[ ${CLANG_FORMAT_VERSION} -ne 16 ]]; then
-    echo "clang-format version is not 16, please install clang-format version 16 or upgrade your clang-format version to 16"
+if [[ ${CLANG_FORMAT_VERSION} -ne 17 ]]; then
+    echo "clang-format version is not 17, please install clang-format version 17 or upgrade your clang-format version to 17"
     exit 1
 fi
 

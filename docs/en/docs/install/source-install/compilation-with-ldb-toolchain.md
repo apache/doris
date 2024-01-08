@@ -27,7 +27,7 @@ under the License.
 # Compiling with LDB-Toolchain
 
 This topic is about how to compile Doris using the LDB toolchain. This method is an alternative to the Docker method so developers and users without a Docker environment can compile Doris from source.
-The LDB toolchain version currently recommended by Doris is 0.17, which contains clang-16 and gcc-11.
+The LDB toolchain version currently recommended by Doris is 0.19, which contains clang-17 and gcc-12.
 
 > You can still compile the latest code using the Docker development image: `apache/doris:build-env-ldb-toolchain-latest`
 

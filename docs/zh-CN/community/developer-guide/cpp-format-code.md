@@ -60,8 +60,8 @@ Mac: `brew install clang-format@16`
 LDB toolchain:
 
 如何使用 [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain)，
-最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.18）已经包含了预编译的clang-format
-16.0.0的二进制文件。
+最新版本的 [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases)（>= v0.19）已经包含了预编译的clang-format
+17.0.5的二进制文件。
 
 ### clang-format插件
 

@@ -31,7 +31,7 @@
 // more usage can see 'util/debug_points_test.cpp'
 #define DBUG_EXECUTE_IF(debug_point_name, code)                               \
     if (UNLIKELY(config::enable_debug_points)) {                              \
-        auto dp = DebugPoints::instance()->get_debug_point(debug_point_name); \
+        auto dp = *DebugPoints::instance().get_debug_point(debug_point_name); \
         if (dp) {                                                             \
             code;                                                             \
         }                                                                     \
