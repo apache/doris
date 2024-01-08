@@ -36,6 +36,10 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
         PLoadStreamResponse response;
         response.ParseFromZeroCopyStream(&wrapper);
 
+        if (response.eos()) {
+            _is_eos.store(true);
+        }
+
         Status st = Status::create(response.status());
 
         std::stringstream ss;

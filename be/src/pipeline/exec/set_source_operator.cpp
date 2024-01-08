@@ -140,23 +140,18 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
     auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
 
-    if constexpr (std::is_same_v<typename HashTableContext::Mapped,
-                                 vectorized::RowRefListWithFlags>) {
-        for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-            auto& value = iter->get_second();
-            auto it = value.begin();
-            if constexpr (is_intersect) {
-                if (it->visited) { //intersected: have done probe, so visited values it's the result
-                    _add_result_columns(local_state, value, block_size);
-                }
-            } else {
-                if (!it->visited) { //except: haven't visited values it's the needed result
-                    _add_result_columns(local_state, value, block_size);
-                }
+    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+        auto& value = iter->get_second();
+        auto it = value.begin();
+        if constexpr (is_intersect) {
+            if (it->visited) { //intersected: have done probe, so visited values it's the result
+                _add_result_columns(local_state, value, block_size);
+            }
+        } else {
+            if (!it->visited) { //except: haven't visited values it's the needed result
+                _add_result_columns(local_state, value, block_size);
             }
         }
-    } else {
-        return Status::InternalError("Invalid RowRefListType!");
     }
 
     if (iter == hash_table_ctx.hash_table->end()) {

@@ -1257,11 +1257,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
                                               google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        Status st = Status::OK();
-        st = _fold_constant_expr(request->request(), response);
-        if (!st.ok()) {
-            LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st;
-        }
+        Status st = _fold_constant_expr(request->request(), response);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1278,8 +1274,13 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-
-    return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
+    std::unique_ptr<FoldConstantExecutor> fold_executor = std::make_unique<FoldConstantExecutor>();
+    Status st = fold_executor->fold_constant_vexpr(t_request, response);
+    if (!st.ok()) {
+        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
+                     << " .and query_id_is: " << fold_executor->query_id_string();
+    }
+    return st;
 }
 
 void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* controller,
@@ -2046,7 +2047,9 @@ void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
-        st = _exec_env->wal_mgr()->get_wal_status_queue_size(request, response);
+        auto table_id = request->table_id();
+        auto count = _exec_env->wal_mgr()->get_wal_queue_size(table_id);
+        response->set_size(count);
         response->mutable_status()->set_status_code(st.code());
     });
     if (!ret) {

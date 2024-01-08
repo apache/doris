@@ -17,6 +17,7 @@
 
 #pragma once
 #include "olap/wal/wal_reader.h"
+#include "runtime/descriptors.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -26,23 +27,19 @@ class WalReader : public GenericReader {
 public:
     WalReader(RuntimeState* state);
     ~WalReader() override;
-    Status init_reader();
+    Status init_reader(const TupleDescriptor* tuple_descriptor);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
-    // TODO move it
-    static void string_split(const std::string& str, const std::string& splits,
-                             std::vector<std::string>& res);
 
 private:
     RuntimeState* _state = nullptr;
     int64_t _wal_id;
     std::string _wal_path;
-    std::shared_ptr<doris::WalReader> _wal_reader;
-    // TODO version should in olap/wal_reader
-    uint32_t _version = 0;
-    std::string _col_ids;
-    std::vector<size_t> _column_index;
+    std::shared_ptr<doris::WalReader> _wal_reader = nullptr;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    // column_id, column_pos
+    std::map<int64_t, int64_t> _column_pos_map;
 };
 } // namespace vectorized
 } // namespace doris

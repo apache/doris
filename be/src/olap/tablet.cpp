@@ -2402,6 +2402,10 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     if (!rowset) {
         return nullptr;
     }
+    if (tablet_footprint() == 0) {
+        VLOG_DEBUG << "skip cooldown due to empty tablet_id = " << tablet_id();
+        return nullptr;
+    }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {
             LOG(WARNING) << "version not continuous. tablet_id=" << tablet_id()
@@ -2494,7 +2498,7 @@ Status Tablet::remove_all_remote_rowsets() {
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
-               t->tablet_state() == TABLET_RUNNING;
+               t->tablet_state() == TABLET_RUNNING && t->_cooldown_replica_id == t->replica_id();
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
@@ -2552,6 +2556,9 @@ void Tablet::remove_unused_remote_files() {
                 if (!rs_meta->is_local()) {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
+            }
+            if (cooldowned_rowsets.empty()) {
+                return;
             }
             cooldown_meta_id = t->_tablet_meta->cooldown_meta_id();
         }

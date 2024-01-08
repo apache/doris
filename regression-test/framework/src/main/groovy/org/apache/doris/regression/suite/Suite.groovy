@@ -221,6 +221,11 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             def masterFe = cluster.getMasterFe()
+            for (def i=0; masterFe == null && i<30; i++) {
+                masterFe = cluster.getMasterFe()
+                Thread.sleep(1000)
+            }
+            assertNotNull(masterFe)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
                     masterFe.host, masterFe.queryPort)

@@ -27,7 +27,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -383,20 +383,20 @@ public class NereidsParserTest extends ParserTestBase {
     public void testJoinHint() {
         // no hint
         parsePlan("select * from t1 join t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.NONE));
 
         // valid hint
         parsePlan("select * from t1 join [shuffle] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [  shuffle ] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
         parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getDistributeHint().distributeType == DistributeType.BROADCAST_RIGHT));
 
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")

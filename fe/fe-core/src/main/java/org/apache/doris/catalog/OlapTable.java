@@ -1114,6 +1114,14 @@ public class OlapTable extends Table {
         return getOrCreatTableProperty().getGroupCommitIntervalMs();
     }
 
+    public void setGroupCommitDataBytes(int groupCommitInterValMs) {
+        getOrCreatTableProperty().setGroupCommitDataBytes(groupCommitInterValMs);
+    }
+
+    public int getGroupCommitDataBytes() {
+        return getOrCreatTableProperty().getGroupCommitDataBytes();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1943,6 +1951,20 @@ public class OlapTable extends Table {
         }
 
         return quorum;
+    }
+
+    public void setStorageMedium(TStorageMedium medium) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                medium == null ? "" : medium.name());
+        tableProperty.buildStorageMedium();
+    }
+
+    public TStorageMedium getStorageMedium() {
+        if (tableProperty != null) {
+            return tableProperty.getStorageMedium();
+        }
+        return null;
     }
 
     public void setStoragePolicy(String storagePolicy) throws UserException {

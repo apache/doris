@@ -177,7 +177,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
+                            using.getOtherJoinConjuncts(), using.getDistributeHint(), using.getMarkJoinSlotReference(),
                             using.children());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
@@ -227,7 +227,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
+                            hashJoinConjuncts, cond, join.getDistributeHint(), join.getMarkJoinSlotReference(),
                             join.children());
                 })
             ),

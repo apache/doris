@@ -521,6 +521,7 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
+    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -560,7 +561,6 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _wal_manager.reset();
     SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
@@ -626,7 +626,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    // cache_manager must be destoried after _inverted_index_query_cache
+    // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
 

@@ -299,7 +299,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 int schemaHash = targetTbl.getSchemaHashByIndexId(indexId);
 
                 List<TColumn> columnsDesc = Lists.newArrayList();
-                for (Column column : targetTbl.getSchemaByIndexId(indexId)) {
+                // using to update schema of the rowset, so full columns should be included
+                for (Column column : targetTbl.getSchemaByIndexId(indexId, true)) {
                     columnsDesc.add(column.toThrift());
                 }
 

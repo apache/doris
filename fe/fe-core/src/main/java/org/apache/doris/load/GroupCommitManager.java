@@ -60,7 +60,7 @@ public class GroupCommitManager {
     /**
      * Check the wal before the endTransactionId is finished or not.
      */
-    public boolean isPreviousWalFinished(long tableId, long endTransactionId, List<Long> aliveBeIds) {
+    public boolean isPreviousWalFinished(long tableId, List<Long> aliveBeIds) {
         boolean empty = true;
         for (int i = 0; i < aliveBeIds.size(); i++) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(aliveBeIds.get(i));
@@ -70,9 +70,8 @@ public class GroupCommitManager {
             }
             PGetWalQueueSizeRequest request = PGetWalQueueSizeRequest.newBuilder()
                     .setTableId(tableId)
-                    .setTxnId(endTransactionId)
                     .build();
-            long size = getWallQueueSize(backend, request);
+            long size = getWalQueueSize(backend, request);
             if (size > 0) {
                 LOG.info("backend id:" + backend.getId() + ",wal size:" + size);
                 empty = false;
@@ -84,16 +83,15 @@ public class GroupCommitManager {
     public long getAllWalQueueSize(Backend backend) {
         PGetWalQueueSizeRequest request = PGetWalQueueSizeRequest.newBuilder()
                 .setTableId(-1)
-                .setTxnId(-1)
                 .build();
-        long size = getWallQueueSize(backend, request);
+        long size = getWalQueueSize(backend, request);
         if (size > 0) {
             LOG.info("backend id:" + backend.getId() + ",all wal size:" + size);
         }
         return size;
     }
 
-    public long getWallQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
+    public long getWalQueueSize(Backend backend, PGetWalQueueSizeRequest request) {
         PGetWalQueueSizeResponse response = null;
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         long size = 0;

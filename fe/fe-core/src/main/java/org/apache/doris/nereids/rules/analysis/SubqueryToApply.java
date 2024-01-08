@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -442,7 +443,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     MarkJoinSlotReference markJoinSlotReference =
                             new MarkJoinSlotReference(statementContext.generateColumnName());
                     context.setSubqueryToMarkJoinSlot(exists, Optional.of(markJoinSlotReference));
-                    return markJoinSlotReference;
+                    return new Nvl(markJoinSlotReference, BooleanLiteral.FALSE);
                 } else {
                     return BooleanLiteral.TRUE;
                 }
