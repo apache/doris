@@ -73,8 +73,8 @@ suite("ip_functions") {
     qt_ip50 "SELECT hex(inet6_aton('192.168.0.1'));"
     qt_ip51 "SELECT hex(inet6_aton('2a02:6b8::11'));"
 
-    qt_ip52 "SELECT isipv4string('255.255.255.255');"
-    qt_ip53 "SELECT isipv4string('255.255.255.256');"
-    qt_ip54 "SELECT isipv6string('2001:5b0:23ff:fffa::113');"
-    qt_ip55 "SELECT isipv6string('2001:da8:e000:1691:2eaa:7eff:ffe7:7924e');"
+    qt_ip52 "SELECT is_ipv4_string('255.255.255.255');"
+    qt_ip53 "SELECT is_ipv4_string('255.255.255.256');"
+    qt_ip54 "SELECT is_ipv6_string('2001:5b0:23ff:fffa::113');"
+    qt_ip55 "SELECT is_ipv6_string('2001:da8:e000:1691:2eaa:7eff:ffe7:7924e');"
 }
