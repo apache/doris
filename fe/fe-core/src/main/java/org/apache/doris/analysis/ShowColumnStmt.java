@@ -18,11 +18,15 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -84,6 +88,10 @@ public class ShowColumnStmt extends ShowStmt {
         return tableName.getTbl();
     }
 
+    public String getCtl() {
+        return tableName.getCtl();
+    }
+
     public boolean isVerbose() {
         return isVerbose;
     }
@@ -98,8 +106,15 @@ public class ShowColumnStmt extends ShowStmt {
             tableName.setDb(db);
         }
         tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
+
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get().getCurrentUserIdentity(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW COLUMNS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.toString());
+        }
+
         if (isVerbose) {
             metaData = META_DATA_VERBOSE;
         } else {
