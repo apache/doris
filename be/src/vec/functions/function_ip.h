@@ -748,7 +748,7 @@ public:
 
 class FunctionIsIPAddressInRange : public IFunction {
 public:
-    static constexpr auto name = "isipaddressinrange";
+    static constexpr auto name = "is_ip_address_in_range";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
 
     String get_name() const override { return name; }
@@ -773,18 +773,36 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        const ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
-        const ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
-        const auto* col_addr = check_and_get_column<ColumnString>(addr_column.get());
-        const auto* col_cidr = check_and_get_column<ColumnString>(cidr_column.get());
+        ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
+        ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
+        const ColumnString* str_addr_column = nullptr;
+        const ColumnString* str_cidr_column = nullptr;
+        const NullMap* nullmap_addr = nullptr;
+        const NullMap* nullmap_cidr = nullptr;
 
-        if (!col_addr) {
+        if (addr_column->is_nullable()) {
+            const auto* addr_column_nullable = assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column = check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            nullmap_addr = &addr_column_nullable->get_null_map_data();
+        } else {
+            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+        }
+
+        if (cidr_column->is_nullable()) {
+            const auto* cidr_column_nullable = assert_cast<const ColumnNullable*>(cidr_column.get());
+            str_cidr_column = check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
+            nullmap_cidr = &cidr_column_nullable->get_null_map_data();
+        } else {
+            str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
+        }
+
+        if (!str_addr_column) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Illegal column {} of argument of function {}, expected String",
                             addr_column->get_name(), get_name());
         }
 
-        if (!col_cidr) {
+        if (!str_cidr_column) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Illegal column {} of argument of function {}, expected String",
                             cidr_column->get_name(), get_name());
@@ -794,8 +812,16 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto addr = IPAddressVariant(col_addr->get_data_at(i).to_string_view());
-            const auto cidr = parse_ip_with_cidr(col_cidr->get_data_at(i).to_string_view());
+            if (nullmap_addr && (*nullmap_addr)[i]) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL", get_name());
+            }
+            if (nullmap_cidr && (*nullmap_cidr)[i]) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL", get_name());
+            }
+            const auto addr = IPAddressVariant(str_addr_column->get_data_at(i).to_string_view());
+            const auto cidr = parse_ip_with_cidr(str_cidr_column->get_data_at(i).to_string_view());
             col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
         }
 

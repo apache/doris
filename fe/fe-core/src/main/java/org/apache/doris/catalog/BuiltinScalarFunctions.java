@@ -198,8 +198,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6NumToStri
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+<<<<<<< HEAD
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
+=======
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIPAddressInRange;
+>>>>>>> add func is_ip_address_in_range
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
@@ -601,8 +605,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv6StringToNum.class, "ipv6_string_to_num", "inet6_aton"),
             scalar(Ipv6StringToNumOrDefault.class, "ipv6_string_to_num_or_default"),
             scalar(Ipv6StringToNumOrNull.class, "ipv6_string_to_num_or_null"),
+<<<<<<< HEAD
             scalar(IsIpv4String.class, "isipv4string"),
             scalar(IsIpv6String.class, "isipv6string"),
+=======
+            scalar(IsIPAddressInRange.class, "is_ip_address_in_range"),
+>>>>>>> add func is_ip_address_in_range
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

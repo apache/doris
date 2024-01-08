@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/isIPAddressContainedIn.cpp
+// and modified by Doris
 
 #pragma once
 
@@ -24,9 +27,9 @@ namespace doris {
 class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
-        vectorized::UInt32 v4;
+        vectorized::Int64 v4;
         if (vectorized::parseIPv4whole(address_str.begin(), address_str.end(), reinterpret_cast<unsigned char *>(&v4))) {
-            _addr = v4;
+            _addr = static_cast<vectorized::UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
             if (!vectorized::parseIPv6whole(
@@ -37,14 +40,14 @@ public:
     }
 
     vectorized::UInt32 as_v4() const {
-        if (const auto * val = std::get_if<IPv4AddrType>(&_addr)) {
+        if (const auto* val = std::get_if<IPv4AddrType>(&_addr)) {
             return *val;
         }
         return 0;
     }
 
     const vectorized::UInt8* as_v6() const {
-        if (const auto * val = std::get_if<IPv6AddrType>(&_addr)) {
+        if (const auto* val = std::get_if<IPv6AddrType>(&_addr)) {
             return val->data();
         }
         return nullptr;
@@ -119,6 +122,7 @@ IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     if (pos_slash == 0) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Error parsing IP address with prefix: {}", std::string(cidr_str));
     }
+
     if (pos_slash == std::string_view::npos) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "The text does not contain '/': {}", std::string(cidr_str));
     }
