@@ -515,7 +515,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 | --single-sink           | Whether to use a single Sink to synchronize all tables. When turned on, newly created tables in the upstream can also be automatically recognized and tables automatically created. |
 | --multi-to-one-origin   | When writing multiple upstream tables into the same table, the configuration of the source table, for example: --multi-to-one-origin="a\_.\*｜b_.\*"， Reference [here](https://github.com/apache/doris-flink-connector/pull/208) |
 | --multi-to-one-target   | Used with multi-to-one-origin, the configuration of the target table, such as：--multi-to-one-target="a\|b" |
-| --table-buckets         | Specify the number of buckets when creating the table, such as --table-buckets 10                           |
+| --table-conf table-buckets| Specify the number of buckets when creating the table, such as --table-conf table-buckets=10                           |
 
 >Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
