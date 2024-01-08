@@ -119,6 +119,13 @@ public class ThreadPoolManager {
                 new LogDiscardPolicy(poolName), poolName, needRegisterMetric);
     }
 
+    public static ThreadPoolExecutor newDaemonCacheThreadPoolThrowException(int maxNumThread,
+                                                              String poolName, boolean needRegisterMetric) {
+        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME,
+            TimeUnit.SECONDS, new SynchronousQueue(),
+            new LogDiscardPolicyThrowException(poolName), poolName, needRegisterMetric);
+    }
+
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread,
             int queueSize, String poolName, boolean needRegisterMetric) {
         return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
@@ -285,8 +292,8 @@ public class ThreadPoolManager {
 
         private static final Logger LOG = LogManager.getLogger(LogDiscardPolicy.class);
 
-        private String threadPoolName;
-        private AtomicLong rejectedNum;
+        public String threadPoolName;
+        public AtomicLong rejectedNum;
 
         public LogDiscardPolicy(String threadPoolName) {
             this.threadPoolName = threadPoolName;
@@ -297,6 +304,23 @@ public class ThreadPoolManager {
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
             LOG.warn("Task " + r.toString() + " rejected from " + threadPoolName + " " + executor.toString());
             this.rejectedNum.incrementAndGet();
+        }
+    }
+
+    static class LogDiscardPolicyThrowException extends LogDiscardPolicy {
+
+        private static final Logger LOG = LogManager.getLogger(LogDiscardPolicyThrowException.class);
+
+        public LogDiscardPolicyThrowException(String threadPoolName) {
+            super(threadPoolName);
+        }
+
+        @Override
+        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+            LOG.warn("Task " + r.toString() + " rejected from " + threadPoolName + " " + executor.toString());
+            this.rejectedNum.incrementAndGet();
+            throw new RejectedExecutionException("Task " + r.toString() + " rejected from "
+                                                + threadPoolName + " " + executor.toString());
         }
     }
 
