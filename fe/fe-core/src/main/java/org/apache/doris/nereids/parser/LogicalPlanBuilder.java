@@ -2773,6 +2773,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
             }
             if (distributeHint.distributeType != DistributeType.NONE
+                    && ConnectContext.get().getStatementContext() != null
                     && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
                 ConnectContext.get().getStatementContext().addHint(distributeHint);
             }
