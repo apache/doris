@@ -17,70 +17,94 @@
 
 package org.apache.doris.nereids.util;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * EquivalenceSet
+ * A class representing an immutable set of elements with equivalence relations.
  */
-public class ImmutableEquivalenceSet<T> {
-    final Map<T, T> root;
+public class ImmutableEqualSet<T> {
+    private final Map<T, T> root;
 
-    ImmutableEquivalenceSet(Map<T, T> root) {
+    ImmutableEqualSet(Map<T, T> root) {
         this.root = ImmutableMap.copyOf(root);
     }
 
-    public static <T> ImmutableEquivalenceSet<T> of() {
-        return new ImmutableEquivalenceSet<>(ImmutableMap.of());
+    public static <T> ImmutableEqualSet<T> empty() {
+        return new ImmutableEqualSet<>(ImmutableMap.of());
     }
 
     /**
-     * Builder of ImmutableEquivalenceSet
+     * Builder for ImmutableEqualSet.
      */
     public static class Builder<T> {
-        final Map<T, T> parent = new HashMap<>();
+        private final Map<T, T> parent = new HashMap<>();
+        private final Map<T, Integer> size = new HashMap<>();
 
+        /**
+         * Add a equal pair
+         */
         public void addEqualPair(T a, T b) {
-            parent.computeIfAbsent(b, v -> v);
-            parent.computeIfAbsent(a, v -> v);
-            union(a, b);
-        }
-
-        private void union(T a, T b) {
             T root1 = findRoot(a);
             T root2 = findRoot(b);
 
             if (root1 != root2) {
-                parent.put(b, root1);
-                findRoot(b);
+                // merge by size
+                if (size.get(root1) < size.get(root2)) {
+                    parent.put(root1, root2);
+                    size.put(root2, size.get(root2) + size.get(root1));
+                } else {
+                    parent.put(root2, root1);
+                    size.put(root1, size.get(root1) + size.get(root2));
+                }
             }
         }
 
         private T findRoot(T a) {
+            parent.putIfAbsent(a, a); // Ensure that the element is added
+            size.putIfAbsent(a, 1); // Initialize size to 1
+
             if (!parent.get(a).equals(a)) {
-                parent.put(a, findRoot(parent.get(a)));
+                parent.put(a, findRoot(parent.get(a))); // Path compression
             }
             return parent.get(a);
         }
 
-        public ImmutableEquivalenceSet<T> build() {
+        public ImmutableEqualSet<T> build() {
             parent.keySet().forEach(this::findRoot);
-            return new ImmutableEquivalenceSet<>(parent);
+            return new ImmutableEqualSet<>(parent);
         }
     }
 
     /**
-     * cal equal set for a except self
+     * Calculate equal set for a except self
      */
     public Set<T> calEqualSet(T a) {
         T ra = root.get(a);
         return root.keySet().stream()
                 .filter(t -> root.get(t).equals(ra) && !t.equals(a))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Calculate all equal set
+     */
+    public List<Set<T>> calEqualSetList() {
+        return root.values()
+                .stream()
+                .distinct()
+                .map(a -> {
+                    T ra = root.get(a);
+                    return root.keySet().stream()
+                            .filter(t -> root.get(t).equals(ra))
+                            .collect(ImmutableSet.toImmutableSet());
+                }).collect(ImmutableList.toImmutableList());
     }
 
     public Set<T> getAllItemSet() {
