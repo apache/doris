@@ -253,11 +253,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
-    // S3 buffer pool
-    _s3_buffer_pool = new io::S3FileBufferPool();
-    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->s3_file_upload_thread_pool());
-
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
@@ -561,7 +556,6 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
-    SAFE_DELETE(_s3_buffer_pool);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
 
