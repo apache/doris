@@ -112,7 +112,7 @@ suite("regression_test_variant", "variant_type"){
         create_table table_name
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
-        sql """insert into ${table_name} values (3, '{"cc" : [123]}');"""
+        sql """insert into ${table_name} values (3, '{"cc" : [123.0]}');"""
         sql """insert into ${table_name} values (4, '{"cc" : [123.1]}');"""
         sql """insert into ${table_name} values (5, '{"ccc" : 123}');"""
         sql """insert into ${table_name} values (6, '{"ccc" : 123321}');"""
@@ -135,11 +135,11 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (2,  '{"A" : 1}');"""
         sql """insert into ${table_name} values (4,  '{"A" : 123456}');"""
         sql """insert into ${table_name} values (8,  '{"A" : 123456789101112}');"""
-        qt_sql_2 "select v:A from ${table_name} order by cast(v:A as int)"
+        qt_sql_2 "select v:A from ${table_name} order by cast(v:A as bigint)"
         sql """insert into ${table_name} values (12,  '{"AA" : [123456]}');"""
         sql """insert into ${table_name} values (14,  '{"AA" : [123456789101112]}');"""
         // qt_sql_3 "select v:AA from ${table_name} where size(v:AA) > 0 order by k"
-        qt_sql_4 "select v:A, v:AA, v from ${table_name} order by k"
+        qt_sql_4 "select cast(v:A as string), v:AA, v from ${table_name} order by k"
         qt_sql_5 "select v:A, v:AA, v, v from ${table_name} where cast(v:A as bigint) > 123 order by k"
 
         sql """insert into ${table_name} values (16,  '{"a" : 123.0, "A" : 191191, "c": 123}');"""
@@ -148,7 +148,7 @@ suite("regression_test_variant", "variant_type"){
         // sql """insert into ${table_name} values (12,  '{"a" : [123]}, "c": "123456"');"""
         sql """insert into ${table_name} values (22,  '{"a" : 1.1111, "A" : 17211, "c" : 111111}');"""
         sql "sync"
-        qt_sql_6 "select v:a, v:A from ${table_name} order by cast(v:A as bigint), k"
+        qt_sql_6 "select cast(v:a as string), v:A from ${table_name} order by cast(v:A as bigint), k"
         qt_sql_7 "select k, v:A from ${table_name} where cast(v:A as bigint) >= 1 order by cast(v:A as bigint), k"
 
         // FIXME: if not cast, then v:a could return "123" or 123 which is none determinately
