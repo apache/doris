@@ -352,6 +352,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      */
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties,
             DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum, int offset) {
+        // 1. no hot partition, then use dynamic_partition.storage_medium
+        // 2. has hot partition
+        //    1) dynamic_partition.storage_medium = 'ssd', then use ssd;
+        //    2) otherwise
+        //       a. cooldown partition, then use hdd
+        //       b. hot partition. then use ssd
         if (hotPartitionNum <= 0 || property.getStorageMedium().equalsIgnoreCase("ssd")) {
             if (!Strings.isNullOrEmpty(property.getStorageMedium())) {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, property.getStorageMedium());
