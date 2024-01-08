@@ -121,8 +121,6 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=true;
         """
 
-    Thread.sleep(1000 * 60)
-
 //    sql """
 //        SELECT * FROM ${tbl};
 //    """
@@ -2610,6 +2608,50 @@ PARTITION `p599` VALUES IN (599)
    partition_result = sql """show table stats partition_test"""
    assertEquals(partition_result[0][6], "false")
 
+   // Test sample agg table value column
+   sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+   Thread.sleep(1000 * 60)
+   sql """analyze table agg_table_test with sample rows 100 with sync"""
+   def agg_result = sql """show column stats agg_table_test (name)"""
+   assertEquals(agg_result[0][6], "N/A")
+   assertEquals(agg_result[0][7], "N/A")
+
+   // Test sample string type min max
+   sql """
+     CREATE TABLE `string_min_max` (
+      `id` BIGINT NOT NULL,
+      `name` string NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=NONE"
+   }
+   sql """set enable_pushdown_string_minmax = true"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=MINMAX"
+   }
+
    // Test trigger type.
    sql """DROP DATABASE IF EXISTS trigger"""
    sql """CREATE DATABASE IF NOT EXISTS trigger"""
@@ -2648,5 +2690,4 @@ PARTITION `p599` VALUES IN (599)
        assertEquals(result[1][10], "MANUAL")
    }
    sql """DROP DATABASE IF EXISTS trigger"""
-
 }
