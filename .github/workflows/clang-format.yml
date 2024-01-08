@@ -71,7 +71,7 @@ jobs:
         id: be_clang_format
         with:
           source: "be/src be/test"
-          clangFormatVersion: 16
+          clangFormatVersion: 17
           inplace: False
 
       - name: Ignore it!
