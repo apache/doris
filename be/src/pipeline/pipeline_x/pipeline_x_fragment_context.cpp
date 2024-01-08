@@ -502,7 +502,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             runtime_state->set_desc_tbl(_desc_tbl);
             runtime_state->set_per_fragment_instance_idx(local_params.sender_id);
             runtime_state->set_num_per_fragment_instances(request.num_senders);
-            runtime_state->resize_op_id_to_local_state(max_operator_id(), max_sink_operator_id());
+            runtime_state->resize_op_id_to_local_state(max_operator_id());
             runtime_state->set_load_stream_per_node(request.load_stream_per_node);
             runtime_state->set_total_load_streams(request.total_load_streams);
             runtime_state->set_num_local_sink(request.num_local_sink);
