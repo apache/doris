@@ -308,6 +308,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -3057,10 +3058,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitDecimalLiteral(DecimalLiteralContext ctx) {
-        if (Config.enable_decimal_conversion) {
-            return new DecimalV3Literal(new BigDecimal(ctx.getText()));
-        } else {
-            return new DecimalLiteral(new BigDecimal(ctx.getText()));
+        try {
+            if (Config.enable_decimal_conversion) {
+                return new DecimalV3Literal(new BigDecimal(ctx.getText()));
+            } else {
+                return new DecimalLiteral(new BigDecimal(ctx.getText()));
+            }
+        } catch (Exception e) {
+            return new DoubleLiteral(Double.parseDouble(ctx.getText()));
         }
     }
 
