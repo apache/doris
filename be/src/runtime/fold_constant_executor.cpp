@@ -170,22 +170,22 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_TINYINT: {
         int8_t val = *reinterpret_cast<const int8_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_SMALLINT: {
         int16_t val = *reinterpret_cast<const int16_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_INT: {
         int32_t val = *reinterpret_cast<const int32_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_BIGINT: {
         int64_t val = *reinterpret_cast<const int64_t*>(src);
-        result = fmt::format_int(val).str();
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_LARGEINT: {
@@ -194,19 +194,19 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        result = fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        result = fmt::format("{}", val);
+        result = fmt::format(FMT_COMPILE("{}"), val);
         break;
     }
     case TYPE_TIMEV2: {
         constexpr static auto ratio_to_time = (1000 * 1000);
         double val = *reinterpret_cast<double*>(src);
-        result = fmt::format("{}", val / ratio_to_time);
+        result = fmt::format(FMT_COMPILE("{}"), val / ratio_to_time);
         break;
     }
     case TYPE_CHAR:
