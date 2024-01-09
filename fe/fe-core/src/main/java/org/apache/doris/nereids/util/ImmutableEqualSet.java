@@ -53,16 +53,9 @@ public class ImmutableEqualSet<T> {
         public void addEqualPair(T a, T b) {
             T root1 = findRoot(a);
             T root2 = findRoot(b);
-
             if (root1 != root2) {
-                // merge by size
-                if (size.get(root1) < size.get(root2)) {
-                    parent.put(root1, root2);
-                    size.put(root2, size.get(root2) + size.get(root1));
-                } else {
-                    parent.put(root2, root1);
-                    size.put(root1, size.get(root1) + size.get(root2));
-                }
+                parent.put(b, root1);
+                findRoot(b);
             }
         }
 
