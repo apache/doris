@@ -948,8 +948,8 @@ public class Backend implements Writable {
     }
 
     public void updateCloneFailedWindow() {
+        lock.lock();
         try {
-            lock.lock();
             /*
                            oldestTimeStamp            windowRight          currentTimeStamp
                                 ^                            ^                       ^
@@ -974,8 +974,8 @@ public class Backend implements Writable {
     }
 
     public boolean isExceedCloneFailedLimit() {
+        lock.lock();
         try {
-            lock.lock();
             long currentTimeStamp = System.currentTimeMillis();
             long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
 
@@ -992,8 +992,8 @@ public class Backend implements Writable {
     }
 
     public void clearCloneFailedWindow() {
+        lock.lock();
         try {
-            lock.lock();
             cloneFailedWindow.clear();
         } finally {
             lock.unlock();
