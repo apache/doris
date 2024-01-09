@@ -214,16 +214,20 @@ suite("inner_join") {
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
-    def mv1_4 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
-    def query1_4 = "select  lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
+    def mv1_4 = """
+        select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY
+        from lineitem
+        inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+        inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY
+        and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY;
+    """
+    def query1_4 = """
+        select  lineitem.L_LINENUMBER
+        from lineitem
+        inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+        inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY
+        and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY;
+    """
     order_qt_query1_4_before "${query1_4}"
     check_rewrite(mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
