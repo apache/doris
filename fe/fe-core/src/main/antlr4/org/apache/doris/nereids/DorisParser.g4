@@ -102,6 +102,7 @@ statement
         constraint                                                        #addConstraint
     | ALTER TABLE table=relation
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | SHOW CONSTRAINTS FROM table=relation                                 #showConstraint
     | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     ;
 
