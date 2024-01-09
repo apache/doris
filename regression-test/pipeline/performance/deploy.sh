@@ -81,8 +81,8 @@ exit_flag=0
     if ! start_doris_be; then echo "ERROR: Start doris be failed." && exit 1; fi
     if ! add_doris_be_to_fe; then echo "ERROR: Add doris be failed." && exit 1; fi
 
-    echo "#### 4. set session variables"
-    echo "TODO"
+    echo "#### 4. reset session variables"
+    if ! reset_doris_session_variables; then exit 1; fi
 )
 exit_flag="$?"
 

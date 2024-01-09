@@ -137,7 +137,6 @@ exit_flag=0
     comment_body_summary="$(sed -n "${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
     comment_body_detail="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
-run tpcds-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
 
     echo "#### 4. comment result on tpcds"

@@ -356,6 +356,25 @@ set_session_variable() {
     fi
 }
 
+function reset_doris_session_variables() {
+    # reset all session variables to default
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    # Variable_name    Value    Default_Value    Changed
+    if ${cl} -e'show variables' | awk '{if ($4 == 1){print "set global " $1 "=" $3}}' >reset_session_variables; then
+        cat reset_session_variables
+        if ${cl} <reset_session_variables; then
+            echo "INFO: reset session variables to default, succeed"
+            rm -f reset_session_variables
+        else
+            echo "ERROR: reset session variables failed" && return 1
+        fi
+    else
+        echo "ERROR: reset session variables failed" && return 1
+    fi
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"

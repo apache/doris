@@ -655,7 +655,6 @@ exit_flag=0
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 2. run load test"
-    set_session_variable runtime_filter_mode global
     ${clt} -e "DROP DATABASE IF EXISTS ${DB}" && sleep 1
     ${clt} -e "CREATE DATABASE IF NOT EXISTS ${DB}" && sleep 5
     if ! stream_load_json; then exit 1; fi
