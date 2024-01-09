@@ -46,8 +46,8 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "runtime/memory/lru_cache_policy.h"
 #include "olap/variant_config.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/uid_util.h"
 
 namespace json2pb {

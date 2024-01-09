@@ -3,19 +3,25 @@
 k	BIGINT	Yes	true	\N	
 v	VARIANT	Yes	false	\N	NONE
 v.a	SMALLINT	Yes	false	\N	
+v.b	JSON	Yes	false	\N	
+v.c.c	SMALLINT	Yes	false	\N	
+v.c.e	DOUBLE	Yes	false	\N	
 v.xxxx	TEXT	Yes	false	\N	
 
 -- !sql --
-1234	\N
-11245	[123,{"xx":1}]
-1234	\N
-1234	\N
-1234	\N
-1234	\N
-1234	\N
-1234	\N
-1234	\N
+1	\N
 1123	\N
+1234	\N
+1234	\N
+1234	\N
+1234	\N
+1234	\N
+1234	\N
+1234	\N
+1234	\N
+
+-- !sql --
+[123,{"xx":1}]
 
 -- !sql --
 k	BIGINT	Yes	true	\N	

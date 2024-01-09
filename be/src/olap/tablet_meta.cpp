@@ -295,9 +295,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
 
     if (variant_config.has_value()) {
-    }
-
-    if (variant_config.has_value()) {
         VariantConfig tmp_variant_config;
         tmp_variant_config = variant_config.value();
         tmp_variant_config.to_pb(tablet_meta_pb.mutable_variant_config());
