@@ -553,7 +553,7 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int operator_size, int sink_size);
+    void resize_op_id_to_local_state(int operator_size);
 
     auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
 
