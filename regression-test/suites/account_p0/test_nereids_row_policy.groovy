@@ -51,7 +51,7 @@ suite("test_nereids_row_policy") {
 
     def dropPolciy = { name ->
         sql """
-            DROP ROW POLICY IF EXISTS ${name}
+            DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.${tableName} FOR ${user}
         """
     }
 

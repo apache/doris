@@ -199,22 +199,17 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _wait_channel_timer.resize(local_size);
         auto deps_for_channels = AndDependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        auto deps_for_channels_mem_limit = AndDependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        for (auto* channel : channels) {
+        for (auto channel : channels) {
             if (channel->is_local()) {
                 _local_channels_dependency[dep_id] = channel->get_local_channel_dependency();
                 DCHECK(_local_channels_dependency[dep_id] != nullptr);
                 deps_for_channels->add_child(_local_channels_dependency[dep_id]);
                 _wait_channel_timer[dep_id] = ADD_CHILD_TIMER(
                         _profile, fmt::format("WaitForLocalExchangeBuffer{}", dep_id), timer_name);
-                auto local_recvr = channel->local_recvr();
-                deps_for_channels_mem_limit->add_child(local_recvr->get_mem_limit_dependency());
                 dep_id++;
             }
         }
         _exchange_sink_dependency->add_child(deps_for_channels);
-        _exchange_sink_dependency->add_child(deps_for_channels_mem_limit);
     }
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();

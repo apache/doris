@@ -119,8 +119,6 @@ int main(int argc, char** argv) {
                               .set_min_threads(num_cores)
                               .set_max_threads(num_cores)
                               .build(&s3_file_upload_thread_pool));
-    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
-    s3_buffer_pool->init(524288000, 5242880, s3_file_upload_thread_pool.get());
 
     try {
         doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),

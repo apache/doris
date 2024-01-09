@@ -702,7 +702,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 ```
 
 :::tip
- Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
+ Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#mysql) 与 [Oracle](#oracle)
 :::
 
 ## JDBC Driver 列表

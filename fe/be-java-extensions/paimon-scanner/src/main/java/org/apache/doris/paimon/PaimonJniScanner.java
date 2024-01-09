@@ -30,6 +30,8 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,6 +89,7 @@ public class PaimonJniScanner extends JniScanner {
     public void open() throws IOException {
         initTable();
         initReader();
+        resetDatetimeV2Precision();
     }
 
     private void initReader() throws IOException {
@@ -110,6 +113,22 @@ public class PaimonJniScanner extends JniScanner {
         Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
         LOG.debug("split:{}", split);
         return split;
+    }
+
+    private void resetDatetimeV2Precision() {
+        for (int i = 0; i < types.length; i++) {
+            if (types[i].isDateTimeV2()) {
+                // paimon support precision > 6, but it has been reset as 6 in FE
+                // try to get the right precision for datetimev2
+                int index = paimonAllFieldNames.indexOf(fields[i]);
+                if (index != -1) {
+                    DataType dataType = table.rowType().getTypeAt(index);
+                    if (dataType instanceof TimestampType) {
+                        types[i].setPrecision(((TimestampType) dataType).getPrecision());
+                    }
+                }
+            }
+        }
     }
 
     @Override

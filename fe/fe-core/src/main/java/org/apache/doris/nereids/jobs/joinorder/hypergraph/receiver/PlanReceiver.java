@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.CostAndEnforcerJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
@@ -34,8 +35,8 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -228,11 +229,13 @@ public class PlanReceiver implements AbstractReceiver {
                         right, left));
             }
         } else {
-            plans.add(new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
+            plans.add(new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts,
+                    new DistributeHint(DistributeType.NONE), Optional.empty(),
                     joinProperties,
                     left, right));
             if (joinType.isSwapJoinType()) {
-                plans.add(new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                plans.add(new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts,
+                        new DistributeHint(DistributeType.NONE),
                         Optional.empty(),
                         joinProperties,
                         right, left));
@@ -310,7 +313,8 @@ public class PlanReceiver implements AbstractReceiver {
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
-                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
+                        physicalJoin.getOtherJoinConjuncts(),
+                        new DistributeHint(DistributeType.NONE), physicalJoin.getMarkJoinSlotReference(),
                         groupExpression.children().stream().map(g -> new GroupPlan(g)).collect(Collectors.toList()));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");

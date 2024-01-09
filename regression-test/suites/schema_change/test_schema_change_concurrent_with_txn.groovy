@@ -28,7 +28,7 @@ suite('test_schema_change_concurrent_with_txn') {
         def result = sql 'SELECT DATABASE()'
         def dbName = result[0][0]
 
-        sql 'CREATE TABLE tbl_1 (k1 INT, k2 INT) PROPERTIES ( "light_schema_change" = "false")'
+        sql 'CREATE TABLE tbl_1 (k1 INT, k2 INT) DISTRIBUTED BY HASH(k1) BUCKETS 10 PROPERTIES ( "light_schema_change" = "false")'
         sql 'INSERT INTO tbl_1 VALUES (1, 10)'
         sql 'INSERT INTO tbl_1 VALUES (2, 20)'
         order_qt_select_1_1 'SELECT * FROM tbl_1'
@@ -36,12 +36,12 @@ suite('test_schema_change_concurrent_with_txn') {
         sql 'CREATE TABLE tbl_2 AS SELECT * FROM tbl_1'
         order_qt_select_2_1 'SELECT * FROM tbl_2'
 
-        sql 'CREATE TABLE tbl_3 (k1 INT, k2 INT, v INT SUM) AGGREGATE KEY (k1, k2)'
+        sql 'CREATE TABLE tbl_3 (k1 INT, k2 INT, v INT SUM) AGGREGATE KEY (k1, k2) DISTRIBUTED BY HASH(k1) BUCKETS 10'
         sql 'INSERT INTO tbl_3 VALUES (1, 11, 111)'
         sql 'INSERT INTO tbl_3 VALUES (2, 22, 222)'
         order_qt_select_3_1 'SELECT * FROM tbl_3'
 
-        sql 'CREATE TABLE tbl_4 (k1 INT, k2 INT)'
+        sql 'CREATE TABLE tbl_4 (k1 INT, k2 INT) DISTRIBUTED BY HASH(k1) BUCKETS 10'
         sql 'INSERT INTO tbl_4 VALUES (1, 10)'
         sql 'INSERT INTO tbl_4 VALUES (2, 20)'
         order_qt_select_4_1 'SELECT * FROM tbl_4'
@@ -65,9 +65,9 @@ suite('test_schema_change_concurrent_with_txn') {
         sql 'INSERT INTO tbl_4 VALUES (4, 40)'
         order_qt_select_4_2 'SELECT * FROM tbl_4'
 
-        result = sql 'SHOW PROC "/transactions"'
-        def runningTxn = result.find({ it[1].indexOf(dbName) > 0 })[2]
-        assertEquals(8, runningTxn as int)
+        result = sql_return_maparray 'SHOW PROC "/transactions"'
+        def runningTxn = result.find { it.DbName.indexOf(dbName) >= 0 }.RunningTransactionNum as int
+        assertEquals(8, runningTxn)
 
         sql "ALTER TABLE tbl_1 ADD COLUMN k3 INT DEFAULT '-1'"
         sql 'CREATE MATERIALIZED VIEW tbl_2_mv AS SELECT k1, k1 + k2 FROM tbl_2'
@@ -77,24 +77,22 @@ suite('test_schema_change_concurrent_with_txn') {
         sleep(5000)
 
         def jobs = null
-        def scJobState = job -> job[9]
-        def rollupJobState = job -> job[8]
 
-        jobs = sql "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_1'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_1'"
         assertEquals(1, jobs.size())
-        assertEquals('WAITING_TXN', scJobState(jobs[0]))
+        assertEquals('WAITING_TXN', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_2'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_2'"
         assertEquals(1, jobs.size())
-        assertEquals('WAITING_TXN', rollupJobState(jobs[0]))
+        assertEquals('WAITING_TXN', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_3'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_3'"
         assertEquals(1, jobs.size())
-        assertEquals('WAITING_TXN', rollupJobState(jobs[0]))
+        assertEquals('WAITING_TXN', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_4'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_4'"
         assertEquals(1, jobs.size())
-        assertEquals('WAITING_TXN', scJobState(jobs[0]))
+        assertEquals('WAITING_TXN', jobs[0].State)
 
         sql 'INSERT INTO tbl_1(k1, k2) VALUES (5, 50)'
         sql 'INSERT INTO tbl_2 VALUES (5, 50)'
@@ -116,20 +114,20 @@ suite('test_schema_change_concurrent_with_txn') {
         order_qt_select_3_3 'SELECT * FROM tbl_3'
         order_qt_select_4_3 'SELECT * FROM tbl_4'
 
-        jobs = sql "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_1'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_1'"
         assertEquals(1, jobs.size())
-        assertEquals('FINISHED', scJobState(jobs[0]))
+        assertEquals('FINISHED', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_2'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName = 'tbl_2'"
         assertEquals(1, jobs.size())
-        assertEquals('FINISHED', rollupJobState(jobs[0]))
+        assertEquals('FINISHED', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_3'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE ROLLUP WHERE TableName = 'tbl_3'"
         assertEquals(1, jobs.size())
-        assertEquals('FINISHED', rollupJobState(jobs[0]))
+        assertEquals('FINISHED', jobs[0].State)
 
-        jobs = sql "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_4'"
+        jobs = sql_return_maparray "SHOW ALTER TABLE COLUMN WHERE TableName = 'tbl_4'"
         assertEquals(1, jobs.size())
-        assertEquals('FINISHED', scJobState(jobs[0]))
+        assertEquals('FINISHED', jobs[0].State)
     }
 }

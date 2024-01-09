@@ -18,6 +18,7 @@
 #include "parallel_scanner_builder.h"
 
 #include "olap/rowset/beta_rowset.h"
+#include "pipeline/exec/olap_scan_operator.h"
 #include "vec/exec/scan/new_olap_scanner.h"
 
 namespace doris {
@@ -197,5 +198,6 @@ std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scann
 }
 
 template class ParallelScannerBuilder<NewOlapScanNode>;
+template class ParallelScannerBuilder<pipeline::OlapScanLocalState>;
 
 } // namespace doris

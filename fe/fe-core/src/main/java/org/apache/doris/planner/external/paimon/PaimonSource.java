@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 
@@ -60,5 +61,9 @@ public class PaimonSource {
 
     public ExternalCatalog getCatalog() {
         return paimonExtTable.getCatalog();
+    }
+
+    public String getFileFormat() {
+        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "orc");
     }
 }

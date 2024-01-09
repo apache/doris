@@ -50,7 +50,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._is_streaming) {
-        _shared_state->data_queue->set_source_dependency(_dependency);
+        _shared_state->data_queue->set_source_dependency(info.dependency);
     }
     if (p._without_key) {
         if (p._needs_finalize) {

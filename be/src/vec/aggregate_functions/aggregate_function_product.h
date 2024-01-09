@@ -51,43 +51,43 @@ struct AggregateFunctionProductData {
 };
 
 template <>
-struct AggregateFunctionProductData<Decimal128> {
-    Decimal128 product {};
+struct AggregateFunctionProductData<Decimal128V2> {
+    Decimal128V2 product {};
 
-    void add(Decimal128 value, Decimal128) {
+    void add(Decimal128V2 value, Decimal128V2) {
         DecimalV2Value decimal_product(product);
         DecimalV2Value decimal_value(value);
         DecimalV2Value ret = decimal_product * decimal_value;
-        memcpy(&product, &ret, sizeof(Decimal128));
+        memcpy(&product, &ret, sizeof(Decimal128V2));
     }
 
-    void merge(const AggregateFunctionProductData& other, Decimal128) {
+    void merge(const AggregateFunctionProductData& other, Decimal128V2) {
         DecimalV2Value decimal_product(product);
         DecimalV2Value decimal_value(other.product);
         DecimalV2Value ret = decimal_product * decimal_value;
-        memcpy(&product, &ret, sizeof(Decimal128));
+        memcpy(&product, &ret, sizeof(Decimal128V2));
     }
 
     void write(BufferWritable& buffer) const { write_binary(product, buffer); }
 
     void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    Decimal128 get() const { return product; }
+    Decimal128V2 get() const { return product; }
 
-    void reset(Decimal128 value) { product = std::move(value); }
+    void reset(Decimal128V2 value) { product = std::move(value); }
 };
 
 template <>
-struct AggregateFunctionProductData<Decimal128I> {
-    Decimal128I product {};
+struct AggregateFunctionProductData<Decimal128V3> {
+    Decimal128V3 product {};
 
     template <typename NestedType>
-    void add(Decimal<NestedType> value, Decimal128I multiplier) {
+    void add(Decimal<NestedType> value, Decimal128V3 multiplier) {
         product *= value;
         product /= multiplier;
     }
 
-    void merge(const AggregateFunctionProductData& other, Decimal128I multiplier) {
+    void merge(const AggregateFunctionProductData& other, Decimal128V3 multiplier) {
         product *= other.product;
         product /= multiplier;
     }
@@ -96,9 +96,9 @@ struct AggregateFunctionProductData<Decimal128I> {
 
     void read(BufferReadable& buffer) { read_binary(product, buffer); }
 
-    Decimal128 get() const { return product; }
+    Decimal128V2 get() const { return product; }
 
-    void reset(Decimal128 value) { product = value; }
+    void reset(Decimal128V2 value) { product = value; }
 };
 
 template <typename T, typename TResult, typename Data>

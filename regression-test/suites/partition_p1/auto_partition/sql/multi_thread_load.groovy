@@ -23,13 +23,11 @@ import java.io.File
 import java.util.concurrent.locks.ReentrantLock
 
 suite("multi_thread_load") {
-    def lock = new ReentrantLock()
-
     // get doris-db from s3
     def dirPath = context.file.parent
     def fatherPath = context.file.parentFile.parentFile.getPath()
     def fileName = "doris-dbgen"
-    def fileUrl = "http://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
+    def fileUrl = "${getS3Url()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
     if (!Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->

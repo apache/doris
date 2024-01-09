@@ -85,6 +85,8 @@ suite("test_index_match_regexp", "p0"){
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 'er\$'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '.*tickets.*'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'nonexistence'; """
+
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

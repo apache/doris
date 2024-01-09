@@ -275,13 +275,13 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
 
         case TYPE_DECIMALV2: {
             const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
+            reinterpret_cast<vectorized::ColumnDecimal128V2*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }
         case TYPE_DECIMAL128I: {
             const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
+            reinterpret_cast<vectorized::ColumnDecimal128V3*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }

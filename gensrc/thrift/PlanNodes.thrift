@@ -311,6 +311,7 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
 }
 
 struct TMaxComputeFileDesc {
@@ -891,6 +892,8 @@ struct TSortNode {
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
   8: optional bool merge_by_exchange
+  9: optional bool is_analytic_sort
+  10: optional bool is_colocate
 }
 
 enum TopNAlgorithm {
@@ -1250,6 +1253,8 @@ struct TPlanNode {
   48: optional TPushAggOp push_down_agg_type_opt
 
   49: optional i64 push_down_count
+
+  50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

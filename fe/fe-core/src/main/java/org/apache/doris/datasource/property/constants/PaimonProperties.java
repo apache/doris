@@ -25,6 +25,7 @@ import java.util.Map;
 
 public class PaimonProperties {
     public static final String WAREHOUSE = "warehouse";
+    public static final String FILE_FORMAT = "file.format";
     public static final String PAIMON_PREFIX = "paimon";
     public static final String PAIMON_CATALOG_TYPE = "metastore";
     public static final String HIVE_METASTORE_URIS = "uri";

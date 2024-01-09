@@ -143,6 +143,11 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
+        ctor_params.__set_min_pool_size(_conn_param.min_pool_size);
+        ctor_params.__set_max_pool_size(_conn_param.max_pool_size);
+        ctor_params.__set_max_idle_time(_conn_param.max_idle_time);
+        ctor_params.__set_max_wait_time(_conn_param.max_wait_time);
+        ctor_params.__set_keep_alive(_conn_param.keep_alive);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.

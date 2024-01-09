@@ -361,6 +361,8 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBloc
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        _total_received_rows += writer->total_received_rows();
+        _num_rows_filtered += writer->num_rows_filtered();
     } else {
         _add_error_tablet(res->mutable_tablet_errors(), writer->tablet_id(), st);
     }

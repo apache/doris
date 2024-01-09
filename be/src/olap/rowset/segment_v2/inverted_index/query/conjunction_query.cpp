@@ -123,8 +123,7 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
 
 void ConjunctionQuery::search_by_skiplist(roaring::Roaring& roaring) {
     int32_t doc = 0;
-    int32_t first_doc = _lead1.nextDoc();
-    while ((doc = do_next(first_doc)) != INT32_MAX) {
+    while ((doc = do_next(_lead1.nextDoc())) != INT32_MAX) {
         roaring.add(doc);
     }
 }

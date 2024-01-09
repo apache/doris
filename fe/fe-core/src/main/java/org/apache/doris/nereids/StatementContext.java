@@ -189,6 +189,13 @@ public class StatementContext {
         return supplier.get();
     }
 
+    /**
+     * Some value of the cacheKey may change, invalid cache when value change
+     */
+    public synchronized void invalidCache(String cacheKey) {
+        contextCacheMap.remove(cacheKey);
+    }
+
     public ColumnAliasGenerator getColumnAliasGenerator() {
         return columnAliasGenerator == null
             ? columnAliasGenerator = new ColumnAliasGenerator()

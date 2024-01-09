@@ -104,8 +104,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             // Get basic stats, including min and max.
             ResultRow basicStats = collectBasicStat(r);
             long rowCount = tbl.getRowCount();
-            String min = StatisticsUtil.escapeSQL(basicStats.get(0));
-            String max = StatisticsUtil.escapeSQL(basicStats.get(1));
+            String min = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 0
+                    ? basicStats.get(0) : null);
+            String max = StatisticsUtil.escapeSQL(basicStats != null && basicStats.getValues().size() > 1
+                    ? basicStats.get(1) : null);
 
             boolean limitFlag = false;
             long rowsToSample = pair.second;
@@ -166,6 +168,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected ResultRow collectBasicStat(AutoCloseConnectContext context) {
+        // Agg table value columns has no zone map.
+        // For these columns, skip collecting min and max value to avoid scan whole table.
+        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
+            LOG.info("Aggregation table {} column {} is not a key column, skip collecting min and max.",
+                    tbl.getName(), col.getName());
+            return null;
+        }
         Map<String, String> params = new HashMap<>();
         params.put("dbName", db.getFullName());
         params.put("colName", info.colName);

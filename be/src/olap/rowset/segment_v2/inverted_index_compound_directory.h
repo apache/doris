@@ -63,6 +63,10 @@ private:
 };
 
 class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
+public:
+    static const char* const WRITE_LOCK_FILE;
+    static const char* const COMPOUND_FILE_EXTENSION;
+    static const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
 private:
     int filemode;
 

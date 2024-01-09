@@ -56,7 +56,7 @@ namespace doris::vectorized {
 template <typename T>
 struct AggregateFunctionHistogramData {
     using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>, ColumnVector<T>>;
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnVector<T>>;
 
     void set_parameters(int input_max_num_buckets) {
         if (input_max_num_buckets > 0) {

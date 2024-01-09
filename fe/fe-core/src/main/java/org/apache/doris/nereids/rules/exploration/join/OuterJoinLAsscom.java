@@ -62,7 +62,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint() || join.left().hasDistributeHint())
                 .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(topJoin -> {

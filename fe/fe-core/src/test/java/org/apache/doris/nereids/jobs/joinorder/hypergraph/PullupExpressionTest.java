@@ -56,9 +56,8 @@ class PullupExpressionTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
-        Assertions.assertEquals(2, res.getQueryExpressions().size());
+        Assertions.assertEquals(1, res.getQueryExpressions().size());
         Assertions.assertEquals("(id = 1)", res.getQueryExpressions().get(0).toSql());
-        Assertions.assertEquals("(id = 1)", res.getQueryExpressions().get(1).toSql());
     }
 
     @Test

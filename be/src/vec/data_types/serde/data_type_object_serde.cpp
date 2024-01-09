@@ -19,6 +19,7 @@
 
 #include <rapidjson/stringbuffer.h>
 
+#include "common/status.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
@@ -34,6 +35,7 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
     }
+    RETURN_IF_ERROR(variant.sanitize());
     if (variant.is_scalar_variant()) {
         // Serialize scalar types, like int, string, array, faster path
         const auto& root = variant.get_subcolumn({});

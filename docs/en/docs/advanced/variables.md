@@ -393,11 +393,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `system_time_zone`
 
-    Displays the current system time zone. Cannot be changed.
+    Set to the current system time zone when the cluster is initialised. It cannot be changed.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
+    Used to set the time zone for the current session. Defaults to the value of `system_time_zone`. It affects the results of certain time functions. For more information, see the [time zone](./time-zone) documentation.
     
 * `tx_isolation`
 

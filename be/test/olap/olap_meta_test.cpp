@@ -39,8 +39,10 @@ class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
         _root_path = "./ut_dir/olap_meta_test";
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(_root_path).ok());
-
+        auto st = io::global_local_filesystem()->delete_directory(_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_root_path);
+        ASSERT_TRUE(st.ok()) << st;
         _meta = new OlapMeta(_root_path);
         Status s = _meta->init();
         EXPECT_EQ(Status::OK(), s);

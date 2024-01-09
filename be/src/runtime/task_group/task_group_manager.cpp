@@ -69,18 +69,16 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
 
 bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
     std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
-    if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
-        query_ctx_ptr->set_task_scheduler(_tg_sche_map.at(tg_id).get());
-    } else {
-        return false;
+    auto tg_sche_it = _tg_sche_map.find(tg_id);
+    if (tg_sche_it != _tg_sche_map.end()) {
+        query_ctx_ptr->set_task_scheduler(tg_sche_it->second.get());
+        auto _tg_scan_sche_it = _tg_scan_sche_map.find(tg_id);
+        if (_tg_scan_sche_it != _tg_scan_sche_map.end()) {
+            query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_it->second.get());
+            return true;
+        }
     }
-
-    if (_tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
-        query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_map.at(tg_id).get());
-    } else {
-        return false;
-    }
-    return true;
+    return false;
 }
 
 Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,

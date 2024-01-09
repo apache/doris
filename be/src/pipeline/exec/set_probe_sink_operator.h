@@ -54,7 +54,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>> {
+class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
 

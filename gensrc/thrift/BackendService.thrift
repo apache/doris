@@ -67,6 +67,7 @@ struct TRoutineLoadTask {
     14: optional PlanNodes.TFileFormatType format
     15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     16: optional bool is_multi_table
+    17: optional bool memtable_on_sink_node;
 }
 
 struct TKafkaMetaProxyRequest {

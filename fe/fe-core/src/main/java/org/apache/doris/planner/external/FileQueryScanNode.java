@@ -34,10 +34,12 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.iceberg.IcebergSplit;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -273,6 +275,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return;
         }
         TFileFormatType fileFormatType = getFileFormatType();
+        if (fileFormatType == TFileFormatType.FORMAT_ORC) {
+            genSlotToSchemaIdMapForOrc();
+        }
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
@@ -313,7 +318,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
-            TFileType locationType = getLocationType(fileSplit.getPath().toString());
+            TFileType locationType;
+            if (fileSplit instanceof IcebergSplit
+                    && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+                locationType = TFileType.FILE_BROKER;
+            } else {
+                locationType = getLocationType(fileSplit.getPath().toString());
+            }
 
             TScanRangeLocations curLocations = newLocations();
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -453,6 +464,25 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;
+    }
+
+    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
+    // We need to save mapping from slot name to schema position
+    protected void genSlotToSchemaIdMapForOrc() {
+        Preconditions.checkNotNull(params);
+        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int idx = 0;
+            for (Column col : baseSchema) {
+                if (col.getName().equals(slot.getColumn().getName())) {
+                    columnNameToPosition.put(col.getName(), idx);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+        params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 
     protected abstract TFileType getLocationType() throws UserException;

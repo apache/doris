@@ -63,6 +63,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """update ${table_name} set v = '{"updated_value" : 1111}' where k = 7"""
     qt_sql "select * from ${table_name} order by k"
 
+    sql """delete from ${table_name} where v = 'xxx' or vs = 'yyy'"""
     sql """delete from ${table_name} where vs = 'xxx' or vs = 'yyy'"""
     qt_sql "select * from ${table_name} order by k"
 

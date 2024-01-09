@@ -77,17 +77,15 @@ public abstract class AbstractFnCallTransformers {
 
     protected void doRegister(
             String sourceFnNme,
-            int sourceFnArgumentsNum,
             String targetFnName,
-            List<? extends Expression> targetFnArguments,
-            boolean variableArgument) {
+            List<? extends Expression> targetFnArguments) {
 
         List<Expression> castedTargetFnArguments = targetFnArguments
                 .stream()
                 .map(each -> (Expression) each)
                 .collect(Collectors.toList());
         transformerBuilder.put(sourceFnNme, new CommonFnCallTransformer(new UnboundFunction(
-                targetFnName, castedTargetFnArguments), variableArgument, sourceFnArgumentsNum));
+                targetFnName, castedTargetFnArguments)));
     }
 
     protected void doRegister(

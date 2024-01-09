@@ -258,7 +258,7 @@ public class MTMVUtil {
             return res;
         }
         if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
-                .isMaterializedViewRewriteEnableContainForeignTable()) {
+                .isMaterializedViewRewriteEnableContainExternalTable()) {
             return res;
         }
         MTMVRelation mtmvRelation = mtmv.getRelation();

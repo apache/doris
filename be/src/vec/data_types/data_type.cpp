@@ -139,9 +139,9 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::DECIMAL32;
     case TypeIndex::Decimal64:
         return PGenericType::DECIMAL64;
-    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal128V2:
         return PGenericType::DECIMAL128;
-    case TypeIndex::Decimal128I:
+    case TypeIndex::Decimal128V3:
         return PGenericType::DECIMAL128I;
     case TypeIndex::Decimal256:
         return PGenericType::DECIMAL256;

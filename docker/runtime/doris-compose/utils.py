@@ -168,6 +168,13 @@ def get_doris_running_containers(cluster_name):
     }
 
 
+def remove_docker_network(cluster_name):
+    client = docker.client.from_env()
+    for network in client.networks.list(
+            names=[cluster_name + "_" + with_doris_prefix(cluster_name)]):
+        network.remove()
+
+
 def is_dir_empty(dir):
     return False if os.listdir(dir) else True
 

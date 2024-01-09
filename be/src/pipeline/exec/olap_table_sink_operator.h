@@ -34,7 +34,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
+class OlapTableSinkOperator final : public DataSinkOperator<vectorized::VOlapTableSink> {
 public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}

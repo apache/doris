@@ -23,7 +23,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/fs/local_file_system.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -218,7 +218,7 @@ void VWalScannerTest::init() {
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
     std::string base_path;
     auto st = _env->_wal_manager->_init_wal_dirs_info();
-    st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label, base_path);
+    st = _env->_wal_manager->create_wal_path(db_id, tb_id, txn_id, label, base_path);
 }
 
 TEST_F(VWalScannerTest, normal) {
@@ -226,7 +226,6 @@ TEST_F(VWalScannerTest, normal) {
     index_vector.emplace_back(0);
     index_vector.emplace_back(1);
     index_vector.emplace_back(2);
-    _env->_wal_manager->add_wal_column_index(txn_id, index_vector);
     //    config::group_commit_replay_wal_dir = wal_dir;
     NewFileScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);

@@ -22,11 +22,11 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -117,13 +117,13 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = colNameToExpression.get(column.getName());
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr));
+                        : new UnboundAlias(expr));
             } else {
                 if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
                             new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
                                     .toSqlWithoutTbl());
-                    selectItems.add(new Alias(defualtValueExpression, column.getName()));
+                    selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
                 } else {
                     selectItems.add(new UnboundSlot(tableName, column.getName()));
                 }

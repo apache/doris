@@ -47,7 +47,10 @@ public:
     const std::string kTestDir = "./ut_dir/invertedInvertedIndexSearcherCache::instance()_test";
 
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kTestDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kTestDir);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
@@ -161,8 +164,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     cache_value_1->size = 200;
     //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_1, cache_value_1.release()));
 
     // should evict {key_1, cache_value_1}
     std::string file_name_2 = "test_2.idx";
@@ -171,8 +173,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     cache_value_2->size = 800;
     //cache_value_2->index_searcher;
     cache_value_2->last_visit_time = 20;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_2, cache_value_2.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_2, cache_value_2.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
@@ -188,8 +189,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     cache_value_3->size = 400;
     //cache_value_3->index_searcher;
     cache_value_3->last_visit_time = 30;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_3, cache_value_3.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_3, cache_value_3.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_2
@@ -205,8 +205,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     cache_value_4->size = 100;
     //cache_value_4->index_searcher;
     cache_value_4->last_visit_time = 40;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_4, cache_value_4.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_4, cache_value_4.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_3
@@ -228,8 +227,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     cache_value_1->size = 20;
     //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_1, cache_value_1.release()));
 
     // no need evict
     std::string file_name_2 = "test_2.idx";
@@ -238,8 +236,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     cache_value_2->size = 50;
     //cache_value_2->index_searcher;
     cache_value_2->last_visit_time = 20;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_2, cache_value_2.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_2, cache_value_2.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
@@ -259,8 +256,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     cache_value_3->size = 80;
     //cache_value_3->index_searcher;
     cache_value_3->last_visit_time = 30;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_3, cache_value_3.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_3, cache_value_3.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
@@ -286,8 +282,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     cache_value_4->size = 100;
     //cache_value_4->index_searcher;
     cache_value_4->last_visit_time = 40;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_4, cache_value_4.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_4, cache_value_4.release()));
     {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
@@ -321,8 +316,7 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     cache_value_1->size = 200;
     //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
-    index_searcher_cache->_cache->release(
-            index_searcher_cache->_insert(key_1, cache_value_1.release()));
+    index_searcher_cache->release(index_searcher_cache->_insert(key_1, cache_value_1.release()));
 
     std::string file_name_2 = "test_2.idx";
     InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
@@ -338,7 +332,7 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
         cache_value_2->size = 800;
         //cache_value_2->index_searcher;
         cache_value_2->last_visit_time = 20;
-        index_searcher_cache->_cache->release(
+        index_searcher_cache->release(
                 index_searcher_cache->_insert(key_2, cache_value_2.release()));
 
         // lookup key_2, key_2 has removed from table due to cache is full

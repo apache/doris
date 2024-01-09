@@ -83,17 +83,15 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalProject(
-                                                        logicalJoin(
-                                                                logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
-                                                                ),
-                                                                logicalProject(
-                                                                        logicalFilter(
-                                                                                logicalOlapScan()
-                                                                        )
+                                                logicalJoin(
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
+                                                                )
+                                                        ),
+                                                        logicalProject(
+                                                                logicalFilter(
+                                                                        logicalOlapScan()
                                                                 )
                                                         )
                                                 ),

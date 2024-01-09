@@ -394,8 +394,8 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
     {
         UInt32 have_decimal32 = type_ids.count(TypeIndex::Decimal32);
         UInt32 have_decimal64 = type_ids.count(TypeIndex::Decimal64);
-        UInt32 have_decimal128 = type_ids.count(TypeIndex::Decimal128);
-        UInt32 have_decimal128i = type_ids.count(TypeIndex::Decimal128I);
+        UInt32 have_decimal128 = type_ids.count(TypeIndex::Decimal128V2);
+        UInt32 have_decimal128i = type_ids.count(TypeIndex::Decimal128V3);
         UInt32 have_decimal256 = type_ids.count(TypeIndex::Decimal256);
 
         if (have_decimal32 || have_decimal64 || have_decimal128 || have_decimal128i ||
@@ -452,19 +452,19 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
                         type);
             }
 
-            if (have_decimal256 || min_precision > DataTypeDecimal<Decimal128I>::max_precision()) {
+            if (have_decimal256 || min_precision > DataTypeDecimal<Decimal128V3>::max_precision()) {
                 *type = std::make_shared<DataTypeDecimal<Decimal256>>(
                         DataTypeDecimal<Decimal256>::max_precision(), max_scale);
                 return;
             }
             if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal128>>(
-                        DataTypeDecimal<Decimal128>::max_precision(), max_scale);
+                *type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                        DataTypeDecimal<Decimal128V2>::max_precision(), max_scale);
                 return;
             }
             if (have_decimal128i || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal128I>>(
-                        DataTypeDecimal<Decimal128I>::max_precision(), max_scale);
+                *type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                        DataTypeDecimal<Decimal128V3>::max_precision(), max_scale);
                 return;
             }
             if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision()) {

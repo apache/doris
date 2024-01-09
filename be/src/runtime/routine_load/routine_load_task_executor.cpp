@@ -213,6 +213,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     if (task.__isset.is_multi_table && task.is_multi_table) {
         ctx->is_multi_table = true;
     }
+    if (task.__isset.memtable_on_sink_node) {
+        ctx->memtable_on_sink_node = task.memtable_on_sink_node;
+    }
 
     // set execute plan params (only for non-single-stream-multi-table load)
     TStreamLoadPutResult put_result;

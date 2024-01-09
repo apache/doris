@@ -34,7 +34,13 @@ public:
         SEGMENT_CACHE = 4,
         INVERTEDINDEX_SEARCHER_CACHE = 5,
         INVERTEDINDEX_QUERY_CACHE = 6,
-        LOOKUP_CONNECTION_CACHE = 7
+        LOOKUP_CONNECTION_CACHE = 7,
+        POINT_QUERY_ROW_CACHE = 8,
+        DELETE_BITMAP_AGG_CACHE = 9,
+        TABLET_VERSION_CACHE = 10,
+        LAST_SUCCESS_CHANNEL_CACHE = 11,
+        COMMON_OBJ_LRU_CACHE = 12,
+        FOR_UT = 13
     };
 
     static std::string type_string(CacheType type) {
@@ -54,7 +60,19 @@ public:
         case CacheType::INVERTEDINDEX_QUERY_CACHE:
             return "InvertedIndexQueryCache";
         case CacheType::LOOKUP_CONNECTION_CACHE:
-            return "LookupConnectionCache";
+            return "PointQueryLookupConnectionCache";
+        case CacheType::POINT_QUERY_ROW_CACHE:
+            return "PointQueryRowCache";
+        case CacheType::DELETE_BITMAP_AGG_CACHE:
+            return "MowDeleteBitmapAggCache";
+        case CacheType::TABLET_VERSION_CACHE:
+            return "MowTabletVersionCache";
+        case CacheType::LAST_SUCCESS_CHANNEL_CACHE:
+            return "LastSuccessChannelCache";
+        case CacheType::COMMON_OBJ_LRU_CACHE:
+            return "CommonObjLRUCache";
+        case CacheType::FOR_UT:
+            return "ForUT";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -62,13 +80,14 @@ public:
         __builtin_unreachable();
     }
 
-    CachePolicy(CacheType type, uint32_t stale_sweep_time_s);
+    CachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune);
     virtual ~CachePolicy();
 
     virtual void prune_stale() = 0;
     virtual void prune_all(bool clear) = 0;
 
     CacheType type() { return _type; }
+    bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 
 protected:
@@ -94,6 +113,7 @@ protected:
     RuntimeProfile::Counter* _cost_timer = nullptr;
 
     uint32_t _stale_sweep_time_s;
+    bool _enable_prune = true;
 };
 
 } // namespace doris

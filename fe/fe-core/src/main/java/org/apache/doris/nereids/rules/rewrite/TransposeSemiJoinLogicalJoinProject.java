@@ -48,7 +48,7 @@ public class TransposeSemiJoinLogicalJoinProject extends OneRewriteRuleFactory {
                         || topJoin.left().child().getJoinType().isLeftOuterJoin()
                         || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .when(join -> join.left().isAllSlots())
-                .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().getProjects().stream().allMatch(expr -> expr instanceof Slot))
                 .then(topSemiJoin -> {

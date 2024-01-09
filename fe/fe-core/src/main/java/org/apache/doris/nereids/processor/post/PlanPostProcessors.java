@@ -69,6 +69,9 @@ public class PlanPostProcessors {
             builder.add(new RuntimeFilterGenerator());
             if (ConnectContext.get().getSessionVariable().enableRuntimeFilterPrune) {
                 builder.add(new RuntimeFilterPruner());
+                if (ConnectContext.get().getSessionVariable().runtimeFilterPruneForExternal) {
+                    builder.add(new RuntimeFilterPrunerForExternalTable());
+                }
             }
         }
         builder.add(new Validator());

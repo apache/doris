@@ -197,6 +197,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterJobStatusStmt) {
             AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
             try {
+                // drop job
+                if (stmt.isDrop()) {
+                    env.getJobManager().unregisterJob(stmt.getJobName(), stmt.isIfExists());
+                    return;
+                }
+                // alter job status
                 env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());

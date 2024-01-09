@@ -524,7 +524,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
-    LOG(INFO) << "close_tablet_id" << _tablet_reader_params.tablet->tablet_id();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }

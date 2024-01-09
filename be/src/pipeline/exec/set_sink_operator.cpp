@@ -42,7 +42,7 @@ OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSinkOperator<is_intersect>::SetSinkOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<SetSinkOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSinkOperatorBuilder<true>;
 template class SetSinkOperatorBuilder<false>;
@@ -181,7 +181,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
 
-    _shared_state->hash_table_variants = std::make_unique<vectorized::HashTableVariants>();
+    _shared_state->hash_table_variants = std::make_unique<vectorized::SetHashTableVariants>();
 
     for (int i = 0; i < child_exprs_lists[0].size(); ++i) {
         const auto& ctx = child_exprs_lists[0][i];

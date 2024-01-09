@@ -270,12 +270,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitNot(Not not, ExpressionRewriteContext context) {
         Expression child = not.child().accept(this, context);
-        if (!child.getDataType().isBooleanType() && !child.getDataType().isNullType()) {
-            throw new AnalysisException(String.format(
-                    "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but "
-                            + "returns type '%s'.",
-                    child.toSql(), not.toSql(), child.getDataType()));
-        }
+        child = TypeCoercionUtils.castIfNotSameType(child, BooleanType.INSTANCE);
         return not.withChildren(child);
     }
 

@@ -26,32 +26,32 @@ suite("test_base_insert_job") {
     def jobMixedName = "Insert_recovery_Test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-       DROP JOB where jobname =  'JOB'
+       DROP JOB IF EXISTS where jobname =  'JOB'
     """
     sql """
-       DROP JOB where jobname =  'DO'
+       DROP JOB IF EXISTS where jobname =  'DO'
     """
     sql """
-       DROP JOB where jobname =  'AT'
+       DROP JOB IF EXISTS where jobname =  'AT'
     """
     sql """
-       DROP JOB where jobname =  'SCHEDULE'
+       DROP JOB IF EXISTS where jobname =  'SCHEDULE'
     """
     sql """
-       DROP JOB where jobname =  'STARTS'
+       DROP JOB IF EXISTS where jobname =  'STARTS'
     """
     sql """
-       DROP JOB where jobname =  'ENDS'
+       DROP JOB IF EXISTS where jobname =  'ENDS'
     """
     sql """
-        DROP JOB where jobname =  '${jobMixedName}'
+        DROP JOB IF EXISTS where jobname =  '${jobMixedName}'
     """
 
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
     sql """
@@ -82,10 +82,10 @@ suite("test_base_insert_job") {
     assert mixedNameJobs.size() == 1 && mixedNameJobs.get(0).get(0) == jobMixedName
     assert mixedNameJobs.get(0).get(1) == ''
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-        DROP JOB where jobname =  '${jobMixedName}'
+        DROP JOB IF EXISTS where jobname =  '${jobMixedName}'
     """
 
     sql """drop table if exists `${tableName}` force """
@@ -145,7 +145,7 @@ suite("test_base_insert_job") {
     //assert comment
     assert oncejob.get(0).get(1) == "test for test&68686781jbjbhj//ncsa"
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
     sql """

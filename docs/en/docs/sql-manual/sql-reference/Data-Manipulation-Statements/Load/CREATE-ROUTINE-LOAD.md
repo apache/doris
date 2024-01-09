@@ -159,7 +159,7 @@ FROM data_source [data_source_properties]
 
      These three parameters represent:
 
-     1. The maximum execution time of each subtask, in seconds. The range is 1 to 60. Default is 10.
+     1. The maximum execution time of each subtask, in seconds. Must be greater than or equal to 1. The default is 10.
      2. The maximum number of lines read by each subtask. Must be greater than or equal to 200000. The default is 200000.
      3. The maximum number of bytes read by each subtask. The unit is bytes and the range is 100MB to 1GB. The default is 100MB.
 

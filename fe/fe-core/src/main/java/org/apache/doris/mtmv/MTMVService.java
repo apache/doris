@@ -26,6 +26,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -157,6 +158,14 @@ public class MTMVService {
         LOG.info("resumeMTMV, ResumeMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.resumeMTMV(info);
+        }
+    }
+
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) throws MetaNotFoundException, DdlException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("cancelMTMVTask, CancelMTMVTaskInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.cancelMTMVTask(info);
         }
     }
 }

@@ -89,11 +89,11 @@ public:
         LOG(FATAL) << "not implemeted";
         __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const DecimalField<Decimal128>& x) const {
+    [[noreturn]] String operator()(const DecimalField<Decimal128V2>& x) const {
         LOG(FATAL) << "not implemeted";
         __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const DecimalField<Decimal128I>& x) const {
+    [[noreturn]] String operator()(const DecimalField<Decimal128V3>& x) const {
         LOG(FATAL) << "not implemeted";
         __builtin_unreachable();
     }
@@ -135,10 +135,10 @@ public:
     void operator()(const DecimalField<Decimal64>& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const DecimalField<Decimal128>& x, JsonbWriter* writer) const {
+    void operator()(const DecimalField<Decimal128V2>& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
-    void operator()(const DecimalField<Decimal128I>& x, JsonbWriter* writer) const {
+    void operator()(const DecimalField<Decimal128V3>& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const DecimalField<Decimal256>& x, JsonbWriter* writer) const {

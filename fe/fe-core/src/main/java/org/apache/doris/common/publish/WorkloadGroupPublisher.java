@@ -35,8 +35,6 @@ public class WorkloadGroupPublisher implements TopicPublisher {
     @Override
     public void getTopicInfo(TPublishTopicRequest req) {
         List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
-        }
+        req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
     }
 }

@@ -41,9 +41,4 @@ public class JdbcDataSource {
     public Map<String, DruidDataSource> getSourcesMap() {
         return sourcesMap;
     }
-
-    public String createCacheKey(String jdbcUrl, String jdbcUser, String jdbcPassword, String jdbcDriverUrl,
-            String jdbcDriverClass) {
-        return jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass;
-    }
 }

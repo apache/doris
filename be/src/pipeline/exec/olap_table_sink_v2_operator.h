@@ -34,12 +34,12 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkV2Operator final : public DataSinkOperator<OlapTableSinkV2OperatorBuilder> {
+class OlapTableSinkV2Operator final : public DataSinkOperator<vectorized::VOlapTableSinkV2> {
 public:
     OlapTableSinkV2Operator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkV2OperatorX;

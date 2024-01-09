@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TExprOpcode;
@@ -70,10 +71,16 @@ public class PaimonPredicateConverter {
 
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    return PredicateBuilder.and(left, right);
+                    if (left != null && right != null) {
+                        return PredicateBuilder.and(left, right);
+                    }
+                    return null;
                 }
                 case OR: {
-                    return PredicateBuilder.or(left, right);
+                    if (left != null && right != null) {
+                        return PredicateBuilder.or(left, right);
+                    }
+                    return null;
                 }
                 default:
                     return null;
@@ -119,6 +126,12 @@ public class PaimonPredicateConverter {
                     String s = value.toString();
                     if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
                         return builder.startsWith(idx, BinaryString.fromString(s.substring(0, s.length() - 1)));
+                    }
+                } else if (dorisExpr instanceof IsNullPredicate) {
+                    if (((IsNullPredicate) dorisExpr).isNotNull()) {
+                        return builder.isNotNull(idx);
+                    } else {
+                        return builder.isNull(idx);
                     }
                 }
                 return null;

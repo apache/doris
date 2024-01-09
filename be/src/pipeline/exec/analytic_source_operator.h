@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 

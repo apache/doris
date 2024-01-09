@@ -81,7 +81,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 "alter table t1 drop constraint pk");
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
     }
 
     @Test
@@ -102,7 +102,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 "alter table t1 drop constraint un");
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
     }
 
     @Test
@@ -149,7 +149,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 "alter table t1 drop constraint fk");
         dropCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
         // drop pk and fk referenced it also should be dropped
         ((AddConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 add constraint fk foreign key (k1, k2) references t2(k1, k2)")).run(connectContext,
@@ -158,8 +158,8 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                 .run(connectContext, null);
 
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
-                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
         PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
-                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMapUnsafe().isEmpty()));
     }
 }

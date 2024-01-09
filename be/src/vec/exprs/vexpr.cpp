@@ -554,4 +554,12 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
+Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
+                                    int* result_column_id) {
+    *result_column_id = block->columns();
+    auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
+    block->insert({std::move(column), _data_type, expr_name});
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

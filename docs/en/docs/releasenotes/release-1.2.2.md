@@ -76,7 +76,7 @@ Reference: [https://doris.apache.org/docs/dev/advanced/variables](https://doris.
 
 - Iceberg Catalog Support Hive Metastore and Rest Catalog type.
 
-- ES Catalog support _id column mapping。
+- ES Catalog support _id column mapping.
 
 - Optimize Iceberg V2 read performance with large number of delete rows.
 

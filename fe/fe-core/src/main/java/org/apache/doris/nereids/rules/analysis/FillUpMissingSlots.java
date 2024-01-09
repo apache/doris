@@ -158,6 +158,25 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             ),
             // Convert having to filter
             RuleType.FILL_UP_HAVING_PROJECT.build(
+                    logicalHaving(logicalProject()).then(having -> {
+                        LogicalProject<Plan> project = having.child();
+                        Set<Slot> projectOutputSet = project.getOutputSet();
+                        Set<Slot> notExistedInProject = having.getExpressions().stream()
+                                .map(Expression::getInputSlots)
+                                .flatMap(Set::stream)
+                                .filter(s -> !projectOutputSet.contains(s))
+                                .collect(Collectors.toSet());
+                        if (notExistedInProject.size() == 0) {
+                            return null;
+                        }
+                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                                .addAll(project.getProjects()).addAll(notExistedInProject).build();
+                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
+                                having.withChildren(new LogicalProject<>(projects, project.child())));
+                    })
+            ),
+            // Convert having to filter
+            RuleType.FILL_UP_HAVING_PROJECT.build(
                 logicalHaving().then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
             )
         );

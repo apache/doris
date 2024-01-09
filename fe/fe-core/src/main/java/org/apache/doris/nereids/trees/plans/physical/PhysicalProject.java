@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
@@ -42,7 +41,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -162,7 +160,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
@@ -172,7 +169,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
         Preconditions.checkState(scan != null, "scan is null");
         if (scan instanceof PhysicalCTEConsumer) {
             // update the probeExpr
@@ -196,7 +193,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
                 return false;
             }
-            scan = aliasTransferMap.get(newProbeSlot).first;
+            scan = ctx.getAliasTransferPair(newProbeSlot).first;
             probeExpr = newProbeExpr;
         }
         if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {

@@ -47,7 +47,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     bool can_sink() override;
 

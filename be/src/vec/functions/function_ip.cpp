@@ -18,13 +18,10 @@
 #include "vec/functions/function_ip.h"
 
 namespace doris::vectorized {
-struct NameFunctionIPv4NumToString {
-    static constexpr auto name = "ipv4numtostring";
-};
 
 void register_function_ip(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();
-    factory.register_alias(NameFunctionIPv4NumToString::name, "inet_ntoa");
+    factory.register_function<FunctionIPv4NumToString>();
+    factory.register_alias(FunctionIPv4NumToString::name, "inet_ntoa");
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>>();
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Default>>();
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null>>();
@@ -32,5 +29,13 @@ void register_function_ip(SimpleFunctionFactory& factory) {
                            "inet_aton");
     factory.register_function<FunctionIPv6NumToString>();
     factory.register_alias(FunctionIPv6NumToString::name, "inet6_ntoa");
+    factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Throw>>();
+    factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Default>>();
+    factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Null>>();
+    factory.register_alias(FunctionIPv6StringToNum<IPStringToNumExceptionMode::Throw>::name,
+                           "inet6_aton");
+    factory.register_function<FunctionIsIPv4String>();
+    factory.register_function<FunctionIsIPv6String>();
+    factory.register_function<FunctionIsIPAddressInRange>();
 }
 } // namespace doris::vectorized

@@ -17,11 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -64,9 +65,10 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Invalid job metadata query");
         }
         this.jobType = jobType;
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!userIdentity.isRootUser()) {
-            throw new AnalysisException("only root user can operate");
+        if (jobType != JobType.MV) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                throw new AnalysisException("only ADMIN priv can operate");
+            }
         }
     }
 

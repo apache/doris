@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SortSourceOperator final : public SourceOperator<SortSourceOperatorBuilder> {
+class SortSourceOperator final : public SourceOperator<vectorized::VSortNode> {
 public:
     SortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node);
     Status open(RuntimeState*) override { return Status::OK(); }

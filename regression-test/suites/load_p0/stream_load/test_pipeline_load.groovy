@@ -138,7 +138,7 @@ suite("test_pipeline_load", "nonConcurrent") {
             "disable_auto_compaction" = "false"
             );
         """
-        // Trigger error which is different from non-pipeline load
+        // The error should be different from non-pipeline load
         streamLoad {
             table "${tableName}"
             set 'column_separator', ','

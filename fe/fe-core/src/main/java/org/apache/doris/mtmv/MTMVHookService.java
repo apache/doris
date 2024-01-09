@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -107,13 +108,22 @@ public interface MTMVHookService {
 
     /**
      * Triggered when pause mtmv
+     *
      * @param info
      */
     void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException;
 
     /**
      * Triggered when resume mtmv
+     *
      * @param info
      */
     void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException;
+
+    /**
+     * cancel mtmv task
+     *
+     * @param info
+     */
+    void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException;
 }

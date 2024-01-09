@@ -51,7 +51,7 @@ private:
 };
 
 class DistinctStreamingAggSourceOperator final
-        : public SourceOperator<DistinctStreamingAggSourceOperatorBuilder> {
+        : public SourceOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSourceOperator(OperatorBuilderBase*, ExecNode*, std::shared_ptr<DataQueue>);
     bool can_read() override;

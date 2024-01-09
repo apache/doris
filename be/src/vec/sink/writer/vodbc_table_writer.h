@@ -44,7 +44,7 @@ public:
         return init_to_write(profile);
     }
 
-    Status append_block(vectorized::Block& block) override;
+    Status write(vectorized::Block& block) override;
 
     Status close(Status s) override { return ODBCConnector::close(s); }
 

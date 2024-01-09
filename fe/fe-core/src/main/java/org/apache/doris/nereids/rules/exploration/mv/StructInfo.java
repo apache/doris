@@ -20,12 +20,14 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -65,6 +67,7 @@ public class StructInfo {
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
     // source data
     private final Plan originalPlan;
+    private ObjectId originalPlanId;
     private final HyperGraph hyperGraph;
     private boolean valid = true;
     // derived data following
@@ -85,6 +88,8 @@ public class StructInfo {
 
     private StructInfo(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan, HyperGraph hyperGraph) {
         this.originalPlan = originalPlan;
+        this.originalPlanId = originalPlan.getGroupExpression()
+                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         this.hyperGraph = hyperGraph;
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
@@ -101,7 +106,6 @@ public class StructInfo {
         }
         collectStructInfoFromGraph();
         initPredicates();
-        predicatesDerive();
     }
 
     public void addPredicates(List<Expression> canPulledUpExpressions) {
@@ -156,6 +160,7 @@ public class StructInfo {
         Set<Expression> topPlanPredicates = new HashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
         topPlanPredicates.forEach(this.predicates::addPredicate);
+        predicatesDerive();
     }
 
     // derive some useful predicate by predicates
@@ -256,6 +261,10 @@ public class StructInfo {
     public List<? extends Expression> getExpressions() {
         return originalPlan instanceof LogicalProject
                 ? ((LogicalProject<Plan>) originalPlan).getProjects() : originalPlan.getOutput();
+    }
+
+    public ObjectId getOriginalPlanId() {
+        return originalPlanId;
     }
 
     /**

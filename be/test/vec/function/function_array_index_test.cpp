@@ -140,9 +140,10 @@ TEST(function_array_index_test, array_contains) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
-    // array_contains(Array<Decimal128>, Decimal128)
+    // array_contains(Array<Decimal128V2>, Decimal128V2)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Decimal128};
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2,
+                                    TypeIndex::Decimal128V2};
 
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0.0)};
@@ -242,9 +243,10 @@ TEST(function_array_index_test, array_position) {
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
-    // array_position(Array<Decimal128>, Decimal128)
+    // array_position(Array<Decimal128V2>, Decimal128V2)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Decimal128};
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2,
+                                    TypeIndex::Decimal128V2};
 
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
                      ut_type::DECIMALFIELD(0)};

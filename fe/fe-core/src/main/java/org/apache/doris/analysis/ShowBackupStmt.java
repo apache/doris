@@ -136,13 +136,13 @@ public class ShowBackupStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        builder.append("SHOW BACKUP");
-        if (dbName != null) {
-            builder.append(" FROM `").append(dbName).append("` ");
+        builder.append("SHOW BACKUP ");
+        if (Strings.isNullOrEmpty(dbName)) {
+            builder.append("FROM `").append(dbName).append("` ");
         }
 
         if (where != null) {
-            builder.append(where.toSql());
+            builder.append("WHERE ").append(where.toSql());
         }
 
         return builder.toString();

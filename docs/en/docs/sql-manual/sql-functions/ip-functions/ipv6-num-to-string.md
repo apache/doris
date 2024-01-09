@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv6NumToString
+## IPV6_NUM_TO_STRING
 
 <version since="dev">
 
-IPv6NumToString
+IPV6_NUM_TO_STRING
 
 </version>
 
@@ -34,7 +34,7 @@ IPv6NumToString
 
 #### Syntax
 
-`VARCHAR IPv6NumToString(VARCHAR ipv6_num)`
+`VARCHAR IPV6_NUM_TO_STRING(VARCHAR ipv6_num)`
 
 Takes an IPv6 address in binary format of type String. Returns the string of this address in text format.
 The IPv4 address mapped by IPv6 starts with ::ffff:111.222.33. 
@@ -42,7 +42,7 @@ The IPv4 address mapped by IPv6 starts with ::ffff:111.222.33.
 ### example
 
 ```
-mysql> select ipv6numtostring(unhex('2A0206B8000000000000000000000011')) as addr;
+mysql> select ipv6_num_to_string(unhex('2A0206B8000000000000000000000011')) as addr;
 +--------------+
 | addr         |
 +--------------+
@@ -53,4 +53,4 @@ mysql> select ipv6numtostring(unhex('2A0206B8000000000000000000000011')) as addr
 
 ### keywords
 
-IPV6NUMTOSTRING, IP
+IPV6_NUM_TO_STRING, IP

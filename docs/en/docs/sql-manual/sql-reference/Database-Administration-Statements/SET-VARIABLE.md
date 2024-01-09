@@ -49,25 +49,7 @@ illustrate:
 > Note:
 >
 > 1. Only ADMIN users can set variables to take effect globally
-> 2. The globally effective variable does not affect the variable value of the current session, but only affects the variable in the new session.
-
-Variables that support both the current session and the global effect include:
-
-- `time_zone`
-- `wait_timeout`
-- `sql_mode`
-- `enable_profile`
-- `query_timeout`
-- <version since="dev" type="inline">`insert_timeout`</version>
-- `exec_mem_limit`
-- `batch_size`
-- `allow_partition_column_nullable`
-- `insert_visible_timeout_ms`
-- `enable_fold_constant_by_be`
-
-Variables that only support global effects include:
-
-- `default_rowset_type`
+> 2. The globally effective variable affects the current session and new sessions thereafter, but does not affect other sessions that currently exist.
 
 ### Example
 
@@ -86,6 +68,4 @@ Variables that only support global effects include:
 ### Keywords
 
     SET, VARIABLE
-
-### Best Practice
 

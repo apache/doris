@@ -68,4 +68,12 @@ suite("test_nereids_having") {
     order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2) > 0";
     order_qt_select "SELECT SUM(a1 + a2) FROM test_nereids_having_tbl HAVING SUM(a1 + a2 + 3) > 0";
     order_qt_select "SELECT COUNT(*) FROM test_nereids_having_tbl HAVING COUNT(*) > 0";
+    sql """SELECT alias2.`pk` AS field4
+                            FROM 
+                                (SELECT pk
+                                FROM test_nereids_having_tbl AS SQ1_alias1 ) AS alias2
+                            HAVING alias2.`pk` <> 
+                                (SELECT *
+                                FROM 
+                                    (SELECT "xAbfcUSAOy") __DORIS_DUAL__ );"""
 }

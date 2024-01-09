@@ -22,7 +22,6 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -209,8 +208,12 @@ public class TabletsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+        Tablet tablet = index.getTablet(tabletId);
+        if (tablet == null) {
+            throw new AnalysisException("Tablet[" + tabletId + "] does not exist");
+        }
+
+        List<Replica> replicas = tablet.getReplicas();
         return new ReplicasProcNode(tabletId, replicas);
     }
 

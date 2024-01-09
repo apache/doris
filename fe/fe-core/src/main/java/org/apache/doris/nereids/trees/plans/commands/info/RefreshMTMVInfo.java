@@ -100,4 +100,13 @@ public class RefreshMTMVInfo {
     public boolean isComplete() {
         return isComplete;
     }
+
+    @Override
+    public String toString() {
+        return "RefreshMTMVInfo{"
+                + "mvName=" + mvName
+                + ", partitions=" + partitions
+                + ", isComplete=" + isComplete
+                + '}';
+    }
 }

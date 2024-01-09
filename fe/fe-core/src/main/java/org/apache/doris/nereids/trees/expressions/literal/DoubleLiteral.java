@@ -23,8 +23,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 
-import java.text.NumberFormat;
-
 /**
  * Double literal
  */
@@ -50,17 +48,5 @@ public class DoubleLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new FloatLiteral(value, Type.DOUBLE);
-    }
-
-    @Override
-    public String toString() {
-        NumberFormat nf = NumberFormat.getInstance();
-        nf.setGroupingUsed(false);
-        return nf.format(value);
-    }
-
-    @Override
-    public String getStringValue() {
-        return toString();
     }
 }

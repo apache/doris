@@ -127,11 +127,6 @@ Status BrokerFileWriter::close() {
     return Status::OK();
 }
 
-Status BrokerFileWriter::abort() {
-    // TODO: should remove file
-    return Status::OK();
-}
-
 Status BrokerFileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     if (!_opened) {

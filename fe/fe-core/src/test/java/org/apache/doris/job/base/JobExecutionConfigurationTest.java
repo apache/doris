@@ -32,11 +32,11 @@ public class JobExecutionConfigurationTest {
         configuration.setExecuteType(JobExecuteType.ONE_TIME);
 
         TimerDefinition timerDefinition = new TimerDefinition();
-        timerDefinition.setStartTimeMs(System.currentTimeMillis() + 1000); // Start time set to 1 second in the future
+        timerDefinition.setStartTimeMs(1000L); // Start time set to 1 second in the future
         configuration.setTimerDefinition(timerDefinition);
 
         List<Long> delayTimes = configuration.getTriggerDelayTimes(
-                System.currentTimeMillis(), System.currentTimeMillis(), System.currentTimeMillis() + 5000);
+                0L, 0L,  5000L);
 
         Assertions.assertEquals(1, delayTimes.size());
         Assertions.assertEquals(1, delayTimes.get(0).longValue());

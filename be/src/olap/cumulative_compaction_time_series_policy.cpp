@@ -63,6 +63,13 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
+    // If there is a continuous set of empty rowsets, prioritize merging.
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!consecutive_empty_rowsets.empty()) {
+        return score;
+    }
+
     // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
     int64_t compaction_goal_size_mbytes =
             tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
@@ -149,6 +156,13 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
+        // check if the rowset has been compacted, but it is a empty rowset
+        if (!is_delete && rs->version().first != 0 && rs->version().first != rs->version().second &&
+            rs->num_segments() == 0) {
+            *ret_cumulative_point = rs->version().first;
+            break;
+        }
+
         // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
         prev_version = rs->version().second;
         *ret_cumulative_point = prev_version + 1;
@@ -166,6 +180,19 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return 0;
     }
 
+    // If their are many empty rowsets, maybe should be compacted
+    auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
+            tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
+    if (!consecutive_empty_rowsets.empty()) {
+        VLOG_NOTICE << "tablet is " << tablet->tablet_id()
+                    << ", there are too many consecutive empty rowsets, size is "
+                    << consecutive_empty_rowsets.size();
+        input_rowsets->clear();
+        input_rowsets->insert(input_rowsets->end(), consecutive_empty_rowsets.begin(),
+                              consecutive_empty_rowsets.end());
+        return 0;
+    }
+
     int transient_size = 0;
     *compaction_score = 0;
     input_rowsets->clear();
@@ -175,8 +202,9 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     // BE1 should performs compaction on its own, the time series compaction may re-compact previously fetched rowsets.
     // time series compaction policy needs to skip over the fetched rowset
     const auto& first_rowset_iter = std::find_if(
-            candidate_rowsets.begin(), candidate_rowsets.end(),
-            [](const RowsetSharedPtr& rs) { return rs->start_version() == rs->end_version(); });
+            candidate_rowsets.begin(), candidate_rowsets.end(), [](const RowsetSharedPtr& rs) {
+                return rs->start_version() == rs->end_version() || rs->num_segments() == 0;
+            });
     for (auto it = first_rowset_iter; it != candidate_rowsets.end(); ++it) {
         const auto& rowset = *it;
         // check whether this rowset is delete version
@@ -254,10 +282,12 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
 void TimeSeriesCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING) {
+    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
         // if tablet under alter process, do not update cumulative point
+        // if the merged output rowset is empty, do not update cumulative point
         return;
     }
+
     tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
 }
 

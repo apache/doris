@@ -680,12 +680,6 @@ under the License.
             <artifactId>kryo-shaded</artifactId>
         </dependency>
 
-        <!-- trino-parser -->
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-parser</artifactId>
-        </dependency>
-
         <!-- for arrow flight sql -->
         <dependency>
             <groupId>org.apache.arrow</groupId>

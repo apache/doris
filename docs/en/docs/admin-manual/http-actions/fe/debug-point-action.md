@@ -239,7 +239,7 @@ None
 ### Examples
 
 
-Disable debug point `foo`。
+Disable debug point `foo`.
 	
 	
 ```

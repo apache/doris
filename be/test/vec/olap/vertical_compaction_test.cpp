@@ -84,8 +84,10 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());

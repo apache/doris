@@ -82,7 +82,7 @@ public:
         SCOPED_TIMER(_exec_timer);
         COUNTER_UPDATE(_blocks_sent_counter, 1);
         COUNTER_UPDATE(_output_rows_counter, block->rows());
-        return _writer->append_block(*block);
+        return _writer->write(*block);
     }
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {

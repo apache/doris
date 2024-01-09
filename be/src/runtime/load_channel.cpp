@@ -47,9 +47,14 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 
 LoadChannel::~LoadChannel() {
     g_loadchannel_cnt << -1;
+    std::stringstream rows_str;
+    for (const auto& entry : _tablets_channels_rows) {
+        rows_str << ", index id: " << entry.first << ", total_received_rows: " << entry.second.first
+                 << ", num_rows_filtered: " << entry.second.second;
+    }
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
-              << ", sender_ip=" << _sender_ip;
+              << ", sender_ip=" << _sender_ip << rows_str.str();
 }
 
 void LoadChannel::_init_profile() {
@@ -165,6 +170,9 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
         std::lock_guard<std::mutex> l(_lock);
         {
             std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            _tablets_channels_rows.insert(std::make_pair(
+                    index_id,
+                    std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
             _tablets_channels.erase(index_id);
         }
         _finished_channel_ids.emplace(index_id);

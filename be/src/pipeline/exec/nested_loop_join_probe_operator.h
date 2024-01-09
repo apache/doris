@@ -40,7 +40,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class NestLoopJoinProbeOperator final : public StatefulOperator<NestLoopJoinProbeOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public StatefulOperator<vectorized::VNestedLoopJoinNode> {
 public:
     NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 

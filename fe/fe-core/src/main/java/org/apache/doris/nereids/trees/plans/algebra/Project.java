@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -31,7 +30,6 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Common interface for logical/physical project.
@@ -51,16 +49,7 @@ public interface Project {
      * </pre>
      */
     default Map<Slot, Expression> getAliasToProducer() {
-        return getProjects()
-                .stream()
-                .filter(Alias.class::isInstance)
-                .collect(
-                        Collectors.toMap(
-                                NamedExpression::toSlot,
-                                // Avoid cast to alias, retrieving the first child expression.
-                                alias -> alias.child(0)
-                        )
-                );
+        return ExpressionUtils.generateReplaceMap(getProjects());
     }
 
     /**

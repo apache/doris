@@ -201,15 +201,18 @@ public class IcebergMetadataCache {
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
 
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, uri);
-        catalogProperties.put("uri", uri);
-        hiveCatalog.initialize("hive", catalogProperties);
-
+        if (props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+            props.put(HMSProperties.HIVE_METASTORE_URIS, uri);
+            props.put("uri", uri);
+            hiveCatalog.initialize("hive", props);
+        } else {
+            Map<String, String> catalogProperties = new HashMap<>();
+            catalogProperties.put(HMSProperties.HIVE_METASTORE_URIS, uri);
+            catalogProperties.put("uri", uri);
+            hiveCatalog.initialize("hive", catalogProperties);
+        }
         Table table = HiveMetaStoreClientHelper.ugiDoAs(conf, () -> hiveCatalog.loadTable(TableIdentifier.of(db, tbl)));
-
         initIcebergTableFileIO(table, props);
-
         return table;
     }
 

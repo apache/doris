@@ -60,6 +60,8 @@ public:
 
     virtual int64_t file_size() const = 0;
 
+    virtual void close_on_error() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
 };

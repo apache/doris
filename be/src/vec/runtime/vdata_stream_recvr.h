@@ -42,7 +42,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -62,7 +61,6 @@ class RuntimeState;
 namespace pipeline {
 struct ExchangeDataDependency;
 class LocalExchangeChannelDependency;
-class LocalExchangeMemLimitDependency;
 class ExchangeLocalState;
 } // namespace pipeline
 
@@ -132,10 +130,6 @@ public:
     std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
             int sender_id);
 
-    void create_mem_limit_dependency(int id, int node_id, QueryContext* query_ctx);
-
-    auto get_mem_limit_dependency() { return _exchange_sink_mem_limit_dependency; }
-
 private:
     void update_blocks_memory_usage(int64_t size);
     class PipSenderQueue;
@@ -195,8 +189,7 @@ private:
     std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
             _sender_to_local_channel_dependency;
 
-    // use to limit sink write
-    std::shared_ptr<pipeline::LocalExchangeMemLimitDependency> _exchange_sink_mem_limit_dependency;
+    std::shared_ptr<bool> _mem_available;
 };
 
 class ThreadClosure : public google::protobuf::Closure {

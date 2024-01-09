@@ -328,6 +328,10 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     cntVal = iter->second.first;
     {
         std::lock_guard<std::mutex> l(*iter->second.second);
+        // Skip the other broadcast join runtime filter
+        if (cntVal->arrive_id.size() == 1 && cntVal->runtime_filter_desc.is_broadcast_join) {
+            return Status::OK();
+        }
         MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;
@@ -339,11 +343,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
         DCHECK_LE(merged_size, cntVal->producer_size);
         cntVal->merge_time += (MonotonicMillis() - start_merge);
-        if (merged_size < cntVal->producer_size) {
-            return Status::OK();
-        } else {
-            merge_time = cntVal->merge_time;
-        }
+        merge_time = cntVal->merge_time;
     }
 
     if (merged_size == cntVal->producer_size) {

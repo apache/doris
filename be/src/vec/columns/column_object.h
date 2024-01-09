@@ -476,5 +476,10 @@ public:
     void strip_outer_array();
 
     bool empty() const;
+
+    // Check if all columns and types are aligned
+    Status sanitize() const;
+
+    std::string debug_string() const;
 };
 } // namespace doris::vectorized

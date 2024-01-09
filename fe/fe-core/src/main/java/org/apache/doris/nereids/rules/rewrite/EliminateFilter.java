@@ -21,9 +21,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -36,7 +35,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Eliminate filter which is FALSE or TRUE.
@@ -68,11 +66,9 @@ public class EliminateFilter implements RewriteRuleFactory {
                 .toRule(RuleType.ELIMINATE_FILTER),
                 logicalFilter(logicalOneRowRelation()).thenApply(ctx -> {
                     LogicalFilter<LogicalOneRowRelation> filter = ctx.root;
-                    Map<Expression, Expression> replaceMap =
-                            filter.child().getOutputs().stream().filter(e -> e instanceof Alias)
-                                    .collect(Collectors.toMap(NamedExpression::toSlot, e -> ((Alias) e).child()));
+                    Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(filter.child().getOutputs());
 
-                    ImmutableSet.Builder newConjuncts = ImmutableSet.builder();
+                    ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
                     ExpressionRewriteContext context =
                             new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {

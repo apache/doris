@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
-import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.DistributeType.JoinDistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 
 import java.util.List;
@@ -45,12 +46,12 @@ public interface Join {
 
     Optional<Expression> getOnClauseCondition();
 
-    JoinHint getHint();
+    DistributeHint getDistributeHint();
 
     boolean isMarkJoin();
 
-    default boolean hasJoinHint() {
-        return getHint() != JoinHint.NONE;
+    default boolean hasDistributeHint() {
+        return getDistributeHint().distributeType != DistributeType.NONE;
     }
 
     /**
@@ -60,21 +61,21 @@ public interface Join {
         return !getHashJoinConjuncts().isEmpty() || !getOtherJoinConjuncts().isEmpty();
     }
 
-    default JoinHintType getLeftHint() {
-        return JoinHintType.NONE;
+    default JoinDistributeType getLeftHint() {
+        return JoinDistributeType.NONE;
     }
 
     /**
      * Get the hint type of join's right child.
      */
-    default JoinHintType getRightHint() {
-        switch (getHint()) {
+    default JoinDistributeType getRightHint() {
+        switch (getDistributeHint().distributeType) {
             case SHUFFLE_RIGHT:
-                return JoinHintType.SHUFFLE;
+                return JoinDistributeType.SHUFFLE;
             case BROADCAST_RIGHT:
-                return JoinHintType.BROADCAST;
+                return JoinDistributeType.BROADCAST;
             default:
-                return JoinHintType.NONE;
+                return JoinDistributeType.NONE;
         }
     }
 

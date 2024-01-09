@@ -477,6 +477,8 @@ struct TExecPlanFragmentParams {
   27: optional i32 total_load_streams
 
   28: optional i32 num_local_sink
+
+  29: optional i64 content_length
 }
 
 struct TExecPlanFragmentParamsList {

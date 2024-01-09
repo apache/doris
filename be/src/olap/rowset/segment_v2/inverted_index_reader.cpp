@@ -60,6 +60,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
@@ -329,18 +330,9 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
 
                     Status res = Status::OK();
                     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                        auto* phrase_query = new lucene::search::PhraseQuery();
-                        for (auto& token : analyse_result) {
-                            std::wstring wtoken = StringUtil::string_to_wstring(token);
-                            auto* term =
-                                    _CLNEW lucene::index::Term(field_ws.c_str(), wtoken.c_str());
-                            phrase_query->add(term);
-                            _CLDECDELETE(term);
-                        }
-                        query.reset(phrase_query);
-                        res = normal_index_search(stats, query_type, *searcher_ptr,
-                                                  null_bitmap_already_read, query,
-                                                  term_match_bitmap);
+                        res = match_phrase_index_search(stats, runtime_state, field_ws,
+                                                        analyse_result, *searcher_ptr,
+                                                        term_match_bitmap);
                     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
                         res = match_phrase_prefix_index_search(stats, runtime_state, field_ws,
                                                                analyse_result, *searcher_ptr,
@@ -517,6 +509,24 @@ Status FullTextIndexReader::match_all_index_search(
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         ConjunctionQuery query(index_searcher->getReader());
         query.set_conjunction_ratio(queryOptions.inverted_index_conjunction_opt_threshold);
+        query.add(field_ws, analyse_result);
+        query.search(*term_match_bitmap);
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
+    }
+    return Status::OK();
+}
+
+Status FullTextIndexReader::match_phrase_index_search(
+        OlapReaderStatistics* stats, RuntimeState* runtime_state, const std::wstring& field_ws,
+        const std::vector<std::string>& analyse_result,
+        const FulltextIndexSearcherPtr& index_searcher,
+        const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
+    TQueryOptions queryOptions = runtime_state->query_options();
+    try {
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
+        PhraseQuery query(index_searcher);
         query.add(field_ws, analyse_result);
         query.search(*term_match_bitmap);
     } catch (const CLuceneError& e) {

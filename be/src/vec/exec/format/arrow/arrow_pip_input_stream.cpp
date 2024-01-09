@@ -27,7 +27,6 @@
 #include "arrow/result.h"
 #include "common/logging.h"
 #include "io/fs/stream_load_pipe.h"
-#include "olap/wal_manager.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::vectorized {

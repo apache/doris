@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSourceOperator final : public SourceOperator<UnionSourceOperatorBuilder> {
+class UnionSourceOperator final : public SourceOperator<vectorized::VUnionNode> {
 public:
     UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                         std::shared_ptr<DataQueue>);

@@ -19,14 +19,18 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <stdlib.h>
+#include <gtest/gtest.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <cstdlib>
 #include <filesystem>
 #include <vector>
 
 #include "common/status.h"
+#include "common/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
@@ -34,502 +38,73 @@
 
 namespace doris {
 
+static constexpr std::string_view test_dir = "ut_dir/local_fs_test";
+
 class LocalFileSystemTest : public testing::Test {
 public:
-    virtual void SetUp() {
-        EXPECT_TRUE(
-                io::global_local_filesystem()->delete_and_create_directory(_s_test_data_path).ok());
+    void SetUp() override {
+        Status st;
+        st = io::global_local_filesystem()->delete_directory(test_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(test_dir);
+        ASSERT_TRUE(st.ok()) << st;
     }
 
-    Status save_string_file(const std::filesystem::path& filename, const std::string& content) {
-        io::FileWriterPtr file_writer;
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(filename, &file_writer));
-        RETURN_IF_ERROR(file_writer->append(content));
-        return file_writer->close();
+    void TearDown() override {
+        Status st;
+        st = io::global_local_filesystem()->delete_directory(test_dir);
+        EXPECT_TRUE(st.ok()) << st;
     }
-
-    bool check_exists(const std::string& file) {
-        bool exists = true;
-        EXPECT_TRUE(io::global_local_filesystem()->exists(file, &exists).ok());
-        return exists;
-    }
-
-    bool is_dir(const std::string& path) {
-        bool is_dir = true;
-        EXPECT_TRUE(io::global_local_filesystem()->is_directory(path, &is_dir).ok());
-        return is_dir;
-    }
-
-    Status list_dirs_files(const std::string& path, std::vector<std::string>* dirs,
-                           std::vector<std::string>* files) {
-        bool only_file = true;
-        if (dirs != nullptr) {
-            only_file = false;
-        }
-        std::vector<io::FileInfo> file_infos;
-        bool exists = true;
-        RETURN_IF_ERROR(io::global_local_filesystem()->list(path, only_file, &file_infos, &exists));
-        for (auto& file_info : file_infos) {
-            if (file_info.is_file && files != nullptr) {
-                files->push_back(file_info.file_name);
-            }
-            if (!file_info.is_file && dirs != nullptr) {
-                dirs->push_back(file_info.file_name);
-            }
-        }
-        return Status::OK();
-    }
-
-    Status delete_file_paths(const std::vector<std::string>& ps) {
-        for (auto& p : ps) {
-            bool exists = true;
-            RETURN_IF_ERROR(io::global_local_filesystem()->exists(p, &exists));
-            if (!exists) {
-                continue;
-            }
-            RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(p));
-        }
-        return Status::OK();
-    }
-
-    // delete the mock cgroup folder
-    virtual void TearDown() {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_s_test_data_path).ok());
-    }
-
-    static std::string _s_test_data_path;
 };
 
-std::string LocalFileSystemTest::_s_test_data_path = "./file_utils_testxxxx123";
-
-TEST_F(LocalFileSystemTest, TestRemove) {
-    // remove_all
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-    EXPECT_FALSE(check_exists("./file_test"));
-
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/123/456/789").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/def/zxc").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/123").ok());
-
-    static_cast<void>(save_string_file("./file_test/s1", "123"));
-    static_cast<void>(save_string_file("./file_test/123/s2", "123"));
-
-    EXPECT_TRUE(check_exists("./file_test"));
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-    EXPECT_FALSE(check_exists("./file_test"));
-
-    // remove
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/123").ok());
-    static_cast<void>(save_string_file("./file_test/abc/123/s2", "123"));
-
-    EXPECT_TRUE(check_exists("./file_test/abc/123/s2"));
-    EXPECT_TRUE(io::global_local_filesystem()->delete_file("./file_test/abc/123/s2").ok());
-    EXPECT_FALSE(check_exists("./file_test/abc/123/s2"));
-
-    EXPECT_TRUE(check_exists("./file_test/abc/123"));
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test/abc/123").ok());
-    EXPECT_FALSE(check_exists("./file_test/abc/123"));
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-    EXPECT_FALSE(check_exists("./file_test"));
-
-    // remove paths
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/123/456/789").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/abc/def/zxc").ok());
-    static_cast<void>(save_string_file("./file_test/s1", "123"));
-    static_cast<void>(save_string_file("./file_test/s2", "123"));
-
-    std::vector<std::string> ps;
-    ps.push_back("./file_test/123/456/789");
-    ps.push_back("./file_test/123/456");
-    ps.push_back("./file_test/123");
-
-    EXPECT_TRUE(check_exists("./file_test/123"));
-    EXPECT_TRUE(delete_file_paths(ps).ok());
-    EXPECT_FALSE(check_exists("./file_test/123"));
-
-    ps.clear();
-    ps.push_back("./file_test/s1");
-    ps.push_back("./file_test/abc/def");
-
-    EXPECT_TRUE(delete_file_paths(ps).ok());
-    EXPECT_FALSE(check_exists("./file_test/s1"));
-    EXPECT_FALSE(check_exists("./file_test/abc/def/"));
-
-    ps.clear();
-    ps.push_back("./file_test/abc/def/zxc");
-    ps.push_back("./file_test/s2");
-    ps.push_back("./file_test/abc/def");
-    ps.push_back("./file_test/abc");
-
-    EXPECT_TRUE(delete_file_paths(ps).ok());
-    EXPECT_FALSE(check_exists("./file_test/s2"));
-    EXPECT_FALSE(check_exists("./file_test/abc"));
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
+bool check_exist(const std::string& path) {
+    bool res = false;
+    auto st = io::global_local_filesystem()->exists(path, &res);
+    EXPECT_TRUE(st.ok()) << st;
+    return res;
 }
 
-TEST_F(LocalFileSystemTest, TestCreateDir) {
-    // normal
-    std::string path = "./file_test/123/456/789";
-    static_cast<void>(io::global_local_filesystem()->delete_directory("./file_test"));
-    EXPECT_FALSE(check_exists(path));
-
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-
-    EXPECT_TRUE(check_exists(path));
-    EXPECT_TRUE(is_dir("./file_test"));
-    EXPECT_TRUE(is_dir("./file_test/123"));
-    EXPECT_TRUE(is_dir("./file_test/123/456"));
-    EXPECT_TRUE(is_dir("./file_test/123/456/789"));
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-
-    // normal
-    path = "./file_test/123/456/789/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-    EXPECT_FALSE(check_exists(path));
-
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-
-    EXPECT_TRUE(check_exists(path));
-    EXPECT_TRUE(is_dir("./file_test"));
-    EXPECT_TRUE(is_dir("./file_test/123"));
-    EXPECT_TRUE(is_dir("./file_test/123/456"));
-    EXPECT_TRUE(is_dir("./file_test/123/456/789"));
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-
-    // absolute path;
-    std::string real_path;
-    EXPECT_TRUE(io::global_local_filesystem()->canonicalize(".", &real_path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->create_directory(real_path + "/file_test/absolute/path/123/asdf")
-                        .ok());
-    EXPECT_TRUE(is_dir("./file_test/absolute/path/123/asdf"));
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("./file_test").ok());
-
-    char filename[] = "temp-XXXXXX";
-    // Setup a temporary directory with one subdir
-    std::string dir_name = mkdtemp(filename);
-    io::Path dir {dir_name};
-    io::Path subdir1 = dir / "path1";
-    io::Path subdir2 = dir / "path2";
-    io::Path subdir3 = dir / "a" / "longer" / "path";
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir1).ok());
-    // Test error cases by removing write permissions on root dir to prevent
-    // creation/deletion of subdirs
-    chmod(dir.string().c_str(), 0);
-    if (getuid() == 0) { // User root
-        EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir1).ok());
-        EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir2).ok());
-    } else { // User other
-        EXPECT_FALSE(io::global_local_filesystem()->create_directory(subdir1).ok());
-        EXPECT_FALSE(io::global_local_filesystem()->create_directory(subdir2).ok());
-    }
-    // Test success cases by adding write permissions back
-    chmod(dir.string().c_str(), S_IRWXU);
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(subdir1).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(subdir2).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir1).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir2).ok());
-    // Check that directories were created
-    bool is_dir = false;
-    EXPECT_TRUE(io::global_local_filesystem()->is_directory(subdir1, &is_dir).ok());
-    EXPECT_TRUE(is_dir);
-    EXPECT_TRUE(io::global_local_filesystem()->is_directory(subdir2, &is_dir).ok());
-    EXPECT_TRUE(is_dir);
-    EXPECT_FALSE(io::global_local_filesystem()->is_directory(subdir3, &is_dir).ok());
-    // Check that nested directories can be created
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(subdir3).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->is_directory(subdir3, &is_dir).ok());
-    EXPECT_TRUE(is_dir);
-    // Cleanup
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dir).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestContainPath) {
-    {
-        std::string parent("/a/b");
-        std::string sub("/a/b/c");
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-
-    {
-        std::string parent("/a/b/");
-        std::string sub("/a/b/c/");
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-
-    {
-        std::string parent("/a///./././/./././b/"); // "/a/b/."
-        std::string sub("/a/b/../././b/c/");        // "/a/b/c/"
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-
-    {
-        // relative path
-        std::string parent("a/b/"); // "a/b/"
-        std::string sub("a/b/c/");  // "a/b/c/"
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-    {
-        // relative path
-        std::string parent("a////./././b/"); // "a/b/"
-        std::string sub("a/b/../././b/c/");  // "a/b/c/"
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-    {
-        // absolute path and relative path
-        std::string parent("/a////./././b/"); // "/a/b/"
-        std::string sub("a/b/../././b/c/");   // "a/b/c/"
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(parent, sub));
-        EXPECT_FALSE(io::global_local_filesystem()->contain_path(sub, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(parent, parent));
-        EXPECT_TRUE(io::global_local_filesystem()->contain_path(sub, sub));
-    }
-}
-
-TEST_F(LocalFileSystemTest, TestRename) {
-    std::string path = "./file_rename/";
-    std::string new_path = "./file_rename2/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->rename_dir(path, new_path).ok());
-
-    static_cast<void>(save_string_file("./file_rename2/f1", "just test1"));
-    EXPECT_TRUE(
-            io::global_local_filesystem()->rename("./file_rename2/f1", "./file_rename2/f2").ok());
-
-    std::vector<std::string> dirs;
-    std::vector<std::string> files;
-    EXPECT_TRUE(list_dirs_files(new_path, &dirs, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(1, files.size());
-    EXPECT_EQ("f2", files[0]);
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(new_path).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestLink) {
-    std::string path = "./file_link/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-
-    // link file
-    static_cast<void>(save_string_file("./file_link/f2", "just test2"));
-    EXPECT_TRUE(
-            io::global_local_filesystem()->link_file("./file_link/f2", "./file_link/f2-1").ok());
-    std::vector<std::string> dirs;
-    std::vector<std::string> files;
-    EXPECT_TRUE(list_dirs_files("./file_link/", &dirs, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(2, files.size());
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory("file_link2").ok());
-}
-
-TEST_F(LocalFileSystemTest, TestMD5) {
-    std::string path = "./file_md5/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-
-    // link fir
-    static_cast<void>(save_string_file("./file_md5/f1", "just test1"));
-    std::string md5;
-    EXPECT_TRUE(io::global_local_filesystem()->md5sum("./file_md5/f1", &md5).ok());
-    EXPECT_EQ("56947c63232fef1c65e4c3f4d1c69a9c", md5);
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestCopyAndBatchDelete) {
-    std::string path = "./file_copy/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/1").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/2").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/3").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/4").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_copy/5").ok());
-
-    static_cast<void>(save_string_file("./file_copy/f1", "just test1"));
-    static_cast<void>(save_string_file("./file_copy/f2", "just test2"));
-    static_cast<void>(save_string_file("./file_copy/f3", "just test3"));
-    static_cast<void>(save_string_file("./file_copy/1/f4", "just test3"));
-    static_cast<void>(save_string_file("./file_copy/2/f5", "just test3"));
-
-    // copy
-    std::string dest_path = "./file_copy_dest/";
-    EXPECT_TRUE(io::global_local_filesystem()->copy_dirs(path, dest_path).ok());
-
-    std::vector<std::string> dirs;
-    std::vector<std::string> files;
-    EXPECT_TRUE(list_dirs_files("./file_copy_dest", &dirs, &files).ok());
-    EXPECT_EQ(5, dirs.size());
-    EXPECT_EQ(3, files.size());
-
-    dirs.clear();
-    files.clear();
-    EXPECT_TRUE(list_dirs_files("./file_copy_dest/1/", &dirs, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(1, files.size());
-
-    dirs.clear();
-    files.clear();
-    EXPECT_TRUE(list_dirs_files("./file_copy_dest/2/", &dirs, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(1, files.size());
-
-    // batch delete
-    std::vector<io::Path> delete_files;
-    delete_files.emplace_back("./file_copy/f3");
-    delete_files.emplace_back("./file_copy/1/f4");
-    delete_files.emplace_back("./file_copy/2/f5");
-    EXPECT_TRUE(io::global_local_filesystem()->batch_delete(delete_files).ok());
-
-    dirs.clear();
-    files.clear();
-    EXPECT_TRUE(list_dirs_files("./file_copy/1/", &dirs, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(0, files.size());
-
-    dirs.clear();
-    files.clear();
-    EXPECT_TRUE(list_dirs_files("./file_copy/", &dirs, &files).ok());
-    EXPECT_EQ(5, dirs.size());
-    EXPECT_EQ(2, files.size());
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dest_path).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestIterate) {
-    std::string path = "./file_iterate/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory(path).ok());
-
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d1").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_iterate/d2").ok());
-    static_cast<void>(save_string_file("./file_iterate/f1", "just test1"));
-    static_cast<void>(save_string_file("./file_iterate/f2", "just test2"));
-    static_cast<void>(save_string_file("./file_iterate/f3", "just test3"));
-    static_cast<void>(save_string_file("./file_iterate/d1/f4", "just test4"));
-    static_cast<void>(save_string_file("./file_iterate/d2/f5", "just test5"));
-
-    int64_t file_count = 0;
-    int64_t dir_count = 0;
-    auto cb = [&](const io::FileInfo& file) -> bool {
-        if (file.is_file) {
-            if (file.file_name != "f1") {
-                file_count++;
-            }
-        } else {
-            dir_count++;
-        }
-        return true;
-    };
-
-    auto cb2 = [&](const io::FileInfo& file) -> bool { return false; };
-
-    EXPECT_TRUE(io::global_local_filesystem()->iterate_directory("./file_iterate/", cb).ok());
-    EXPECT_EQ(2, file_count);
-    EXPECT_EQ(2, dir_count);
-
-    file_count = 0;
-    dir_count = 0;
-    EXPECT_TRUE(io::global_local_filesystem()->iterate_directory("./file_iterate/", cb2).ok());
-    EXPECT_EQ(0, file_count);
-    EXPECT_EQ(0, dir_count);
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestListDirsFiles) {
-    std::string path = "./file_test/";
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/1").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/2").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/3").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/4").ok());
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./file_test/5").ok());
-
-    std::vector<std::string> dirs;
-    std::vector<std::string> files;
-
-    EXPECT_TRUE(list_dirs_files("./file_test", &dirs, &files).ok());
-    EXPECT_EQ(5, dirs.size());
-    EXPECT_EQ(0, files.size());
-
-    dirs.clear();
-    files.clear();
-
-    EXPECT_TRUE(list_dirs_files("./file_test", &dirs, nullptr).ok());
-    EXPECT_EQ(5, dirs.size());
-    EXPECT_EQ(0, files.size());
-
-    static_cast<void>(save_string_file("./file_test/f1", "just test"));
-    static_cast<void>(save_string_file("./file_test/f2", "just test"));
-    static_cast<void>(save_string_file("./file_test/f3", "just test"));
-
-    dirs.clear();
-    files.clear();
-
-    EXPECT_TRUE(list_dirs_files("./file_test", &dirs, &files).ok());
-    EXPECT_EQ(5, dirs.size());
-    EXPECT_EQ(3, files.size());
-
-    dirs.clear();
-    files.clear();
-
-    EXPECT_TRUE(list_dirs_files("./file_test", nullptr, &files).ok());
-    EXPECT_EQ(0, dirs.size());
-    EXPECT_EQ(3, files.size());
-
-    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
-}
-
-TEST_F(LocalFileSystemTest, TestRandomAccess) {
-    std::string fname = "./ut_dir/local_filesystem/random_access";
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./ut_dir/local_filesystem/").ok());
+Status save_string_file(const std::string& path, const std::string& content) {
     io::FileWriterPtr file_writer;
-    EXPECT_TRUE(io::global_local_filesystem()->create_file(fname, &file_writer).ok());
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
+    RETURN_IF_ERROR(file_writer->append(content));
+    return file_writer->close();
+}
+
+TEST_F(LocalFileSystemTest, WriteRead) {
+    auto fname = fmt::format("{}/abc", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
     Slice field1("123456789");
-    EXPECT_TRUE(file_writer->append(field1).ok());
+    st = file_writer->append(field1);
+    ASSERT_TRUE(st.ok()) << st;
 
     std::string buf;
     for (int i = 0; i < 100; ++i) {
         buf.push_back((char)i);
     }
-    EXPECT_TRUE(file_writer->append(buf).ok());
+    st = file_writer->append(buf);
+    ASSERT_TRUE(st.ok()) << st;
     Slice abc("abc");
     Slice bcd("bcd");
     Slice slices[2] {abc, bcd};
-    EXPECT_TRUE(file_writer->appendv(slices, 2).ok());
-    EXPECT_TRUE(file_writer->close().ok());
+    st = file_writer->appendv(slices, 2);
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->finalize();
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 115);
 
-    int64_t size;
-    EXPECT_TRUE(io::global_local_filesystem()->file_size(fname, &size).ok());
-    EXPECT_EQ(115, size);
+    int64_t fsize;
+    st = io::global_local_filesystem()->file_size(fname, &fsize);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(115, fsize);
     {
         io::FileReaderSPtr file_reader;
-        EXPECT_TRUE(io::global_local_filesystem()->open_file(fname, &file_reader).ok());
+        st = io::global_local_filesystem()->open_file(fname, &file_reader);
+        ASSERT_TRUE(st.ok()) << st;
 
         char mem[1024];
         Slice slice1(mem, 9);
@@ -537,78 +112,267 @@ TEST_F(LocalFileSystemTest, TestRandomAccess) {
         Slice slice3(mem + 9 + 100, 3);
         Slice slice4(mem + 9 + 100 + 3, 3);
         size_t bytes_read = 0;
-        EXPECT_TRUE(file_reader->read_at(0, slice1, &bytes_read).ok());
-        EXPECT_STREQ("123456789", std::string(slice1.data, slice1.size).c_str());
-        EXPECT_EQ(9, bytes_read);
+        st = file_reader->read_at(0, slice1, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(9, bytes_read);
+        EXPECT_EQ(std::string_view(slice1.data, slice1.size), "123456789");
+        st = file_reader->read_at(9, slice2, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(100, bytes_read);
+        for (int i = 0; i < 100; ++i) {
+            EXPECT_EQ((int)slice2.data[i], i);
+        }
 
-        EXPECT_TRUE(file_reader->read_at(9, slice2, &bytes_read).ok());
-        EXPECT_EQ(100, bytes_read);
+        st = file_reader->read_at(109, slice3, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(3, bytes_read);
+        EXPECT_EQ(std::string_view(slice3.data, slice3.size), "abc");
+        st = file_reader->read_at(112, slice4, &bytes_read);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(3, bytes_read);
+        EXPECT_EQ(std::string_view(slice4.data, slice4.size), "bcd");
 
-        EXPECT_TRUE(file_reader->read_at(109, slice3, &bytes_read).ok());
-        EXPECT_STREQ("abc", std::string(slice3.data, slice3.size).c_str());
-        EXPECT_EQ(3, bytes_read);
-
-        EXPECT_TRUE(file_reader->read_at(112, slice4, &bytes_read).ok());
-        EXPECT_STREQ("bcd", std::string(slice4.data, slice4.size).c_str());
-        EXPECT_EQ(3, bytes_read);
-
-        EXPECT_TRUE(file_reader->close().ok());
+        st = file_reader->close();
+        ASSERT_TRUE(st.ok()) << st;
     }
 }
 
-TEST_F(LocalFileSystemTest, TestRandomWrite) {
-    std::string fname = "./ut_dir/env_posix/random_rw";
-    EXPECT_TRUE(io::global_local_filesystem()->create_directory("./ut_dir/env_posix").ok());
+TEST_F(LocalFileSystemTest, Exist) {
+    auto fname = fmt::format("{}/abc", test_dir);
+    ASSERT_FALSE(check_exist(fname));
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->finalize();
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(check_exist(fname));
+}
+
+TEST_F(LocalFileSystemTest, List) {
+    io::FileWriterPtr file_writer;
+    auto fname = fmt::format("{}/abc", test_dir);
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->finalize();
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(check_exist(fname));
+    std::vector<io::FileInfo> files;
+    bool exists;
+    st = io::global_local_filesystem()->list(fname, false, &files, &exists);
+    ASSERT_FALSE(st.ok()) << st; // Not a dir, can not list
+
+    auto dname = fmt::format("{}/dir/dir1/dir2", test_dir);
+    st = io::global_local_filesystem()->create_directory(dname);
+    ASSERT_TRUE(st.ok()) << st;
+    files.clear();
+    st = io::global_local_filesystem()->list(dname, false, &files, &exists);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(files.empty());
+    for (int i = 0; i < 10; ++i) {
+        st = save_string_file(fmt::format("{}/{}", dname, i), "abc");
+        ASSERT_TRUE(st.ok()) << st;
+    }
+    files.clear();
+    st = io::global_local_filesystem()->list(dname, false, &files, &exists);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(files.size(), 10);
+    std::sort(files.begin(), files.end(),
+              [](auto&& file1, auto&& file2) { return file1.file_name < file2.file_name; });
+    for (int i = 0; i < 10; ++i) {
+        ASSERT_EQ(std::to_string(i), files[i].file_name);
+    }
+}
+
+TEST_F(LocalFileSystemTest, Delete) {
+    io::FileWriterPtr file_writer;
+    auto fname = fmt::format("{}/abc", test_dir);
+    auto st = save_string_file(fname, "abc");
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(check_exist(fname));
+    st = io::global_local_filesystem()->delete_directory(fname);
+    ASSERT_FALSE(st.ok()) << st;
+    st = io::global_local_filesystem()->delete_file(fname);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(check_exist(fname));
+    st = io::global_local_filesystem()->delete_file(fname);
+    ASSERT_TRUE(st.ok()) << st; // Delete non-existed file is ok
+
+    auto dname = fmt::format("{}/dir/dir1/dir2", test_dir);
+    st = io::global_local_filesystem()->create_directory(dname);
+    ASSERT_TRUE(st.ok()) << st;
+    for (int i = 0; i < 10; ++i) {
+        st = save_string_file(fmt::format("{}/{}", dname, i), "abc");
+        ASSERT_TRUE(st.ok()) << st;
+    }
+    st = io::global_local_filesystem()->delete_file(dname);
+    ASSERT_FALSE(st.ok()) << st;
+    st = io::global_local_filesystem()->delete_directory(dname);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(check_exist(dname));
+    st = io::global_local_filesystem()->delete_directory(dname);
+    ASSERT_TRUE(st.ok()) << st;                                     // Delete non-existed dir is ok
+    ASSERT_TRUE(check_exist(fmt::format("{}/dir/dir1", test_dir))); // Parent should exist
+}
+
+TEST_F(LocalFileSystemTest, AbnormalFileWriter) {
+    auto fname = fmt::format("{}/abc", test_dir);
+    {
+        io::FileWriterPtr file_writer;
+        auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+        ASSERT_TRUE(st.ok()) << st;
+        st = file_writer->append("abc");
+        ASSERT_TRUE(st.ok()) << st;
+        // ~LocalFileWriter
+    }
+    ASSERT_FALSE(check_exist(fname));
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(fname, &file_reader);
+    ASSERT_FALSE(st.ok()) << st; // Cannot open non-existed file
 
     io::FileWriterPtr file_writer;
-    EXPECT_TRUE(io::global_local_filesystem()->create_file(fname, &file_writer).ok());
+    st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->append("abc");
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
+    st = file_writer->append("abc");
+    ASSERT_FALSE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 3);
+    st = io::global_local_filesystem()->open_file(fname, &file_reader);
+    ASSERT_TRUE(st.ok()) << st;
+    char buf[1024];
+    size_t bytes_read;
+    st = file_reader->read_at(0, {buf, 3}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 3);
+    EXPECT_EQ(std::string_view(buf, 3), "abc");
+    st = file_reader->read_at(3, {buf + 3, 1}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 0);
+}
 
-    // write data
-    Slice field1("123456789");
-    EXPECT_TRUE(file_writer->write_at(0, field1).ok());
-    std::string buf;
-    for (int i = 0; i < 100; ++i) {
-        buf.push_back((char)i);
-    }
-    EXPECT_TRUE(file_writer->write_at(9, buf).ok());
-    Slice abc("abc");
-    Slice bcd("bcd");
-    Slice slices[2] {abc, bcd};
-    EXPECT_TRUE(file_writer->write_at(0, slices[0]).ok());
-    EXPECT_TRUE(file_writer->write_at(3, slices[1]).ok());
-    EXPECT_TRUE(file_writer->close().ok());
+TEST_F(LocalFileSystemTest, AbnormalWriteRead) {
+    auto sp = SyncPoint::get_instance();
+    Defer defer {[sp] {
+        sp->clear_call_back("LocalFileWriter::writev");
+        sp->clear_call_back("LocalFileReader::pread");
+    }};
+    sp->enable_processing();
 
-    int64_t size = 0;
-    EXPECT_TRUE(io::global_local_filesystem()->file_size(fname, &size).ok());
-    EXPECT_EQ(109, size);
-    {
-        io::FileReaderSPtr file_reader;
-        EXPECT_TRUE(io::global_local_filesystem()->open_file(fname, &file_reader).ok());
+    // Test EIO
+    auto fname = fmt::format("{}/abc", test_dir);
+    io::FileWriterPtr file_writer;
+    auto st = io::global_local_filesystem()->create_file(fname, &file_writer);
+    ASSERT_TRUE(st.ok()) << st;
+    sp->set_call_back("LocalFileWriter::writev", [](auto&& args) {
+        auto* ret = try_any_cast_ret<ssize_t>(args);
+        ret->first = -1;
+        ret->second = true;
+        errno = EIO;
+    });
+    st = file_writer->append("abc");
+    ASSERT_FALSE(st.ok()) << st;
 
-        char mem[1024];
-        Slice slice1(mem, 3);
-        Slice slice2(mem + 3, 3);
-        Slice slice3(mem + 6, 3);
+    // Test EINTR
+    int retry = 2;
+    sp->set_call_back("LocalFileWriter::writev", [&retry](auto&& args) {
+        if (retry-- > 0) {
+            auto* ret = try_any_cast_ret<ssize_t>(args);
+            ret->first = -1;
+            ret->second = true;
+            errno = EINTR;
+        } else {
+            auto* ret = try_any_cast_ret<ssize_t>(args);
+            ret->second = false;
+        }
+    });
+    st = file_writer->append("abc");
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 3);
 
-        size_t bytes_read = 0;
-        EXPECT_TRUE(file_reader->read_at(0, slice1, &bytes_read).ok());
-        EXPECT_STREQ("abc", std::string(slice1.data, slice1.size).c_str());
-        EXPECT_EQ(3, bytes_read);
+    // Test partial write
+    std::vector<Slice> content {"defg", "hijklmn", "opqrstu", "vwxyz"};
+    std::vector<std::vector<iovec>> partial_content {
+            {{content[0].data, 4}, {content[1].data, 2}},
+            {{content[1].data + 2, 5}},
+            {{content[2].data, 4}},
+            {{content[2].data + 4, 3}, {content[3].data, 5}}};
+    size_t idx = 0;
+    sp->set_call_back("LocalFileWriter::writev", [&partial_content, &idx](auto&& args) {
+        // Mock partial write
+        auto fd = try_any_cast<int>(args[0]);
+        auto* ret = try_any_cast_ret<ssize_t>(args);
+        ret->first = ::writev(fd, partial_content[idx].data(), partial_content[idx].size());
+        ret->second = true;
+        ++idx;
+    });
+    st = file_writer->appendv(content.data(), content.size());
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(file_writer->bytes_appended(), 26);
 
-        EXPECT_TRUE(file_reader->read_at(3, slice2, &bytes_read).ok());
-        EXPECT_STREQ("bcd", std::string(slice2.data, slice2.size).c_str());
-        EXPECT_EQ(3, bytes_read);
+    st = file_writer->close();
+    ASSERT_TRUE(st.ok()) << st;
 
-        EXPECT_TRUE(file_reader->read_at(6, slice3, &bytes_read).ok());
-        EXPECT_STREQ("789", std::string(slice3.data, slice3.size).c_str());
-        EXPECT_EQ(3, bytes_read);
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(fname, &file_reader);
+    ASSERT_TRUE(st.ok()) << st;
+    char buf[1024];
+    size_t bytes_read = 0;
+    st = file_reader->read_at(0, {buf, 26}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 26);
+    EXPECT_EQ(std::string_view(buf, 26), "abcdefghijklmnopqrstuvwxyz");
 
-        Slice slice4(mem, 100);
-        EXPECT_TRUE(file_reader->read_at(9, slice4, &bytes_read).ok());
-        EXPECT_EQ(100, bytes_read);
+    // Test EIO
+    sp->set_call_back("LocalFileReader::pread", [](auto&& args) {
+        auto* ret = try_any_cast_ret<ssize_t>(args);
+        ret->first = -1;
+        ret->second = true;
+        errno = EIO;
+    });
+    st = file_reader->read_at(0, {buf, 26}, &bytes_read);
+    ASSERT_FALSE(st.ok()) << st;
 
-        EXPECT_TRUE(file_reader->close().ok());
-    }
+    // Test EINTR
+    retry = 2;
+    sp->set_call_back("LocalFileReader::pread", [&retry](auto&& args) {
+        if (retry-- > 0) {
+            auto* ret = try_any_cast_ret<ssize_t>(args);
+            ret->first = -1;
+            ret->second = true;
+            errno = EINTR;
+        } else {
+            auto* ret = try_any_cast_ret<ssize_t>(args);
+            ret->second = false;
+        }
+    });
+    memset(buf, 0, sizeof(buf));
+    st = file_reader->read_at(0, {buf, 26}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 26);
+    EXPECT_EQ(std::string_view(buf, 26), "abcdefghijklmnopqrstuvwxyz");
+
+    // Test partial read
+    size_t offset = 0;
+    sp->set_call_back("LocalFileReader::pread", [&offset](auto&& args) {
+        // Mock partial read
+        auto fd = try_any_cast<int>(args[0]);
+        auto* buf = try_any_cast<char*>(args[1]);
+        auto* ret = try_any_cast_ret<ssize_t>(args);
+        ret->first = ::pread(fd, buf, 5, offset);
+        ret->second = true;
+        offset += ret->first;
+    });
+    memset(buf, 0, sizeof(buf));
+    st = file_reader->read_at(0, {buf, 26}, &bytes_read);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(bytes_read, 26);
+    EXPECT_EQ(std::string_view(buf, 26), "abcdefghijklmnopqrstuvwxyz");
 }
 
 TEST_F(LocalFileSystemTest, TestGlob) {
@@ -624,9 +388,12 @@ TEST_F(LocalFileSystemTest, TestGlob) {
                         ->create_directory("./be/ut_build_ASAN/test/file_path/3")
                         .ok());
 
-    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test"));
-    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test"));
-    static_cast<void>(save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test"));
+    auto st = save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test");
+    ASSERT_TRUE(st.ok()) << st;
+    st = save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test");
+    ASSERT_TRUE(st.ok()) << st;
+    st = save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test");
+    ASSERT_TRUE(st.ok()) << st;
 
     std::vector<io::FileInfo> files;
     EXPECT_FALSE(io::global_local_filesystem()->safe_glob("./../*.txt", &files).ok());

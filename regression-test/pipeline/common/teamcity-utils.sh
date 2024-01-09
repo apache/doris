@@ -35,6 +35,7 @@ comment_to_pipeline=(
     ['pipelinex_p0']='Doris_DorisRegression_P0RegressionPipelineX'
     ['arm']='Doris_ArmPipeline_P0Regression'
     ['tpch']='Tpch_TpchSf100'
+    ['performance']='Doris_PerformanceNew_Performance'
 )
 
 # github中评论的要触发的流水线名字
@@ -54,6 +55,7 @@ conment_to_context=(
     ['clickbench']='clickbench-new (clickbench)'
     ['arm']='P0 Regression (ARM pipeline)'
     ['tpch']='tpch-sf100 (tpch)'
+    ['performance']='performance (Performance New)'
 )
 
 get_commit_id_of_build() {

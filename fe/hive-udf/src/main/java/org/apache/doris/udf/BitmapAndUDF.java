@@ -63,7 +63,7 @@ public class BitmapAndUDF extends GenericUDF {
             BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
             bitmapValue0.and(bitmapValue1);
-            return BitmapValueUtil.serializeToBytes(bitmapValue1);
+            return BitmapValueUtil.serializeToBytes(bitmapValue0);
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
         }

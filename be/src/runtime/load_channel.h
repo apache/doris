@@ -107,6 +107,8 @@ private:
     std::mutex _lock;
     // index id -> tablets channel
     std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
+    // index id -> (received rows, filtered rows)
+    std::unordered_map<int64_t, std::pair<size_t, size_t>> _tablets_channels_rows;
     SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;

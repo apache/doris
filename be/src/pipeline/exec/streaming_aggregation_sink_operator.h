@@ -50,7 +50,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<DataQueue>);

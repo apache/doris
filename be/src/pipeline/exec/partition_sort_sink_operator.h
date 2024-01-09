@@ -42,7 +42,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSinkOperator final : public StreamingOperator<PartitionSortSinkOperatorBuilder> {
+class PartitionSortSinkOperator final : public StreamingOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : StreamingOperator(operator_builder, sort_node) {};

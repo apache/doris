@@ -77,7 +77,7 @@ suite("test_compaction_variant") {
             qt_sql_2 "select k, cast(v:a as array<int>) from  ${tableName} where  size(cast(v:a as array<int>)) > 0 order by k"
             qt_sql_3 "select k, v:a, cast(v:b as string) from  ${tableName} where  length(cast(v:b as string)) > 4 order  by k"
             // qt_sql_4 "select k, cast(v:b as string), cast(v:a as string), cast(v:c as string) from  ${tableName} where  order by k  limit 5"
-            qt_sql_5 "select cast(v:b as string), cast(v:b.c as string) from  ${tableName} where cast(v:b as string) != 'null' or cast(v:b as string) != '{}' order by k desc limit 10;" 
+            qt_sql_5 "select cast(v:b as string), cast(v:b.c as string) from  ${tableName} where cast(v:b as string) != 'null' or cast(v:b as string) != '{}' order by k desc, 1, 2 limit 10;"
 
 
             //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus

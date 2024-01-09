@@ -2,17 +2,17 @@
 -- !select --
 PhysicalResultSink
 --PhysicalQuickSort[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = partsupp.ps_partkey)) otherCondition=() build RFs:RF0 p_partkey->[ps_partkey]
 ------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[partsupp] apply RFs: RF0
---------------------PhysicalDistribute
+--------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------filter((s_comment like '%Customer%Complaints%'))
 --------------------------PhysicalOlapScan[supplier]

@@ -47,7 +47,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -478,7 +477,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
-    while (!_cancelled && _pending_batches_num > 0 &&
+    while (!_cancelled && !_state->is_cancelled() && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1060,6 +1059,9 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
+    if (_write_single_replica) {
+        _slave_location->add_locations(*new_locations);
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
@@ -1335,9 +1337,9 @@ Status VTabletWriter::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -1604,7 +1606,7 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
+Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1621,12 +1623,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
 
+    _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
@@ -1635,6 +1639,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    _row_distribution_watch.stop();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.

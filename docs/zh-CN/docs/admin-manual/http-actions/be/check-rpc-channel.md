@@ -58,7 +58,7 @@ under the License.
     {
         "msg":"success",
         "code":0,
-        "data": "open brpc connection to {host_to_check}:{remot_brpc_port} succcess.",
+        "data": "open brpc connection to {host_to_check}:{remot_brpc_port} success.",
         "count":0
     }
     ```

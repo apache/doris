@@ -160,15 +160,23 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                                                    MemTrackerLimiter::Type::EXPERIMENTAL);
         }
     } else {
-        (*output) << "<h4>*Note: (see documentation for details)</h4>\n";
-        (*output) << "<h4>     1.`/mem_tracker?type=global` to view the memory statistics of each "
-                     "type, `global`life cycle is the same as the process, e.g. each Cache, "
-                     "StorageEngine, each Manager.</h4>\n";
-        (*output) << "<h4>     2.`/mem_tracker` counts virtual memory, which is equal to `Actual "
-                     "memory used` in `/memz`</h4>\n";
-        (*output) << "<h4>     3.`process` is equal to the sum of all types of memory, "
-                     "`/mem_tracker` can be logically divided into 4 layers: 1)`process` 2)`type` "
-                     "3)`query/load/compation task etc.` 4)`exec node etc.`</h4>\n";
+        (*output) << "<h4>*Notice:</h4>\n";
+        (*output) << "<h4>    1. MemTracker only counts the memory on part of the main execution "
+                     "path, "
+                     "which is usually less than the real process memory.</h4>\n";
+        (*output) << "<h4>    2. each `type` is the sum of a set of tracker values, "
+                     "`sum of all trackers` is the sum of all trackers of all types, .</h4>\n";
+        (*output) << "<h4>    3. `process resident memory` is the physical memory of the process, "
+                     "from /proc VmRSS VmHWM.</h4>\n";
+        (*output) << "<h4>    4. `process virtual memory` is the virtual memory of the process, "
+                     "from /proc VmSize VmPeak.</h4>\n";
+        (*output) << "<h4>    5.`/mem_tracker?type=<type name>` to view the memory details of each "
+                     "type, for example, `/mem_tracker?type=query` will list the memory of all "
+                     "queries; "
+                     "`/mem_tracker?type=global` will list the memory of all Cache, metadata and "
+                     "other "
+                     "global life cycles.</h4>\n";
+        (*output) << "<h4>see documentation for details.";
         MemTrackerLimiter::make_process_snapshots(&snapshots);
     }
 

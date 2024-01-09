@@ -408,6 +408,10 @@ public class Coordinator implements CoordInterface {
         return scanRangeNum;
     }
 
+    public TQueryOptions getQueryOptions() {
+        return this.queryOptions;
+    }
+
     public void setQueryId(TUniqueId queryId) {
         this.queryId = queryId;
     }
@@ -684,6 +688,12 @@ public class Coordinator implements CoordInterface {
         } else {
             executionProfile.markInstances(instanceIds);
         }
+        StringBuilder ids = new StringBuilder();
+        for (TUniqueId instanceId : instanceIds) {
+            ids.append(DebugUtil.printId(instanceId));
+            ids.append(", ");
+        }
+        LOG.info("mark instances: {}", ids.toString());
 
         if (enablePipelineEngine) {
             sendPipelineCtx();
@@ -1099,6 +1109,10 @@ public class Coordinator implements CoordInterface {
             try {
                 PExecPlanFragmentResult result = triple.getRight().get(timeoutMs, TimeUnit.MILLISECONDS);
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code == null) {
+                    code = TStatusCode.INTERNAL_ERROR;
+                }
+
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
                         errMsg = result.getStatus().getErrorMsgsList().get(0);
@@ -2473,7 +2487,7 @@ public class Coordinator implements CoordInterface {
 
             Preconditions.checkArgument(params.isSetDetailedReport());
             if (ctx.done) {
-                LOG.debug("Query {} fragment {} is marked done",
+                LOG.info("Query {} fragment {} is marked done",
                         DebugUtil.printId(queryId), ctx.profileFragmentId);
                 executionProfile.markOneFragmentDone(ctx.profileFragmentId);
             }
@@ -2524,11 +2538,11 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                LOG.debug("Query {} instance {} is marked done",
+                LOG.info("Query {} instance {} is marked done",
                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             } else {
-                LOG.debug("Query {} instance {} is not marked done",
+                LOG.info("Query {} instance {} is not marked done",
                         DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
             }
         } else {
@@ -2589,6 +2603,8 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
+                LOG.info("Query {} instance {} is marked done",
+                        DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
                 executionProfile.markOneInstanceDone(params.getFragmentInstanceId());
             }
         }
@@ -3170,9 +3186,11 @@ public class Coordinator implements CoordInterface {
             return fragmentInstancesMap.values().stream();
         }
 
-        private void attachInstanceProfileToFragmentProfile() {
+        public void attachPipelineProfileToFragmentProfile() {
             profileStream()
                     .forEach(p -> executionProfile.addInstanceProfile(this.profileFragmentId, p));
+            executionProfile.addMultiBeProfileByPipelineX(profileFragmentId, address,
+                    taskProfile);
         }
 
         /**
@@ -3214,7 +3232,7 @@ public class Coordinator implements CoordInterface {
                     loadChannelProfile.update(params.loadChannelProfile);
                 }
                 this.done = params.done;
-                attachInstanceProfileToFragmentProfile();
+                attachPipelineProfileToFragmentProfile();
                 return this.done;
             } else {
                 RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
@@ -3621,6 +3639,9 @@ public class Coordinator implements CoordInterface {
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
+                    Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
+                            .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());
+
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         if (!ridToTargetParam.containsKey(rf.getFilterId())) {
                             continue;
@@ -3662,7 +3683,8 @@ public class Coordinator implements CoordInterface {
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(
-                                entry.getKey().asInt(), entry.getValue());
+                                entry.getKey().asInt(), broadCastRf.contains(entry.getKey().asInt())
+                                        ? 1 : entry.getValue());
                     }
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         params.params.runtime_filter_params.putToRidToRuntimeFilter(
@@ -3747,6 +3769,9 @@ public class Coordinator implements CoordInterface {
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
+                    Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
+                            .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());
+
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         if (!ridToTargetParam.containsKey(rf.getFilterId())) {
                             continue;
@@ -3789,7 +3814,8 @@ public class Coordinator implements CoordInterface {
                     }
                     for (Map.Entry<RuntimeFilterId, Integer> entry : ridToBuilderNum.entrySet()) {
                         localParams.runtime_filter_params.putToRuntimeFilterBuilderNum(
-                                entry.getKey().asInt(), entry.getValue());
+                                entry.getKey().asInt(), broadCastRf.contains(entry.getKey().asInt()) ? 1 :
+                                        entry.getValue());
                     }
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         localParams.runtime_filter_params.putToRidToRuntimeFilter(
@@ -3936,8 +3962,12 @@ public class Coordinator implements CoordInterface {
     private void attachInstanceProfileToFragmentProfile() {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                ctx.profileStream()
-                        .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
+                if (enablePipelineXEngine) {
+                    ctx.attachPipelineProfileToFragmentProfile();
+                } else {
+                    ctx.profileStream()
+                            .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
+                }
             }
         } else {
             for (BackendExecState backendExecState : backendExecStates) {

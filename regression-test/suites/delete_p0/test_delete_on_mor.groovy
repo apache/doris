@@ -89,14 +89,14 @@ suite("test_delete_on_mor") {
             sql "sync;"
             qt_sql "select * from ${tableA} order by user_id;"
 
-            sql """DELETE from ${tableA} USING ${tableA}  a
-            JOIN (
+            sql """DELETE from ${tableA} USING
+            (
                 SELECT a.user_id, a.city
                 FROM ${tableA} a
                 JOIN ${tableB} ON a.user_id = ${tableB}.user_id AND a.city = ${tableB}.city
                 WHERE ${tableB}.city = '上海' AND ${tableB}.age = 20
             ) AS matched_rows
-            ON ${tableA}.user_id = matched_rows.user_id AND ${tableA}.city = matched_rows.city; """
+            WHERE ${tableA}.user_id = matched_rows.user_id AND ${tableA}.city = matched_rows.city; """
             qt_sql "select * from ${tableA} order by user_id;"
 
             sql "DROP TABLE IF EXISTS ${tableA};"

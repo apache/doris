@@ -67,7 +67,6 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
@@ -124,6 +123,24 @@ public:
                     LOG(ERROR) << "insert inverted index searcher cache error:" << st;
                 }
             }
+        }
+    }
+
+    void close_on_error() override {
+        try {
+            if (_index_writer) {
+                _index_writer->close();
+            }
+            if (_dir) {
+                _dir->deleteDirectory();
+                io::Path cfs_path(_dir->getCfsDirName());
+                auto idx_path = cfs_path.parent_path();
+                std::string idx_name = std::string(cfs_path.stem().c_str()) +
+                                       DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
+                _dir->deleteFile(idx_name.c_str());
+            }
+        } catch (CLuceneError& e) {
+            LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
         }
     }
 
@@ -196,8 +213,8 @@ public:
         bool close_dir_on_shutdown = true;
         index_writer = std::make_unique<lucene::index::IndexWriter>(
                 _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
-        index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
@@ -264,6 +281,7 @@ public:
         try {
             _index_writer->addDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_document: {}", e.what());
@@ -275,6 +293,7 @@ public:
         try {
             _index_writer->addNullDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_null_document: {}", e.what());
@@ -661,7 +680,11 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                     std::to_string(int(type)));
     }
     if (*res != nullptr) {
-        RETURN_IF_ERROR((*res)->init());
+        auto st = (*res)->init();
+        if (!st.ok()) {
+            (*res)->close_on_error();
+            return st;
+        }
     }
     return Status::OK();
 }

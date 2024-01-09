@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SchemaScanOperator : public SourceOperator<SchemaScanOperatorBuilder> {
+class SchemaScanOperator : public SourceOperator<vectorized::VSchemaScanNode> {
 public:
     SchemaScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 

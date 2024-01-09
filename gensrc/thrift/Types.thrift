@@ -424,6 +424,12 @@ struct TJdbcExecutorCtorParams {
   8: optional string driver_path
 
   9: optional TOdbcTableType table_type
+
+  10: optional i32 min_pool_size
+  11: optional i32 max_pool_size
+  12: optional i32 max_idle_time
+  13: optional i32 max_wait_time
+  14: optional bool keep_alive
 }
 
 struct TJavaUdfExecutorCtorParams {

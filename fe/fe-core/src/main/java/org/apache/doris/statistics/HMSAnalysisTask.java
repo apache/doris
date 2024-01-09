@@ -88,7 +88,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     /**
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
-    private void getTableColumnStats() throws Exception {
+    protected void getTableColumnStats() throws Exception {
         if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
             try {
                 getPartitionColumnStats();

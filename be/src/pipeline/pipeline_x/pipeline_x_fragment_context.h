@@ -109,11 +109,11 @@ public:
         return _runtime_filter_mgr_map[fragment_instance_id].get();
     }
 
-    [[nodiscard]] int next_operator_id() { return _operator_id++; }
+    [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
-    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id++; }
+    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
     [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 
@@ -129,6 +129,11 @@ private:
                                const bool ignore_data_distribution);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
+    Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
+                                    PipelinePtr new_pipe, DataDistribution data_distribution,
+                                    bool* do_local_exchange, int num_buckets,
+                                    const std::map<int, int>& bucket_seq_to_instance_idx,
+                                    const bool ignore_data_distribution);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,

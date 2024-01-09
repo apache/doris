@@ -1114,6 +1114,14 @@ public class OlapTable extends Table {
         return getOrCreatTableProperty().getGroupCommitIntervalMs();
     }
 
+    public void setGroupCommitDataBytes(int groupCommitInterValMs) {
+        getOrCreatTableProperty().setGroupCommitDataBytes(groupCommitInterValMs);
+    }
+
+    public int getGroupCommitDataBytes() {
+        return getOrCreatTableProperty().getGroupCommitDataBytes();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1945,6 +1953,20 @@ public class OlapTable extends Table {
         return quorum;
     }
 
+    public void setStorageMedium(TStorageMedium medium) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                medium == null ? "" : medium.name());
+        tableProperty.buildStorageMedium();
+    }
+
+    public TStorageMedium getStorageMedium() {
+        if (tableProperty != null) {
+            return tableProperty.getStorageMedium();
+        }
+        return null;
+    }
+
     public void setStoragePolicy(String storagePolicy) throws UserException {
         if (!Config.enable_storage_policy && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new UserException("storage policy feature is disabled by default. "
@@ -2073,6 +2095,20 @@ public class OlapTable extends Table {
     public Long getTimeSeriesCompactionTimeThresholdSeconds() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
+    }
+
+    public Long getTimeSeriesCompactionEmptyRowsetsThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionEmptyRowsetsThreshold();
         }
         return null;
     }

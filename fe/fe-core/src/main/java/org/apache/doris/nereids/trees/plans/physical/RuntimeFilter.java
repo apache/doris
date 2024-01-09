@@ -50,20 +50,24 @@ public class RuntimeFilter {
     // use for min-max filter only. specify if the min or max side is valid
     private final TMinMaxRuntimeFilterType tMinMaxType;
 
+    private final List<PhysicalRelation> targetScans = Lists.newArrayList();
+
     /**
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
-            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv) {
+            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+                         PhysicalRelation scan) {
         this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder,
-                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
+                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv) {
+                         boolean bitmapFilterNotIn, long buildSideNdv,
+                         PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX);
+                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
     /**
@@ -71,7 +75,8 @@ public class RuntimeFilter {
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType) {
+                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType,
+                         PhysicalRelation scan) {
         this.id = id;
         this.srcSlot = src;
         this.targetSlots = Lists.newArrayList(targets);
@@ -83,6 +88,7 @@ public class RuntimeFilter {
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
         this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
+        this.targetScans.add(scan);
     }
 
     public TMinMaxRuntimeFilterType gettMinMaxType() {
@@ -125,8 +131,9 @@ public class RuntimeFilter {
         return buildSideNdv;
     }
 
-    public void addTargetSlot(Slot target) {
+    public void addTargetSlot(Slot target, PhysicalRelation scan) {
         targetSlots.add(target);
+        targetScans.add(scan);
     }
 
     public List<Slot> getTargetSlots() {
@@ -135,6 +142,10 @@ public class RuntimeFilter {
 
     public void addTargetExpression(Expression targetExpr) {
         targetExpressions.add(targetExpr);
+    }
+
+    public List<PhysicalRelation> getTargetScans() {
+        return targetScans;
     }
 
     @Override

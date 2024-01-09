@@ -37,7 +37,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
+class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
@@ -180,7 +180,7 @@ private:
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::vector<TExpr> _partition_exprs;
+    const std::vector<TExpr> _partition_exprs;
 
     const bool _use_global_rf;
 };

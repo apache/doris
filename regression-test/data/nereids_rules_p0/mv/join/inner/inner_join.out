@@ -99,6 +99,14 @@
 6
 6
 
+-- !query1_5_before --
+6
+6
+
+-- !query1_5_after --
+6
+6
+
 -- !query2_0_before --
 4
 4
@@ -238,6 +246,20 @@
 6
 6
 6
+
+-- !query3_4_before --
+1	1
+1	1
+1	1
+1	1
+1	1
+
+-- !query3_4_after --
+1	1
+1	1
+1	1
+1	1
+1	1
 
 -- !query4_0_before --
 4

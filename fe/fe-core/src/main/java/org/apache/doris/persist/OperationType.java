@@ -353,6 +353,8 @@ public class OperationType {
 
     public static final short OP_ALTER_REPOSITORY = 460;
 
+    public static final short OP_INSERT_OVERWRITE = 461;
+
     /**
      * Get opcode name by op code.
      **/

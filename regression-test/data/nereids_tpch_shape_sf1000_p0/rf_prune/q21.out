@@ -2,10 +2,10 @@
 -- !select --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF4 l_orderkey->[l_orderkey]
@@ -23,11 +23,11 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------filter((l1.l_receiptdate > l1.l_commitdate))
 ----------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[supplier] apply RFs: RF0
-----------------------------PhysicalDistribute
+----------------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------------PhysicalProject
 --------------------------------filter((nation.n_name = 'SAUDI ARABIA'))
 ----------------------------------PhysicalOlapScan[nation]

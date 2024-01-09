@@ -55,8 +55,10 @@ class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        EXPECT_TRUE(
-                io::global_local_filesystem()->delete_and_create_directory(_engine_data_path).ok());
+        auto st = io::global_local_filesystem()->delete_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(
                 io::global_local_filesystem()->create_directory(_engine_data_path + "/meta").ok());
 
