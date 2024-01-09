@@ -16,12 +16,12 @@
 // under the License.
 
 suite('test_no_bad_disk_p0') {
-    def backends = sql_return_maparray 'SHOW PROC /backends'
+    def backends = sql_return_maparray "SHOW PROC '/backends'"
     backends.each { be ->
-        def disks = sql_return_maparray "SHOW PROC /backends/${be.BackendId}"
-        assertTrue("backend ${be.Host} no disks", disks.size() > 0)
+        def disks = sql_return_maparray "SHOW PROC '/backends/${be.BackendId}'"
+        assertTrue(disks.size() > 0, "backend ${be.Host} no disks".toString())
         disks.each { disk ->
-            assertEquals("backend ${be.Host} disk ${disk.RootPath} is bad", 'ONLINE', disk.State)
+            assertEquals('ONLINE', disk.State, "backend ${be.Host} disk ${disk.RootPath} is bad")
         }
     }
 }
