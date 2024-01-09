@@ -284,6 +284,8 @@ Status EnginePublishVersionTask::execute() {
                 LOG(WARNING) << "publish version failed on transaction, not found tablet. "
                              << "transaction_id=" << transaction_id << ", tablet_id=" << tablet_id
                              << ", version=" << par_ver_info.version;
+                res = Status::Error<PUSH_TABLE_NOT_EXIST>(
+                        "can't get tablet when publish version. tablet_id={}", tablet_id);
             } else {
                 // check if the version exist, if not exist, then set publish failed
                 if (_error_tablet_ids->find(tablet_id) == _error_tablet_ids->end()) {
@@ -302,6 +304,8 @@ Status EnginePublishVersionTask::execute() {
                                     << ", tablet_id=" << tablet_id << ", tablet_state="
                                     << tablet_state_name(tablet->tablet_state())
                                     << ", version=" << par_ver_info.version;
+                            res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
+                                    "check version exist failed, tablet id {}", tablet_id);
                         }
                     }
                 }
