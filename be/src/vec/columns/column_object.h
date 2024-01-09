@@ -72,7 +72,7 @@ struct FieldInfo {
     /// Number of dimension in array. 0 if field is scalar.
     size_t num_dimensions;
 };
-void get_field_info(const Field& field, FieldInfo* info);
+void get_field_info(const Field& field, FieldInfo* info, const VariantConfig& config);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
@@ -126,7 +126,7 @@ public:
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
         /// throws InvalidArgument when meet conflict types
-        void insert(Field field);
+        void insert(Field field, const VariantConfig& config);
 
         void insert(Field field, FieldInfo info);
 
@@ -240,6 +240,8 @@ public:
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
+
+    const VariantConfig& var_config() const { return config; }
 
     MutableColumnPtr get_root() {
         if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {

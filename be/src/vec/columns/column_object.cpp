@@ -155,6 +155,7 @@ public:
 /// More optimized version of FieldToDataType.
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
+    FieldVisitorToScalarType(const VariantConfig& config) : config(config) {}
     using FieldType = Field::Types::Which;
     size_t operator()(const Array& x) {
         size_t size = x.size();
@@ -217,7 +218,7 @@ public:
         return 0;
     }
     size_t operator()(const Float64& x) {
-        if (config::variant_enable_decimal_type) {
+        if (config.is_enable_decimal_type()) {
             have_decimals = true;
             field_types.insert(FieldType::Decimal128V3);
             type_indexes.insert(TypeIndex::Decimal128V3);
@@ -243,6 +244,7 @@ public:
     }
 
 private:
+    const VariantConfig& config;
     phmap::flat_hash_set<TypeIndex> type_indexes;
     phmap::flat_hash_set<FieldType> field_types;
     bool have_decimals = false;
@@ -251,8 +253,8 @@ private:
 };
 
 } // namespace
-void get_field_info(const Field& field, FieldInfo* info) {
-    FieldVisitorToScalarType to_scalar_type_visitor;
+void get_field_info(const Field& field, FieldInfo* info, const VariantConfig& config) {
+    FieldVisitorToScalarType to_scalar_type_visitor(config);
     apply_visitor(to_scalar_type_visitor, field);
     DataTypePtr type = nullptr;
     to_scalar_type_visitor.get_scalar_type(&type);
@@ -302,9 +304,9 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
-void ColumnObject::Subcolumn::insert(Field field) {
+void ColumnObject::Subcolumn::insert(Field field, const VariantConfig& config) {
     FieldInfo info;
-    get_field_info(field, &info);
+    get_field_info(field, &info, config);
     insert(std::move(field), std::move(info));
 }
 
@@ -704,7 +706,7 @@ void ColumnObject::try_insert(const Field& field) {
         if (!root) {
             doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
         }
-        root->insert(field);
+        root->insert(field, config);
         ++num_rows;
         return;
     }
@@ -729,7 +731,7 @@ void ColumnObject::try_insert(const Field& field) {
             doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                              fmt::format("Failed to find sub column {}", key.get_path()));
         }
-        subcolumn->insert(value);
+        subcolumn->insert(value, config);
     }
     for (auto& entry : subcolumns) {
         if (!inserted.contains(entry->path.get_path())) {

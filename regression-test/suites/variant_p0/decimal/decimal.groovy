@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('variant_p0_decimal', "nonConcurrent") {
+suite('variant_p0_decimal') {
     def table_name = "var_decimal"
     def create_table = { table, buckets="auto", key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table}"
@@ -26,10 +26,14 @@ suite('variant_p0_decimal', "nonConcurrent") {
             )
             ${key_type} KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant.enable_decimal_type" = "true");
         """
     }
     create_table.call(table_name, "1")
+    // sql """insert into ${table_name} values (1, '{"decimal1" : 1.2211}'),(2, '{"decimal1" : 11120192919}');"""
+    // sql """insert into ${table_name} values (1, '{"decimal1" : 1.2211}'),(2, '{"decimal1" : 11120192919}');"""
+    // sql """insert into ${table_name} values (1, '{"decimal1" : 1.2211}'),(2, '{"decimal1" : 11120192919}');"""
+    sql """ALTER TABLE ${table_name} set ("variant.enable_decimal_type" = "true")"""
     sql "set describe_extend_variant_column = true"
     // insert values
     sql """insert into ${table_name} values (1, '{"decimal1" : 1.2211}'),(2, '{"decimal1" : 11120192919}');"""
