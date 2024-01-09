@@ -17,7 +17,7 @@
 
 suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_hive") {
 
-    String catalog_name = "hive_test_other";
+    String catalog_name = "hive_test_infodb";
     String innerdb = "innerdb";
     String innertbl = "innertbl";
     sql """drop database if exists ${innerdb}""";
@@ -100,11 +100,26 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
 
     // 5. test show table status
     sql "use ${catalog_name}.tpch1_parquet"
-    qt_sql101 """show table status"""
-    qt_sql102 """show table status like '%line%'"""
-    qt_sql102 """show table status where name='lineitem'"""
-    qt_sql102 """show table status from ${catalog_name}.tpch1_parquet where name='lineitem'"""
-    qt_sql102 """show table status from internal.${innerdb} where name='${innertbl}'"""
+    def result101 = order_sql """show table status"""
+    assertEquals(8, result101.size());
+    assertEquals("customer", result101[0][0]);
+    assertEquals("supplier", result101[7][0]);
+
+    def result102 = order_sql """show table status like '%line%'"""
+    assertEquals(1, result102.size(), 1);
+    assertEquals("lineitem", result102[0][0]);
+
+    def result103 = order_sql """show table status where name='lineitem'"""
+    assertEquals(1, result103.size());
+    assertEquals("lineitem", result103[0][0]);
+
+    def result104 = order_sql """show table status from ${catalog_name}.tpch1_parquet where name='lineitem'"""
+    assertEquals(result104.size(), 1);
+    assertEquals("lineitem", result104[0][0]);
+
+    def result105 = order_sql """show table status from internal.${innerdb} where name='${innertbl}'"""
+    assertEquals(1, result105.size());
+    assertEquals("innertbl", result105[0][0]);
 
     // 6. test info db
     sql "switch internal"

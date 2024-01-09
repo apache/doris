@@ -85,28 +85,6 @@ innerdb
 
 -- !sql91 --
 
--- !sql101 --
-customer	\N	\N	\N	129236	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-lineitem	\N	\N	\N	1469949	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-nation	\N	\N	\N	118	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-orders	\N	\N	\N	629999	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-part	\N	\N	\N	56362	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-partsupp	\N	\N	\N	1206209	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-region	\N	\N	\N	75	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-supplier	\N	\N	\N	9977	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-
--- !sql102 --
-lineitem	\N	\N	\N	1469949	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-
--- !sql102 --
-lineitem	\N	\N	\N	1469949	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-
--- !sql102 --
-lineitem	\N	\N	\N	1469949	0	0	\N	\N	\N	\N	\N	2024-01-07T18:38:09	\N	utf-8	\N	\N	
-
--- !sql102 --
-innertbl	Doris	\N	\N	0	0	0	\N	\N	\N	\N	2024-01-07T22:34:18	2024-01-07T22:34:18	\N	utf-8	\N	\N	OLAP
-
 -- !sql111 --
 
 -- !sql112 --
@@ -119,65 +97,65 @@ innertbl	Doris	\N	\N	0	0	0	\N	\N	\N	\N	2024-01-07T22:34:18	2024-01-07T22:34:18	\
 internal	innerdb	innertbl
 
 -- !sql116 --
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	lineitem
-hive_test_other	hive_test_other.tpch1_parquet	partsupp
-hive_test_other	hive_test_other.tpch1_parquet	partsupp
-hive_test_other	hive_test_other.tpch1_parquet	partsupp
-hive_test_other	hive_test_other.tpch1_parquet	partsupp
-hive_test_other	hive_test_other.tpch1_parquet	partsupp
-hive_test_other	hive_test_other.tpch1_parquet	nation
-hive_test_other	hive_test_other.tpch1_parquet	nation
-hive_test_other	hive_test_other.tpch1_parquet	nation
-hive_test_other	hive_test_other.tpch1_parquet	nation
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	part
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	supplier
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	orders
-hive_test_other	hive_test_other.tpch1_parquet	region
-hive_test_other	hive_test_other.tpch1_parquet	region
-hive_test_other	hive_test_other.tpch1_parquet	region
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
-hive_test_other	hive_test_other.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	lineitem
+hive_test_infodb	hive_test_infodb.tpch1_parquet	partsupp
+hive_test_infodb	hive_test_infodb.tpch1_parquet	partsupp
+hive_test_infodb	hive_test_infodb.tpch1_parquet	partsupp
+hive_test_infodb	hive_test_infodb.tpch1_parquet	partsupp
+hive_test_infodb	hive_test_infodb.tpch1_parquet	partsupp
+hive_test_infodb	hive_test_infodb.tpch1_parquet	nation
+hive_test_infodb	hive_test_infodb.tpch1_parquet	nation
+hive_test_infodb	hive_test_infodb.tpch1_parquet	nation
+hive_test_infodb	hive_test_infodb.tpch1_parquet	nation
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	part
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	supplier
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	orders
+hive_test_infodb	hive_test_infodb.tpch1_parquet	region
+hive_test_infodb	hive_test_infodb.tpch1_parquet	region
+hive_test_infodb	hive_test_infodb.tpch1_parquet	region
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
+hive_test_infodb	hive_test_infodb.tpch1_parquet	customer
 
