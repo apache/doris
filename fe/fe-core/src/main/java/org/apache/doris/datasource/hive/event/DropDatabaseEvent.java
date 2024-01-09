@@ -67,7 +67,7 @@ public class DropDatabaseEvent extends MetastoreEvent {
         MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                     MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                    dbName, null, null, -1L);
+                    dbName, -1L);
         return ImmutableList.of(metaIdMapping);
     }
 }

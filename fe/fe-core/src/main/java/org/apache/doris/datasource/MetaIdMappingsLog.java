@@ -156,6 +156,31 @@ public class MetaIdMappingsLog implements Writable {
             this.id = id;
         }
 
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName,
+                             String tblName,
+                             long id) {
+            this.opType = opType;
+            this.metaObjType = metaObjType;
+            this.dbName = dbName;
+            this.tblName = tblName;
+            this.partitionName = null;
+            this.id = id;
+        }
+
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName,
+                             long id) {
+            this.opType = opType;
+            this.metaObjType = metaObjType;
+            this.dbName = dbName;
+            this.tblName = null;
+            this.partitionName = null;
+            this.id = id;
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, GsonUtils.GSON.toJson(this));
