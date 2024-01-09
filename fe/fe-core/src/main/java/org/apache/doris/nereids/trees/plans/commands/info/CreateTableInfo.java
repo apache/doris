@@ -495,6 +495,25 @@ public class CreateTableInfo {
                 }
             }
 
+            // Expression partition's partition columns are not involved in
+            // partitionColumns. need extract them
+            // from autoParititionExprs and do validation then.
+            ArrayList<String> colNamesfromExpr = new ArrayList<String>();
+            for (Expression autoExpr : autoPartitionExprs) {
+                for (Expression child : autoExpr.children()) {
+                    if (child instanceof UnboundSlot) {
+                        colNamesfromExpr.add(((UnboundSlot) child).getName());
+                    }
+                }
+            }
+            colNamesfromExpr.forEach(p -> {
+                if (!columnMap.containsKey(p)) {
+                    throw new AnalysisException(
+                            String.format("partition key %s is not exists", p));
+                }
+                validatePartitionColumn(columnMap.get(p), ctx);
+            });
+
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
             distribution.validate(columnMap, keysType);
@@ -650,8 +669,13 @@ public class CreateTableInfo {
             throw new AnalysisException("Complex type column can't be partition column: "
                     + column.getType().toString());
         }
+        // prohibit to create auto partition with null column anyhow
+        if (this.isAutoPartition && column.isNullable()) {
+            throw new AnalysisException("The auto partition column must be NOT NULL");
+        }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
-            throw new AnalysisException("The partition column must be NOT NULL");
+            throw new AnalysisException(
+                    "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
         if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
             throw new AnalysisException("The list partition column must be NOT NULL");

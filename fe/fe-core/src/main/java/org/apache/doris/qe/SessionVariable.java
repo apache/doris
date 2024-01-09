@@ -767,7 +767,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
 
-    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
+    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
+            "是否允许 NULLABLE 列作为 PARTITION 列。开启后，RANGE PARTITION 允许 NULLABLE PARTITION 列"
+                    + "（LIST PARTITION当前不支持）。默认开。",
+            "Whether to allow NULLABLE columns as PARTITION columns. When ON, RANGE PARTITION allows "
+                    + "NULLABLE PARTITION columns (LIST PARTITION is not supported currently). ON by default." })
     public boolean allowPartitionColumnNullable = true;
 
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
