@@ -303,6 +303,14 @@ public class StatisticsRepository {
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
             Env.getCurrentEnv().getStatisticsCache()
                     .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
+            AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
+                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setColName("")
+                    .setColToPartitions(Maps.newHashMap())
+                    .setUserInject(true)
+                    .setJobType(AnalysisInfo.JobType.MANUAL)
+                    .build();
+            Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {

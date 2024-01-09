@@ -2654,6 +2654,35 @@ PARTITION `p599` VALUES IN (599)
    }
    sql """set forbid_unknown_col_stats=true"""
 
+   // Test alter
+    sql """
+      CREATE TABLE alter_test(
+       `id`      int NOT NULL,
+       `name`     VARCHAR(25) NOT NULL
+      )ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+   sql """ANALYZE TABLE alter_test WITH SYNC"""
+   def alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+   sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("true", alter_result[0][7])
+   sql """ANALYZE TABLE alter_test WITH SYNC"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+   sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("true", alter_result[0][7])
+   sql """drop stats alter_test"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+
    // Test trigger type.
    sql """DROP DATABASE IF EXISTS trigger"""
    sql """CREATE DATABASE IF NOT EXISTS trigger"""
