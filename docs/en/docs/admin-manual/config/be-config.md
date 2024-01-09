@@ -266,7 +266,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_connect_timeout_seconds`
 
 * Description: The default thrift client connection timeout time
-* Default value: 3 (m)
+* Default value: 3 (s)
 
 #### `thrift_server_type_of_fe`
 

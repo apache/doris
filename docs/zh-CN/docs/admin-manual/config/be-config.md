@@ -277,7 +277,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_connect_timeout_seconds`
 
 * 描述：默认thrift客户端连接超时时间
-* 默认值：3 (m)
+* 默认值：3 (s)
 
 #### `thrift_server_type_of_fe`
 

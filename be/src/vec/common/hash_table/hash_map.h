@@ -211,8 +211,6 @@ public:
 
     using LookupResult = typename Base::LookupResult;
 
-    using HashMapTable<Key, Cell, Hash, Grower, Allocator>::HashMapTable;
-
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
         return phmap::priv::NormalizeCapacity(expect_bucket_size) + 1;

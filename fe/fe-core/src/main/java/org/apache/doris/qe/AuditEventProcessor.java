@@ -84,7 +84,7 @@ public class AuditEventProcessor {
             AuditEvent auditEvent;
             while (!isStopped) {
                 // update audit plugin list every UPDATE_PLUGIN_INTERVAL_MS.
-                // because some of plugins may be installed or uninstalled at runtime.
+                // because some plugins may be installed or uninstalled at runtime.
                 if (auditPlugins == null || System.currentTimeMillis() - lastUpdateTime > UPDATE_PLUGIN_INTERVAL_MS) {
                     auditPlugins = pluginMgr.getActivePluginList(PluginType.AUDIT);
                     lastUpdateTime = System.currentTimeMillis();
