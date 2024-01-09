@@ -117,10 +117,14 @@ public class TopicPublisherThread extends MasterDaemon {
                 LOG.warn("publish topic info to be {} error happens: , time cost={} ms",
                         be.getHost(), (System.currentTimeMillis() - beginTime), e);
             } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
+                try {
+                    if (ok) {
+                        ClientPool.backendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("recycle topic publish client failed. related backend[{}]", be.getHost(), e);
                 }
                 handler.onResponse(be);
             }
