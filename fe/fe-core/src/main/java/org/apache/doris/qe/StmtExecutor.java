@@ -2367,6 +2367,16 @@ public class StmtExecutor {
     private void handleLockTablesStmt() {
     }
 
+    public void handleShowConstraintStmt(List<List<String>> result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Name", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Definition", ScalarType.createVarchar(20)))
+                .build();
+        ResultSet resultSet = new ShowResultSet(metaData, result);
+        sendResultSet(resultSet);
+    }
+
     public void handleExplainStmt(String result, boolean isNereids) throws IOException {
         ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Explain String" + (isNereids ? "(Nereids Planner)" : "(Old Planner)"),
