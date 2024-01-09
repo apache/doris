@@ -44,6 +44,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
