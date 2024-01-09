@@ -341,7 +341,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public Map<String, Constraint> getConstraintsMap() {
+    public Map<String, Constraint> getConstraintsMapUnsafe() {
         return constraintsMap;
     }
 

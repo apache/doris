@@ -65,4 +65,10 @@ class TableIdentifier {
     public int hashCode() {
         return Objects.hash(databaseId, tableId);
     }
+
+    @Override
+    public String toString() {
+        TableIf tableIf = this.toTableIf();
+        return String.format("%s.%s", tableIf.getDatabase().getFullName(), tableIf.getName());
+    }
 }
