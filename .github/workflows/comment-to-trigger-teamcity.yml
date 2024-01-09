@@ -262,7 +262,7 @@ jobs:
         set -x
         if [[ "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'master'" ||
               "${{ steps.parse.outputs.TARGET_BRANCH }}" == "'branch-2.0'" ]]; then
-          echo "PR target branch is master, need run performance"
+          echo "PR target branch in (master, branch-2.0), need run performance"
           trigger_or_skip_build \
             "${{ steps.changes.outputs.changed_performance }}" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -270,7 +270,7 @@ jobs:
             "performance" \
             "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
         else
-          echo "PR target branch is not master or branch-2.0, skip run performance"
+          echo "PR target branch not in (master, branch-2.0), skip run performance"
           trigger_or_skip_build \
             "false" \
             "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
