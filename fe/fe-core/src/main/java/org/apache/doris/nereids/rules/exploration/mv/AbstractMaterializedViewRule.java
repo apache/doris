@@ -99,8 +99,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         for (MaterializationContext materializationContext : materializationContexts) {
             // already rewrite, bail out
-            if (queryPlan.getGroupExpression().isPresent() && materializationContext.alreadyRewrite(
-                    queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId())) {
+            if (checkIfRewritten(queryPlan, materializationContext)) {
                 continue;
             }
             List<StructInfo> viewStructInfos = extractStructInfo(materializationContext.getMvPlan(), cascadesContext);
@@ -212,6 +211,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
                 rewrittenPlan = rewrittenPlanContext.getRewritePlan();
                 materializationContext.setSuccess(true);
+                recordIfRewritten(queryPlan, materializationContext);
                 rewriteResults.add(rewrittenPlan);
             }
         }
@@ -530,6 +530,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return false;
         }
         return true;
+    }
+
+    protected void recordIfRewritten(Plan plan, MaterializationContext context) {
+        if (plan.getGroupExpression().isPresent()) {
+            context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+        }
+    }
+
+    protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
+        return plan.getGroupExpression().isPresent()
+                && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
     }
 
     /**
