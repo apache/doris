@@ -30,7 +30,7 @@ under the License.
 ## 添加部署仓库
 
 该 [Doris 仓库](https://artifacthub.io/packages/search?ts_query_web=doris&sort=relevance&page=1) 包含有关 doris-operator 运行的 RBAC 、部署等资源。
-1. 添加 doris 的远程仓库
+1. 添加 Doris 的远程仓库
 ```Bash
 $ helm repo add doris-repo https://charts.selectdb.com
 ```
@@ -68,7 +68,7 @@ doris-operator-866bd449bb-zl5mr   1/1     Running   0          18m
 ## 安装 doriscluster 
 
 ### 1. 安装
-- 安装 [doriscluster](https://artifacthub.io/packages/helm/doris/doris)，使用默认配置此部署仅部署 3个FE 和 3个BE 组件，使用默认 `storageClass` 实现 PV 动态供给
+- 安装 [doriscluster](https://artifacthub.io/packages/helm/doris/doris)，使用默认配置此部署仅部署 3个 FE 和 3个 BE 组件，使用默认 `storageClass` 实现 PV 动态供给
 ```Bash
 $ helm install doriscluster doris-repo/doris
 ```
@@ -91,10 +91,10 @@ doriscluster-helm-be-1   1/1     Running   0          16s
 doriscluster-helm-be-2   1/1     Running   0          16s
 ```
 
-## 通过 Helm 卸载 doris
+## 通过 Helm 卸载 Doris
 
 ### 卸载 doriscluster
-确保在该 doris 集群不再使用后，使用如下命令来卸载 `doriscluster`。
+确保在该 Doris 集群不再使用后，使用如下命令来卸载 `doriscluster`。
 ```bash
 $ helm uninstall doriscluster
 ```

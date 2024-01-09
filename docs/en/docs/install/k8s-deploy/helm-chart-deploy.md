@@ -74,7 +74,7 @@ doris-operator-866bd449bb-zl5mr   1/1     Running   0          18m
 ```Bash
 $ helm install doriscluster doris-repo/doris
 ```
-- Custom doris deploying, specify resources or different deployment type, please customize the resource configuration according to the annotations of each resource configuration in [values.yaml](https://artifacthub.io/packages/helm/doris/doris?modal=values) and use next command for deploying.
+- Custom Doris deploying, specify resources or different deployment type, please customize the resource configuration according to the annotations of each resource configuration in [values.yaml](https://artifacthub.io/packages/helm/doris/doris?modal=values) and use next command for deploying.
 ```Bash
 $ helm install -f values.yaml doriscluster doris-repo/doris 
 ```
@@ -94,7 +94,7 @@ doriscluster-helm-be-1   1/1     Running   0          16s
 doriscluster-helm-be-2   1/1     Running   0          16s
 ```
 
-## Uninstall doris by Helm
+## Uninstall Doris by Helm
 
 ### Uninstall doriscluster
 Please confirm the Doris is not used, when using next command to uninstall `doriscluster`.
