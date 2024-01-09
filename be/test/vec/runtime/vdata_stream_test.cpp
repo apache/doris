@@ -151,6 +151,8 @@ TEST_F(VDataStreamTest, BasicTest) {
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    runtime_stat.set_task_execution_context(task_ctx_lock);
     runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
     runtime_stat.set_be_number(1);
