@@ -36,14 +36,23 @@ import java.util.Objects;
 @Data
 public class MetaIdMappingsLog implements Writable {
 
-    @SerializedName(value = "catalogId")
+    public static final short OPERATION_TYPE_IGNORE = 0;
+    public static final short OPERATION_TYPE_ADD = 1;
+    public static final short OPERATION_TYPE_DELETE = 2;
+
+    public static final short META_OBJECT_TYPE_IGNORE = 0;
+    public static final short META_OBJECT_TYPE_DATABASE = 1;
+    public static final short META_OBJECT_TYPE_TABLE = 2;
+    public static final short META_OBJECT_TYPE_PARTITION = 3;
+
+    @SerializedName(value = "ctlId")
     private long catalogId = -1L;
 
-    @SerializedName(value = "fromHmsEvent")
+    @SerializedName(value = "fromEvent")
     private boolean fromHmsEvent = false;
 
     // The synced event id of master
-    @SerializedName(value = "lastSyncedEventId")
+    @SerializedName(value = "lastEventId")
     private long lastSyncedEventId = -1L;
 
     @SerializedName(value = "metaIdMappings")
@@ -79,44 +88,19 @@ public class MetaIdMappingsLog implements Writable {
         return GsonUtils.GSON.fromJson(json, MetaIdMappingsLog.class);
     }
 
-    public void addFromCreateDatabaseEvent(String databaseName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 1, databaseName, null, null,
-                    ExternalMetaIdMgr.nextMetaId());
-        this.metaIdMappings.add(mapping);
+    public void addMetaIdMapping(MetaIdMapping metaIdMapping) {
+        this.metaIdMappings.add(metaIdMapping);
     }
 
-    public void addFromCreateTableEvent(String dbName, String tableName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 2, dbName, tableName, null,
-                    ExternalMetaIdMgr.nextMetaId());
-        this.metaIdMappings.add(mapping);
-    }
-
-    public void addFromAddPartitionEvent(String dbName, String tblName, String partitionName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 1, (short) 3, dbName, tblName, partitionName,
-                    ExternalMetaIdMgr.nextMetaId());
-        this.metaIdMappings.add(mapping);
-    }
-
-    public void addFromDropDatabaseEvent(String dbName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 2, (short) 1, dbName, null, null, -1L);
-        this.metaIdMappings.add(mapping);
-    }
-
-    public void addFromDropTableEvent(String dbName, String tblName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 2, (short) 2, dbName, tblName, null, -1L);
-        this.metaIdMappings.add(mapping);
-    }
-
-    public void addFromDropPartitionEvent(String dbName, String tblName, String partitionName) {
-        MetaIdMapping mapping = new MetaIdMapping((short) 2, (short) 3, dbName, tblName, partitionName, -1L);
-        this.metaIdMappings.add(mapping);
+    public void addMetaIdMappings(List<MetaIdMapping> metaIdMappings) {
+        this.metaIdMappings.addAll(metaIdMappings);
     }
 
     public static OperationType getOperationType(short opType) {
         switch (opType) {
-            case 1:
+            case OPERATION_TYPE_ADD:
                 return OperationType.ADD;
-            case 2:
+            case OPERATION_TYPE_DELETE:
                 return OperationType.DELETE;
             default:
                 return OperationType.IGNORE;
@@ -125,11 +109,11 @@ public class MetaIdMappingsLog implements Writable {
 
     public static MetaObjectType getMetaObjectType(short metaObjType) {
         switch (metaObjType) {
-            case 1:
+            case META_OBJECT_TYPE_DATABASE:
                 return MetaObjectType.DATABASE;
-            case 2:
+            case META_OBJECT_TYPE_TABLE:
                 return MetaObjectType.TABLE;
-            case 3:
+            case META_OBJECT_TYPE_PARTITION:
                 return MetaObjectType.PARTITION;
             default:
                 return MetaObjectType.IGNORE;
@@ -150,7 +134,7 @@ public class MetaIdMappingsLog implements Writable {
         @SerializedName(value = "tblName")
         private String tblName;
         // name of Partition
-        @SerializedName(value = "partitionName")
+        @SerializedName(value = "pName")
         private String partitionName;
         // id of Database/Table/Partition
         @SerializedName(value = "id")
@@ -158,12 +142,12 @@ public class MetaIdMappingsLog implements Writable {
 
         public MetaIdMapping() {}
 
-        private MetaIdMapping(short opType,
-                              short metaObjType,
-                              String dbName,
-                              String tblName,
-                              String partitionName,
-                              long id) {
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName,
+                             String tblName,
+                             String partitionName,
+                             long id) {
             this.opType = opType;
             this.metaObjType = metaObjType;
             this.dbName = dbName;
@@ -203,11 +187,11 @@ public class MetaIdMappingsLog implements Writable {
     }
 
     public enum OperationType {
-        IGNORE((short) 0),
+        IGNORE(OPERATION_TYPE_IGNORE),
         // Add a Database/Table/Partition
-        ADD((short) 1),
+        ADD(OPERATION_TYPE_ADD),
         // Delete Database/Table/Partition
-        DELETE((short) 2);
+        DELETE(OPERATION_TYPE_DELETE);
 
         private final short opType;
 
@@ -221,10 +205,10 @@ public class MetaIdMappingsLog implements Writable {
     }
 
     public enum MetaObjectType {
-        IGNORE((short) 0),
-        DATABASE((short) 1),
-        TABLE((short) 2),
-        PARTITION((short) 3);
+        IGNORE(META_OBJECT_TYPE_IGNORE),
+        DATABASE(META_OBJECT_TYPE_DATABASE),
+        TABLE(META_OBJECT_TYPE_TABLE),
+        PARTITION(META_OBJECT_TYPE_PARTITION);
 
         private final short metaObjType;
 

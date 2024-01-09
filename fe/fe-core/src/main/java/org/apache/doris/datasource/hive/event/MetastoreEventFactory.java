@@ -92,35 +92,7 @@ public class MetastoreEventFactory implements EventFactory {
         log.setFromHmsEvent(true);
         log.setLastSyncedEventId(lastSyncedEventId);
         for (MetastoreEvent event : mergedEvents) {
-            switch (event.getEventType()) {
-                case CREATE_DATABASE:
-                    log.addFromCreateDatabaseEvent(event.dbName);
-                    break;
-                case DROP_DATABASE:
-                    log.addFromDropDatabaseEvent(event.dbName);
-                    break;
-                case CREATE_TABLE:
-                    log.addFromCreateTableEvent(event.dbName, event.tblName);
-                    break;
-                case DROP_TABLE:
-                    log.addFromDropTableEvent(event.dbName, event.tblName);
-                    break;
-                case ADD_PARTITION:
-                    AddPartitionEvent addPartitionEvent = (AddPartitionEvent) event;
-                    for (String partitionName : addPartitionEvent.getAllPartitionNames()) {
-                        log.addFromAddPartitionEvent(event.dbName, event.tblName, partitionName);
-                    }
-                    break;
-                case DROP_PARTITION:
-                    DropPartitionEvent dropPartitionEvent = (DropPartitionEvent) event;
-                    for (String partitionName : dropPartitionEvent.getAllPartitionNames()) {
-                        log.addFromDropPartitionEvent(event.dbName, event.tblName, partitionName);
-                    }
-                    break;
-                default:
-                    // do nothing
-                    break;
-            }
+            log.addMetaIdMappings(event.transferToMetaIdMappings());
         }
         Env.getCurrentEnv().getExternalMetaIdMgr().replayMetaIdMappingsLog(log);
         Env.getCurrentEnv().getEditLog().logMetaIdMappingsLog(log);
