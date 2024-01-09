@@ -560,6 +560,17 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    @VisibleForTesting
+    public void updateTableStatsForAlterStats(AnalysisInfo jobInfo, TableIf tbl) {
+        TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
+        if (tableStats == null) {
+            updateTableStatsStatus(new TableStatsMeta(0, jobInfo, tbl));
+        } else {
+            tableStats.update(jobInfo, tbl);
+            logCreateTableStats(tableStats);
+        }
+    }
+
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
         return findShowAnalyzeResult(analysisJobInfoMap.values(), stmt);
     }
@@ -654,6 +665,7 @@ public class AnalysisManager implements Writable {
             }
             tableStats.updatedTime = 0;
         }
+        tableStats.userInjected = false;
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
     }
