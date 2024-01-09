@@ -66,7 +66,8 @@ Status VWalWriter::write_wal(vectorized::Block* block) {
     PBlock pblock;
     size_t uncompressed_bytes = 0, compressed_bytes = 0;
     RETURN_IF_ERROR(block->serialize(_be_exe_version, &pblock, &uncompressed_bytes,
-                                     &compressed_bytes, segment_v2::CompressionTypePB::SNAPPY));
+                                     &compressed_bytes,
+                                     segment_v2::CompressionTypePB::NO_COMPRESSION));
     RETURN_IF_ERROR(_wal_writer->append_blocks(std::vector<PBlock*> {&pblock}));
     return Status::OK();
 }

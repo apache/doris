@@ -17,10 +17,6 @@
 
 suite("test_array_zip_array_enumerate_uniq", "p0") {
 
-    sql "drop table if exists numbers;"
-    sql "create table if not exists numbers (number int) ENGINE=OLAP DISTRIBUTED BY HASH(number) BUCKETS 1 PROPERTIES('replication_num' = '1');"
-    sql "insert into numbers values (NULL), (0), (1), (2), (3), (4), (5), (6), (7), (8), (9), (10);"
-
     sql "set enable_nereids_planner=false;"
 //     ========== array-zip ==========
 //     wrong case

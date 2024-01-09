@@ -311,6 +311,7 @@ void VNodeChannel::clear_all_blocks() {
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    _task_exec_ctx = state->get_task_execution_context();
     _tuple_desc = _parent->_output_tuple_desc;
     _state = state;
     // get corresponding BE node.
@@ -445,11 +446,20 @@ Status VNodeChannel::open_wait() {
 
     // add block closure
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler(
-            [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
+    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
+        auto ctx_lock = _task_exec_ctx.lock();
+        if (ctx_lock == nullptr) {
+            return;
+        }
+        _add_block_failed_callback(is_last_rpc);
+    });
 
     _send_block_callback->addSuccessHandler(
             [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
+                auto ctx_lock = _task_exec_ctx.lock();
+                if (ctx_lock == nullptr) {
+                    return;
+                }
                 _add_block_success_callback(result, is_last_rpc);
             });
     return status;

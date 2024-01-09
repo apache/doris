@@ -404,6 +404,9 @@ public:
         query_options.batch_size = 1;
         query_options.be_exec_version = be_exec_version;
         RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+        std::shared_ptr<TaskExecutionContext> task_ctx_lock =
+                std::make_shared<TaskExecutionContext>();
+        state.set_task_execution_context(task_ctx_lock);
         state.init_mem_trackers(TUniqueId());
 
         ObjectPool obj_pool;
@@ -523,6 +526,8 @@ TEST_F(VOlapTableSinkTest, convert) {
     query_options.batch_size = 1024;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -653,6 +658,8 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     TDescriptorTable tdesc_tbl;
@@ -767,6 +774,8 @@ TEST_F(VOlapTableSinkTest, decimal) {
     query_options.batch_size = 1;
     query_options.be_exec_version = 1;
     RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
+    std::shared_ptr<TaskExecutionContext> task_ctx_lock = std::make_shared<TaskExecutionContext>();
+    state.set_task_execution_context(task_ctx_lock);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;

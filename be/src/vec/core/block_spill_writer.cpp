@@ -122,7 +122,7 @@ Status BlockSpillWriter::_write_internal(const Block& block) {
             SCOPED_TIMER(serialize_timer_);
             status = block.serialize(BeExecVersionManager::get_newest_version(), &pblock,
                                      &uncompressed_bytes, &compressed_bytes,
-                                     segment_v2::CompressionTypePB::LZ4);
+                                     segment_v2::CompressionTypePB::NO_COMPRESSION);
             if (!status.ok()) {
                 unlink(file_path_.c_str());
                 return status;

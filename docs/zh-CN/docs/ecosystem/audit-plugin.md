@@ -166,7 +166,7 @@ properties(
 
 ### 部署
 
-您可以将 打包好的 auditloader.zip 放置在一个 http 服务器上，或者拷贝`auditloader.zip` 到所有 FE 的相同指定目录下。
+您可以将打包好的 auditloader.zip 放置在一个 http 服务器上，或者拷贝 `auditloader.zip` 到所有 FE 的相同指定目录下。
 
 ### 安装
 
@@ -176,7 +176,7 @@ properties(
 INSTALL PLUGIN FROM [source] [PROPERTIES ("key"="value", ...)]
 ```
 
-详细命令参考：[INSTALL-PLUGIN.md](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN)
+详细命令参考：[INSTALL-PLUGIN](https://doris.apache.org/zh-CN/docs/sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN)
 
 安装成功后，可以通过 `SHOW PLUGINS` 看到已经安装的插件，并且状态为 `INSTALLED`。
 

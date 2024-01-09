@@ -700,7 +700,7 @@ public class SessionVariable implements Serializable, Writable {
     public String preferJoinMethod = "broadcast";
 
     @VariableMgr.VarAttr(name = FRAGMENT_TRANSMISSION_COMPRESSION_CODEC)
-    public String fragmentTransmissionCompressionCodec = "lz4";
+    public String fragmentTransmissionCompressionCodec = "none";
 
     /*
      * the parallel exec instance num for one Fragment in one BE

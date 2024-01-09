@@ -84,16 +84,17 @@ public class StructLiteralTest {
     public void testGetStringInFe() throws AnalysisException {
         StructLiteral structLiteral1 = new StructLiteral(intLiteral1, floatLiteral, floatLiteral1, boolLiteral,
                 stringLiteral, largeIntLiteral, decimalLiteral1, decimalLiteral2, dateLiteral, datetimeLiteral);
-        Assert.assertEquals("{1, 2.15, \"11:22:33\", 1, \"shortstring\", 1000000000000000000000, 1.0, 2, "
-                        + "\"2022-10-10\", \"2022-10-10 12:10:10\"}",
+        Assert.assertEquals("{\"col1\": 1, \"col2\": 2.15, \"col3\": \"11:22:33\", \"col4\": 1, \"col5\": "
+                        + "\"shortstring\", \"col6\": 1000000000000000000000, \"col7\": 1.0, \"col8\": 2, \"col9\": \"2022-10-10\", \"col10\": \"2022-10-10 12:10:10\"}",
                         structLiteral1.getStringValueInFe());
         StructLiteral structLiteral2 = new StructLiteral(arrayLiteral, mapLiteral, structLiteral);
-        Assert.assertEquals("{[1.0, 2.15], {\"1\":2.15}, {1, 2.15, 1.0, \"2022-10-10\"}}",
+        Assert.assertEquals("{\"col1\": [1.0, 2.15], \"col2\": {\"1\":2.15}, \"col3\": "
+                        + "{\"col1\": 1, \"col2\": 2.15, \"col3\": 1.0, \"col4\": \"2022-10-10\"}}",
                 structLiteral2.getStringValueInFe());
         StructLiteral structLiteral3 = new StructLiteral();
         Assert.assertEquals("{}", structLiteral3.getStringValueInFe());
 
         StructLiteral nullStruct = new StructLiteral(nullLiteral, intLiteral1);
-        Assert.assertEquals("{null, 1}", nullStruct.getStringValueInFe());
+        Assert.assertEquals("{\"col1\": null, \"col2\": 1}", nullStruct.getStringValueInFe());
     }
 }
