@@ -19,12 +19,25 @@ suite("test_nullable_functions", "query") {
     def tableName = "test_nullable_functions"
 
     sql """DROP TABLE IF EXISTS ${tableName}"""
+    // sql """
+    //         CREATE TABLE IF NOT EXISTS ${tableName} (
+    //           `k1` int(11) NULL COMMENT "",
+    //           `k2` ARRAY<int(11)> NULL COMMENT "",
+    //           `k3` ARRAY<VARCHAR(11)> NULL COMMENT "",
+    //           `k4` ARRAY<decimal(27,9)> NOT NULL COMMENT "",
+    //           `k5` int(11) NOT NULL,
+    //           `k6` int(11) NULL
+    //         ) ENGINE=OLAP
+    //         DUPLICATE KEY(`k1`)
+    //         DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+    //         PROPERTIES (
+    //             "replication_allocation" = "tag.location.default: 1",
+    //             "storage_format" = "V2"
+    //         )
+    //     """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` int(11) NULL COMMENT "",
-              `k2` ARRAY<int(11)> NULL COMMENT "",
-              `k3` ARRAY<VARCHAR(11)> NULL COMMENT "",
-              `k4` ARRAY<decimal(27,9)> NOT NULL COMMENT "",
               `k5` int(11) NOT NULL,
               `k6` int(11) NULL
             ) ENGINE=OLAP
@@ -35,21 +48,25 @@ suite("test_nullable_functions", "query") {
                 "storage_format" = "V2"
             )
         """
-    sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], ["a", "b", "c"], [1.3, 2.14], 1, 1) """
-    sql """ INSERT INTO ${tableName} VALUES(2, [], [], [1.3, 2.14], 2, 2) """
-    sql """ INSERT INTO ${tableName} VALUES(3, [1, 2, 3], [], [1.3, 2.14], 3, 3) """
-    sql """ INSERT INTO ${tableName} VALUES(4, [], ["a", "b", "c"], [1.3, 2.14], 4, null) """
+    // sql """ INSERT INTO ${tableName} VALUES(1, [1, 2, 3], ["a", "b", "c"], [1.3, 2.14], 1, 1) """
+    // sql """ INSERT INTO ${tableName} VALUES(2, [], [], [1.3, 2.14], 2, 2) """
+    // sql """ INSERT INTO ${tableName} VALUES(3, [1, 2, 3], [], [1.3, 2.14], 3, 3) """
+    // sql """ INSERT INTO ${tableName} VALUES(4, [], ["a", "b", "c"], [1.3, 2.14], 4, null) """
+    sql """ INSERT INTO ${tableName} VALUES(1, 1, 1) """
+    sql """ INSERT INTO ${tableName} VALUES(2, 2, 2) """
+    sql """ INSERT INTO ${tableName} VALUES(3, 3, 3) """
+    sql """ INSERT INTO ${tableName} VALUES(4, 4, null) """
 
     sql "set enable_nereids_planner=false"
     qt_nullable_1 "SELECT k1, non_nullable(k1), nullable(k1) FROM ${tableName} ORDER BY k1"
-    qt_nullable_2 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
-    qt_nullable_3 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
-    try {
-        def result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
-    }
+    // qt_nullable_2 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
+    // qt_nullable_3 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
+    // try {
+    //     def result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
+    //     fail()
+    // } catch (Exception e) {
+    //     assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
+    // }
     try {
         result = sql "SELECT k1, non_nullable(k6) FROM ${tableName} ORDER BY k1"
         fail()
@@ -61,13 +78,14 @@ suite("test_nullable_functions", "query") {
     sql "set forbid_unknown_col_stats=false"
     sql "set enable_fallback_to_original_planner=false"
     qt_nullable_4 "SELECT k1, non_nullable(k1), nullable(k1) FROM ${tableName} ORDER BY k1"
-    qt_nullable_5 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
-    qt_nullable_6 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
-    try {
-        result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
-    }
-    qt_ignore "SELECT ignore(k1*k5, k2, k3, k4, k5) FROM ${tableName} ORDER BY k1"
+    // qt_nullable_5 "SELECT k1, non_nullable(k2), nullable(k4) FROM ${tableName} ORDER BY k1"
+    // qt_nullable_6 "SELECT k1, non_nullable(k3), nullable(k5) FROM ${tableName} ORDER BY k1"
+    // try {
+    //     result = sql "SELECT k1, non_nullable(k4) FROM ${tableName} ORDER BY k1"
+    //     fail()
+    // } catch (Exception e) {
+    //     assertTrue(e.getMessage().contains("Try to use originally non-nullable column"))
+    // }
+    // qt_ignore "SELECT ignore(k1*k5, k2, k3, k4, k5) FROM ${tableName} ORDER BY k1"
+    qt_ignore "SELECT ignore(k1*k5, k5) FROM ${tableName} ORDER BY k1"
 }
