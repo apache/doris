@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -33,26 +33,26 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function is_ipv6_string
+ * scalar function `is_ip_address_in_range`
  */
-public class IsIpv6String extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+public class IsIpAddressInRange extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE));
 
-    public IsIpv6String(Expression arg0) {
-        super("is_ipv6_string", arg0);
+    public IsIpAddressInRange(Expression arg0, Expression arg1) {
+        super("is_ip_address_in_range", arg0, arg1);
     }
 
     @Override
-    public IsIpv6String withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1,
-                "is_ipv6_string accept 1 args, but got %s (%s)",
+    public IsIpAddressInRange withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 2,
+                "is_ip_address_in_range accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIpv6String(children.get(0));
+        return new IsIpAddressInRange(children.get(0), children.get(1));
     }
 
     @Override
@@ -62,6 +62,6 @@ public class IsIpv6String extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIsIpv6String(this, context);
+        return visitor.visitIsIPAddressInRange(this, context);
     }
 }
