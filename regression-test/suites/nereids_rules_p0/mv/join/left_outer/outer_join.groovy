@@ -22,8 +22,6 @@ suite("outer_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -259,13 +257,17 @@ suite("outer_join") {
 
 
     // filter outside + right
-    def mv3_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from lineitem " +
-            "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query3_0 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where orders.O_ORDERSTATUS = 'o'"
+    def mv3_0 = """
+            select lineitem.L_LINENUMBER, orders.O_CUSTKEY
+            from lineitem
+            left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY;
+    """
+    def query3_0 = """
+            select lineitem.L_LINENUMBER
+            from lineitem
+            left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            where orders.O_ORDERSTATUS = 'o';
+    """
     order_qt_query3_0_before "${query3_0}"
     // use a filed not from mv, should not success
     check_not_match(mv3_0, query3_0, "mv3_0")
@@ -303,13 +305,17 @@ suite("outer_join") {
 
 
     // filter outside + left + right
-    def mv4_0 = "select l_linenumber, o_custkey, o_orderkey, o_orderstatus " +
-            "from lineitem " +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey "
-    def query4_0 = "select lineitem.l_linenumber " +
-            "from lineitem " +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey " +
-            "where o_orderstatus = 'o' AND o_orderkey = 1"
+    def mv4_0 = """
+            select l_linenumber, o_custkey, o_orderkey, o_orderstatus
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey;
+    """
+    def query4_0 = """
+            select lineitem.l_linenumber
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey
+            where o_orderstatus = 'o' AND o_orderkey = 1;
+    """
     order_qt_query4_0_before "${query4_0}"
     check_rewrite(mv4_0, query4_0, "mv4_0")
     order_qt_query4_0_after "${query4_0}"
@@ -364,7 +370,7 @@ suite("outer_join") {
 
     // self join test
     def mv8_0 = """
-    select 
+    select
     a.o_orderkey,
     count(distinct a.o_orderstatus) num1,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
@@ -381,7 +387,7 @@ suite("outer_join") {
     group by a.o_orderkey;
     """
     def query8_0 = """
-    select 
+    select
     a.o_orderkey,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
     SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
