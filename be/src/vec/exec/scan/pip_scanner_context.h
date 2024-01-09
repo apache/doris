@@ -48,6 +48,7 @@ public:
             }
 
             if (!status().ok()) {
+                LOG(INFO) << "yyyy status not ok " << debug_string();
                 return _process_status;
             }
         }
@@ -60,10 +61,12 @@ public:
             // if done, then eos is returned to indicate that the scan operator finished.
             if (_blocks_queues[id].empty()) {
                 *eos = done();
+                LOG(INFO) << "yyyy queue is empty and ctx finished " << debug_string();
                 return Status::OK();
             }
             if (_process_status.is<ErrorCode::CANCELLED>()) {
                 *eos = true;
+                LOG(INFO) << "yyyy process status is cancelled " << debug_string();
                 return Status::OK();
             }
             *block = std::move(_blocks_queues[id].front());
@@ -82,6 +85,7 @@ public:
             }
 
             if (_blocks_queues[id].empty()) {
+                LOG(INFO) << "yyyy block queue is empty, try to resched ctx " << debug_string();
                 this->reschedule_scanner_ctx();
             }
         }
