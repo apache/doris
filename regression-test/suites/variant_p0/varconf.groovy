@@ -36,11 +36,12 @@ suite("regression_test_variant_config", "variant_type"){
 
     sql """ALTER TABLE ${table_name} set ("variant.enable_decimal_type" = "false")"""
     sql """ALTER TABLE ${table_name} set ("variant.ratio_of_defaults_as_sparse_column" = "0.95")"""
-    sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+    sql """insert into  ${table_name} select 22222, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 111111, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
     qt_sql "desc ${table_name}"
 
-    qt_sql """select v["a"], v["b"] from ${table_name} order by k limit 10"""
+    qt_sql """select cast(v["a"] as int), cast(v["b"] as json) from ${table_name} order by cast(v["a"] as int) limit 10"""
+    qt_sql """select cast(v["b"] as json) from ${table_name} where cast(v["b"] as json) is not null"""
 
     sql "truncate table ${table_name}"
     sql """ALTER TABLE ${table_name} set ("variant.ratio_of_defaults_as_sparse_column" = "0")"""

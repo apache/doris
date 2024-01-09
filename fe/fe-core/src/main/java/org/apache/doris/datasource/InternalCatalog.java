@@ -1876,7 +1876,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
                             timeSeriesCompactionEmptyRowsetsThreshold,
-                            storeRowColumn, binlogConfigm, variantConfig);
+                            storeRowColumn, binlogConfig, variantConfig);
 
                     task.setStorageFormat(storageFormat);
                     task.setClusterKeyIndexes(clusterKeyIndexes);

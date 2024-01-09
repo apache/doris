@@ -427,11 +427,8 @@ struct TTabletMetaInfo {
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
-<<<<<<< HEAD
     17: optional i64 time_series_compaction_empty_rowsets_threshold
-=======
-    17: optional TVariantConfig variant_config 
->>>>>>> 0c3176b3e3 (add variant config)
+    18: optional TVariantConfig variant_config 
 }
 
 struct TUpdateTabletMetaInfoReq {
