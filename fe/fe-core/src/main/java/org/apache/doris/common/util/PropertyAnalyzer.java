@@ -1217,7 +1217,7 @@ public class PropertyAnalyzer {
         return groupCommitIntervalMs;
     }
 
-    public static int analyzeGroupCommitDateBytes(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
         int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
