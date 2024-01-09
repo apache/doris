@@ -74,31 +74,28 @@ template <int JoinOpType, typename Parent>
 struct ProcessHashTableProbe;
 class HashJoinNode;
 
-struct ProcessRuntimeFilterBuild {
-    template <class HashTableContext, typename Parent>
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Block* block,
-                      Parent* parent, bool is_global = false) {
-        if (parent->runtime_filter_descs().empty()) {
-            return Status::OK();
-        }
-        parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
-                parent->_build_expr_ctxs, parent->runtime_filter_descs(), is_global);
-
-        RETURN_IF_ERROR(
-                parent->_runtime_filter_slots->init(state, hash_table_ctx.hash_table->size()));
-
-        if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
-            SCOPED_TIMER(parent->_runtime_filter_compute_timer);
-            parent->_runtime_filter_slots->insert(block);
-        }
-        {
-            SCOPED_TIMER(parent->_publish_runtime_filter_timer);
-            RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
-        }
-
+template <typename Parent>
+Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* parent,
+                                    bool is_global = false) {
+    if (parent->runtime_filter_descs().empty()) {
         return Status::OK();
     }
-};
+    parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+            parent->_build_expr_ctxs, parent->runtime_filter_descs(), is_global);
+
+    RETURN_IF_ERROR(parent->_runtime_filter_slots->init(state, block->rows()));
+
+    if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
+        SCOPED_TIMER(parent->_runtime_filter_compute_timer);
+        parent->_runtime_filter_slots->insert(block);
+    }
+    {
+        SCOPED_TIMER(parent->_publish_runtime_filter_timer);
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
+    }
+
+    return Status::OK();
+}
 
 using ProfileCounter = RuntimeProfile::Counter;
 
@@ -408,7 +405,9 @@ private:
     template <int JoinOpType, typename Parent>
     friend struct ProcessHashTableProbe;
 
-    friend struct ProcessRuntimeFilterBuild;
+    template <typename Parent>
+    friend Status process_runtime_filter_build(RuntimeState* state, vectorized::Block* block,
+                                               Parent* parent, bool is_global);
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 

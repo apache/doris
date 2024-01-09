@@ -94,7 +94,10 @@ protected:
     friend class HashJoinBuildSinkOperatorX;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    friend struct vectorized::ProcessRuntimeFilterBuild;
+    template <typename Parent>
+    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
+                                                           vectorized::Block* block, Parent* parent,
+                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
