@@ -114,7 +114,12 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
-LoadStreamStub::~LoadStreamStub() = default;
+LoadStreamStub::~LoadStreamStub() {
+    Status st = close_stream();
+    if (!st.ok()) {
+        LOG(WARNING) << "stream close failed, status: " << st;
+    }
+};
 
 Status LoadStreamStub::close_stream() {
     if (_is_init.load() && !_handler.is_closed()) {
