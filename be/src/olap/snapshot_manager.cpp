@@ -190,6 +190,12 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
             // remote rowset
             *rowset_meta = visible_rowset;
         }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
+        }
+
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
         rs_version_map[rowset_version] = rowset_meta;
     }
@@ -217,6 +223,11 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         } else {
             // remote rowset
             *rowset_meta = stale_rowset;
+        }
+
+        rowset_meta->set_tablet_id(tablet_id);
+        if (partition_id != -1) {
+            rowset_meta->set_partition_id(partition_id);
         }
     }
 

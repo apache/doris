@@ -158,6 +158,9 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (tableStats == null || tableStats.newPartitionLoaded.get()) {
             return false;
         }
+        if (tableStats.userInjected) {
+            return true;
+        }
         return System.currentTimeMillis()
                 - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
     }
