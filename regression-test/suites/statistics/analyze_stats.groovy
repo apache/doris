@@ -2642,6 +2642,7 @@ PARTITION `p599` VALUES IN (599)
      );
    """
    sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+   sql """set forbid_unknown_col_stats=false"""
    explain {
        sql("select min(name), max(name) from string_min_max")
        contains "pushAggOp=NONE"
@@ -2651,6 +2652,7 @@ PARTITION `p599` VALUES IN (599)
        sql("select min(name), max(name) from string_min_max")
        contains "pushAggOp=MINMAX"
    }
+   sql """set forbid_unknown_col_stats=true"""
 
    // Test trigger type.
    sql """DROP DATABASE IF EXISTS trigger"""
