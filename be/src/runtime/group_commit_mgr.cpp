@@ -20,10 +20,13 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <chrono>
+
 #include "client_cache.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -33,6 +36,9 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     auto start = std::chrono::steady_clock::now();
+    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.back_pressure_time_out", {
+        start = std::chrono::steady_clock::now() - std::chrono::milliseconds(120000);
+    });
     while (!runtime_state->is_cancelled() && status.ok() &&
            _all_block_queues_bytes->load(std::memory_order_relaxed) >=
                    config::group_commit_queue_mem_limit) {
