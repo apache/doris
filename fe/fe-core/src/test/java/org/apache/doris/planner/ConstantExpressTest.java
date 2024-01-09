@@ -37,6 +37,7 @@ public class ConstantExpressTest {
     public static void beforeClass() throws Exception {
         UtFrameUtils.startFEServer(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.getSessionVariable().setEnableFoldConstantByBe(false);
     }
 
     private static void testConstantExpressResult(String sql, String result) throws Exception {

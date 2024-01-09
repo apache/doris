@@ -237,7 +237,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "\"storage_format\" = \"V2\"\n"
                 + ");";
         dorisAssert.withTable(createTableSQL);
-        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ sum(l_extendedprice* (1 - l_discount)) as revenue "
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false,enable_fold_constant_by_be=false) */ sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "
                 + "where ( p_partkey = l_partkey and p_brand = 'Brand#11' "
                 + "and p_container in ('SM CASE', 'SM BOX', 'SM PACK', 'SM PKG') "

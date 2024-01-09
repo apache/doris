@@ -206,7 +206,7 @@ public class CreateFunctionTest {
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableNereidsPlanner(false);
-
+        ctx.getSessionVariable().setEnableFoldConstantByBe(false);
         // 1. create database db2
         createDatabase(ctx, "create database db2;");
 

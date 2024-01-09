@@ -53,7 +53,8 @@ public enum ExpressionFunctions {
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
     public static final Set<String> unfixedFn = ImmutableSet.of(
             "uuid",
-            "random"
+            "random",
+            "sleep"
     );
 
     private ExpressionFunctions() {
