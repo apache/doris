@@ -33,7 +33,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function IsIpv4String
+ * scalar function is_ipv4_string
  */
 public class IsIpv4String extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
@@ -43,13 +43,13 @@ public class IsIpv4String extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
     public IsIpv4String(Expression arg0) {
-        super("isipv4string", arg0);
+        super("is_ipv4_string", arg0);
     }
 
     @Override
     public IsIpv4String withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "isipv4string accept 1 args, but got %s (%s)",
+                "is_ipv4_string accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
         return new IsIpv4String(children.get(0));
