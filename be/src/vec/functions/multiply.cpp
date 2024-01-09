@@ -45,7 +45,8 @@ struct MultiplyImpl {
                               const ColumnDecimal128::Container& b,
                               ColumnDecimal128::Container& c) {
         size_t size = c.size();
-        int8 sgn[size];
+        auto sng_uptr = std::unique_ptr<int8[]>(new int8[size]);
+        int8* sgn = sng_uptr.get();
 
         for (int i = 0; i < size; i++) {
             sgn[i] = ((DecimalV2Value(a[i]).value() > 0) && (DecimalV2Value(b[i]).value() > 0)) ||

@@ -705,6 +705,18 @@ trace export to zipkin like: `http://127.0.0.1:9411/api/v2/spans`
 
 trace export to collector like: `http://127.0.0.1:4318/v1/traces`
 
+#### `http_sql_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http sql submitter
+
+#### `http_load_submitter_max_worker_threads`
+
+Default：2
+
+The max number work threads of http upload submitter
+
 ### Query Engine
 
 #### `default_max_query_instances`
