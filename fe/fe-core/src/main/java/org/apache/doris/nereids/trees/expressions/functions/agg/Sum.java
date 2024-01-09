@@ -112,7 +112,7 @@ public class Sum extends NullableAggregateFunction
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
         if (getArgument(0).getDataType() instanceof FloatType) {
-            return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
+            return FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE);
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
