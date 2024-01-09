@@ -192,10 +192,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 if (rewrittenPlan == null) {
                     continue;
                 }
-                // checkout the output logical properties is the same with query
-                if (!checkOutput(queryPlan, rewrittenPlan, materializationContext)) {
-                    continue;
-                }
                 // run rbo job on mv rewritten plan
                 CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                         cascadesContext.getStatementContext(), rewrittenPlan,
@@ -219,7 +215,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                                     .collect(Collectors.toSet()))));
                     continue;
                 }
-                materializationContext.setSuccess(true);
                 recordIfRewritten(queryPlan, materializationContext);
                 rewriteResults.add(rewrittenPlan);
             }
@@ -587,6 +582,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     protected void recordIfRewritten(Plan plan, MaterializationContext context) {
+        context.setSuccess(true);
         if (plan.getGroupExpression().isPresent()) {
             context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
         }
