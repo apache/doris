@@ -146,7 +146,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
             MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                         MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                         MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
-                        dbName, tblName, partitionName, -1L);
+                        dbName, tblName, partitionName);
             metaIdMappings.add(metaIdMapping);
         }
         return ImmutableList.copyOf(metaIdMappings);

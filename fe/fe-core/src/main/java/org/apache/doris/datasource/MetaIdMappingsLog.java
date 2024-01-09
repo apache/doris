@@ -160,6 +160,19 @@ public class MetaIdMappingsLog implements Writable {
                              short metaObjType,
                              String dbName,
                              String tblName,
+                             String partitionName) {
+            this.opType = opType;
+            this.metaObjType = metaObjType;
+            this.dbName = dbName;
+            this.tblName = tblName;
+            this.partitionName = partitionName;
+            this.id = -1L;
+        }
+
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName,
+                             String tblName,
                              long id) {
             this.opType = opType;
             this.metaObjType = metaObjType;
@@ -167,6 +180,18 @@ public class MetaIdMappingsLog implements Writable {
             this.tblName = tblName;
             this.partitionName = null;
             this.id = id;
+        }
+
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName,
+                             String tblName) {
+            this.opType = opType;
+            this.metaObjType = metaObjType;
+            this.dbName = dbName;
+            this.tblName = tblName;
+            this.partitionName = null;
+            this.id = -1L;
         }
 
         public MetaIdMapping(short opType,
@@ -180,6 +205,18 @@ public class MetaIdMappingsLog implements Writable {
             this.partitionName = null;
             this.id = id;
         }
+
+        public MetaIdMapping(short opType,
+                             short metaObjType,
+                             String dbName) {
+            this.opType = opType;
+            this.metaObjType = metaObjType;
+            this.dbName = dbName;
+            this.tblName = null;
+            this.partitionName = null;
+            this.id = -1L;
+        }
+
 
         @Override
         public void write(DataOutput out) throws IOException {

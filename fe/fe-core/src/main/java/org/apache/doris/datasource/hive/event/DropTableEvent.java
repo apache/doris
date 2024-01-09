@@ -107,7 +107,7 @@ public class DropTableEvent extends MetastoreTableEvent {
         MetaIdMappingsLog.MetaIdMapping metaIdMapping = new MetaIdMappingsLog.MetaIdMapping(
                     MetaIdMappingsLog.OPERATION_TYPE_DELETE,
                     MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
-                    dbName, tblName, -1L);
+                    dbName, tblName);
         return ImmutableList.of(metaIdMapping);
     }
 }
