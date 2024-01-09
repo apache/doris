@@ -321,6 +321,15 @@ public class StatisticsAutoCollectorTest {
         };
         // can't find table stats meta, which means this table never get analyzed,  so we shouldn't skip it this time
         Assertions.assertFalse(autoCollector.skip(olapTable));
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return stats;
+            }
+        };
+        stats.userInjected = true;
+        Assertions.assertTrue(autoCollector.skip(olapTable));
         // this is not olap table nor external table, so we should skip it this time
         Assertions.assertTrue(autoCollector.skip(anyOtherTable));
     }
