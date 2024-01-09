@@ -122,6 +122,10 @@ function add_doris_be_to_fe() {
         fi
     done
     if [[ ${i} -ge 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
+
+    # wait 10s for doris totally started, otherwize may encounter the error below,
+    # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
+    sleep 10s
 }
 
 function stop_doris() {
@@ -129,7 +133,7 @@ function stop_doris() {
         "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
-        pgrep -fi doris | xargs kill -9
+        pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
     fi
 }
@@ -138,6 +142,17 @@ function restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
+    i=1
+    while [[ $((i++)) -lt 60 ]]; do
+        if be_ready_count=$(${cl} -e 'show backends\G' | grep -c 'Alive: true') &&
+            [[ ${be_ready_count} -eq 1 ]]; then
+            echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
+        else
+            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+        fi
+    done
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 2 mins wait..." && return 1; fi
+
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
