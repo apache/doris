@@ -65,10 +65,6 @@ query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
 http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf http_port)
 clt="mysql -h127.0.0.1 -P${query_port} -uroot "
 DB="load_test_db"
-stream_load_json_speed_threshold=${stream_load_json_speed_threshold:-100}      # 单位 MB/s
-stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold:-10}         # 单位 MB/s
-stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold:-10} # 单位 MB/s
-insert_into_select_speed_threshold=${insert_into_select_speed_threshold:-310}  # 单位 Krows/s
 exit_flag=0
 
 (
@@ -668,6 +664,16 @@ exit_flag=0
     if ! insert_into_select; then exit 1; fi
 
     echo "#### 3. check load performance"
+    stream_load_json_speed_threshold=${stream_load_json_speed_threshold:-100}      # 单位 MB/s
+    stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold:-10}         # 单位 MB/s
+    stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold:-10} # 单位 MB/s
+    insert_into_select_speed_threshold=${insert_into_select_speed_threshold:-310}  # 单位 Krows/s
+    if [[ "${target_branch}" == "branch-2.0" ]]; then
+        stream_load_json_speed_threshold=${stream_load_json_speed_threshold:-100}      # 单位 MB/s
+        stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold:-10}         # 单位 MB/s
+        stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold:-10} # 单位 MB/s
+        insert_into_select_speed_threshold=${insert_into_select_speed_threshold:-310}  # 单位 Krows/s
+    fi
     if [[ ${stream_load_json_speed} -lt ${stream_load_json_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_json_speed} is less than the threshold ${stream_load_json_speed_threshold}" && exit 1; fi
     if [[ ${stream_load_orc_speed} -lt ${stream_load_orc_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_orc_speed} is less than the threshold ${stream_load_orc_speed_threshold}" && exit 1; fi
     if [[ ${stream_load_parquet_speed} -lt ${stream_load_parquet_speed_threshold} ]]; then echo "ERROR: stream_load_json_speed ${stream_load_parquet_speed} is less than the threshold ${stream_load_parquet_speed_threshold}" && exit 1; fi
@@ -675,10 +681,10 @@ exit_flag=0
 
     echo "#### 4. comment result on tpch"
     comment_body="Load test result on commit ${commit_id:-} with default session variables"
-    if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\n stream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
-    if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\n stream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
-    if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\n stream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
-    if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\n insert into select:       ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
+    if [[ -n ${stream_load_json_time} ]]; then comment_body="${comment_body}\nStream load json:         ${stream_load_json_time} seconds loaded ${stream_load_json_size} Bytes, about ${stream_load_json_speed} MB/s"; fi
+    if [[ -n ${stream_load_orc_time} ]]; then comment_body="${comment_body}\nStream load orc:          ${stream_load_orc_time} seconds loaded ${stream_load_orc_size} Bytes, about ${stream_load_orc_speed} MB/s"; fi
+    if [[ -n ${stream_load_parquet_time} ]]; then comment_body="${comment_body}\nStream load parquet:      ${stream_load_parquet_time} seconds loaded ${stream_load_parquet_size} Bytes, about ${stream_load_parquet_speed} MB/s"; fi
+    if [[ -n ${insert_into_select_time} ]]; then comment_body="${comment_body}\nInsert into select:       ${insert_into_select_time} seconds inserted ${insert_into_select_rows} Rows, about ${insert_into_select_speed}K ops/s"; fi
 
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_load "${pull_request_num:-}" "${comment_body}"
