@@ -1528,7 +1528,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
-                        if (published_count % 10 == 0) {
+                        if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
+                            published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true);
                             if (!st.ok()) [[unlikely]] {

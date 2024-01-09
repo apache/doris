@@ -150,7 +150,7 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -169,7 +169,7 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 

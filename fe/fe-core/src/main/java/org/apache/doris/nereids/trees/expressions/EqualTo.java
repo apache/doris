@@ -39,10 +39,6 @@ public class EqualTo extends EqualPredicate implements PropagateNullable {
         super(ImmutableList.of(left, right), "=", inferred);
     }
 
-    private EqualTo(List<Expression> children) {
-        this(children, false);
-    }
-
     private EqualTo(List<Expression> children, boolean inferred) {
         super(children, "=", inferred);
     }

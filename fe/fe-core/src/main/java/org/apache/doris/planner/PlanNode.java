@@ -28,15 +28,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
@@ -45,7 +42,6 @@ import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
@@ -156,6 +152,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected TupleDescriptor outputTupleDesc;
 
     protected List<Expr> projectList;
+
+    private List<List<Expr>> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
             StatisticalType statisticalType) {
@@ -405,24 +403,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return statsDeriveResultList;
     }
 
-    protected void initCompoundPredicate(Expr expr) {
-        if (expr instanceof CompoundPredicate) {
-            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
-            compoundPredicate.setType(Type.BOOLEAN);
-            List<Type> args = new ArrayList<>();
-            args.add(Type.BOOLEAN);
-            args.add(Type.BOOLEAN);
-            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()),
-                    args, Type.BOOLEAN, false);
-            function.setBinaryType(TFunctionBinaryType.BUILTIN);
-            expr.setFn(function);
-        }
-
-        for (Expr child : expr.getChildren()) {
-            initCompoundPredicate(child);
-        }
-    }
-
     public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
@@ -548,6 +528,12 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix).append("project output tuple id: ")
                     .append(outputTupleDesc.getId().asInt()).append("\n");
         }
+        if (!CollectionUtils.isEmpty(distributeExprLists)) {
+            for (List<Expr> distributeExprList : distributeExprLists) {
+                expBuilder.append(detailPrefix).append("distribute expr lists: ")
+                    .append(getExplainString(distributeExprList)).append("\n");
+            }
+        }
         // Output Tuple Ids only when explain plan level is set to verbose
         if (detailLevel.equals(TExplainLevel.VERBOSE)) {
             expBuilder.append(detailPrefix + "tuple ids: ");
@@ -638,6 +624,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (outputSlotIds != null) {
             for (SlotId slotId : outputSlotIds) {
                 msg.addToOutputSlotIds(slotId.asInt());
+            }
+        }
+        if (!CollectionUtils.isEmpty(distributeExprLists)) {
+            for (List<Expr> exprList : distributeExprLists) {
+                msg.addToDistributeExprLists(new ArrayList<>());
+                for (Expr expr : exprList) {
+                    msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1).add(expr.treeToThrift());
+                }
             }
         }
         toThrift(msg);
@@ -1194,6 +1188,10 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public void setDistributeExprLists(List<List<Expr>> distributeExprLists) {
+        this.distributeExprLists = distributeExprLists;
     }
 
     public TPushAggOp getPushDownAggNoGroupingOp() {

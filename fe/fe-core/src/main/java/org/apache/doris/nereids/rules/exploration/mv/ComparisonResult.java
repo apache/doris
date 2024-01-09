@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -31,24 +32,23 @@ import java.util.Set;
  * comparison result of view and query
  */
 public class ComparisonResult {
-    public static final ComparisonResult INVALID =
-            new ComparisonResult(ImmutableList.of(), ImmutableList.of(), ImmutableSet.of(), false);
     private final boolean valid;
     private final List<Expression> viewExpressions;
     private final List<Expression> queryExpressions;
     private final Set<Set<Slot>> viewNoNullableSlot;
-
-    public ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions,
-            Set<Set<Slot>> viewNoNullableSlot) {
-        this(queryExpressions, viewExpressions, viewNoNullableSlot, true);
-    }
+    private final String errorMessage;
 
     ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions,
-            Set<Set<Slot>> viewNoNullableSlot, boolean valid) {
+            Set<Set<Slot>> viewNoNullableSlot, boolean valid, String message) {
         this.viewExpressions = ImmutableList.copyOf(viewExpressions);
         this.queryExpressions = ImmutableList.copyOf(queryExpressions);
         this.viewNoNullableSlot = ImmutableSet.copyOf(viewNoNullableSlot);
         this.valid = valid;
+        this.errorMessage = message;
+    }
+
+    public static ComparisonResult newInvalidResWithErrorMessage(String errorMessage) {
+        return new ComparisonResult(ImmutableList.of(), ImmutableList.of(), ImmutableSet.of(), false, errorMessage);
     }
 
     public List<Expression> getViewExpressions() {
@@ -65,6 +65,10 @@ public class ComparisonResult {
 
     public boolean isInvalid() {
         return !valid;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 
     /**
@@ -109,11 +113,9 @@ public class ComparisonResult {
         }
 
         public ComparisonResult build() {
-            if (isInvalid()) {
-                return ComparisonResult.INVALID;
-            }
+            Preconditions.checkArgument(valid, "Comparison result must be valid");
             return new ComparisonResult(queryBuilder.build(), viewBuilder.build(),
-                    viewNoNullableSlotBuilder.build(), valid);
+                    viewNoNullableSlotBuilder.build(), valid, "");
         }
     }
 

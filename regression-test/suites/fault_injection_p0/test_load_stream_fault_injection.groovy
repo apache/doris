@@ -67,6 +67,52 @@ suite("load_stream_fault_injection", "nonConcurrent") {
         file "baseall.txt"
     }
 
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    def backendId_to_params = [string:[:]]
+
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    def set_be_param = { paramName, paramValue ->
+        // for eache be node, set paramName=paramValue
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def reset_be_param = { paramName ->
+        // for eache be node, reset paramName to default
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            def original_value = backendId_to_params.get(id).get(paramName)
+            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, original_value))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def get_be_param = { paramName ->
+        // for eache be node, get param value by default
+        def paramValue = ""
+        for (String id in backendId_to_backendIP.keySet()) {
+            def beIp = backendId_to_backendIP.get(id)
+            def bePort = backendId_to_backendHttpPort.get(id)
+            // get the config value from be
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/show_config?conf_item=%s", beIp, bePort, paramName))
+            assertTrue(code == 0)
+            assertTrue(out.contains(paramName))
+            // parsing
+            def resultList = parseJson(out)[0]
+            assertTrue(resultList.size() == 4)
+            // get original value
+            paramValue = resultList[2]
+            backendId_to_params.get(id, [:]).put(paramName, paramValue)
+        }
+    }
+
     def load_with_injection = { injection, expect_errmsg ->
         try {
             GetDebugPoint().enableDebugPointForAllBEs(injection)
@@ -110,10 +156,21 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     // LoadStream add_segment meet unknown segid in request header
     load_with_injection("TabletStream.add_segment.unknown_segid", "")
     // LoadStream append_data meet unknown index id in request header
-    load_with_injection("abletStream.add_segment.unknown_indexid", "")
+    load_with_injection("TabletStream._append_data.unknown_indexid", "")
     // LoadStream dispatch meet unknown load id
     load_with_injection("LoadStream._dispatch.unknown_loadid", "")
     // LoadStream dispatch meet unknown src id
     load_with_injection("LoadStream._dispatch.unknown_srcid", "")
+
+    // LoadStream meets StreamRPC idle timeout
+    get_be_param("load_stream_idle_timeout_ms")
+    set_be_param("load_stream_idle_timeout_ms", 500)
+    try {
+        load_with_injection("LoadStreamStub._send_with_retry.delay_before_send", "")
+    } catch(Exception e) {
+        logger.info(e.getMessage())
+    } finally {
+        reset_be_param("load_stream_idle_timeout_ms")
+    }
 }
 

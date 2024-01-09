@@ -469,22 +469,25 @@ int64_t RuntimeState::get_load_mem_limit() {
     }
 }
 
-void RuntimeState::resize_op_id_to_local_state(int operator_size, int sink_size) {
-    _op_id_to_local_state.resize(operator_size);
+void RuntimeState::resize_op_id_to_local_state(int operator_size) {
+    _op_id_to_local_state.resize(-operator_size);
 }
 
 void RuntimeState::emplace_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+    id = -id;
     DCHECK(id < _op_id_to_local_state.size());
     DCHECK(!_op_id_to_local_state[id]);
     _op_id_to_local_state[id] = std::move(state);
 }
 
 doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+    id = -id;
     return _op_id_to_local_state[id].get();
 }
 
 Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
+    id = -id;
     if (id >= _op_id_to_local_state.size()) {
         return ResultError(Status::InternalError("get_local_state out of range size:{} , id:{}",
                                                  _op_id_to_local_state.size(), id));

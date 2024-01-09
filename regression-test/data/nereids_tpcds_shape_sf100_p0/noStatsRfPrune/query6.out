@@ -2,12 +2,12 @@
 -- !ds_shape_6 --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
 ----------filter((cnt >= 10))
 ------------hashAgg[GLOBAL]
---------------PhysicalDistribute
+--------------PhysicalDistribute[DistributionSpecHash]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF5 d_month_seq->[d_month_seq]
@@ -18,35 +18,35 @@ PhysicalResultSink
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk)) otherCondition=()
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=()
-------------------------------------PhysicalDistribute
+------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3
-------------------------------------PhysicalDistribute
+------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=()
-------------------------------------------PhysicalDistribute
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[customer]
-------------------------------------------PhysicalDistribute
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[customer_address]
---------------------------------PhysicalDistribute
+--------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------hashAgg[GLOBAL]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalAssertNumRows
---------------------------PhysicalDistribute
+--------------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------------hashAgg[GLOBAL]
-------------------------------PhysicalDistribute
+------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))

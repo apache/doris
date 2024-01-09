@@ -3290,6 +3290,11 @@ public class Env {
                 sb.append(olapTable.isInMemory()).append("\"");
             }
 
+            // storage medium
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+            sb.append(olapTable.getStorageMedium() == null ? "" : olapTable.getStorageMedium().name().toLowerCase());
+            sb.append("\"");
+
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
@@ -3405,6 +3410,10 @@ public class Env {
             // group commit interval ms
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
             sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {

@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4NumToString
+## IPV4_NUM_TO_STRING
 
 <version since="dev">
 
-IPv4NumToString
+IPV4_NUM_TO_STRING
 
 </version>
 
@@ -34,7 +34,7 @@ IPv4NumToString
 
 #### Syntax
 
-`VARCHAR IPv4NumToString(BIGINT ipv4_num)`
+`VARCHAR IPV4_NUM_TO_STRING(BIGINT ipv4_num)`
 
 Takes a Int16、Int32、Int64 number. Interprets it as an IPv4 address in big endian. Returns a string containing the corresponding IPv4 address in the format A.B.C.d (dot-separated numbers in decimal form).
 ### notice
@@ -44,27 +44,27 @@ Takes a Int16、Int32、Int64 number. Interprets it as an IPv4 address in big en
 ### example
 
 ```
-mysql> select ipv4numtostring(3232235521);
-+-----------------------------+
-| ipv4numtostring(3232235521) |
-+-----------------------------+
-| 192.168.0.1                 |
-+-----------------------------+
+mysql> select ipv4_num_to_string(3232235521);
++--------------------------------+
+| ipv4_num_to_string(3232235521) |
++--------------------------------+
+| 192.168.0.1                    |
++--------------------------------+
 1 row in set (0.01 sec)
 
-mysql> select num,ipv4numtostring(num) from ipv4_bi;
-+------------+------------------------+
-| num        | ipv4numtostring(`num`) |
-+------------+------------------------+
-|         -1 | NULL                   |
-|          0 | 0.0.0.0                |
-| 2130706433 | 127.0.0.1              |
-| 4294967295 | 255.255.255.255        |
-| 4294967296 | NULL                   |
-+------------+------------------------+
+mysql> select num,ipv4_num_to_string(num) from ipv4_bi;
++------------+---------------------------+
+| num        | ipv4_num_to_string(`num`) |
++------------+---------------------------+
+|         -1 | NULL                      |
+|          0 | 0.0.0.0                   |
+| 2130706433 | 127.0.0.1                 |
+| 4294967295 | 255.255.255.255           |
+| 4294967296 | NULL                      |
++------------+---------------------------+
 7 rows in set (0.01 sec)
 ```
 
 ### keywords
 
-IPV4NUMTOSTRING, IP
+IPV4_NUM_TO_STRING, IP

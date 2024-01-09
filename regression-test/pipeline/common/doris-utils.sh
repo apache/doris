@@ -244,10 +244,6 @@ function check_tpcds_result() {
     check_tpch_result "$1"
 }
 
-function check_clickbench_query_result() {
-    echo "TODO"
-}
-
 function check_clickbench_performance_result() {
     result_file="$1"
     if [[ -z "${result_file}" ]]; then return 1; fi
@@ -260,10 +256,10 @@ function check_clickbench_performance_result() {
     # 单位是秒
     cold_run_time_threshold=${cold_run_time_threshold:-200}
     hot_run_time_threshold=${hot_run_time_threshold:-55}
-    cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+    cold_run_time=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     hot_run_time=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' "${result_file}")
     if [[ $(echo "${hot_run_time} > ${hot_run_time_threshold}" | bc) -eq 1 ]] ||
-        [[ $(echo "${cold_run_sum} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
+        [[ $(echo "${cold_run_time} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
         echo "ERROR:
     cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
     or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
@@ -273,10 +269,6 @@ function check_clickbench_performance_result() {
     cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
     hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
     fi
-}
-
-function check_load_performance() {
-    echo "TODO"
 }
 
 get_session_variable() {

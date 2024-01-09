@@ -220,6 +220,11 @@ protected:
         return res;
     }
 
+    bool is_const_and_have_executed() { return (is_constant() && (_constant_col != nullptr)); }
+
+    Status get_result_from_const(vectorized::Block* block, const std::string& expr_name,
+                                 int* result_column_id);
+
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
     /// Helper function that calls ctx->register(), sets fn_context_index_, and returns the

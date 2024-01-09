@@ -66,8 +66,6 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
 
 Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
-    RETURN_IF_ERROR(
-            ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(_load_id.to_thrift(), 0));
     _state = state;
 
     // profile must add to state's object pool
@@ -240,8 +238,8 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
             if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
-                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(
-                                             _blocks, load_id, is_blocks_contain_all_load_data)
+                size_t pre_allocated = _pre_allocated(is_blocks_contain_all_load_data);
+                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(pre_allocated)
                                              ? TGroupCommitMode::ASYNC_MODE
                                              : TGroupCommitMode::SYNC_MODE;
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
@@ -263,6 +261,17 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
     _is_block_appended = true;
     _blocks.clear();
     return Status::OK();
+}
+
+size_t GroupCommitBlockSink::_pre_allocated(bool is_blocks_contain_all_load_data) {
+    size_t blocks_size = 0;
+    for (auto block : _blocks) {
+        blocks_size += block->bytes();
+    }
+    return is_blocks_contain_all_load_data
+                   ? blocks_size
+                   : (blocks_size > _state->content_length() ? blocks_size
+                                                             : _state->content_length());
 }
 
 } // namespace vectorized

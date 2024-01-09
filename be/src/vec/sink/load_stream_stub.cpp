@@ -33,8 +33,12 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
                                                                  size_t size) {
     for (size_t i = 0; i < size; i++) {
         butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
-        PWriteStreamSinkResponse response;
+        PLoadStreamResponse response;
         response.ParseFromZeroCopyStream(&wrapper);
+
+        if (response.eos()) {
+            _is_eos.store(true);
+        }
 
         Status st = Status::create(response.status());
 
@@ -50,14 +54,16 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
                 _success_tablets.push_back(tablet_id);
             }
         }
-        if (response.failed_tablet_ids_size() > 0) {
+        if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
-            for (auto tablet_id : response.failed_tablet_ids()) {
-                ss << " " << tablet_id;
+            for (auto pb : response.failed_tablets()) {
+                Status st = Status::create(pb.status());
+                ss << " " << pb.id() << ":" << st;
             }
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
-            for (auto tablet_id : response.failed_tablet_ids()) {
-                _failed_tablets.push_back(tablet_id);
+            for (auto pb : response.failed_tablets()) {
+                Status st = Status::create(pb.status());
+                _failed_tablets.emplace(pb.id(), st);
             }
         }
         ss << ", status: " << st;
@@ -329,6 +335,10 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         int ret;
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
+                int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
+                bthread_usleep(delay_ms * 1000);
+            });
             ret = brpc::StreamWrite(_stream_id, buf);
         }
         DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });

@@ -318,6 +318,11 @@ public:
     const std::string& jdbc_table_name() const { return _jdbc_table_name; }
     const std::string& jdbc_user() const { return _jdbc_user; }
     const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+    int32_t jdbc_min_pool_size() const { return _jdbc_min_pool_size; }
+    int32_t jdbc_max_pool_size() const { return _jdbc_max_pool_size; }
+    int32_t jdbc_max_idle_time() const { return _jdbc_max_idle_time; }
+    int32_t jdbc_max_wait_time() const { return _jdbc_max_wait_time; }
+    bool jdbc_keep_alive() const { return _jdbc_keep_alive; }
 
 private:
     std::string _jdbc_resource_name;
@@ -328,6 +333,11 @@ private:
     std::string _jdbc_table_name;
     std::string _jdbc_user;
     std::string _jdbc_passwd;
+    int32_t _jdbc_min_pool_size;
+    int32_t _jdbc_max_pool_size;
+    int32_t _jdbc_max_idle_time;
+    int32_t _jdbc_max_wait_time;
+    bool _jdbc_keep_alive;
 };
 
 class TupleDescriptor {

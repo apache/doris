@@ -515,6 +515,10 @@ public class Config extends ConfigBase {
             "Default commit interval in ms for group commit"})
     public static int group_commit_interval_ms_default_value = 10000;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认128M",
+            "Default commit data bytes for group commit"})
+    public static int group_commit_data_bytes_default_value = 134217728;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
@@ -1021,6 +1025,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    /**
+     * if set to false, TabletScheduler will not do disk balance for replica num = 1.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_disk_balance_for_single_replica = false;
 
     // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
     // skip checking.
@@ -2387,6 +2397,9 @@ public class Config extends ConfigBase {
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
+    // This config is deprecated and has not taken effect anymore,
+    // please use dialect plugin: fe_plugins/http-dialect-converter for instead
+    @Deprecated
     @ConfField(description = {"用于SQL方言转换的服务地址。",
             "The service address for SQL dialect conversion."})
     public static String sql_convertor_service = "";
@@ -2395,4 +2408,16 @@ public class Config extends ConfigBase {
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/query中sql任务的最大线程池。",
+        "The max number work threads of http sql submitter."
+    })
+    public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/upload任务的最大线程池。",
+        "The max number work threads of http upload submitter."
+    })
+    public static int http_load_submitter_max_worker_threads = 2;
 }
