@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -54,7 +54,7 @@ Doris支持用户通过提交ANALYZE语句来手动触发统计信息的收集�
 语法：
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name > 
+ANALYZE < TABLE table_name | DATABASE db_name >
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
@@ -147,7 +147,7 @@ mysql> show analyze 245073\G;
             col_name: [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct]
             job_type: MANUAL
        analysis_type: FUNDAMENTALS
-             message: 
+             message:
 last_exec_time_in_ms: 2023-11-07 11:00:52
                state: FINISHED
             progress: 16 Finished  |  0 Failed  |  0 In Progress  |  16 Total

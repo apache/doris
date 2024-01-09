@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -52,7 +52,7 @@ Doris allows users to manually trigger the collection and update of statistics b
 Syntax:
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name > 
+ANALYZE < TABLE table_name | DATABASE db_name >
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
@@ -146,7 +146,7 @@ mysql> show analyze 245073\G;
             col_name: [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct]
             job_type: MANUAL
        analysis_type: FUNDAMENTALS
-             message: 
+             message:
 last_exec_time_in_ms: 2023-11-07 11:00:52
                state: FINISHED
             progress: 16 Finished  |  0 Failed  |  0 In Progress  |  16 Total
@@ -326,4 +326,4 @@ Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE sta
 
 ### 4.2 Failure of ANALYZE on Large Tables
 
-Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`. 
+Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`.
