@@ -1393,12 +1393,16 @@ public class OlapTable extends Table {
         return oldPartition;
     }
 
-    public long getDataSize() {
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (Partition partition : getAllPartitions()) {
-            dataSize += partition.getDataSize(false);
+            dataSize += partition.getDataSize(singleReplica);
         }
         return dataSize;
+    }
+
+    public long getDataSize() {
+        return getDataSize(false);
     }
 
     public long getReplicaCount() {

@@ -705,6 +705,18 @@ trace导出到 zipkin: `http://127.0.0.1:9411/api/v2/spans`
 
 trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
+#### `http_sql_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/query中sql任务的最大线程池
+
+#### `http_load_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/upload任务的最大线程池
+
 ### 查询引擎
 
 #### `default_max_query_instances`
