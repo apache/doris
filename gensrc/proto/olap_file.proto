@@ -44,6 +44,8 @@ enum RowsetStatePB {
     COMMITTED = 1;
     // Rowset is already visible to the user
     VISIBLE = 2;
+    // Rowset is partial updated, the recycler should use list+delete to recycle segments.
+    BEGIN_PARTIAL_UPDATE = 10000;
 }
 
 // indicate whether date between segments of a rowset is overlappinng
@@ -109,10 +111,22 @@ message RowsetMetaPB {
     repeated KeyBoundsPB segments_key_bounds = 27;
     // tablet meta pb, for compaction
     optional TabletSchemaPB tablet_schema = 28;
+    // for data recycling in CLOUD_MODE
+    optional int64 txn_expiration = 29;
     // alpha_rowset_extra_meta_pb is deleted
     reserved 50;
     // to indicate whether the data between the segments overlap
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
+
+    // For cloud
+    // the field is a vector, rename it
+    repeated int64 segments_file_size = 100;
+    // index_id, schema_version -> schema
+    optional int64 index_id = 101;
+    optional int32 schema_version = 102;
+    // If enable_segments_file_size is false,
+    // the segments_file_size maybe is empty or error
+    optional bool enable_segments_file_size = 103;
 }
 
 message SegmentStatisticsPB {
