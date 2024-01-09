@@ -412,11 +412,23 @@ public class DynamicPartitionUtil {
         }
 
         for (String key : properties.keySet()) {
-            if (key.startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+            if (DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(key)) {
                 return true;
             }
         }
         return false;
+    }
+
+    public static boolean checkDynamicPartitionPropertiesAllValid(Map<String, String> properties) {
+        if (properties == null) {
+            return false;
+        }
+        for (String key : properties.keySet()) {
+            if (!DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTIES.contains(key)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Check if all requried properties has been set.

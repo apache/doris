@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
@@ -68,7 +69,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         }
 
         if (properties.size() != 1
-                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
+                && !TableProperty.isSamePrefixProperties(
+                        properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
                 && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
             throw new AnalysisException(
                     "Can only set one table property(without dynamic partition && binlog) at a time");
@@ -99,7 +101,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT + " should be v2");
             }
-        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)
+                && DynamicPartitionUtil.checkDynamicPartitionPropertiesAllValid(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
