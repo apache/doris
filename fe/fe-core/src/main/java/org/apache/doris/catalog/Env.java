@@ -4909,7 +4909,7 @@ public class Env {
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
+                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 
