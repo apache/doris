@@ -185,6 +185,8 @@ public:
         return safe;
     }
 
+    const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
