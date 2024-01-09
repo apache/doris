@@ -45,8 +45,9 @@ void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::Cache
         delete cache_value;
     };
 
-    auto lru_handle = cache()->insert(key.encode(), &value, 1, deleter, CachePriority::NORMAL,
-                                      value.segment->meta_mem_usage());
+    auto lru_handle =
+            cache()->insert(key.encode(), &value, value.segment->tablet_schema()->num_columns(),
+                            deleter, CachePriority::NORMAL, 0);
     handle->push_segment(cache(), lru_handle);
 }
 
