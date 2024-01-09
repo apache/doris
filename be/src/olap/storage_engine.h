@@ -311,6 +311,7 @@ private:
 
     void _cooldown_tasks_producer_callback();
     void _remove_unused_remote_files_callback();
+    void do_remove_unused_remote_files();
     void _cold_data_compaction_producer_callback();
 
     Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,

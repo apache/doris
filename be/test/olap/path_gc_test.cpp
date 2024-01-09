@@ -58,7 +58,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         tablet_meta->set_tablet_uid({tablet_id, 0});
         tablet_meta->set_shard_id(tablet_id % 4);
         tablet_meta->_schema_hash = tablet_id;
-        auto tablet = std::make_shared<Tablet>(std::move(tablet_meta), &data_dir);
+        auto tablet = std::make_shared<Tablet>(engine, std::move(tablet_meta), &data_dir);
         auto& tablet_map = engine.tablet_manager()->_get_tablet_map(tablet_id);
         tablet_map[tablet_id] = tablet;
         return tablet;

@@ -103,8 +103,10 @@ struct TabletTxnInfo {
     }
 };
 
-TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
-        : _txn_map_shard_size(txn_map_shard_size), _txn_shard_size(txn_shard_size) {
+TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size)
+        : _engine(engine),
+          _txn_map_shard_size(txn_map_shard_size),
+          _txn_shard_size(txn_shard_size) {
     DCHECK_GT(_txn_map_shard_size, 0);
     DCHECK_GT(_txn_shard_size, 0);
     DCHECK_EQ(_txn_map_shard_size & (_txn_map_shard_size - 1), 0);
@@ -401,8 +403,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         auto load_info = std::make_shared<TabletTxnInfo>(load_id, rowset_ptr);
         load_info->pending_rs_guard = std::move(guard);
         if (is_recovery) {
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_info.tablet_id, tablet_info.tablet_uid);
+            TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id,
+                                                                          tablet_info.tablet_uid);
             if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
                 load_info->unique_key_merge_on_write = true;
                 load_info->delete_bitmap.reset(new DeleteBitmap(tablet->tablet_id()));
@@ -427,7 +429,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
                                TabletUid tablet_uid, const Version& version,
                                TabletPublishStatistics* stats) {
-    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
     }
@@ -648,7 +650,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
             } else {
                 static_cast<void>(RowsetMetaManager::remove(meta, tablet_uid, rowset->rowset_id()));
 #ifndef BE_TEST
-                StorageEngine::instance()->add_unused_rowset(rowset);
+                _engine.add_unused_rowset(rowset);
 #endif
                 VLOG_NOTICE << "delete transaction from engine successfully."
                             << " partition_id: " << key.first << ", transaction_id: " << key.second
