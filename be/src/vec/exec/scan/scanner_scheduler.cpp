@@ -140,6 +140,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
+    LOG(INFO) << "yyyy submit scanner ctx " << ctx->debug_string();
     if (ctx->done()) {
         return Status::EndOfFile("ScannerContext is done");
     }
