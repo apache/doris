@@ -1105,7 +1105,7 @@ std::string LRUFileCache::dump_structure_unlocked(const Key& key, std::lock_guar
 }
 
 void LRUFileCache::run_background_operation() {
-    int64_t interval_time_seconds = 20;
+    int64_t interval_time_seconds = 3;
     while (!_close) {
         std::this_thread::sleep_for(std::chrono::seconds(interval_time_seconds));
         // report
