@@ -85,7 +85,7 @@ namespace config {
 // Dir of custom config file
 DECLARE_String(custom_config_dir);
 
-// Dir of jdbc drivers
+// Dir of JDBC drivers
 DECLARE_String(jdbc_drivers_dir);
 
 // cluster id
