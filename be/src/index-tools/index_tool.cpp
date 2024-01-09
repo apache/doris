@@ -79,7 +79,8 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 
     IndexReader* newreader = reader->reopen();
     if (newreader != reader) {
-        _CLLDELETE(reader);
+        reader->close();
+        _CLDELETE(reader);
         reader = newreader;
     }
     IndexSearcher s(reader);
@@ -158,12 +159,14 @@ void check_terms_stats(lucene::store::Directory* dir) {
     int32_t nterms;
     for (nterms = 0; te->next(); nterms++) {
         /* empty */
-        std::string token = lucene_wcstoutf8string(te->term()->text(), te->term()->textLength());
+        std::string token =
+                lucene_wcstoutf8string(te->term(false)->text(), te->term(false)->textLength());
 
         printf("Term: %s ", token.c_str());
         printf("Freq: %d\n", te->docFreq());
     }
     printf("Term count: %d\n\n", nterms);
+    te->close();
     _CLLDELETE(te);
 
     r->close();
@@ -185,9 +188,9 @@ int main(int argc, char** argv) {
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         try {
-            lucene::store::Directory* dir =
-                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str());
-            auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
+            auto reader = std::make_unique<DorisCompoundReader>(
+                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
+                    file_str.c_str(), 4096);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -195,6 +198,7 @@ int main(int argc, char** argv) {
             for (auto& file : files) {
                 std::cout << file << std::endl;
             }
+            reader->close();
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
         }
@@ -208,12 +212,13 @@ int main(int argc, char** argv) {
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         try {
-            lucene::store::Directory* dir =
-                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str());
-            auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
+            auto reader = std::make_unique<DorisCompoundReader>(
+                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
+                    file_str.c_str(), 4096);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
-            check_terms_stats(reader);
+            check_terms_stats(reader.get());
+            reader->close();
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
         }
@@ -225,8 +230,6 @@ int main(int argc, char** argv) {
         }
         auto fs = doris::io::global_local_filesystem();
         try {
-            lucene::store::Directory* dir =
-                    DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str());
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
                 std::vector<FileInfo> files;
@@ -243,23 +246,29 @@ int main(int argc, char** argv) {
                         if (!file_str.ends_with(".idx")) {
                             continue;
                         }
-                        auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
+                        auto reader = std::make_unique<DorisCompoundReader>(
+                                DorisCompoundDirectoryFactory::getDirectory(fs, file_str.c_str()),
+                                file_str.c_str(), 4096);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
                         std::cout << "==================================" << std::endl;
-                        search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                        search(reader.get(), FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                        reader->close();
                     } catch (CLuceneError& err) {
                         std::cerr << "error occurred when search file: " << f.file_name
                                   << ", error:" << err.what() << std::endl;
                     }
                 }
             } else {
-                auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_name.c_str(), 4096);
+                auto reader = std::make_unique<DorisCompoundReader>(
+                        DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
+                        FLAGS_idx_file_name.c_str(), 4096);
                 std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                           << FLAGS_idx_file_name << std::endl;
                 std::cout << "==================================" << std::endl;
                 try {
-                    search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                    search(reader.get(), FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                    reader->close();
                 } catch (CLuceneError& err) {
                     std::cerr << "error occurred when search file: " << FLAGS_idx_file_name
                               << ", error:" << err.what() << std::endl;
