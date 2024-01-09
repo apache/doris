@@ -38,6 +38,7 @@ public class InitCatalogLog implements Writable {
         JDBC,
         ICEBERG,
         PAIMON,
+        TRINO_CONNECTOR,
         MAX_COMPUTE,
         HUDI,
         TEST,

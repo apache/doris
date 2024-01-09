@@ -40,6 +40,7 @@ public class InitDatabaseLog implements Writable {
         MAX_COMPUTE,
         HUDI,
         PAIMON,
+        TRINO_CONNECTOR,
         TEST,
         INFO_SCHEMA_DB,
         UNKNOWN;

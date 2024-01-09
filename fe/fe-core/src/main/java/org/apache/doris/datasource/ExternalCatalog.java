@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.TrinoConnectorExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -546,6 +547,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case TRINO_CONNECTOR:
+                return new TrinoConnectorExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }
