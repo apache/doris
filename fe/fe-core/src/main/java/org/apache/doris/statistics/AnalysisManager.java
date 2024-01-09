@@ -483,7 +483,12 @@ public class AnalysisManager implements Writable {
         if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
             info.timeCostInMs = time - info.lastExecTimeInMs;
             info.lastExecTimeInMs = time;
-            logCreateAnalysisTask(info);
+            // Persist task info for manual job.
+            if (info.jobType.equals(JobType.MANUAL)) {
+                logCreateAnalysisTask(info);
+            } else {
+                replayCreateAnalysisTask(info);
+            }
         }
         info.lastExecTimeInMs = time;
         AnalysisInfo job = analysisJobInfoMap.get(info.jobId);
@@ -494,6 +499,10 @@ public class AnalysisManager implements Writable {
         // Synchronize the job state change in job level.
         synchronized (job) {
             job.lastExecTimeInMs = time;
+            if (taskState.equals(AnalysisState.FAILED)) {
+                String errMessage = String.format("%s:[%s] ", info.colName, message);
+                job.message = job.message == null ? errMessage : job.message + errMessage;
+            }
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
