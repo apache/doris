@@ -482,8 +482,6 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._build_side_mutable_block.to_block());
         COUNTER_UPDATE(local_state._build_blocks_memory_usage,
                        (*local_state._shared_state->build_block).bytes());
-        RETURN_IF_ERROR(
-                local_state.process_build_block(state, (*local_state._shared_state->build_block)));
 
         const bool use_global_rf =
                 local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
@@ -494,8 +492,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                           },
                           [&](auto&& arg) -> Status {
                               vectorized::ProcessRuntimeFilterBuild runtime_filter_build_process;
-                              return runtime_filter_build_process(state, arg, &local_state,
-                                                                  use_global_rf);
+                              return runtime_filter_build_process(
+                                      state, arg, local_state._shared_state->build_block.get(),
+                                      &local_state, use_global_rf);
                           }},
                 *local_state._shared_state->hash_table_variants);
         if (!ret.ok()) {
@@ -505,6 +504,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
             return ret;
         }
+        RETURN_IF_ERROR(
+                local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.

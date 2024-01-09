@@ -751,14 +751,14 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         DCHECK(!_build_side_mutable_block.empty());
         _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
         COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
-        RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         auto ret = std::visit(Overload {[&](std::monostate&) -> Status {
                                             LOG(FATAL) << "FATAL: uninited hash table";
                                             __builtin_unreachable();
                                         },
                                         [&](auto&& arg) -> Status {
                                             ProcessRuntimeFilterBuild runtime_filter_build_process;
-                                            return runtime_filter_build_process(state, arg, this);
+                                            return runtime_filter_build_process(
+                                                    state, arg, _build_block.get(), this);
                                         }},
                               *_hash_table_variants);
         if (!ret.ok()) {
@@ -768,6 +768,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             return ret;
         }
+        RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.

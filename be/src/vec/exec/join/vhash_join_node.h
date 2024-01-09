@@ -76,8 +76,8 @@ class HashJoinNode;
 
 struct ProcessRuntimeFilterBuild {
     template <class HashTableContext, typename Parent>
-    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Parent* parent,
-                      bool is_global = false) {
+    Status operator()(RuntimeState* state, HashTableContext& hash_table_ctx, Block* block,
+                      Parent* parent, bool is_global = false) {
         if (parent->runtime_filter_descs().empty()) {
             return Status::OK();
         }
@@ -87,11 +87,9 @@ struct ProcessRuntimeFilterBuild {
         RETURN_IF_ERROR(
                 parent->_runtime_filter_slots->init(state, hash_table_ctx.hash_table->size()));
 
-        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
-            {
-                SCOPED_TIMER(parent->_runtime_filter_compute_timer);
-                parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
-            }
+        if (!parent->_runtime_filter_slots->empty() && block->rows() > 1) {
+            SCOPED_TIMER(parent->_runtime_filter_compute_timer);
+            parent->_runtime_filter_slots->insert(block);
         }
         {
             SCOPED_TIMER(parent->_publish_runtime_filter_timer);
@@ -127,10 +125,6 @@ struct ProcessHashTableBuild {
             if (short_circuit_for_null && *has_null_key) {
                 return Status::OK();
             }
-        }
-
-        if (!_parent->runtime_filter_descs().empty()) {
-            _parent->_inserted_blocks.insert(&_acquired_block);
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
@@ -417,7 +411,6 @@ private:
     friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::unordered_set<const Block*> _inserted_blocks;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     std::atomic_bool _probe_open_finish = false;
