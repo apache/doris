@@ -101,7 +101,12 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public String getStringValueInFe() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(getStringLiteralForComplexType(v)));
+        // same with be default field index start with 1
+        for (int i = 0; i < children.size(); i++) {
+            Expr child = children.get(i);
+            String fieldName = new StructField(child.getType()).getName();
+            list.add("\"" + fieldName + (i + 1) + "\": " + getStringLiteralForComplexType(child));
+        }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
