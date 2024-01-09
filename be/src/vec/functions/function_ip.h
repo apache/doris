@@ -32,12 +32,10 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/ip_address_cidr.h"
 
 namespace doris::vectorized {
 
-/** If mask_tail_octets > 0, the last specified number of octets will be filled with "xxx".
-  */
-template <size_t mask_tail_octets, typename Name>
 class FunctionIPv4NumToString : public IFunction {
 private:
     template <typename ArgType>
@@ -66,8 +64,7 @@ private:
                     offsets_res[i] = pos - begin;
                     null_map->get_data()[i] = 1;
                 } else {
-                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos,
-                               mask_tail_octets, "xxx");
+                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
                     offsets_res[i] = pos - begin;
                 }
             }
@@ -83,9 +80,7 @@ private:
 
 public:
     static constexpr auto name = "ipv4_num_to_string";
-    static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4NumToString<mask_tail_octets, Name>>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4NumToString>(); }
 
     String get_name() const override { return name; }
 
@@ -654,7 +649,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "isipv4string";
+    static constexpr auto name = "is_ipv4_string";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPv4String>(); }
 
     String get_name() const override { return name; }
@@ -724,7 +719,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "isipv6string";
+    static constexpr auto name = "is_ipv6_string";
     static FunctionPtr create() { return std::make_shared<FunctionIsIPv6String>(); }
 
     String get_name() const override { return name; }
@@ -742,6 +737,98 @@ public:
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
         DCHECK(argument.type->get_type_id() == TypeIndex::String);
         return execute_type(block, argument, result);
+    }
+};
+
+class FunctionIsIPAddressInRange : public IFunction {
+public:
+    static constexpr auto name = "is_ip_address_in_range";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPAddressInRange>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 2) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "Number of arguments for function {} doesn't match: passed {}, should be 2",
+                    get_name(), arguments.size());
+        }
+        const auto& addr_type = arguments[0];
+        const auto& cidr_type = arguments[1];
+        if (!is_string(remove_nullable(addr_type)) || !is_string(remove_nullable(cidr_type))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "The arguments of function {} must be String", get_name());
+        }
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
+        ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
+        const ColumnString* str_addr_column = nullptr;
+        const ColumnString* str_cidr_column = nullptr;
+        const NullMap* nullmap_addr = nullptr;
+        const NullMap* nullmap_cidr = nullptr;
+
+        if (addr_column->is_nullable()) {
+            const auto* addr_column_nullable =
+                    assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column =
+                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            nullmap_addr = &addr_column_nullable->get_null_map_data();
+        } else {
+            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+        }
+
+        if (cidr_column->is_nullable()) {
+            const auto* cidr_column_nullable =
+                    assert_cast<const ColumnNullable*>(cidr_column.get());
+            str_cidr_column =
+                    check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
+            nullmap_cidr = &cidr_column_nullable->get_null_map_data();
+        } else {
+            str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
+        }
+
+        if (!str_addr_column) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            addr_column->get_name(), get_name());
+        }
+
+        if (!str_cidr_column) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            cidr_column->get_name(), get_name());
+        }
+
+        auto col_res = ColumnUInt8::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (nullmap_addr && (*nullmap_addr)[i]) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
+            }
+            if (nullmap_cidr && (*nullmap_cidr)[i]) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "The arguments of function {} must be String, not NULL",
+                                get_name());
+            }
+            const auto addr = IPAddressVariant(str_addr_column->get_data_at(i).to_string_view());
+            const auto cidr = parse_ip_with_cidr(str_cidr_column->get_data_at(i).to_string_view());
+            col_res_data[i] = is_address_in_range(addr, cidr) ? 1 : 0;
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
     }
 };
 
