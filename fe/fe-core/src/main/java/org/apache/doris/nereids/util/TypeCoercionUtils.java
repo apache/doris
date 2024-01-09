@@ -422,6 +422,14 @@ public class TypeCoercionUtils {
         }
     }
 
+    public static Expression castUnbound(Expression expression, DataType targetType) {
+        if (expression instanceof Literal) {
+            return TypeCoercionUtils.castIfNotSameType(expression, targetType);
+        } else {
+            return TypeCoercionUtils.unSafeCast(expression, targetType);
+        }
+    }
+
     /**
      * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
      */
@@ -466,11 +474,6 @@ public class TypeCoercionUtils {
                 if (promoted != null) {
                     return promoted;
                 }
-            }
-            // adapt scale when from string to datetimev2 with float
-            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
-                return recordTypeCoercionForSubQuery(input,
-                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
             }
         }
         return recordTypeCoercionForSubQuery(input, dataType);
