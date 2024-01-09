@@ -62,6 +62,15 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     }
 }
 
+void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
+    DCHECK(statistics != nullptr);
+    statistics->scan_bytes = scan_bytes;
+    statistics->scan_rows = scan_rows;
+    statistics->cpu_ms = cpu_ms;
+    statistics->returned_rows = returned_rows;
+    statistics->max_peak_memory_bytes = max_peak_memory_bytes;
+}
+
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     scan_rows = statistics.scan_rows();
     scan_bytes = statistics.scan_bytes();
