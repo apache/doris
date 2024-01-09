@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_no_bad_path_p0') {
+suite('test_no_bad_disk_p0') {
     def backends = sql_return_maparray 'SHOW PROC /backends'
     backends.each { be ->
         def disks = sql_return_maparray "SHOW PROC /backends/${be.BackendId}"
