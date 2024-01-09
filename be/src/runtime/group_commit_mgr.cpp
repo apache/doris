@@ -520,6 +520,7 @@ Status LoadBlockQueue::close_wal() {
 }
 
 bool LoadBlockQueue::has_enough_wal_disk_space(size_t pre_allocated) {
+    DBUG_EXECUTE_IF("LoadBlockQueue.has_enough_wal_disk_space.low_space", { return false; });
     auto* wal_mgr = ExecEnv::GetInstance()->wal_mgr();
     size_t available_bytes = 0;
     {
