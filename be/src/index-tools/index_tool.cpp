@@ -187,8 +187,15 @@ int main(int argc, char** argv) {
         std::string dir_str = p.parent_path().string();
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
+        bool is_exists = false;
+        const auto file_path = dir_str + "/" + file_str;
+        if (!(fs->exists(file_path, &is_exists).ok()) || !is_exists) {
+            std::cerr << "file " << file_path << " not found" << std::endl;
+            return -1;
+        }
+        std::unique_ptr<DorisCompoundReader> reader;
         try {
-            auto reader = std::make_unique<DorisCompoundReader>(
+            reader = std::make_unique<DorisCompoundReader>(
                     DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
                     file_str.c_str(), 4096);
             std::vector<std::string> files;
@@ -201,6 +208,10 @@ int main(int argc, char** argv) {
             reader->close();
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when show files: " << err.what() << std::endl;
+            if (reader) {
+                reader->close();
+            }
+            return -1;
         }
     } else if (FLAGS_operation == "check_terms_stats") {
         if (FLAGS_idx_file_path == "") {
@@ -211,8 +222,15 @@ int main(int argc, char** argv) {
         std::string dir_str = p.parent_path().string();
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
+        bool is_exists = false;
+        const auto file_path = dir_str + "/" + file_str;
+        if (!(fs->exists(file_path, &is_exists).ok()) || !is_exists) {
+            std::cerr << "file " << file_path << " not found" << std::endl;
+            return -1;
+        }
+        std::unique_ptr<DorisCompoundReader> reader;
         try {
-            auto reader = std::make_unique<DorisCompoundReader>(
+            reader = std::make_unique<DorisCompoundReader>(
                     DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()),
                     file_str.c_str(), 4096);
             std::cout << "Term statistics for " << file_str << std::endl;
@@ -221,14 +239,19 @@ int main(int argc, char** argv) {
             reader->close();
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
+            if (reader) {
+                reader->close();
+            }
+            return -1;
         }
     } else if (FLAGS_operation == "term_query") {
         if (FLAGS_directory == "" || FLAGS_term == "" || FLAGS_column_name == "" ||
             FLAGS_pred_type == "") {
-            std::cout << "invalid params for term_query " << std::endl;
+            std::cerr << "invalid params for term_query " << std::endl;
             return -1;
         }
         auto fs = doris::io::global_local_filesystem();
+        std::unique_ptr<DorisCompoundReader> reader;
         try {
             if (FLAGS_idx_file_name == "") {
                 //try to search from directory's all files
@@ -237,7 +260,7 @@ int main(int argc, char** argv) {
                 std::filesystem::path root_dir(FLAGS_directory);
                 static_cast<void>(fs->list(root_dir, true, &files, &exists));
                 if (!exists) {
-                    std::cout << FLAGS_directory << " is not exists" << std::endl;
+                    std::cerr << FLAGS_directory << " is not exists" << std::endl;
                     return -1;
                 }
                 for (auto& f : files) {
@@ -246,7 +269,7 @@ int main(int argc, char** argv) {
                         if (!file_str.ends_with(".idx")) {
                             continue;
                         }
-                        auto reader = std::make_unique<DorisCompoundReader>(
+                        reader = std::make_unique<DorisCompoundReader>(
                                 DorisCompoundDirectoryFactory::getDirectory(fs, file_str.c_str()),
                                 file_str.c_str(), 4096);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
@@ -257,9 +280,19 @@ int main(int argc, char** argv) {
                     } catch (CLuceneError& err) {
                         std::cerr << "error occurred when search file: " << f.file_name
                                   << ", error:" << err.what() << std::endl;
+                        if (reader) {
+                            reader->close();
+                        }
+                        return -1;
                     }
                 }
             } else {
+                bool is_exists = false;
+                auto file_path = FLAGS_directory + "/" + FLAGS_idx_file_name;
+                if (!(fs->exists(file_path, &is_exists).ok()) || !is_exists) {
+                    std::cerr << "file " << file_path << " not found" << std::endl;
+                    return -1;
+                }
                 auto reader = std::make_unique<DorisCompoundReader>(
                         DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
                         FLAGS_idx_file_name.c_str(), 4096);
@@ -272,13 +305,21 @@ int main(int argc, char** argv) {
                 } catch (CLuceneError& err) {
                     std::cerr << "error occurred when search file: " << FLAGS_idx_file_name
                               << ", error:" << err.what() << std::endl;
+                    if (reader) {
+                        reader->close();
+                    }
+                    return -1;
                 }
             }
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
+            if (reader) {
+                reader->close();
+            }
+            return -1;
         }
     } else {
-        std::cout << "invalid operation: " << FLAGS_operation << "\n" << usage << std::endl;
+        std::cerr << "invalid operation: " << FLAGS_operation << "\n" << usage << std::endl;
         return -1;
     }
     gflags::ShutDownCommandLineFlags();
