@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         bool is_exists = false;
-        const auto* file_path = dir_str + "/" + file_str;
+        const auto file_path = dir_str + "/" + file_str;
         if (!(fs->exists(file_path, &is_exists).ok()) || !is_exists) {
             std::cerr << "file " << file_path << " not found" << std::endl;
             return -1;
@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
         std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         bool is_exists = false;
-        const auto* file_path = dir_str + "/" + file_str;
+        const auto file_path = dir_str + "/" + file_str;
         if (!(fs->exists(file_path, &is_exists).ok()) || !is_exists) {
             std::cerr << "file " << file_path << " not found" << std::endl;
             return -1;
