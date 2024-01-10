@@ -332,7 +332,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir));
+        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir));
         static_cast<void>(tablet->init());
         bool exists = false;
         auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);

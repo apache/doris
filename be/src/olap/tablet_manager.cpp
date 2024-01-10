@@ -85,8 +85,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
 
 bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
 
-TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
+TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
+        : _engine(engine),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
                   "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
@@ -507,7 +508,8 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
                          << tablet_meta->tablet_id();
         }
-        TabletSharedPtr new_tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
+        TabletSharedPtr new_tablet =
+                std::make_shared<Tablet>(_engine, std::move(tablet_meta), data_dir);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
         return new_tablet;
@@ -836,7 +838,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         LOG(WARNING) << "tablet=" << tablet_id << " load from meta but partition id eq 0";
     }
 
-    TabletSharedPtr tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
+    TabletSharedPtr tablet = std::make_shared<Tablet>(_engine, std::move(tablet_meta), data_dir);
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
     // case 1: BE start;
@@ -998,7 +1000,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
-    StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
+    _engine.txn_manager()->build_expire_txn_map(&expire_txn_map);
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     HistogramStat tablet_version_num_hist;
@@ -1319,8 +1321,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
                                       col_idx_to_unique_id);
     if (request.__isset.storage_format) {
         if (request.storage_format == TStorageFormat::DEFAULT) {
-            (*tablet_meta)
-                    ->set_preferred_rowset_type(StorageEngine::instance()->default_rowset_type());
+            (*tablet_meta)->set_preferred_rowset_type(_engine.default_rowset_type());
         } else if (request.storage_format == TStorageFormat::V1) {
             (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
         } else if (request.storage_format == TStorageFormat::V2) {
@@ -1388,7 +1389,7 @@ TabletManager::tablets_shard& TabletManager::_get_tablets_shard(TTabletId tablet
 void TabletManager::get_tablets_distribution_on_different_disks(
         std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
         std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk) {
-    std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
+    std::vector<DataDir*> data_dirs = _engine.get_stores();
     std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
     {
         // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
@@ -1397,25 +1398,23 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         std::shared_lock rdlock(_partition_tablet_map_lock);
         partition_tablet_map = _partition_tablet_map;
     }
-    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = partition_tablet_map.begin();
-    for (; partition_iter != partition_tablet_map.end(); ++partition_iter) {
+    for (auto& [partition_id, tablet_infos] : partition_tablet_map) {
         std::map<DataDir*, int64_t> tablets_num;
         std::map<DataDir*, std::vector<TabletSize>> tablets_info;
-        for (int i = 0; i < data_dirs.size(); i++) {
-            tablets_num[data_dirs[i]] = 0;
+        for (auto* data_dir : data_dirs) {
+            tablets_num[data_dir] = 0;
         }
-        int64_t partition_id = partition_iter->first;
-        std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
-        for (; tablet_info_iter != (partition_iter->second).end(); ++tablet_info_iter) {
+
+        for (const auto& tablet_info : tablet_infos) {
             // get_tablet() will hold 'tablet_shard_lock'
-            TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id);
+            TabletSharedPtr tablet = get_tablet(tablet_info.tablet_id);
             if (tablet == nullptr) {
                 continue;
             }
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
-            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_footprint);
+            TabletSize tablet_size(tablet_info.tablet_id, tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);
         }
         tablets_num_on_disk[partition_id] = tablets_num;
