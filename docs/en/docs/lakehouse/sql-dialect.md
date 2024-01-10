@@ -34,10 +34,10 @@ Starting from version 2.1, Doris can support multiple SQL dialects, such as Pres
 
 ## Deploy service
 
-1. Download [SQL Dialect Conversion Service]().
+1. Download latest [SQL Transform Tool](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86).
 2. On any FE node, start the service through the following command:
 
-	`nohup ./transfrom-doris-tool-bin-x86 run --host=0.0.0.0 --port=5001 &`
+	`nohup ./transform-doris-tool-1.0.0-bin-x86 run --host=0.0.0.0 --port=5001 &`
 	
 	> 1. This service is a stateless service and can be started and stopped at any time.
 	>
@@ -48,7 +48,7 @@ Starting from version 2.1, Doris can support multiple SQL dialects, such as Pres
 3. Start the Doris cluster (version 2.1 or higher)
 4. Set the URL of the SQL Dialect Conversion Service with the following command in Doris:
 
-	`set global sql_converter_service = "http://127.0.0.1:5001/api/v1/convert"`
+	`MySQL> set global sql_converter_service = "http://127.0.0.1:5001/api/v1/convert"`
 	
 	> 1. `127.0.0.1:5001` is the deployment node IP and port of the SQL dialect conversion service.
 	

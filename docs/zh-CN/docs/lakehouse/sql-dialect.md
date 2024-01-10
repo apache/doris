@@ -34,10 +34,10 @@ under the License.
 
 ## 部署服务
 
-1. 下载 [SQL 方言转换服务]()。
+1. 下载最新版本的 [SQL 方言转换工具](https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/transform-doris-tool/transform-doris-tool-1.0.0-bin-x86)。
 2.  在任意FE节点，通过以下命令启动服务：
 
-	`nohup ./transfrom-doris-tool-bin-x86 run --host=0.0.0.0 --port=5001 &`
+	`nohup ./transform-doris-tool-1.0.0-bin-x86 run --host=0.0.0.0 --port=5001 &`
 
 	> 1. 该服务是一个无状态的服务，可随时启停。
 	>
@@ -46,9 +46,9 @@ under the License.
 	> 3. 建议在每个 FE 节点都单独启动一个服务。
 
 3. 启动 Doris 集群（2.1 或更高版本）
-4. 通过以下命令设置 SQL 方言转换服务的 URL：
+4. 通过以下命令，在Doris中设置 SQL 方言转换服务的 URL：
 
-	`set global sql_converter_service = "http://127.0.0.1:5001/api/v1/convert"`
+	`MySQL> set global sql_converter_service = "http://127.0.0.1:5001/api/v1/convert"`
 	
 	> 1. `127.0.0.1:5001` 是 SQL 方言转换服务的部署节点 ip 和端口。
 	

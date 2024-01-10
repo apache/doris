@@ -58,11 +58,10 @@ After disable, Doris will stop writing to the `audit_log` table. Audit logs that
 
 The audit log table is a dynamic partitioned table, partitioned by day, and retains the data of the last 30 days by default.
 
-The following 4 global variables can control some writing behaviors of the audit log table:
+The following 3 global variables can control some writing behaviors of the audit log table:
 
 - `audit_plugin_max_batch_interval_sec`: The maximum write interval for the audit log table. Default 60 seconds.
 - `audit_plugin_max_batch_bytes`: The maximum amount of data written in each batch of the audit log table. Default 50MB.
-- `audit_plugin_max_batch_rows`: The maximum number of rows written in each batch of the audit log table. Default 1000.
 - `audit_plugin_max_sql_length`: The maximum length of statements recorded in the audit log table. Default 4096.
 
 Can be set via `set global xxx=yyy`.
