@@ -4,4 +4,4 @@ set global parallel_pipeline_task_num=16;
 set global enable_single_distinct_column_opt=true;
 set global enable_function_pushdown=true;
 set global forbid_unknown_col_stats=false;
-set global runtime_filter_mode=global;
+set global runtime_filter_mode=GLOBAL;
