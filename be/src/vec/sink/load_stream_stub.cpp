@@ -32,7 +32,8 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
                                                  size_t size) {
     auto stub = _stub.lock();
     if (!stub) {
-        LOG(WARNING) << "stub is not exist when on_received_messages, " << *this;
+        LOG(WARNING) << "stub is not exist when on_received_messages, " << *this
+                     << ", stream_id=" << id;
         return 0;
     }
     for (size_t i = 0; i < size; i++) {
@@ -118,7 +119,8 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
-    ostr << "LoadStreamReplyHandler load_id=" << UniqueId(handler._load_id) << ", dst_id=" << handler._dst_id;
+    ostr << "LoadStreamReplyHandler load_id=" << UniqueId(handler._load_id)
+         << ", dst_id=" << handler._dst_id;
     return ostr;
 }
 
@@ -301,33 +303,33 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
 }
 
 Status LoadStreamStub::close_wait(int64_t timeout_ms) {
-        DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
-            while (true) {
-            };
-        });
-        if (!_is_init.load() || _is_closed.load()) {
-            return Status::OK();
-        }
-        if (timeout_ms <= 0) {
-            timeout_ms = config::close_load_stream_timeout_ms;
-        }
-        DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
-        std::unique_lock<bthread::Mutex> lock(_close_mutex);
-        if (_is_closed.load()) {
-            return Status::OK();
-        }
-        int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-        if (ret != 0) {
-            return Status::InternalError(
-                    "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
-                    print_id(_load_id), _dst_id, _stream_id);
-        }
-        if (!_is_eos.load()) {
-            return Status::InternalError(
-                    "stream closed without eos, load_id={}, dst_id={}, stream_id={}",
-                    print_id(_load_id), _dst_id, _stream_id);
-        }
+    DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", {
+        while (true) {
+        };
+    });
+    if (!_is_init.load() || _is_closed.load()) {
         return Status::OK();
+    }
+    if (timeout_ms <= 0) {
+        timeout_ms = config::close_load_stream_timeout_ms;
+    }
+    DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
+    std::unique_lock<bthread::Mutex> lock(_close_mutex);
+    if (_is_closed.load()) {
+        return Status::OK();
+    }
+    int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+    if (ret != 0) {
+        return Status::InternalError(
+                "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
+                print_id(_load_id), _dst_id, _stream_id);
+    }
+    if (!_is_eos.load()) {
+        return Status::InternalError(
+                "stream closed without eos, load_id={}, dst_id={}, stream_id={}",
+                print_id(_load_id), _dst_id, _stream_id);
+    }
+    return Status::OK();
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
