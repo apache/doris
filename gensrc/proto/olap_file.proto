@@ -231,6 +231,8 @@ enum SortType {
     ZORDER  = 1;
 }
 
+// ATTN: When adding or deleting fields, please update `message TabletSchemaCloudPB`
+// simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message TabletSchemaPB {
     optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
     repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
@@ -256,6 +258,33 @@ message TabletSchemaPB {
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_idxes = 24;
+}
+
+message TabletSchemaCloudPB {
+    optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
+    repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
+    optional int32 num_short_key_columns = 3;   // OLAPHeaderMessage.num_short_key_fields
+    optional int32 num_rows_per_row_block = 4;  // OLAPHeaderMessage.num_rows_per_data_block
+    optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
+    optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
+    optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    optional int32 delete_sign_idx = 8 [default = -1];
+    optional int32 sequence_col_idx = 9 [default= -1];
+    optional SortType sort_type = 10;
+    optional int32 sort_col_num = 11;
+    optional segment_v2.CompressionTypePB compression_type = 12 [default=LZ4F];
+    optional int32 schema_version = 13;
+    optional bool disable_auto_compaction = 14 [default=false];
+    repeated TabletIndexPB index = 15;
+    optional int32 version_col_idx = 16 [default = -1];
+    optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
+    reserved 20; // deprecated is_partial_update
+    reserved 21; // deprecated partial_update_input_columns
+    optional bool enable_single_replica_compaction = 22 [default=false];
+    optional bool skip_write_index_on_load = 23 [default=false];
+    repeated int32 cluster_key_idxes = 24;
+
+    optional bool is_dynamic_schema = 100 [default=false];
 }
 
 enum TabletStatePB {
