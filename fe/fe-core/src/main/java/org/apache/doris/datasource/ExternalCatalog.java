@@ -262,12 +262,14 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
-            // Exclude database map take effect with higher priority over include database map
-            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                continue;
-            }
-            if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                continue;
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+                // Exclude database map take effect with higher priority over include database map
+                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
             }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
@@ -385,10 +387,18 @@ public abstract class ExternalCatalog
             return null;
         }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        if (dbNameToId.containsKey(realDbName)) {
+            return idToDb.get(dbNameToId.get(realDbName));
+        } else {
+            // This maybe a information_schema db request, and information_schema db name is case insensitive.
+            // So, we first extract db name to check if it is information_schema.
+            // Then we reassemble the origin cluster name with lower case db name,
+            // and finally get information_schema db from the name map.
+            if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                return idToDb.get(dbNameToId.get(InfoSchemaDb.DATABASE_NAME));
+            }
         }
-        return idToDb.get(dbNameToId.get(realDbName));
+        return null;
     }
 
     @Nullable

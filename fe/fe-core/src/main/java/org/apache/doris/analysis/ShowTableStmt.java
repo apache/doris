@@ -36,7 +36,7 @@ public class ShowTableStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowTableStmt.class);
     private static final String NAME_COL_PREFIX = "Tables_in_";
     private static final String TYPE_COL = "Table_type";
-    private static final String STORAGE_FORMAT_COL = "StorageFormat";
+    private static final String STORAGE_FORMAT_COL = "Storage_format";
     private String db;
     private String catalog;
     private boolean isVerbose;
