@@ -370,6 +370,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream().collect(Collectors.toList());
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
+            // BE do not support RF generated from NullSafeEqual, skip them
             if (hashJoinConjuncts.get(i) instanceof EqualTo) {
                 EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
                         (EqualTo) hashJoinConjuncts.get(i), join.left().getOutputSet()));
