@@ -144,6 +144,7 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
         try {
             GetDebugPoint().enableDebugPointForAllBEs("VWalWriter.write_wal.fail")
             sql """insert into ${tableName} values(1,1)"""
+            assertFalse(true);
         } catch (Exception e) {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains('Failed to write wal!'))
