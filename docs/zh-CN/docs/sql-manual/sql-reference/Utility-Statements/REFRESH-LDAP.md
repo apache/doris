@@ -37,7 +37,7 @@ REFRESH-LDAP
 
 ### Description
 
-该语句用于刷新Doris中LDAP的缓存信息。修改LDAP服务中用户信息或者修改Doris中LDAP用户组对应的role权限，可能因为缓存的原因不会立即生效，可通过该语句刷新缓存。Doris中LDAP信息缓存默认时间为12小时，可以通过 `ADMIN SHOW FRONTEND CONFIG LIKE 'ldap_user_cache_timeout_s';` 查看。
+该语句用于刷新Doris中LDAP的缓存信息。修改LDAP服务中用户信息或者修改Doris中LDAP用户组对应的role权限，可能因为缓存的原因不会立即生效，可通过该语句刷新缓存。Doris中LDAP信息缓存默认时间为12小时，可以通过 `SHOW FRONTEND CONFIG LIKE 'ldap_user_cache_timeout_s';` 查看。
 
 语法：
 
