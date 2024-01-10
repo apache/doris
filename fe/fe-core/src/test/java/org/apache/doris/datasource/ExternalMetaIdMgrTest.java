@@ -28,21 +28,30 @@ public class ExternalMetaIdMgrTest {
         MetaIdMappingsLog log1 = new MetaIdMappingsLog();
         log1.setCatalogId(1L);
         log1.setFromHmsEvent(false);
-        log1.addFromCreateDatabaseEvent("db1");
+        log1.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_ADD,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
+                    "db1", ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log1);
         Assertions.assertNotEquals(-1L, mgr.getDbId(1L, "db1"));
 
         MetaIdMappingsLog log2 = new MetaIdMappingsLog();
         log2.setCatalogId(1L);
         log2.setFromHmsEvent(false);
-        log2.addFromDropDatabaseEvent("db1");
+        log2.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_DELETE,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_DATABASE,
+                    "db1"));
         mgr.replayMetaIdMappingsLog(log2);
         Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
 
         MetaIdMappingsLog log3 = new MetaIdMappingsLog();
         log3.setCatalogId(1L);
         log3.setFromHmsEvent(false);
-        log3.addFromCreateTableEvent("db1", "tbl1");
+        log3.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_ADD,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
+                    "db1", "tbl1", ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log3);
         Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
         Assertions.assertNotEquals(-1L, mgr.getTblId(1L, "db1", "tbl1"));
@@ -50,8 +59,14 @@ public class ExternalMetaIdMgrTest {
         MetaIdMappingsLog log4 = new MetaIdMappingsLog();
         log4.setCatalogId(1L);
         log4.setFromHmsEvent(false);
-        log4.addFromDropTableEvent("db1", "tbl1");
-        log4.addFromAddPartitionEvent("db1", "tbl1", "p1");
+        log4.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_DELETE,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_TABLE,
+                    "db1", "tbl1"));
+        log4.addMetaIdMapping(new MetaIdMappingsLog.MetaIdMapping(
+                    MetaIdMappingsLog.OPERATION_TYPE_ADD,
+                    MetaIdMappingsLog.META_OBJECT_TYPE_PARTITION,
+                    "db1", "tbl1", "p1", ExternalMetaIdMgr.nextMetaId()));
         mgr.replayMetaIdMappingsLog(log4);
         Assertions.assertEquals(-1L, mgr.getDbId(1L, "db1"));
         Assertions.assertEquals(-1L, mgr.getTblId(1L, "db1", "tbl1"));
