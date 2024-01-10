@@ -123,13 +123,12 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _segment_meta_mem_tracker(std::make_shared<MemTracker>(
                   "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
-          _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
-          _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
+          _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
+          _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
-          _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
