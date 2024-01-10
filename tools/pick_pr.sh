@@ -1,4 +1,20 @@
 #!/bin/sh
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
 
 if [ $# -ne 4 ]; then
     echo "usage: $0 <branch_from> <branch_to> <git_push_remote> <pr_number>"
@@ -32,7 +48,7 @@ push_id=$(echo "${push_url}" | awk -F/ '{print $1}')
 
 pr=$4
 
-echo "step1: git fetch to update local git repos ${remote_from} and ${remote_to}"
+echo "step1: git fetch to update local git repos: ${remote_from} and ${remote_to}"
 git fetch "${remote_from}"
 git fetch "${remote_to}"
 
@@ -48,7 +64,7 @@ fi
 echo
 echo "step3: create local branch ${branch_pick} based on remote branch ${branch_to}"
 branch_pick=$(echo "pick_${pr}_to_${branch_to}" | sed 's|/|_|g')
-if ! git checkout -b "${branch_pick} ${branch_to}"; then
+if ! git checkout -b "${branch_pick}" "${branch_to}"; then
     echo "git checkout -b ${branch_pick} ${branch_to} failed"
     echo
     exit 3
