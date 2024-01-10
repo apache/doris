@@ -362,12 +362,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             if (!Strings.isNullOrEmpty(property.getStorageMedium())) {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, property.getStorageMedium());
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
-                        DataProperty.MAX_COOLDOWN_TIME);
+                        TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
             }
         } else if (offset + hotPartitionNum <= 0) {
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.HDD.name());
             partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME,
-                    DataProperty.MAX_COOLDOWN_TIME);
+                    TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS));
         } else {
             String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
                     property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
