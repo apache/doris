@@ -266,7 +266,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_connect_timeout_seconds`
 
 * Description: The default thrift client connection timeout time
-* Default value: 3 (m)
+* Default value: 3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -482,9 +482,9 @@ There are two ways to configure BE configuration items:
 * Default value: 10485760
 
 #### `max_base_compaction_threads`
-
+git 
 * Type: int32
-* Description: The maximum of thread number in base compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
 * Default value: 4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -625,8 +625,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in cumulative compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in cumulative compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `enable_segcompaction`
 
@@ -686,8 +686,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in single replica compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in single replica compaction thread pool. -1 means one thread per disk.
+* Default value: -1
 
 #### `update_replica_infos_interval_seconds`
 

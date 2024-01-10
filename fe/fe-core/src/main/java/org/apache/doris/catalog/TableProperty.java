@@ -27,6 +27,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -63,6 +64,8 @@ public class TableProperty implements Writable {
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
+
+    private TStorageMedium storageMedium = null;
 
     /*
      * the default storage format of this table.
@@ -126,6 +129,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildMinLoadReplicaNum();
+                buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
                 buildCompactionPolicy();
@@ -301,6 +305,20 @@ public class TableProperty implements Writable {
 
     public short getMinLoadReplicaNum() {
         return minLoadReplicaNum;
+    }
+
+    public TableProperty buildStorageMedium() {
+        String storageMediumStr = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+        if (Strings.isNullOrEmpty(storageMediumStr)) {
+            storageMedium = null;
+        } else {
+            storageMedium = TStorageMedium.valueOf(storageMediumStr);
+        }
+        return this;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -505,6 +523,16 @@ public class TableProperty implements Writable {
                 Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitDataBytes(int groupCommitDataBytes) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES, Integer.toString(groupCommitDataBytes));
+    }
+
+    public int getGroupCommitDataBytes() {
+        return Integer.parseInt(properties.getOrDefault(
+            PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES,
+            Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" will remove the property
@@ -529,6 +557,7 @@ public class TableProperty implements Writable {
                 .executeBuildDynamicProperty()
                 .buildInMemory()
                 .buildMinLoadReplicaNum()
+                .buildStorageMedium()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()

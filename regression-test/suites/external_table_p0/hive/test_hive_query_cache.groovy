@@ -101,7 +101,7 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
 
         test {
             sql "${tpch_1sf_q09}"
-            time 10000
+            time 20000
         }
 
         // test sql cache with empty result

@@ -557,6 +557,8 @@ public:
             SegmentCacheHandle* segment_cache_handle,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
             OlapReaderStatistics* stats);
+    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
+    bool is_alter_failed() { return _alter_failed; }
 
 private:
     Status _init_once_action();
@@ -685,6 +687,8 @@ private:
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
     int64_t _last_failed_follow_cooldown_time = 0;
+    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
+    std::atomic<bool> _alter_failed = false;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

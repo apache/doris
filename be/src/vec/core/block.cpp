@@ -855,6 +855,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
     std::string column_values;
     try {
+        // TODO: After support c++23, we should use resize_and_overwrite to replace resize
         column_values.resize(content_uncompressed_size);
     } catch (...) {
         std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
@@ -868,34 +869,36 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
     *uncompressed_bytes = content_uncompressed_size;
+    const size_t serialize_bytes = buf - column_values.data();
+    *compressed_bytes = serialize_bytes;
+    column_values.resize(serialize_bytes);
 
     // compress
     if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
         SCOPED_RAW_TIMER(&_compress_time_ns);
         pblock->set_compression_type(compression_type);
-        pblock->set_uncompressed_size(content_uncompressed_size);
+        pblock->set_uncompressed_size(serialize_bytes);
 
         BlockCompressionCodec* codec;
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
-                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                codec->compress(Slice(column_values.data(), serialize_bytes), &buf_compressed));
         size_t compressed_size = buf_compressed.size();
-        if (LIKELY(compressed_size < content_uncompressed_size)) {
+        if (LIKELY(compressed_size < serialize_bytes)) {
+            // TODO: rethink the logic here may copy again ?
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
             pblock->set_column_values(std::move(column_values));
-            *compressed_bytes = content_uncompressed_size;
         }
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     } else {
         pblock->set_column_values(std::move(column_values));
-        *compressed_bytes = content_uncompressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",

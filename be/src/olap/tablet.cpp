@@ -1026,14 +1026,6 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    // unique key table with merge-on-write also cann't do cumulative compaction under alter
-    // process. It may cause the delete bitmap calculation error, such as two
-    // rowsets have same key.
-    if (tablet_state() != TABLET_RUNNING && keys_type() == UNIQUE_KEYS &&
-        enable_unique_key_merge_on_write()) {
-        return false;
-    }
-
     if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }
@@ -1762,6 +1754,13 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         }
     }
 
+    // There are two cases when tablet state is TABLET_NOTREADY
+    // case 1: tablet is doing schema change. Fe knows it's state, doing nothing.
+    // case 2: tablet has finished schema change, but failed. Fe will perform recovery.
+    if (tablet_state() == TABLET_NOTREADY && is_alter_failed()) {
+        tablet_info->__set_used(false);
+    }
+
     if (tablet_state() == TABLET_SHUTDOWN) {
         tablet_info->__set_used(false);
     }
@@ -2403,6 +2402,10 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     if (!rowset) {
         return nullptr;
     }
+    if (tablet_footprint() == 0) {
+        VLOG_DEBUG << "skip cooldown due to empty tablet_id = " << tablet_id();
+        return nullptr;
+    }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {
             LOG(WARNING) << "version not continuous. tablet_id=" << tablet_id()
@@ -2495,7 +2498,7 @@ Status Tablet::remove_all_remote_rowsets() {
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
-               t->tablet_state() == TABLET_RUNNING;
+               t->tablet_state() == TABLET_RUNNING && t->_cooldown_replica_id == t->replica_id();
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
@@ -2553,6 +2556,9 @@ void Tablet::remove_unused_remote_files() {
                 if (!rs_meta->is_local()) {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }
+            }
+            if (cooldowned_rowsets.empty()) {
+                return;
             }
             cooldown_meta_id = t->_tablet_meta->cooldown_meta_id();
         }
@@ -3287,6 +3293,13 @@ void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
 
 // The caller should hold _rowset_update_lock and _meta_lock lock.
 Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) {
+    DBUG_EXECUTE_IF("Tablet.update_delete_bitmap_without_lock.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.1))) {
+            LOG_WARNING("Tablet.update_delete_bitmap_without_lock.random_failed");
+            return Status::InternalError(
+                    "debug tablet update delete bitmap without lock random failed");
+        }
+    });
     int64_t cur_version = rowset->end_version();
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(_load_rowset_segments(rowset, &segments));

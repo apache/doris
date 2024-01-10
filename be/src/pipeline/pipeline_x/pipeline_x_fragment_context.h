@@ -109,11 +109,11 @@ public:
         return _runtime_filter_mgr_map[fragment_instance_id].get();
     }
 
-    [[nodiscard]] int next_operator_id() { return _operator_id++; }
+    [[nodiscard]] int next_operator_id() { return _operator_id--; }
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
-    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id++; }
+    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
 
     [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
 

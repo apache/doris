@@ -59,7 +59,7 @@ Add settings to the BE node's configuration file `conf/be.conf`, and restart the
 |  Parameter | Required  | Description  |
 |  ---  | ---  | --- |
 | `enable_file_cache` | Yes | Whether to enable File Cache, default false |
-| `file_cache_path` | Yes | Parameters about cache path, json format, for exmaple: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240}]`. `path` is the path to save cached data; `total_size` is the max size of cached data; `query_limit` is the max size of cached data for a single query. |
+| `file_cache_path` | Yes | Parameters about cache path, json format, for exmaple: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240, "normal_percent":85, "disposable_percent":10, "index_percent":5}]`. `path` is the path to save cached data; `total_size` is the max size of cached data; `query_limit` is the max size of cached data for a single query; `normal_percent, disposable_percent, index_percent` Three cache queues' percentages, their sum equals 100. |
 | `file_cache_min_file_segment_size` | No | Min size of a single cached block, default 1MB, should greater than 4096 |
 | `file_cache_max_file_segment_size` | No | Max size of a single cached block, default 4MB, should greater than 4096 |
 | `enable_file_cache_query_limit` | No | Whether to limit the cache size used by a single query, default false |

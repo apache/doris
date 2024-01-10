@@ -126,6 +126,6 @@ public abstract class Job implements TracerSupplier {
 
     public static Set<Integer> getDisableRules(JobContext context) {
         return context.getCascadesContext().getAndCacheSessionVariable(
-                "disableNereidsRules", ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
+                SessionVariable.DISABLE_NEREIDS_RULES, ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
     }
 }

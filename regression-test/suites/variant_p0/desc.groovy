@@ -45,7 +45,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         }
     }
 
-    def create_table = { table_name, buckets="auto" ->
+    def create_table = { table_name, buckets="1" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -58,7 +58,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         """
     }
 
-    def create_table_partition = { table_name, buckets="auto" ->
+    def create_table_partition = { table_name, buckets="1" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (

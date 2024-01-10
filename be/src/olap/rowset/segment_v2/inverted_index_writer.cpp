@@ -126,6 +126,24 @@ public:
         }
     }
 
+    void close_on_error() override {
+        try {
+            if (_index_writer) {
+                _index_writer->close();
+            }
+            if (_dir) {
+                _dir->deleteDirectory();
+                io::Path cfs_path(_dir->getCfsDirName());
+                auto idx_path = cfs_path.parent_path();
+                std::string idx_name = std::string(cfs_path.stem().c_str()) +
+                                       DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
+                _dir->deleteFile(idx_name.c_str());
+            }
+        } catch (CLuceneError& e) {
+            LOG(ERROR) << "InvertedIndexWriter close_on_error failure: " << e.what();
+        }
+    }
+
     Status init_bkd_index() {
         size_t value_length = sizeof(CppType);
         // NOTE: initialize with 0, set to max_row_id when finished.
@@ -263,6 +281,7 @@ public:
         try {
             _index_writer->addDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_document: {}", e.what());
@@ -274,6 +293,7 @@ public:
         try {
             _index_writer->addNullDocument(_doc.get());
         } catch (const CLuceneError& e) {
+            close_on_error();
             _dir->deleteDirectory();
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError add_null_document: {}", e.what());
@@ -660,7 +680,11 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                     std::to_string(int(type)));
     }
     if (*res != nullptr) {
-        RETURN_IF_ERROR((*res)->init());
+        auto st = (*res)->init();
+        if (!st.ok()) {
+            (*res)->close_on_error();
+            return st;
+        }
     }
     return Status::OK();
 }

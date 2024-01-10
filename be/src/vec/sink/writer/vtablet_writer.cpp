@@ -47,7 +47,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "olap/wal_manager.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -312,6 +311,7 @@ void VNodeChannel::clear_all_blocks() {
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    _task_exec_ctx = state->get_task_execution_context();
     _tuple_desc = _parent->_output_tuple_desc;
     _state = state;
     // get corresponding BE node.
@@ -446,11 +446,20 @@ Status VNodeChannel::open_wait() {
 
     // add block closure
     _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler(
-            [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
+    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
+        auto ctx_lock = _task_exec_ctx.lock();
+        if (ctx_lock == nullptr) {
+            return;
+        }
+        _add_block_failed_callback(is_last_rpc);
+    });
 
     _send_block_callback->addSuccessHandler(
             [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
+                auto ctx_lock = _task_exec_ctx.lock();
+                if (ctx_lock == nullptr) {
+                    return;
+                }
                 _add_block_success_callback(result, is_last_rpc);
             });
     return status;
@@ -1060,6 +1069,9 @@ Status VTabletWriter::on_partitions_created(TCreatePartitionResult* result) {
     // add new tablet locations. it will use by address. so add to pool
     auto* new_locations = _pool->add(new std::vector<TTabletLocation>(result->tablets));
     _location->add_locations(*new_locations);
+    if (_write_single_replica) {
+        _slave_location->add_locations(*new_locations);
+    }
 
     // update new node info
     _nodes_info->add_nodes(result->nodes);
@@ -1335,9 +1347,9 @@ Status VTabletWriter::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -1604,7 +1616,7 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
+Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -1621,12 +1633,14 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
         return status;
     }
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
 
+    _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
@@ -1635,6 +1649,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
 
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
+    _row_distribution_watch.stop();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.

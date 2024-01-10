@@ -40,6 +40,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
+#include "vec/exec/vset_operation_node.h"
 
 namespace doris::pipeline {
 
@@ -59,7 +60,6 @@ struct BasicSharedState {
     DependencySPtr source_dep = nullptr;
     DependencySPtr sink_dep = nullptr;
 
-    virtual Status close(RuntimeState* state) { return Status::OK(); }
     virtual ~BasicSharedState() = default;
 };
 
@@ -90,6 +90,7 @@ public:
     void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
         _shared_state = shared_state;
     }
+    void clear_shared_state() { _shared_state.reset(); }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
@@ -481,7 +482,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants =
+    std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
             nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 

@@ -45,15 +45,14 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils
 if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    target_branch="master"
     SF="1"
 fi
 echo "#### Check env"
-if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${pull_request_num}" ||
-    -z "${commit_id}" ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
-    exit 1
-fi
+if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 1; fi
+if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 1; fi
+if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 1; fi
+if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 1; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
@@ -62,8 +61,6 @@ if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else
 echo "#### Run tpcds test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-cold_run_time_threshold=${cold_run_time_threshold:-600000} # ms
-hot_run_time_threshold=${hot_run_time_threshold:-240000}   # ms
 exit_flag=0
 
 (
@@ -128,17 +125,24 @@ exit_flag=0
     echo "#### 3. run tpcds-sf${SF} query"
     set_session_variable runtime_filter_mode global
     bash "${teamcity_build_checkoutDir}"/tools/tpcds-tools/bin/run-tpcds-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpcds-queries.log
+    cold_run_time_threshold=${cold_run_time_threshold:-600000} # ms
+    hot_run_time_threshold=${hot_run_time_threshold:-240000}   # ms
+    if [[ "${target_branch}" == "branch-2.0" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold:-600000} # ms
+        hot_run_time_threshold=${hot_run_time_threshold:-300000}   # ms
+    fi
     if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)
     line_begin=$((line_end - 100))
-    comment_body="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body_summary="$(sed -n "${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
+    comment_body_detail="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
-run tpcds-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
 
     echo "#### 4. comment result on tpcds"
-    comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_tpcds "${pull_request_num:-}" "${comment_body}"
+    comment_body_summary=$(echo "${comment_body_summary}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
+    comment_body_detail=$(echo "${comment_body_detail}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g')   # 将所有的 Tab字符替换为\t 换行符替换为\n
+    create_an_issue_comment_tpcds "${pull_request_num:-}" "${comment_body_summary}" "${comment_body_detail}"
     rm -f result.csv
 )
 exit_flag="$?"

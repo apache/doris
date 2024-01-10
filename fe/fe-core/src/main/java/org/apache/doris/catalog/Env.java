@@ -3290,6 +3290,13 @@ public class Env {
                 sb.append(olapTable.isInMemory()).append("\"");
             }
 
+            // storage medium
+            if (olapTable.getStorageMedium() != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+                sb.append(olapTable.getStorageMedium().name().toLowerCase());
+                sb.append("\"");
+            }
+
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
@@ -3405,6 +3412,10 @@ public class Env {
             // group commit interval ms
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
             sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
@@ -4898,7 +4909,7 @@ public class Env {
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
+                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 

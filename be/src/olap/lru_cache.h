@@ -55,8 +55,8 @@ class Cache;
 class LRUCachePolicy;
 
 enum LRUCacheType {
-    SIZE,  // The capacity of cache is based on the size of cache entry.
-    NUMBER // The capacity of cache is based on the number of cache entry.
+    SIZE, // The capacity of cache is based on the memory size of cache entry, memory size = handle size + charge.
+    NUMBER // The capacity of cache is based on the number of cache entry, number = charge, the weight of an entry.
 };
 
 static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;

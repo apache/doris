@@ -341,7 +341,8 @@ VDataStreamRecvr::VDataStreamRecvr(
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
         bool is_merging, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
-        : _mgr(stream_mgr),
+        : HasTaskExecutionCtx(state),
+          _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
           _query_mem_tracker(state->query_mem_tracker()),
           _query_id(state->query_id()),
@@ -354,7 +355,8 @@ VDataStreamRecvr::VDataStreamRecvr(
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
-          _enable_pipeline(state->enable_pipeline_exec()) {
+          _enable_pipeline(state->enable_pipeline_exec()),
+          _mem_available(std::make_shared<bool>(true)) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
             std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
@@ -505,19 +507,10 @@ void VDataStreamRecvr::update_blocks_memory_usage(int64_t size) {
     _blocks_memory_usage->add(size);
     auto val = _blocks_memory_usage_current_value.fetch_add(size);
     if (val + size > config::exchg_node_buffer_size_bytes) {
-        if (_exchange_sink_mem_limit_dependency) {
-            _exchange_sink_mem_limit_dependency->block();
-        }
+        *_mem_available = false;
     } else {
-        if (_exchange_sink_mem_limit_dependency) {
-            _exchange_sink_mem_limit_dependency->set_ready();
-        }
+        *_mem_available = true;
     }
-}
-
-void VDataStreamRecvr::create_mem_limit_dependency(int id, int node_id, QueryContext* query_ctx) {
-    _exchange_sink_mem_limit_dependency =
-            pipeline::LocalExchangeMemLimitDependency::create_shared(id, node_id, query_ctx);
 }
 
 void VDataStreamRecvr::close() {

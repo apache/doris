@@ -49,7 +49,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema_cache.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
@@ -248,11 +248,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
     _tablet_schema_cache->start();
-
-    // S3 buffer pool
-    _s3_buffer_pool = new io::S3FileBufferPool();
-    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->s3_file_upload_thread_pool());
 
     // Storage engine
     doris::EngineOptions options;
@@ -521,6 +516,7 @@ void ExecEnv::destroy() {
     _s_ready = false;
 
     SAFE_STOP(_wal_manager);
+    _wal_manager.reset();
     SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
@@ -560,8 +556,6 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    _wal_manager.reset();
-    SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
@@ -626,7 +620,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    // cache_manager must be destoried after _inverted_index_query_cache
+    // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
 
