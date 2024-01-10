@@ -1366,7 +1366,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
-    public int loadStreamPerNode = 60;
+    public int loadStreamPerNode = 20;
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";
