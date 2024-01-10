@@ -46,7 +46,7 @@ public:
     ~DorisCompoundFileWriter() override = default;
     /** Returns the directory of the compound file. */
     CL_NS(store)::Directory* getDirectory();
-    void writeCompoundFile();
+    size_t writeCompoundFile();
     void copyFile(const char* fileName, lucene::store::IndexOutput* output, uint8_t* buffer,
                   int64_t bufferLength);
 
@@ -77,6 +77,7 @@ protected:
     std::string directory;
     std::string cfs_directory;
     bool useCompoundFileWriter {false};
+    size_t compound_file_size = 0;
 
     void priv_getFN(char* buffer, const char* name) const;
     /// Removes an existing file in the directory.
@@ -91,6 +92,7 @@ public:
 
     const io::FileSystemSPtr& getFileSystem() { return fs; }
     const io::FileSystemSPtr& getCompoundFileSystem() { return compound_fs; }
+    size_t getCompoundFileSize() const { return compound_file_size; }
     ~DorisCompoundDirectory() override;
 
     bool list(std::vector<std::string>* names) const override;
