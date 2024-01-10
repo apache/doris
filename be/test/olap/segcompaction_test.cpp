@@ -197,7 +197,7 @@ protected:
         tablet_meta->_tablet_id = 1;
         tablet_meta->set_partition_id(10000);
         tablet_meta->_schema = tablet_schema;
-        auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
+        auto tablet = std::make_shared<Tablet>(*l_engine, tablet_meta, data_dir.get(), "test_str");
         char* tmp_str = (char*)malloc(20);
         strncpy(tmp_str, "test_tablet_name", 20);
 

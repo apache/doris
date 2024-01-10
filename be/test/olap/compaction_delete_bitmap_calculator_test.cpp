@@ -154,7 +154,7 @@ public:
 
     void SetUp() override {
         config::max_runnings_transactions_per_txn_map = 500;
-        _txn_mgr.reset(new TxnManager(1, 1));
+        _txn_mgr.reset(new TxnManager(*k_engine, 1, 1));
 
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -213,7 +213,8 @@ public:
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta1));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta2));
         static_cast<void>(_tablet_meta->add_rs_meta(rowset_meta3));
-        _tablet = std::make_shared<Tablet>(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY);
+        _tablet = std::make_shared<Tablet>(*k_engine, _tablet_meta, nullptr,
+                                           CUMULATIVE_SIZE_BASED_POLICY);
         static_cast<void>(_tablet->init());
     }
 

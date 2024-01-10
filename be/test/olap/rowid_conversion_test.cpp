@@ -280,7 +280,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
+        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, nullptr));
         static_cast<void>(tablet->init());
         return tablet;
     }
