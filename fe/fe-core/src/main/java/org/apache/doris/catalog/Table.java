@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -116,8 +115,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // table(view)'s comment
     @SerializedName(value = "comment")
     protected String comment = "";
-    // sql for creating this table, default is "";
-    protected String ddlSql = "";
 
     @SerializedName(value = "constraints")
     private HashMap<String, Constraint> constraintsMap = new HashMap<>();
@@ -353,10 +350,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         return fullSchema;
     }
 
-    public String getDdlSql() {
-        return ddlSql;
-    }
-
     // should override in subclass if necessary
     public List<Column> getBaseSchema() {
         return getBaseSchema(Util.showHiddenColumns());
@@ -548,10 +541,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void setId(long id) {
         this.id = id;
-    }
-
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new NotImplementedException("toCreateTableStmt not implemented");
     }
 
     @Override
