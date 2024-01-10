@@ -485,15 +485,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         const bool use_global_rf =
                 local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
-        auto ret = vectorized::process_runtime_filter_build(
-                state, local_state._shared_state->build_block.get(), &local_state, use_global_rf);
-        if (!ret.ok()) {
-            if (_shared_hashtable_controller) {
-                _shared_hash_table_context->status = ret;
-                _shared_hashtable_controller->signal(node_id());
-            }
-            return ret;
-        }
+        RETURN_IF_ERROR(vectorized::process_runtime_filter_build(
+                state, local_state._shared_state->build_block.get(), &local_state, use_global_rf));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
         if (_shared_hashtable_controller) {

@@ -174,7 +174,7 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            auto column = block->get_by_position(result_column_id).column;
+            const auto& column = block->get_by_position(result_column_id).column;
             for (auto* filter : iter->second) {
                 filter->insert_batch(column, 1);
             }

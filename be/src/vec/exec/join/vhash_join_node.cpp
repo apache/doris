@@ -662,7 +662,7 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
-        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+        if (auto* bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
         }
     }
@@ -751,14 +751,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         DCHECK(!_build_side_mutable_block.empty());
         _build_block = std::make_shared<Block>(_build_side_mutable_block.to_block());
         COUNTER_UPDATE(_build_blocks_memory_usage, _build_block->bytes());
-        auto ret = process_runtime_filter_build(state, _build_block.get(), this);
-        if (!ret.ok()) {
-            if (_shared_hashtable_controller) {
-                _shared_hash_table_context->status = ret;
-                _shared_hashtable_controller->signal(id());
-            }
-            return ret;
-        }
+        RETURN_IF_ERROR(process_runtime_filter_build(state, _build_block.get(), this));
         RETURN_IF_ERROR(_process_build_block(state, *_build_block));
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
@@ -942,6 +935,9 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     COUNTER_UPDATE(_build_rows_counter, rows);
+    if (UNLIKELY(rows == 0)) {
+        return Status::OK();
+    }
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
