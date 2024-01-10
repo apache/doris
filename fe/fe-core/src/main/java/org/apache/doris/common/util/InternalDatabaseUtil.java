@@ -20,10 +20,18 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
 public class InternalDatabaseUtil {
+
+    public static void checkDatabase(String dbName, ConnectContext ctx) throws AnalysisException {
+        if (ctx == null || ctx.getCurrentUserIdentity() == null) {
+            throw new AnalysisException("Not allowed to operate database: " + dbName);
+        }
+        checkDatabase(dbName, ctx.getCurrentUserIdentity());
+    }
 
     public static void checkDatabase(String dbName, UserIdentity userIdentity) throws AnalysisException {
         Preconditions.checkNotNull(dbName);

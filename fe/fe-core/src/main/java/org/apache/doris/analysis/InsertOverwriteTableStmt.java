@@ -75,6 +75,7 @@ public class InsertOverwriteTableStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        target.getTblName().analyze(analyzer);
         InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get().getCurrentUserIdentity());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), getDb(), getTbl(), PrivPredicate.LOAD)) {
