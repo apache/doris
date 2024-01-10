@@ -43,6 +43,7 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -70,7 +71,7 @@ class VSortedRunMerger;
 
 class VDataStreamRecvr;
 
-class VDataStreamRecvr {
+class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
