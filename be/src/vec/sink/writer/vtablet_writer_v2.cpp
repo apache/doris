@@ -541,7 +541,6 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
         }
 
-        std::unordered_map<int64_t, int> success_tablets;
         std::unordered_map<int64_t, int> failed_tablets;
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
@@ -564,21 +563,21 @@ Status VTabletWriterV2::close(Status exec_status) {
                     commit_info.tabletId = tablet_id;
                     commit_info.backendId = node_id;
                     tablet_commit_infos.emplace_back(std::move(commit_info));
-                    success_tablets[tablet_id]++;
                 }
             }
-        }
-        for (auto [tablet_id, replicas] : success_tablets) {
-            if (replicas > _num_replicas / 2) {
-                continue;
-            }
-            return _failed_reason(tablet_id);
         }
         for (auto [tablet_id, replicas] : failed_tablets) {
             if (replicas <= (_num_replicas - 1) / 2) {
                 continue;
             }
-            return _failed_reason(tablet_id);
+            auto backends = _location->find_tablet(tablet_id)->node_ids;
+            for (auto& backend_id : backends) {
+                auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
+                if (failed_tablets.contains(tablet_id)) {
+                    return failed_tablets[tablet_id];
+                }
+            }
+            DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";
         }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
@@ -602,19 +601,6 @@ Status VTabletWriterV2::close(Status exec_status) {
     _is_closed = true;
     _close_status = status;
     return status;
-}
-
-Status VTabletWriterV2::_failed_reason(int64_t tablet_id) {
-    Status st = Status::InternalError("tablet {} failed", tablet_id);
-    auto backends = _location->find_tablet(tablet_id)->node_ids;
-    for (auto& backend_id : backends) {
-        auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
-        if (failed_tablets.contains(tablet_id)) {
-            st = failed_tablets[tablet_id];
-            break;
-        }
-    }
-    return st;
 }
 
 Status VTabletWriterV2::_close_load(const Streams& streams) {
