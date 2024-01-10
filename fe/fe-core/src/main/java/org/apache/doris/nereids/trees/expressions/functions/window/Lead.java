@@ -97,6 +97,9 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
                     throw new AnalysisException(
                             "The offset parameter of LEAD must be a constant positive integer: " + this.toSql());
                 }
+            } else {
+                throw new AnalysisException(
+                    "The offset parameter of LAG must be a constant positive integer: " + this.toSql());
             }
             if (children().size() >= 3) {
                 checkValidParams(getDefaultValue(), false);
