@@ -2445,7 +2445,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         olapTable.initSchemaColumnUniqueId();
-        olapTable.initAutoIncrentGenerator(db.getId());
+        olapTable.initAutoIncrementGenerator(db.getId());
         olapTable.rebuildFullSchema();
 
         // analyze version info
