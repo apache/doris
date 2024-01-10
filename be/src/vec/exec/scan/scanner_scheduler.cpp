@@ -213,6 +213,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -220,7 +222,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 this->_scanner_scan(this, ctx, scanner_ref);
             });
             if (s.ok()) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(s);
                 break;
@@ -230,6 +232,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -259,7 +263,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 ret = _remote_scan_thread_pool->offer(task);
             }
             if (ret) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(
                         Status::InternalError("failed to submit scanner to scanner pool"));
