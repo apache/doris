@@ -27,10 +27,13 @@ import com.google.common.base.Preconditions;
 public class InternalDatabaseUtil {
 
     public static void checkDatabase(String dbName, ConnectContext ctx) throws AnalysisException {
-        if (ctx == null || ctx.getCurrentUserIdentity() == null) {
+        Preconditions.checkNotNull(dbName);
+        if (!FeConstants.INTERNAL_DB_NAME.equals(dbName)) {
+            return;
+        }
+        if (ctx == null || ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser()) {
             throw new AnalysisException("Not allowed to operate database: " + dbName);
         }
-        checkDatabase(dbName, ctx.getCurrentUserIdentity());
     }
 
     public static void checkDatabase(String dbName, UserIdentity userIdentity) throws AnalysisException {
