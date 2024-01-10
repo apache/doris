@@ -126,6 +126,17 @@ public class DecimalLiteral extends LiteralExpr {
         this.value = value;
         int precision = getBigDecimalPrecision(this.value);
         int scale = getBigDecimalScale(this.value);
+        int maxPrecision = ScalarType.MAX_DECIMAL128_PRECISION;
+        int integerPart = precision - scale;
+        if (precision > maxPrecision) {
+            BigDecimal stripedValue = value.stripTrailingZeros();
+            int stripedPrecision = getBigDecimalPrecision(stripedValue);
+            if (stripedPrecision <= maxPrecision) {
+                this.value = stripedValue.setScale(maxPrecision - integerPart);
+                precision = getBigDecimalPrecision(this.value);
+                scale = getBigDecimalScale(this.value);
+            }
+        }
         if (enforceV3) {
             type = ScalarType.createDecimalV3Type(precision, scale);
         } else {

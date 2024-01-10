@@ -82,5 +82,12 @@ public class DecimalLiteralTest {
         scale = ((ScalarType) literal.getType()).getScalarScale();
         Assert.assertEquals(3, precision);
         Assert.assertEquals(3, scale);
+
+        decimal = new BigDecimal("197323961.520000000000000000000000000000");
+        literal = new DecimalLiteral(decimal);
+        precision = ((ScalarType) literal.getType()).getScalarPrecision();
+        scale = ((ScalarType) literal.getType()).getScalarScale();
+        Assert.assertEquals(38, precision);
+        Assert.assertEquals(29, scale);
     }
 }
