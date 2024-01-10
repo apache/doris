@@ -2438,7 +2438,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         int groupCommitDataBytes;
         try {
-            groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDateBytes(properties);
+            groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());

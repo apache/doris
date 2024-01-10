@@ -82,6 +82,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -323,6 +324,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     topDown(new LimitSortToTopN()),
+                    topDown(new MergeTopNs()),
                     topDown(new SplitLimit()),
                     topDown(
                             new PushDownLimit(),

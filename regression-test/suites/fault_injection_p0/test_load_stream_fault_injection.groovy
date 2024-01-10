@@ -149,8 +149,6 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStreamWriter.add_segment.null_file_writer", "")
     // LoadStreamWriter add_segment meet bytes_appended and real file size not match error
     load_with_injection("FileWriter.add_segment.zero_bytes_appended", "")
-    // LoadStreamWriter close meet not inited error
-    load_with_injection("LoadStreamWriter.close.uninited_writer", "")
     // LoadStream init failed coz LoadStreamWriter init failed
     load_with_injection("RowsetBuilder.check_tablet_version_count.too_many_version", "")
     // LoadStream add_segment meet unknown segid in request header

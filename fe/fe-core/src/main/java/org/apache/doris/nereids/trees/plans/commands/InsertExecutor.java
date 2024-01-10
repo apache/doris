@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.proto.InternalService;
@@ -553,20 +554,22 @@ public class InsertExecutor {
                         throw new AnalysisException("Column count doesn't match value count");
                     }
                     for (int i = 0; i < values.size(); i++) {
+                        Column sameNameColumn = null;
+                        for (Column column : table.getBaseSchema(true)) {
+                            if (unboundTableSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
+                                sameNameColumn = column;
+                                break;
+                            }
+                        }
+                        if (sameNameColumn == null) {
+                            throw new AnalysisException("Unknown column '"
+                                    + unboundTableSink.getColNames().get(i) + "' in target table.");
+                        }
                         if (values.get(i) instanceof DefaultValueSlot) {
-                            boolean hasDefaultValue = false;
-                            for (Column column : columns) {
-                                if (unboundTableSink.getColNames().get(i).equalsIgnoreCase(column.getName())) {
-                                    constantExprs.add(generateDefaultExpression(column));
-                                    hasDefaultValue = true;
-                                }
-                            }
-                            if (!hasDefaultValue) {
-                                throw new AnalysisException("Unknown column '"
-                                        + unboundTableSink.getColNames().get(i) + "' in target table.");
-                            }
+                            constantExprs.add(generateDefaultExpression(sameNameColumn));
                         } else {
-                            constantExprs.add(values.get(i));
+                            DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
+                            constantExprs.add((NamedExpression) castValue(values.get(i), targetType));
                         }
                     }
                 } else {
@@ -577,7 +580,8 @@ public class InsertExecutor {
                         if (values.get(i) instanceof DefaultValueSlot) {
                             constantExprs.add(generateDefaultExpression(columns.get(i)));
                         } else {
-                            constantExprs.add(values.get(i));
+                            DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
+                            constantExprs.add((NamedExpression) castValue(values.get(i), targetType));
                         }
                     }
                 }
@@ -592,6 +596,14 @@ public class InsertExecutor {
             return plan.withChildren(
                     LogicalPlanBuilder.reduceToLogicalPlanTree(0, oneRowRelations.size() - 1,
                             oneRowRelations, Qualifier.ALL));
+        }
+    }
+
+    private static Expression castValue(Expression value, DataType targetType) {
+        if (value instanceof UnboundAlias) {
+            return value.withChildren(TypeCoercionUtils.castUnbound(((UnboundAlias) value).child(), targetType));
+        } else {
+            return TypeCoercionUtils.castUnbound(value, targetType);
         }
     }
 

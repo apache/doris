@@ -15,35 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.Id;
-import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 /**
- * relation id
+ * HavingToFilter
  */
-public class ObjectId extends Id<ObjectId> {
-
-    public ObjectId(int id) {
-        super(id);
-    }
-
-    /**
-     * Should be only called by {@link StatementScopeIdGenerator}.
-     */
-    public static IdGenerator<ObjectId> createGenerator() {
-        return new IdGenerator<ObjectId>() {
-            @Override
-            public ObjectId getNextId() {
-                return new ObjectId(nextId++);
-            }
-        };
-    }
-
+public class HavingToFilter extends OneAnalysisRuleFactory {
     @Override
-    public String toString() {
-        return "ObjectId#" + id;
+    public Rule build() {
+        return logicalHaving()
+                .then(having -> new LogicalFilter<>(having.getConjuncts(), having.child()))
+                .toRule(RuleType.HAVING_TO_FILTER);
     }
 }
