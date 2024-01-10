@@ -2383,8 +2383,33 @@ Status Tablet::_follow_cooldowned_data() {
     return Status::OK();
 }
 
+bool Tablet::_has_data_to_cooldown() {
+    int64_t min_local_version = std::numeric_limits<int64_t>::max();
+    RowsetSharedPtr rowset;
+    std::shared_lock meta_rlock(_meta_lock);
+    for (auto& [v, rs] : _rs_version_map) {
+        if (rs->is_local() && v.first < min_local_version && rs->data_disk_size() > 0) {
+            // this is a local rowset and has data
+            min_local_version = v.first;
+            rowset = rs;
+        }
+    }
+
+    int64_t newest_cooldown_time = 0;
+    if (rowset != nullptr) {
+        newest_cooldown_time = _get_newest_cooldown_time(rowset);
+    }
+
+    return (newest_cooldown_time != 0) && (newest_cooldown_time < UnixSeconds());
+}
+
 RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     RowsetSharedPtr rowset;
+
+    if (!_has_data_to_cooldown()) {
+        return nullptr;
+    }
+
     // TODO(plat1ko): should we maintain `cooldowned_version` in `Tablet`?
     int64_t cooldowned_version = -1;
     // We pick the rowset with smallest start version in local.
@@ -2418,26 +2443,21 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     return rowset;
 }
 
-RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
+int64_t Tablet::_get_newest_cooldown_time(const RowsetSharedPtr& rowset) {
     int64_t id = storage_policy_id();
     if (id <= 0) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
-        return nullptr;
+        return 0;
     }
     auto storage_policy = get_storage_policy(id);
     if (!storage_policy) {
         LOG(WARNING) << "Cannot get storage policy: " << id;
-        return nullptr;
+        return 0;
     }
     auto cooldown_ttl_sec = storage_policy->cooldown_ttl;
     auto cooldown_datetime = storage_policy->cooldown_datetime;
-    RowsetSharedPtr rowset = pick_cooldown_rowset();
-    if (!rowset) {
-        VLOG_DEBUG << "pick cooldown rowset, get null, tablet id: " << tablet_id();
-        return nullptr;
-    }
-
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
+
     if (cooldown_ttl_sec >= 0) {
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
     }
@@ -2445,9 +2465,21 @@ RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
+    return newest_cooldown_time;
+}
+
+RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
+    RowsetSharedPtr rowset = pick_cooldown_rowset();
+    if (!rowset) {
+        VLOG_DEBUG << "pick cooldown rowset, get null, tablet id: " << tablet_id();
+        return nullptr;
+    }
+
+    auto newest_cooldown_time = _get_newest_cooldown_time(rowset);
+
     // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than
     // current time or it's datatime is less than current time
-    if (newest_cooldown_time < UnixSeconds()) {
+    if (newest_cooldown_time != 0 && newest_cooldown_time < UnixSeconds()) {
         *cooldown_timestamp = newest_cooldown_time;
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
@@ -2456,7 +2488,6 @@ RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_
     }
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
-               << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
                << " newest write time: " << rowset->newest_write_timestamp();
     return nullptr;
 }
