@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN-SHOW-REPLICA-STATUS",
+    "title": "SHOW-REPLICA-STATUS",
     "language": "zh-CN"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-SHOW-REPLICA-STATUS
+## SHOW-REPLICA-STATUS
 
 ### Name
 
-ADMIN SHOW REPLICA STATUS
+SHOW REPLICA STATUS
 
 ### Description
 
@@ -37,7 +37,7 @@ ADMIN SHOW REPLICA STATUS
 语法：
 
 ```sql
- ADMIN SHOW REPLICA STATUS FROM [db_name.]tbl_name [PARTITION (p1, ...)]
+SHOW REPLICA STATUS FROM [db_name.]tbl_name [PARTITION (p1, ...)]
 [where_clause];
 ```
 
@@ -58,26 +58,26 @@ ADMIN SHOW REPLICA STATUS
 1. 查看表全部的副本状态
 
     ```sql
-    ADMIN SHOW REPLICA STATUS FROM db1.tbl1;
+    SHOW REPLICA STATUS FROM db1.tbl1;
     ```
 
 2. 查看表某个分区状态为 VERSION_ERROR 的副本
 
     ```sql
-    ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2)
+    SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2)
     WHERE STATUS = "VERSION_ERROR";
     ```
 
 3. 查看表所有状态不健康的副本
 
     ```sql
-    ADMIN SHOW REPLICA STATUS FROM tbl1
+    SHOW REPLICA STATUS FROM tbl1
     WHERE STATUS != "OK";
     ```
 
 ### Keywords
 
-    ADMIN, SHOW, REPLICA, STATUS, ADMIN SHOW
+    SHOW, REPLICA, STATUS
 
 ### Best Practice
 
