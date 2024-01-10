@@ -869,6 +869,10 @@ void DataDir::update_remote_data_size(int64_t size) {
     disks_remote_used_capacity->set_value(size);
 }
 
+size_t DataDir::disk_available() const {
+    return _available_bytes;
+}
+
 size_t DataDir::tablet_size() const {
     std::lock_guard<std::mutex> l(_mutex);
     return _tablet_set.size();

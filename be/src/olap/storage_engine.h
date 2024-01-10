@@ -82,6 +82,8 @@ class StorageEngine {
 public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
+    
+    enum class Disk_remaining_level { LOW, MID, HIGH };
 
     [[nodiscard]] Status open();
 
@@ -358,6 +360,8 @@ private:
         bool is_used;
     };
 
+ 
+
     EngineOptions _options;
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
@@ -488,6 +492,11 @@ private:
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
+
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _store_next_index;
+
+    DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 } // namespace doris

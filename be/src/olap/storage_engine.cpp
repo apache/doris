@@ -18,6 +18,7 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <assert.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -430,45 +431,85 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
+StorageEngine::Disk_remaining_level get_available_level(double disk_usage_percent) {
+    assert(disk_usage_percent >= 0 && disk_usage_percent <= 1);
+    if (disk_usage_percent < 0.7) {
+        return StorageEngine::Disk_remaining_level::LOW;
+    } else if (disk_usage_percent < 0.85) {
+        return StorageEngine::Disk_remaining_level::MID;
+    } else {
+        return StorageEngine::Disk_remaining_level::HIGH;
+    }
+    return StorageEngine::Disk_remaining_level::LOW;
+}
+
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
+    struct DirInfo {
+        DataDir* data_dir;
+
+        StorageEngine::Disk_remaining_level available_level;
+
+        bool operator<(const DirInfo& other) {
+            if (available_level != other.available_level) {
+                return available_level < other.available_level;
+            }
+            return data_dir->path_hash() < other.data_dir->path_hash();
+        }
+    };
+
+    std::vector<DirInfo> dir_infos;
+    int next_index = 0;
+
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        for (auto&& [_, store] : _store_map) {
-            if (store->is_used()) {
+        if (_store_next_index.find(storage_medium) == _store_next_index.end()) {
+            _store_next_index[storage_medium] = rand() % 100; 
+        }
+
+        next_index = _store_next_index[storage_medium]++;
+        if (next_index < 0) {
+            next_index = 0;
+            _store_next_index[storage_medium] = next_index + 1;
+        }
+
+        for (auto& it : _store_map) {
+            DataDir* data_dir = it.second;
+            if (data_dir->is_used()) {
                 if ((_available_storage_medium_type_count == 1 ||
-                     store->storage_medium() == storage_medium) &&
-                    !store->reach_capacity_limit(0)) {
-                    stores.push_back(store.get());
+                    data_dir->storage_medium() == storage_medium) && 
+                    !data_dir->reach_capacity_limit(0)) {
+                    size_t disk_available = data_dir->disk_available();
+                    DirInfo dir_info;
+                    dir_info.data_dir = data_dir;
+                    dir_info.available_level = get_available_level(disk_available);
+                    dir_infos.push_back(dir_info);
                 }
             }
         }
     }
 
-    std::sort(stores.begin(), stores.end(),
-              [](DataDir* a, DataDir* b) { return a->get_usage(0) < b->get_usage(0); });
-
-    size_t seventy_percent_index = stores.size();
-    size_t eighty_five_percent_index = stores.size();
-    for (size_t index = 0; index < stores.size(); index++) {
-        // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->get_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
-            seventy_percent_index = index;
-        }
-        if (stores[index]->get_usage(0) > 0.85 && eighty_five_percent_index == stores.size()) {
-            eighty_five_percent_index = index;
-            break;
-        }
+    if (dir_infos.empty()) {
+        return stores;
     }
 
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
-    std::shuffle(stores.begin() + seventy_percent_index, stores.begin() + eighty_five_percent_index,
-                 g);
-    std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
+    std::sort(dir_infos.begin(), dir_infos.end());
 
+    for (size_t i = 0; i < dir_infos.size();) {
+        size_t end = i + 1;
+        while (end < dir_infos.size() &&
+               dir_infos[i].available_level == dir_infos[end].available_level) {
+            end++;
+        }
+        // data dirs [i, end) have the same tablet size, round robin range [i, end)
+        size_t count = end - i;
+        for (size_t k = 0; k < count; k++) {
+            size_t index = i + (k + next_index) % count;
+            stores.push_back(dir_infos[index].data_dir);
+        }
+        i = end;
+    }
     return stores;
 }
 
