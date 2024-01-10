@@ -391,16 +391,16 @@ public interface TableIf {
             }
         }
 
+        // Refer to https://dev.mysql.com/doc/refman/8.0/en/information-schema-tables-table.html
         public String toMysqlType() {
             switch (this) {
-                case OLAP:
-                    return "BASE TABLE";
                 case SCHEMA:
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
                 case MATERIALIZED_VIEW:
                     return "VIEW";
+                case OLAP:
                 case MYSQL:
                 case ODBC:
                 case BROKER:
@@ -414,7 +414,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
-                    return "EXTERNAL TABLE";
+                    return "BASE TABLE";
                 default:
                     return null;
             }
