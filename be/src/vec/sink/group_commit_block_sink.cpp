@@ -25,7 +25,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vtablet_finder.h"
@@ -244,10 +243,6 @@ Status GroupCommitBlockSink::_add_blocks(RuntimeState* state,
                                              ? TGroupCommitMode::ASYNC_MODE
                                              : TGroupCommitMode::SYNC_MODE;
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
-                    DBUG_EXECUTE_IF("GroupCommitBlockSink._add_blocks.return_sync_mode", {
-                        return Status::InternalError(
-                                "Async mode changed to sync mode because no enough disk space!");
-                    });
                     LOG(INFO) << "Load id=" << print_id(_state->query_id())
                               << ", use group commit label=" << _load_block_queue->label
                               << " will not write wal because wal disk space usage reach max limit";

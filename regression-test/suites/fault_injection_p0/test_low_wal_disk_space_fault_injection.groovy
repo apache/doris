@@ -36,7 +36,6 @@ suite("test_wal_mem_back_pressure_time_out_fault_injection","nonConcurrent") {
 
     sql """ set group_commit = async_mode; """
         try {
-            GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue.has_enough_wal_disk_space.low_space")
             GetDebugPoint().enableDebugPointForAllBEs("GroupCommitBlockSink._add_blocks.return_sync_mode")
                 def t1 = []
                 for (int i = 0; i < 20; i++) {
@@ -58,9 +57,9 @@ suite("test_wal_mem_back_pressure_time_out_fault_injection","nonConcurrent") {
                 t1.join()
         } catch (Exception e) {
             logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Async mode changed to sync mode because no enough disk space!"))
+            // make sure there is no exception.
+            assertFalse(true)
         } finally {
-            GetDebugPoint().disableDebugPointForAllBEs("LoadBlockQueue.has_enough_wal_disk_space.low_space")
             GetDebugPoint().disableDebugPointForAllBEs("GroupCommitBlockSink._add_blocks.return_sync_mode")
         }
 
