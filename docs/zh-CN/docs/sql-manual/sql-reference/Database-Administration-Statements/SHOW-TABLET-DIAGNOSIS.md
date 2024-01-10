@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN DIAGNOSE TABLET",
+    "title": "SHOW TABLET DIAGNOSIS",
     "language": "zh-CN"
 }
 ---
@@ -22,14 +22,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN DIAGNOSE TABLET
+## SHOW TABLET DIAGNOSIS
 ### Description
 
     该语句用于诊断指定 tablet。结果中将显示这个 tablet 的信息和一些潜在的问题。
 
     语法：
 
-        ADMIN DIAGNOSE TABLET tblet_id
+        SHOW TABLET DIAGNOSIS tablet_id
 
     说明：
 
@@ -51,7 +51,8 @@ under the License.
 
     1. 查看 Tablet 10001 的诊断结果
 
-        ADMIN DIAGNOSE TABLET 10001;
+        SHOW TABLET DIAGNOSIS 10001;
 
 ### keywords
-    ADMIN,DIAGNOSE,TABLET
+
+    SHOW, DIAGNOSIS, TABLET

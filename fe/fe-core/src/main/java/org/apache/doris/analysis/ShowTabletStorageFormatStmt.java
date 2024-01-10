@@ -20,67 +20,64 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.collect.ImmutableList;
+public class ShowTabletStorageFormatStmt extends ShowStmt {
+    private boolean verbose;
 
-// admin show replica distribution from tbl [partition(p1, p2, ...)]
-public class AdminShowReplicaDistributionStmt extends ShowStmt {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("ReplicaNum").add("ReplicaSize")
-            .add("NumGraph").add("NumPercent")
-            .add("SizeGraph").add("SizePercent")
-            .build();
-
-    private TableRef tblRef;
-
-    public AdminShowReplicaDistributionStmt(TableRef tblRef) {
-        this.tblRef = tblRef;
+    public ShowTabletStorageFormatStmt(boolean verbose) {
+        this.verbose = verbose;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-
-        // check auth
+    public void analyze(Analyzer analyzer) throws UserException {
+        // check access first
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                    toSql(),
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), "ADMIN Privilege needed.");
         }
 
-        tblRef.getName().analyze(analyzer);
-        Util.prohibitExternalCatalog(tblRef.getName().getCtl(), this.getClass().getSimpleName());
+        super.analyze(analyzer);
     }
 
-    public String getDbName() {
-        return tblRef.getName().getDb();
+    @Override
+    public boolean isVerbose() {
+        return verbose;
     }
 
-    public String getTblName() {
-        return tblRef.getName().getTbl();
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder("SHOW TABLET STORAGE TYPE");
+        if (verbose) {
+            sb.append(" VERBOSE");
+        }
+        return sb.toString();
     }
 
-    public PartitionNames getPartitionNames() {
-        return tblRef.getPartitionNames();
+    @Override
+    public String toString() {
+        return toSql();
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        if (verbose) {
+            builder.addColumn(new Column("BackendId", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("TabletId", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("StorageFormat", ScalarType.createVarchar(30)));
+        } else {
+            builder.addColumn(new Column("BackendId", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("V1Count", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("V2Count", ScalarType.createVarchar(30)));
         }
         return builder.build();
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
