@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/compile.h>
 #include <gen_cpp/data.pb.h>
 #include <snappy/snappy.h>
 
@@ -45,9 +46,7 @@ static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
 inline std::string int128_to_string(__int128_t value) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", value);
-    return std::string(buffer.data(), buffer.size());
+    return fmt::format(FMT_COMPILE("{}"), value);
 }
 
 inline std::string int128_to_string(UInt128 value) {
