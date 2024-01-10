@@ -138,6 +138,7 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
+        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -173,6 +174,7 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
+        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -494,25 +496,6 @@ public class CreateTableInfo {
                     });
                 }
             }
-
-            // Expression partition's partition columns are not involved in
-            // partitionColumns. need extract them
-            // from autoParititionExprs and do validation then.
-            ArrayList<String> colNamesfromExpr = new ArrayList<String>();
-            for (Expression autoExpr : autoPartitionExprs) {
-                for (Expression child : autoExpr.children()) {
-                    if (child instanceof UnboundSlot) {
-                        colNamesfromExpr.add(((UnboundSlot) child).getName());
-                    }
-                }
-            }
-            colNamesfromExpr.forEach(p -> {
-                if (!columnMap.containsKey(p)) {
-                    throw new AnalysisException(
-                            String.format("partition key %s is not exists", p));
-                }
-                validatePartitionColumn(columnMap.get(p), ctx);
-            });
 
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
@@ -905,5 +888,15 @@ public class CreateTableInfo {
                 throw new AnalysisException("unsupported argument " + child.toString());
             }
         }).collect(Collectors.toList());
+    }
+
+    private void appendColumnFromExprs() {
+        for (Expression autoExpr : autoPartitionExprs) {
+            for (Expression child : autoExpr.children()) {
+                if (child instanceof UnboundSlot) {
+                    partitionColumns.add(((UnboundSlot) child).getName());
+                }
+            }
+        }
     }
 }
