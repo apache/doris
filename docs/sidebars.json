@@ -21,7 +21,14 @@
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
-                "install/k8s-deploy",
+                {
+                    "type": "category",
+                    "label": "Deploy Doris on Kubernetes",
+                    "items": [
+                        "install/k8s-deploy/operator-deploy",
+                        "install/k8s-deploy/helm-chart-deploy"
+                    ]
+                },
                 {
                     "type": "category",
                     "label": "Source Code Compilation",
