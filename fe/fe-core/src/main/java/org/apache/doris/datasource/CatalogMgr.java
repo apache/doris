@@ -816,8 +816,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
-        // -1 means it will be dropped later, ignore
-        if (tblId == -1L) {
+        // -1L means it will be dropped later, ignore
+        if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 
@@ -871,8 +871,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         long dbId = Env.getCurrentEnv().getExternalMetaIdMgr().getDbId(catalog.getId(), dbName);
-        // -1 means it will be dropped later, ignore
-        if (dbId == -1L) {
+        // -1L means it will be dropped later, ignore
+        if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
         }
 

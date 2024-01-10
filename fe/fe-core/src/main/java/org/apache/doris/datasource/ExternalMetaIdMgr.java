@@ -41,6 +41,8 @@ public class ExternalMetaIdMgr {
 
     private static final Logger LOG = LogManager.getLogger(ExternalMetaIdMgr.class);
 
+    public static final long META_ID_FOR_NOT_EXISTS = -1L;
+
     private final Map<Long, CtlMetaIdMgr> idToCtlMgr = Maps.newConcurrentMap();
 
     public ExternalMetaIdMgr() {
@@ -55,7 +57,7 @@ public class ExternalMetaIdMgr {
     public long getDbId(long catalogId, String dbName) {
         DbMetaIdMgr dbMetaIdMgr = getDbMetaIdMgr(catalogId, dbName);
         if (dbMetaIdMgr == null) {
-            return -1L;
+            return META_ID_FOR_NOT_EXISTS;
         }
         return dbMetaIdMgr.dbId;
     }
@@ -64,7 +66,7 @@ public class ExternalMetaIdMgr {
     public long getTblId(long catalogId, String dbName, String tblName) {
         TblMetaIdMgr tblMetaIdMgr = getTblMetaIdMgr(catalogId, dbName, tblName);
         if (tblMetaIdMgr == null) {
-            return -1L;
+            return META_ID_FOR_NOT_EXISTS;
         }
         return tblMetaIdMgr.tblId;
     }
@@ -74,7 +76,7 @@ public class ExternalMetaIdMgr {
                                String tblName, String partitionName) {
         PartitionMetaIdMgr partitionMetaIdMgr = getPartitionMetaIdMgr(catalogId, dbName, tblName, partitionName);
         if (partitionMetaIdMgr == null) {
-            return -1L;
+            return META_ID_FOR_NOT_EXISTS;
         }
         return partitionMetaIdMgr.partitionId;
     }
@@ -214,7 +216,7 @@ public class ExternalMetaIdMgr {
     }
 
     public static class DbMetaIdMgr {
-        protected volatile long dbId = -1L;
+        protected volatile long dbId = META_ID_FOR_NOT_EXISTS;
         protected final String dbName;
 
         protected DbMetaIdMgr(long dbId, String dbName) {
@@ -230,7 +232,7 @@ public class ExternalMetaIdMgr {
     }
 
     public static class TblMetaIdMgr {
-        protected volatile long tblId = -1L;
+        protected volatile long tblId = META_ID_FOR_NOT_EXISTS;
         protected final String tblName;
 
         protected TblMetaIdMgr(long tblId, String tblName) {
@@ -246,7 +248,7 @@ public class ExternalMetaIdMgr {
     }
 
     public static class PartitionMetaIdMgr {
-        protected volatile long partitionId = -1L;
+        protected volatile long partitionId = META_ID_FOR_NOT_EXISTS;
         protected final String partitionName;
 
         protected PartitionMetaIdMgr(long partitionId, String partitionName) {
