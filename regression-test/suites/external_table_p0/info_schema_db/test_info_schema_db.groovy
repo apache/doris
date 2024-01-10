@@ -124,9 +124,11 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
     // 6. test info db
     sql "switch internal"
     qt_sql111 """select * from information_schema.tables where table_catalog!='internal'"""
-    qt_sql112 """select * from ${catalog_name}.information_schema.tables where table_catalog!='${catalog_name}'"""
-    qt_sql113 """select * from information_schema.columns where table_catalog!='internal'"""
-    qt_sql114 """select * from ${catalog_name}.information_schema.columns where table_catalog!='${catalog_name}'"""
-    qt_sql115 """select table_catalog, table_schema, table_name from information_schema.tables where table_schema='${innerdb}'"""
-    qt_sql116 """select table_catalog, table_schema, table_name from ${catalog_name}.information_schema.columns where table_schema='${catalog_name}.tpch1_parquet'"""
+    qt_sql112 """select * from INFORMATION_SCHEMA.tables where table_catalog!='internal'"""
+    qt_sql113 """select * from ${catalog_name}.information_schema.tables where table_catalog!='${catalog_name}'"""
+    qt_sql114 """select * from information_schema.columns where table_catalog!='internal'"""
+    qt_sql115 """select * from ${catalog_name}.information_schema.columns where table_catalog!='${catalog_name}'"""
+    qt_sql116 """select table_catalog, table_schema, table_name from information_schema.tables where table_schema='${innerdb}'"""
+    qt_sql117 """select table_catalog, table_schema, table_name from ${catalog_name}.information_schema.columns where table_schema='tpch1_parquet'"""
+    qt_sql118 """select table_catalog, table_schema, table_name from ${catalog_name}.INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA='tpch1_parquet'"""
 }
