@@ -341,7 +341,8 @@ VDataStreamRecvr::VDataStreamRecvr(
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
         bool is_merging, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
-        : _mgr(stream_mgr),
+        : HasTaskExecutionCtx(state),
+          _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
           _query_mem_tracker(state->query_mem_tracker()),
           _query_id(state->query_id()),
