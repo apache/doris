@@ -67,6 +67,8 @@ Status LocalFileReader::close() {
 
 Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                      const IOContext* /*io_ctx*/) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_impl",
+                                      Status::IOError("inject io error"));
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(

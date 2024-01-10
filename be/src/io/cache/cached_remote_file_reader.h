@@ -25,7 +25,8 @@
 #include <utility>
 
 #include "common/status.h"
-#include "io/cache/block/block_file_cache.h"
+#include "io/cache/block_file_cache_manager.h"
+#include "io/cache/file_cache_utils.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
@@ -54,17 +55,18 @@ public:
 
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
+    static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
 private:
-    std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
 
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
-    IFileCache::Key _cache_key;
-    CloudFileCachePtr _cache;
+    UInt128Wrapper _cache_hash;
+    BlockFileCacheManagerPtr _cache;
 
     struct ReadStatistics {
         bool hit_cache = true;
@@ -76,9 +78,6 @@ private:
         int64_t local_write_timer = 0;
     };
     void _update_state(const ReadStatistics& stats, FileCacheStatistics* state) const;
-
-    Status _read_from_cache(size_t offset, Slice result, size_t* bytes_read,
-                            const IOContext* io_ctx);
 };
 
 } // namespace io
