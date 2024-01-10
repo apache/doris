@@ -39,7 +39,7 @@ public class PersistMetaModules {
             "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
             "plugins", "deleteHandler", "sqlBlockRule", "policy", "globalFunction", "workloadGroups",
-            "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
+            "binlogs", "resourceGroups", "AnalysisMgrV2", "cloudWarmUpJob", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite");
 
     // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)

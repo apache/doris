@@ -237,4 +237,24 @@ public class DynamicPartitionProperty {
         }
         return res;
     }
+
+    public String getCloudProperties() {
+        String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\""
+                + ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\""
+                + ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\""
+                + ",\n\"" + START + "\" = \"" + start + "\""
+                + ",\n\"" + END + "\" = \"" + end + "\""
+                + ",\n\"" + PREFIX + "\" = \"" + prefix + "\""
+                + ",\n\"" + BUCKETS + "\" = \"" + buckets + "\""
+                + ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\""
+                + ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\""
+                + ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\""
+                + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
+        }
+        return res;
+    }
 }

@@ -171,7 +171,13 @@ public class EditLog {
                 case OperationType.OP_SAVE_TRANSACTION_ID: {
                     String idString = ((Text) journal.getData()).toString();
                     long id = Long.parseLong(idString);
-                    Env.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
+                    // SELECTDB_CODE_BEGIN
+                    if (Config.isNotCloudMode()) {
+                        GlobalTransactionMgr globalTransactionMgr = (GlobalTransactionMgr) (Env
+                                .getCurrentGlobalTransactionMgr());
+                        globalTransactionMgr.getTransactionIDGenerator().initTransactionId(id + 1);
+                    }
+                    // SELECTDB_CODE_END
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
@@ -388,6 +394,18 @@ public class EditLog {
                     env.replayUpdateReplica(info);
                     break;
                 }
+                // SELECTDB_CODE_BEGIN
+                case OperationType.OP_UPDATE_CLOUD_REPLICA: {
+                    UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
+                    env.replayUpdateCloudReplica(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB: {
+                    CloudWarmUpJob cloudWarmUpJob = (CloudWarmUpJob) journal.getData();
+                    env.getCacheHotspotMgr().replayCloudWarmUpJob(cloudWarmUpJob);
+                    break;
+                }
+                // SELECTDB_CODE_END
                 case OperationType.OP_DELETE_REPLICA: {
                     ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
                     env.replayDeleteReplica(info);
@@ -1404,6 +1422,12 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_REPLICA, info);
     }
 
+    // SELECTDB_CODE_BEGIN
+    public void logUpdateCloudReplica(UpdateCloudReplicaInfo info) {
+        logEdit(OperationType.OP_UPDATE_CLOUD_REPLICA, info);
+    }
+    // SELECTDB_CODE_END
+
     public void logDeleteReplica(ReplicaPersistInfo info) {
         logEdit(OperationType.OP_DELETE_REPLICA, info);
     }
@@ -1724,6 +1748,10 @@ public class EditLog {
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
         logEdit(OperationType.OP_BATCH_ADD_ROLLUP, batchAlterJobV2);
+    }
+
+    public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
+        logEdit(OperationType.OP_MODIFY_CLOUD_WARM_UP_JOB, cloudWarmUpJob);
     }
 
     public void logModifyDistributionType(TableInfo tableInfo) {

@@ -112,4 +112,28 @@ public class MetaLockUtils {
         }
     }
 
+    public static void cloudCommitLockTables(List<Table> tableList) {
+        for (Table table : tableList) {
+            table.cloudCommitLock();
+        }
+    }
+
+    public static void cloudCommitUnlockTables(List<Table> tableList) {
+        for (int i = tableList.size() - 1; i >= 0; i--) {
+            tableList.get(i).cloudCommitUnlock();
+        }
+    }
+
+    public static boolean tryCloudCommitLockTables(List<Table> tableList, long timeout, TimeUnit unit) {
+        for (int i = 0; i < tableList.size(); i++) {
+            if (!tableList.get(i).tryCloudCommitLock(timeout, unit)) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(j).cloudCommitUnlock();
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
 }

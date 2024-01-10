@@ -213,6 +213,23 @@ public class GsonUtils {
             .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
             .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName());
+
+    // SELECTDB_CODE_BEGIN
+    private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Replica.class, "clazz")
+            .registerSubtype(Replica.class, Replica.class.getSimpleName())
+            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<Partition> partitionTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Partition.class, "clazz")
+            .registerSubtype(Partition.class, Partition.class.getSimpleName())
+            .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
+
+    private static RuntimeTypeAdapterFactory<UpdateCloudReplicaInfo> updateCloudReplicaInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(UpdateCloudReplicaInfo.class, "clazz")
+            .registerSubtype(UpdateCloudReplicaInfo.class, UpdateCloudReplicaInfo.class.getSimpleName());
+    // SELECTDB_CODE_END
+
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
@@ -270,6 +287,11 @@ public class GsonUtils {
             .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory)
             .registerTypeAdapterFactory(syncJobTypeAdapterFactory)
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
+            // SELECTDB_CODE_BEGIN
+            .registerTypeAdapterFactory(replicaTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionTypeAdapterFactory)
+            .registerTypeAdapterFactory(updateCloudReplicaInfoTypeAdapterFactory)
+            // SELECTDB_CODE_END
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)

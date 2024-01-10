@@ -174,6 +174,17 @@ public class Tablet extends MetaObject implements Writable {
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
+            if (Config.isCloudMode()) {
+                if (-1 == backendId) {
+                    hasBackend = true;
+                    if (replica.getVersion() <= version) {
+                        iterator.remove();
+                        delete = true;
+                    }
+                }
+                continue;
+            }
+
             if (replica.getBackendId() == backendId) {
                 hasBackend = true;
                 if (replica.getVersion() <= version) {
@@ -187,6 +198,16 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public void addReplica(Replica replica, boolean isRestore) {
+        if (Config.isCloudMode()) {
+            if (deleteRedundantReplica(-1, replica.getVersion())) {
+                replicas.add(replica);
+                if (!isRestore) {
+                    Env.getCurrentInvertedIndex().addReplica(id, replica);
+                }
+            }
+            return;
+        }
+
         if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
             replicas.add(replica);
             if (!isRestore) {
@@ -230,6 +251,11 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             ReplicaState state = replica.getState();
+            long backendId = replica.getBackendId();
+            if (backendId == -1 && Config.isCloudMode()) {
+                throw new UserException(InternalErrorCode.META_NOT_FOUND_ERR,
+                        SystemInfoService.NOT_USING_VALID_CLUSTER_MSG);
+            }
             if (state.canLoad()
                     || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
                 map.put(replica.getBackendId(), replica.getPathHash());
@@ -305,6 +331,10 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public Replica getReplicaByBackendId(long backendId) {
+        if (Config.isCloudMode() && !replicas.isEmpty()) {
+            LOG.debug("cloud mode one backend only has one replica, backendId: {}, replicas: {}", backendId, replicas);
+            return replicas.get(0);
+        }
         for (Replica replica : replicas) {
             if (replica.getBackendId() == backendId) {
                 return replica;
@@ -382,6 +412,10 @@ public class Tablet extends MetaObject implements Writable {
         id = in.readLong();
         int replicaCount = in.readInt();
         for (int i = 0; i < replicaCount; ++i) {
+            if (Config.isCloudMode()) {
+                replicas.add(CloudReplica.read(in));
+                continue;
+            }
             Replica replica = Replica.read(in);
             if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
                 replicas.add(replica);

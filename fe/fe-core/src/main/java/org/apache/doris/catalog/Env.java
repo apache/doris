@@ -3073,6 +3073,12 @@ public class Env {
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
                                   boolean getBriefDdl, boolean getDdlForSync) {
+        // TODO(luwei): Fix boolean getBriefDdl, boolean getDdlForSync
+        if (Config.isCloudMode()) {
+            getCloudDdlStmt(ddlStmt, dbName, table, createTableStmt, addPartitionStmt, createRollupStmt,
+                    separatePartition, hidePassword, getDdlForLike, specificVersion);
+            return;
+        }
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3614,6 +3620,452 @@ public class Env {
         }
     }
 
+    public static void getCloudDdlStmt(DdlStmt ddlStmt, String dbName, TableIf table, List<String> createTableStmt,
+            List<String> addPartitionStmt, List<String> createRollupStmt, boolean separatePartition,
+            boolean hidePassword, boolean getDdlForLike, long specificVersion) {
+        StringBuilder sb = new StringBuilder();
+
+        // 1. create table
+        // 1.1 view
+        if (table.getType() == TableType.VIEW) {
+            View view = (View) table;
+
+            sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            if (StringUtils.isNotBlank(table.getComment())) {
+                sb.append(" COMMENT '").append(table.getComment()).append("'");
+            }
+            sb.append(" AS ").append(view.getInlineViewDef());
+            createTableStmt.add(sb + ";");
+            return;
+        }
+
+        // 1.2 other table type
+        sb.append("CREATE ");
+        if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
+                || table.getType() == TableType.ELASTICSEARCH || table.getType() == TableType.BROKER
+                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
+            sb.append("EXTERNAL ");
+        }
+        sb.append(table.getType() != TableType.MATERIALIZED_VIEW ? "TABLE " : "MATERIALIZED VIEW ");
+
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("`.");
+        }
+        sb.append("`").append(table.getName()).append("`");
+
+        if (table.getType() != TableType.MATERIALIZED_VIEW) {
+            sb.append(" (\n");
+            int idx = 0;
+            List<Column> columns;
+            // when 'create table B like A', always return schema of A without hidden columns
+            if (getDdlForLike) {
+                columns = table.getBaseSchema(false);
+            } else {
+                columns = table.getBaseSchema();
+            }
+            for (Column column : columns) {
+                if (idx++ != 0) {
+                    sb.append(",\n");
+                }
+                // There MUST BE 2 space in front of each column description line
+                // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
+                if (table.getType() == TableType.OLAP) {
+                    sb.append("  ").append(
+                            column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+                } else {
+                    sb.append("  ").append(column.toSql());
+                }
+            }
+            if (table.getType() == TableType.OLAP) {
+                OlapTable olapTable = (OlapTable) table;
+                if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                    for (Index index : olapTable.getIndexes()) {
+                        sb.append(",\n");
+                        sb.append("  ").append(index.toSql());
+                    }
+                }
+            }
+            sb.append("\n) ENGINE=");
+            sb.append(table.getType().name());
+        } else {
+            MaterializedView materializedView = ((MaterializedView) table);
+            sb.append("\n").append("BUILD ").append(materializedView.getBuildMode())
+                    .append(materializedView.getRefreshInfo().toString());
+        }
+
+        if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
+            OlapTable olapTable = (OlapTable) table;
+
+            // keys
+            String keySql = olapTable.getKeysType().toSql();
+            if (olapTable.isDuplicateWithoutKey()) {
+                // after #18621, use can create a DUP_KEYS olap table without key columns
+                // and get a ddl schema without key type and key columns
+            } else {
+                sb.append("\n").append(table.getType() == TableType.OLAP
+                                ? keySql
+                                : keySql.substring("DUPLICATE ".length()))
+                        .append("(");
+                List<String> keysColumnNames = Lists.newArrayList();
+                for (Column column : olapTable.getBaseSchema()) {
+                    if (column.isKey()) {
+                        keysColumnNames.add("`" + column.getName() + "`");
+                    }
+                }
+                sb.append(Joiner.on(", ").join(keysColumnNames)).append(")");
+            }
+
+            if (specificVersion != -1) {
+                // for copy tablet operation
+                sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
+                        .append(") BUCKETS 1");
+                sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
+                        + specificVersion + "\"\n" + ")");
+                createTableStmt.add(sb + ";");
+                return;
+            }
+
+            if (table.getType() != TableType.MATERIALIZED_VIEW) {
+                addTableComment(olapTable, sb);
+            }
+
+            // partition
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            List<Long> partitionId = null;
+            if (separatePartition) {
+                partitionId = Lists.newArrayList();
+            }
+            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+                sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
+            }
+
+            // distribution
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            sb.append("\n").append(distributionInfo.toSql());
+
+            // rollup index
+            if (ddlStmt instanceof CreateTableLikeStmt) {
+
+                CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
+
+                ArrayList<String> rollupNames = stmt.getRollupNames();
+                boolean withAllRollup = stmt.isWithAllRollup();
+                List<Long> addIndexIdList = Lists.newArrayList();
+
+                if (!CollectionUtils.isEmpty(rollupNames)) {
+                    for (String rollupName : rollupNames) {
+                        addIndexIdList.add(olapTable.getIndexIdByName(rollupName));
+                    }
+                } else if (withAllRollup) {
+                    addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
+                }
+
+                if (!addIndexIdList.isEmpty()) {
+                    sb.append("\n").append("rollup (");
+                }
+
+                int size = addIndexIdList.size();
+                int index = 1;
+                for (long indexId : addIndexIdList) {
+                    String indexName = olapTable.getIndexNameById(indexId);
+                    sb.append("\n").append(indexName).append("(");
+                    List<Column> indexSchema = olapTable.getSchemaByIndexId(indexId, false);
+                    for (int i = 0; i < indexSchema.size(); i++) {
+                        Column column = indexSchema.get(i);
+                        sb.append(column.getName());
+                        if (i != indexSchema.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    if (index != size) {
+                        sb.append("),");
+                    } else {
+                        sb.append(")");
+                        sb.append("\n)");
+                    }
+                    index++;
+                }
+            }
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+            sb.append(olapTable.getTTLSeconds()).append("\"");
+
+            // bloom filter
+            Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
+            if (bfColumnNames != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
+                sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
+            }
+
+            if (separatePartition) {
+                // version info
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
+                Partition partition = null;
+                if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+                    partition = olapTable.getPartition(olapTable.getName());
+                } else {
+                    Preconditions.checkState(partitionId.size() == 1);
+                    partition = olapTable.getPartition(partitionId.get(0));
+                }
+                sb.append(partition.getVisibleVersion()).append("\"");
+            }
+
+            // colocateTable
+            String colocateTable = olapTable.getColocateGroup();
+            if (colocateTable != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+                sb.append(colocateTable).append("\"");
+            }
+
+            // dynamic partition
+            if (olapTable.dynamicPartitionExists()) {
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getCloudProperties());
+            }
+
+            // only display z-order sort info
+            if (olapTable.isZOrderSort()) {
+                sb.append(olapTable.getDataSortInfo().toSql());
+            }
+
+            // compression type
+            if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
+                sb.append(olapTable.getCompressionType()).append("\"");
+            }
+
+            // sequence type
+            if (olapTable.hasSequenceCol()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
+                sb.append(olapTable.getSequenceType().toString()).append("\"");
+            }
+
+            // unique key table with merge on write
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
+                sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
+            }
+
+            // show lightSchemaChange only when it is set true
+            if (olapTable.getEnableLightSchemaChange()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
+                sb.append(olapTable.getEnableLightSchemaChange()).append("\"");
+            }
+
+            // show storeRowColumn only when it is set true
+            if (olapTable.storeRowColumn()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+                sb.append(olapTable.storeRowColumn()).append("\"");
+            }
+
+            // group commit interval ms
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
+            sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // enable duplicate without keys by default
+            if (olapTable.isDuplicateWithoutKey()) {
+                sb.append(",\n\"")
+                        .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
+                        .append("\" = \"");
+                sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+            }
+
+            sb.append("\n)");
+        } else if (table.getType() == TableType.MYSQL) {
+            MysqlTable mysqlTable = (MysqlTable) table;
+
+            addTableComment(mysqlTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            if (mysqlTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
+                sb.append("\"charset\" = \"").append(mysqlTable.getCharset()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName())
+                        .append("\",\n");
+            }
+            sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.ODBC) {
+            OdbcTable odbcTable = (OdbcTable) table;
+
+            addTableComment(odbcTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            if (odbcTable.getOdbcCatalogResourceName() == null) {
+                sb.append("\"host\" = \"").append(odbcTable.getHost()).append("\",\n");
+                sb.append("\"port\" = \"").append(odbcTable.getPort()).append("\",\n");
+                sb.append("\"user\" = \"").append(odbcTable.getUserName()).append("\",\n");
+                sb.append("\"password\" = \"").append(hidePassword ? "" : odbcTable.getPasswd()).append("\",\n");
+                sb.append("\"driver\" = \"").append(odbcTable.getOdbcDriver()).append("\",\n");
+                sb.append("\"odbc_type\" = \"").append(odbcTable.getOdbcTableTypeName()).append("\",\n");
+                sb.append("\"charest\" = \"").append(odbcTable.getCharset()).append("\",\n");
+            } else {
+                sb.append("\"odbc_catalog_resource\" = \"").append(odbcTable.getOdbcCatalogResourceName())
+                        .append("\",\n");
+            }
+            sb.append("\"database\" = \"").append(odbcTable.getOdbcDatabaseName()).append("\",\n");
+            sb.append("\"table\" = \"").append(odbcTable.getOdbcTableName()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.BROKER) {
+            BrokerTable brokerTable = (BrokerTable) table;
+
+            addTableComment(brokerTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"broker_name\" = \"").append(brokerTable.getBrokerName()).append("\",\n");
+            sb.append("\"path\" = \"").append(Joiner.on(",").join(brokerTable.getEncodedPaths())).append("\",\n");
+            sb.append("\"column_separator\" = \"").append(brokerTable.getReadableColumnSeparator()).append("\",\n");
+            sb.append("\"line_delimiter\" = \"").append(brokerTable.getReadableLineDelimiter()).append("\",\n");
+            sb.append(")");
+            if (!brokerTable.getBrokerProperties().isEmpty()) {
+                sb.append("\nBROKER PROPERTIES (\n");
+                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                        hidePassword).toString());
+                sb.append("\n)");
+            }
+        } else if (table.getType() == TableType.ELASTICSEARCH) {
+            EsTable esTable = (EsTable) table;
+
+            addTableComment(esTable, sb);
+
+            // partition
+            PartitionInfo partitionInfo = esTable.getPartitionInfo();
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                sb.append("\n");
+                sb.append("PARTITION BY RANGE(");
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                for (Column column : rangePartitionInfo.getPartitionColumns()) {
+                    sb.append("`").append(column.getName()).append("`");
+                }
+                sb.append(")\n()");
+            }
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"hosts\" = \"").append(esTable.getHosts()).append("\",\n");
+            sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
+            sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
+            sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
+            if (esTable.getMappingType() != null) {
+                sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\",\n");
+            }
+            sb.append("\"enable_docvalue_scan\" = \"").append(esTable.isEnableDocValueScan()).append("\",\n");
+            sb.append("\"max_docvalue_fields\" = \"").append(esTable.getMaxDocValueFields()).append("\",\n");
+            sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isEnableKeywordSniff()).append("\",\n");
+            sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\"like_push_down\" = \"").append(esTable.isLikePushDown()).append("\"\n");
+            sb.append(")");
+        } else if (table.getType() == TableType.HIVE) {
+            HiveTable hiveTable = (HiveTable) table;
+
+            addTableComment(hiveTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
+            sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
+            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
+        } else if (table.getType() == TableType.ICEBERG) {
+            IcebergTable icebergTable = (IcebergTable) table;
+
+            addTableComment(icebergTable, sb);
+
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
+            sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
+            sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
+        } else if (table.getType() == TableType.JDBC) {
+            JdbcTable jdbcTable = (JdbcTable) table;
+            addTableComment(jdbcTable, sb);
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"resource\" = \"").append(jdbcTable.getResourceName()).append("\",\n");
+            sb.append("\"table\" = \"").append(jdbcTable.getJdbcTable()).append("\",\n");
+            sb.append("\"table_type\" = \"").append(jdbcTable.getJdbcTypeName()).append("\"");
+            sb.append("\n)");
+        }
+
+        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+            sb.append("\nAS ").append(((MaterializedView) table).getQuery());
+        }
+
+        createTableStmt.add(sb + ";");
+
+        // 2. add partition
+        if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
+            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
+                    || ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
+                OlapTable olapTable = (OlapTable) table;
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                boolean first = true;
+                for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getPartitionItemEntryList(false, true)) {
+                    if (first) {
+                        first = false;
+                        continue;
+                    }
+                    sb = new StringBuilder();
+                    Partition partition = olapTable.getPartition(entry.getKey());
+                    sb.append("ALTER TABLE ").append(table.getName());
+                    sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES ");
+                    if (partitionInfo.getType() == PartitionType.RANGE) {
+                        sb.append("[");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().lowerEndpoint().toSql());
+                        sb.append(", ");
+                        sb.append(((RangePartitionItem) entry.getValue()).getItems().upperEndpoint().toSql());
+                        sb.append(")");
+                    } else if (partitionInfo.getType() == PartitionType.LIST) {
+                        sb.append("IN (");
+                        sb.append(((ListPartitionItem) entry.getValue()).toSql());
+                        sb.append(")");
+                    }
+                    sb.append("(\"version_info\" = \"");
+                    sb.append(partition.getVisibleVersion()).append("\"");
+                    sb.append(");");
+                    addPartitionStmt.add(sb + ";");
+                }
+            }
+        }
+
+        // 3. rollup
+        if (createRollupStmt != null && (table instanceof OlapTable)) {
+            OlapTable olapTable = (OlapTable) table;
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
+                if (entry.getKey() == olapTable.getBaseIndexId()) {
+                    continue;
+                }
+                MaterializedIndexMeta materializedIndexMeta = entry.getValue();
+                sb = new StringBuilder();
+                String indexName = olapTable.getIndexNameById(entry.getKey());
+                sb.append("ALTER TABLE ").append(table.getName()).append(" ADD ROLLUP ").append(indexName);
+                sb.append("(");
+
+                List<Column> indexSchema = materializedIndexMeta.getSchema();
+                for (int i = 0; i < indexSchema.size(); i++) {
+                    Column column = indexSchema.get(i);
+                    sb.append(column.getName());
+                    if (i != indexSchema.size() - 1) {
+                        sb.append(", ");
+                    }
+                }
+                sb.append(");");
+                createRollupStmt.add(sb + ";");
+            }
+        }
+    }
+
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
         getInternalCatalog().replayCreateTable(dbName, table);
     }
@@ -3660,6 +4112,10 @@ public class Env {
 
     public void replayDeleteReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
         getInternalCatalog().replayDeleteReplica(info);
+    }
+
+    public void replayUpdateCloudReplica(UpdateCloudReplicaInfo info) throws MetaNotFoundException {
+        getInternalCatalog().replayUpdateCloudReplica(info);
     }
 
     public void replayAddFrontend(Frontend fe) {
@@ -5638,6 +6094,45 @@ public class Env {
         }
     }
 
+    public void dropTableByIndexs(OlapTable olapTable) {
+        List<Long> indexs = new ArrayList<Long>();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            for (MaterializedIndex materializedIndex : allIndices) {
+                long indexId = materializedIndex.getId();
+                indexs.add(indexId);
+            }
+        }
+
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > Config.drop_rpc_retry_num) {
+                LOG.warn("failed to drop index {} of table {}, try cnt {} reaches maximum retry count",
+                            indexs, olapTable.getId(), tryCnt);
+                break;
+            }
+
+            try {
+                if (indexs.isEmpty()) {
+                    break;
+                }
+                Env.getCurrentInternalCatalog().dropCloudMaterializedIndex(olapTable.getId(), indexs);
+            } catch (Exception e) {
+                LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
+                        indexs, olapTable.getId(), tryCnt, e);
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    LOG.warn("Thread sleep is interrupted");
+                }
+                continue;
+            }
+            break;
+        }
+
+        Env.getCurrentColocateIndex().removeTable(olapTable.getId());
+    }
+
     public void onEraseOlapTable(OlapTable olapTable, boolean isReplay) {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -5650,6 +6145,10 @@ public class Env {
             }
         }
 
+        if (Config.isCloudMode() && Env.getCurrentEnv().isMaster()) {
+            dropTableByIndexs(olapTable);
+            return;
+        }
         if (!isReplay && !Env.isCheckpointThread()) {
             // drop all replicas
             AgentBatchTask batchTask = new AgentBatchTask();
@@ -5679,6 +6178,42 @@ public class Env {
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
+    public void dropCloudPartition(CloudPartition partition) {
+        long tableId = -1;
+        List<Long> partitionIds = new ArrayList<Long>();
+        List<Long> indexIds = new ArrayList<Long>();
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            indexIds.add(index.getId());
+            if (tableId == -1) {
+                tableId = ((CloudReplica) index.getTablets().get(0).getReplicas().get(0)).getTableId();
+            }
+        }
+        partitionIds.add(partition.getId());
+
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > Config.drop_rpc_retry_num) {
+                LOG.warn("failed to drop partition {} of table {}, try cnt {} reaches maximum retry count",
+                        partitionIds, tableId, tryCnt);
+                break;
+            }
+            try {
+                Env.getCurrentInternalCatalog()
+                        .dropCloudPartition(partition.getDbId(), tableId, partitionIds, indexIds);
+            } catch (Exception e) {
+                LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
+                        partitionIds, tableId, tryCnt, e);
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    LOG.warn("Thread sleep is interrupted");
+                }
+                continue;
+            }
+            break;
+        }
+    }
+
     public void onErasePartition(Partition partition) {
         // remove tablet in inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
@@ -5686,6 +6221,10 @@ public class Env {
             for (Tablet tablet : index.getTablets()) {
                 invertedIndex.deleteTablet(tablet.getId());
             }
+        }
+
+        if (Config.isCloudMode() && Env.getCurrentEnv().isMaster()) {
+            dropCloudPartition((CloudPartition) partition);
         }
     }
 

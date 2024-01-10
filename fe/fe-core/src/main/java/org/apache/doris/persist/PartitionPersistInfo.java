@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.RangeUtils;
@@ -136,7 +137,11 @@ public class PartitionPersistInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
-        partition = Partition.read(in);
+        if (Config.isNotCloudMode()) {
+            partition = Partition.read(in);
+        } else {
+            partition = CloudPartition.read(in);
+        }
 
         range = RangeUtils.readRange(in);
         listPartitionItem = ListPartitionItem.read(in);

@@ -236,6 +236,9 @@ public class DynamicPartitionUtil {
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
             Database db) throws DdlException {
+        if (Config.isCloudMode()) { // selectdb cloud, skip checking
+            return;
+        }
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
@@ -635,10 +638,14 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
-            String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
-            checkReplicationNum(val, db);
+            if (Config.isCloudMode()) {
+                replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
+            } else {
+                String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
+                checkReplicationNum(val, db);
+                replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
+            }
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-            replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
                     replicaAlloc.toCreateStmt());
         } else {

@@ -600,7 +600,17 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
         if (value.equalsIgnoreCase("true")) {
             return true;
-        } else if (value.equalsIgnoreCase("false")) {
+        }
+        if (Config.isCloudMode()) {
+            if (Config.light_schema_change_force_to_true) {
+                LOG.info("light sc is forced to true in cloud mode, origin value {}", value);
+                return true;
+            } else {
+                throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE
+                        + " must be `true`");
+            }
+        }
+        if (value.equalsIgnoreCase("false")) {
             return false;
         }
         throw new AnalysisException(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE + " must be `true` or `false`");
@@ -985,6 +995,38 @@ public class PropertyAnalyzer {
         }
         return tagMap;
     }
+
+    // SELECTDB_CODE_BEGIN
+    public static void checkCloudTableProperty(Map<String, String> properties) throws AnalysisException {
+        if (Config.ignore_unsupported_properties_in_cloud_mode
+                || properties == null || properties.isEmpty()) {
+            return;
+        }
+
+        List<String> unsupportedProperties = new ArrayList<String>();
+        unsupportedProperties.add(PROPERTIES_INMEMORY);
+        unsupportedProperties.add(PROPERTIES_STORAGE_MEDIUM);
+        unsupportedProperties.add(PROPERTIES_STORAGE_FORMAT);
+        unsupportedProperties.add(PROPERTIES_STORAGE_POLICY);
+        unsupportedProperties.add(PROPERTIES_STORAGE_POLICY);
+        unsupportedProperties.add(PROPERTIES_STORAGE_COOLDOWN_TIME);
+        unsupportedProperties.add(PROPERTIES_DISABLE_AUTO_COMPACTION);
+        // unsupportedProperties.add(ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        unsupportedProperties.add(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE);
+        unsupportedProperties.add(PROPERTIES_REPLICATION_ALLOCATION);
+        unsupportedProperties.add(PROPERTIES_REPLICATION_NUM);
+
+        unsupportedProperties.add(DynamicPartitionProperty.REPLICATION_NUM);
+        unsupportedProperties.add(DynamicPartitionProperty.REPLICATION_ALLOCATION);
+        unsupportedProperties.add(DynamicPartitionProperty.STORAGE_POLICY);
+
+        for (String property : unsupportedProperties) {
+            if (properties.containsKey(property)) {
+                throw new AnalysisException("Unsupported property: " + property + " in cloud mode");
+            }
+        }
+    }
+    // SELECTDB_CODE_END
 
     public static boolean hasBinlogConfig(Map<String, String> properties) {
         if (properties == null || properties.isEmpty()) {

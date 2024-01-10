@@ -991,6 +991,17 @@ public class OlapTable extends Table {
     //
     // ATTN: partitions not belonging to this table will be filtered.
     public List<Long> selectNonEmptyPartitionIds(Collection<Long> partitionIds) {
+        if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
+            // Assumption: all partitions are CloudPartition.
+            List<CloudPartition> partitions = partitionIds.stream()
+                    .map(this::getPartition)
+                    .filter(p -> p != null)
+                    .filter(p -> p instanceof CloudPartition)
+                    .map(p -> (CloudPartition) p)
+                    .collect(Collectors.toList());
+            return CloudPartition.selectNonEmptyPartitionIds(partitions);
+        }
+
         return partitionIds.stream()
                 .map(this::getPartition)
                 .filter(p -> p != null)
@@ -1478,7 +1489,12 @@ public class OlapTable extends Table {
 
         int partitionCount = in.readInt();
         for (int i = 0; i < partitionCount; ++i) {
-            Partition partition = Partition.read(in);
+            Partition partition;
+            if (Config.isNotCloudMode()) {
+                partition = Partition.read(in);
+            } else {
+                partition = CloudPartition.read(in);
+            }
             idToPartition.put(partition.getId(), partition);
             nameToPartition.put(partition.getName(), partition);
         }

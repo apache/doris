@@ -84,6 +84,10 @@ public class TempPartitions implements Writable, GsonPostProcessable {
                         invertedIndex.deleteTablet(tablet.getId());
                     }
                 }
+
+                if (Config.isCloudMode() && Env.getCurrentEnv().isMaster()) {
+                    Env.getCurrentEnv().dropCloudPartition((CloudPartition) partition);
+                }
             }
         }
     }
@@ -141,7 +145,12 @@ public class TempPartitions implements Writable, GsonPostProcessable {
     private void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            Partition partition = Partition.read(in);
+            Partition partition;
+            if (Config.isNotCloudMode()) {
+                partition = Partition.read(in);
+            } else {
+                partition = CloudPartition.read(in);
+            }
             idToPartition.put(partition.getId(), partition);
             nameToPartition.put(partition.getName(), partition);
         }
