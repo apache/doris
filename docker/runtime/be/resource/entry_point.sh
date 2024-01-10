@@ -261,21 +261,29 @@ check_arg() {
 
 _main() {
     docker_required_variables_env
-    # get init args
-    get_doris_args
-    docker_setup_env
-    # Start Doris BE
-    {
-        set +e
-        bash init_be.sh 2>/dev/null
-    } &
-    # check BE started status
-    check_be_status
-    if [ -z ${DATABASE_ALREADY_EXISTS} ]; then
-        # run script
-        sleep 15
-        docker_process_init_files /docker-entrypoint-initdb.d/*
+    trap 'cleanup' SIGTERM SIGINT
+    if [[ $RUN_TYPE == "K8S" ]]; then
+        start_be.sh &
+        child_pid=$!
+    else
+        # get init args
+        get_doris_args
+        docker_setup_env
+        # Start Doris BE
+        {
+            set +e
+            bash init_be.sh 2>/dev/null
+        } &
+        # check BE started status
+        check_be_status
+        if [ -z ${DATABASE_ALREADY_EXISTS} ]; then
+            # run script
+            sleep 15
+            docker_process_init_files /docker-entrypoint-initdb.d/*
+        fi
     fi
+    wait $child_pid
+    exec "$@"
 
     # keep BE started status
     wait
