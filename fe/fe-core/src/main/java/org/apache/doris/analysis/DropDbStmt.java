@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -58,7 +59,7 @@ public class DropDbStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
-
+        InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get().getCurrentUserIdentity());
         // Don't allow to drop mysql compatible databases
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db != null && (db instanceof Database) && ((Database) db).isMysqlCompatibleDatabase()) {

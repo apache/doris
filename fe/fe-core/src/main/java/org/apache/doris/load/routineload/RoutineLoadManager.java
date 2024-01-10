@@ -40,6 +40,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -151,6 +152,8 @@ public class RoutineLoadManager implements Writable {
 
     public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
             throws UserException {
+        InternalDatabaseUtil
+                .checkDatabase(createRoutineLoadStmt.getDBName(), ConnectContext.get().getCurrentUserIdentity());
         // check load auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 createRoutineLoadStmt.getDBName(),

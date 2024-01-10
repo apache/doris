@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -125,6 +126,7 @@ public class MultiAction extends RestBaseController {
                 return new RestBaseResult("No label selected");
             }
             String fullDbName = getFullDbName(dbName);
+            InternalDatabaseUtil.checkDatabase(fullDbName, ConnectContext.get().getCurrentUserIdentity());
             checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
             // Multi start request must redirect to master, because all following sub requests will be handled
