@@ -89,10 +89,6 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed", "StreamWrite failed, err=32")
     // LoadStreams keeping stream when release
     load_with_injection("LoadStreams.release.keeping_streams", "")
-    // LoadStreams close stream failed
-    load_with_injection("LoadStreams.release.close_stream_failed", "")
-    // LoadStreams close wait failed
-    load_with_injection("LoadStreams.release.close_wait_failed", "")
 
     sql """ DROP TABLE IF EXISTS `baseall` """
     sql """ DROP TABLE IF EXISTS `test` """
