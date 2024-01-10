@@ -39,7 +39,7 @@ git fetch "${remote_to}"
 echo
 echo "step2: get pr ${pr} commit id using gh cli"
 commitid=$(gh pr view "${pr}" --repo "${doris_repo}" --json mergeCommit -t '{{.mergeCommit.oid}}')
-if ! git show --stat "${commitid}" ; then
+if ! git show --stat "${commitid}"; then
     echo "git show --stat ${commitid} failed, ${commitid} is invalid"
     echo
     exit 2
@@ -48,20 +48,20 @@ fi
 echo
 echo "step3: create local branch ${branch_pick} based on remote branch ${branch_to}"
 branch_pick=$(echo "pick_${pr}_to_${branch_to}" | sed 's|/|_|g')
-if ! git checkout -b "${branch_pick} ${branch_to}" ; then
+if ! git checkout -b "${branch_pick} ${branch_to}"; then
     echo "git checkout -b ${branch_pick} ${branch_to} failed"
     echo
     exit 3
 fi
 
 echo
-echo -n "step4: will run git cherry-pick ${commitid} , please confirm y/n: "
+echo "step4: will run git cherry-pick ${commitid} , please confirm y/n: "
 
 read -r ans
 echo
 if [ "${ans}" = "y" ]; then
-    if ! git cherry-pick "${commitid}" ; then
-        echo -n "git cherry-pick return none zero $?, wait for manual processing, please confirm continue or exit c/e: "
+    if ! git cherry-pick "${commitid}"; then
+        echo "git cherry-pick return none zero $?, wait for manual processing, please confirm continue or exit c/e: "
         read -r ans
         if [ "${ans}" != "c" ]; then
             echo "manual processing confirm ${ans} is not c, git cherry-pick --abort and exit now"
