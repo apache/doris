@@ -27,7 +27,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Set;
 
 public class UniqueConstraint extends Constraint {
-    @SerializedName(value = "columns")
+    @SerializedName(value = "cols")
     private final Set<String> columns;
 
     public UniqueConstraint(String name, Set<String> columns) {

@@ -32,7 +32,7 @@ public abstract class Constraint implements Writable {
         FOREIGN_KEY("FOREIGN KEY"),
         PRIMARY_KEY("PRIMARY KEY"),
         UNIQUE("UNIQUE");
-        @SerializedName(value = "typeName")
+        @SerializedName(value = "tn")
         private final String name;
 
         ConstraintType(String stringValue) {
@@ -44,9 +44,9 @@ public abstract class Constraint implements Writable {
         }
     }
 
-    @SerializedName(value = "name")
+    @SerializedName(value = "n")
     private final String name;
-    @SerializedName(value = "type")
+    @SerializedName(value = "ty")
     private final ConstraintType type;
 
 

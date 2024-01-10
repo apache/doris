@@ -30,11 +30,11 @@ import java.util.List;
 import java.util.Set;
 
 public class PrimaryKeyConstraint extends Constraint {
-    @SerializedName(value = "columns")
+    @SerializedName(value = "cols")
     private final Set<String> columns;
 
     // record the foreign table which references the primary key
-    @SerializedName(value = "foreignTables")
+    @SerializedName(value = "ft")
     private final Set<TableIdentifier> foreignTables = new HashSet<>();
 
     public PrimaryKeyConstraint(String name, Set<String> columns) {

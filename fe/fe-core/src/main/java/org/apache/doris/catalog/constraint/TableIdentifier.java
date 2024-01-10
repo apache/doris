@@ -27,9 +27,9 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Objects;
 
 public class TableIdentifier {
-    @SerializedName(value = "databaseId")
+    @SerializedName(value = "dbId")
     private final long databaseId;
-    @SerializedName(value = "tableId")
+    @SerializedName(value = "tId")
     private final long tableId;
 
     public TableIdentifier(TableIf tableIf) {

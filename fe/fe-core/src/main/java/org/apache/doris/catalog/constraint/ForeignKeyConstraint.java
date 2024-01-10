@@ -32,9 +32,9 @@ import java.util.Objects;
 import java.util.Set;
 
 public class ForeignKeyConstraint extends Constraint {
-    @SerializedName(value = "foreignToReference")
+    @SerializedName(value = "ftr")
     private final Map<String, String> foreignToReference;
-    @SerializedName(value = "referencedTable")
+    @SerializedName(value = "rt")
     private final TableIdentifier referencedTable;
 
     public ForeignKeyConstraint(String name, List<String> columns,

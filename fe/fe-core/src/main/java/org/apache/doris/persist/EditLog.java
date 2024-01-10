@@ -78,9 +78,6 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -1158,11 +1155,6 @@ public class EditLog {
                 case OperationType.OP_ALTER_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
-                    break;
-                }
-                case OperationType.OP_ORIGINAL_STATEMENT: {
-                    OriginStatement statement = (OriginStatement) journal.getData();
-                    new StmtExecutor(new ConnectContext(), statement.originStmt);
                     break;
                 }
                 default: {
