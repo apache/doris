@@ -285,6 +285,10 @@ struct WhichDataType {
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
     bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
 
+    bool is_ipv4() const { return idx == TypeIndex::IPv4; }
+    bool is_ipv6() const { return idx == TypeIndex::IPv6; }
+    bool is_ip() const { return is_ipv4() || is_ipv6(); }
+
     bool is_string() const { return idx == TypeIndex::String; }
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
@@ -339,6 +343,15 @@ inline bool is_map(const DataTypePtr& data_type) {
 }
 inline bool is_struct(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_struct();
+}
+inline bool is_ipv4(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_ipv4();
+}
+inline bool is_ipv6(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_ipv6();
+}
+inline bool is_ip(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_ip();
 }
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();
