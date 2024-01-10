@@ -74,7 +74,7 @@ public:
     Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
                                         size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
-    Status get_wal_dir_info(const std::string& wal_dir, std::shared_ptr<WalDirInfo> wal_dir_info);
+    Status get_wal_dir_info(const std::string& wal_dir, std::shared_ptr<WalDirInfo>& wal_dir_info);
 
 private:
     std::vector<std::shared_ptr<WalDirInfo>> _wal_dirs_info_vec;

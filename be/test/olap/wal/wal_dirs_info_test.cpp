@@ -14,15 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include "olap/wal/wal_dirs_info.h"
+
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <memory>
 
-#include "olap/wal/wal_dirs_info.h"
-
 namespace doris {
-std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 
 class WalDirsInfoTest : public testing::Test {
 public:
@@ -41,45 +40,41 @@ public:
     }
     void TearDown() override {}
 
-    WalDirsInfo wal_dirs_info;
-    // exist
-    std::string wal_dir_test_1 = wal_dir + "/test_1";
-    std::string wal_dir_test_2 = wal_dir + "/test_2";
-    std::string wal_dir_test_3 = wal_dir + "/test_3";
-    // not exist
-    std::string wal_dir_test_4 = wal_dir + "/test_4";
-
-private:
     void set_and_check_success(std::string wal_dir, size_t limit, size_t used,
                                size_t pre_allocated) {
         Status st = wal_dirs_info.update_wal_dir_limit(wal_dir, limit);
         EXPECT_EQ(st, Status::OK());
         std::shared_ptr<WalDirInfo> wal_dir_info;
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
+        EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_limit(), limit);
 
         st = wal_dirs_info.update_wal_dir_used(wal_dir, used);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
+        EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_used(), used);
 
         st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, pre_allocated, 0);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
+        EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_pre_allocated(), pre_allocated);
 
         st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, 0, pre_allocated);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
+        EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_pre_allocated(), 0);
 
         st = wal_dirs_info.update_wal_dir_pre_allocated(wal_dir, pre_allocated, 0);
         EXPECT_EQ(st, Status::OK());
         st = wal_dirs_info.get_wal_dir_info(wal_dir, wal_dir_info);
+        EXPECT_NE(wal_dir_info, nullptr);
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(wal_dir_info->get_pre_allocated(), pre_allocated);
 
@@ -90,6 +85,15 @@ private:
         Status st = wal_dirs_info.update_wal_dir_limit(wal_dir, limit);
         EXPECT_EQ(st, Status::InternalError(""));
     }
+
+    WalDirsInfo wal_dirs_info;
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
+    // exist
+    std::string wal_dir_test_1 = wal_dir + "/test_1";
+    std::string wal_dir_test_2 = wal_dir + "/test_2";
+    std::string wal_dir_test_3 = wal_dir + "/test_3";
+    // not exist
+    std::string wal_dir_test_4 = wal_dir + "/test_4";
 };
 
 TEST_F(WalDirsInfoTest, test_wal_set_data) {
@@ -106,7 +110,6 @@ TEST_F(WalDirsInfoTest, test_wal_dir_select_random_strategy) {
     set_and_check_success(wal_dir_test_2, 1000, 200, 300);
     // available 100
     set_and_check_success(wal_dir_test_3, 1000, 400, 500);
-
     for (int i = 0; i < 100; i++) {
         std::string wal_dir = wal_dirs_info.get_available_random_wal_dir();
         EXPECT_NE(wal_dir, wal_dir_test_3);

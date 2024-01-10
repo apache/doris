@@ -133,15 +133,14 @@ std::string WalDirsInfo::get_available_random_wal_dir() {
         }
         if (available_wal_dirs.empty()) {
             // if all wal dirs used space > wal dir limit * 80%, we use the max available wal dir.
-            return (*std::min_element(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
+            return (*std::max_element(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
                                       [](const auto& info1, const auto& info2) {
                                           return info1->available() < info2->available();
                                       }))
                     ->get_wal_dir();
         } else {
             // if there are wal dirs used space < wal dir limit * 80%, we use random wal dir.
-            return (*std::next(_wal_dirs_info_vec.begin(), rand() % _wal_dirs_info_vec.size()))
-                    ->get_wal_dir();
+            return (*std::next(available_wal_dirs.begin(), rand() % available_wal_dirs.size()));
         }
     }
 }
@@ -215,7 +214,7 @@ Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
 }
 
 Status WalDirsInfo::get_wal_dir_info(const std::string& wal_dir,
-                                     std::shared_ptr<WalDirInfo> wal_dir_info) {
+                                     std::shared_ptr<WalDirInfo>& wal_dir_info) {
     std::shared_lock l(_lock);
     auto it = std::find_if(_wal_dirs_info_vec.begin(), _wal_dirs_info_vec.end(),
                            [&wal_dir](auto w) { return w->get_wal_dir() == wal_dir; });
