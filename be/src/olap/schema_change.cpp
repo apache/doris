@@ -1105,7 +1105,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
                          << "tablet=" << sc_params.new_tablet->tablet_id() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
-            return process_alter_exit();
+            res = Status::OK();
         } else if (!res) {
             LOG(WARNING) << "failed to register new version. "
                          << " tablet=" << sc_params.new_tablet->tablet_id()

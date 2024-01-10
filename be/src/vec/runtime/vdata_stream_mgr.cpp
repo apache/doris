@@ -118,6 +118,15 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
         return Status::EndOfFile("data stream receiver closed");
     }
 
+    // Lock the fragment context to ensure the runtime state and other objects are not
+    // deconstructed
+    auto ctx_lock = recvr->task_exec_ctx();
+    if (ctx_lock == nullptr) {
+        // Do not return internal error, because when query finished, the downstream node
+        // may finish before upstream node. And the object maybe deconstructed. If return error
+        // then the upstream node may report error status to FE, the query is failed.
+        return Status::EndOfFile("data stream receiver is deconstructed");
+    }
     // request can only be used before calling recvr's add_batch or when request
     // is the last for the sender, because request maybe released after it's batch
     // is consumed by ExchangeNode.

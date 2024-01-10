@@ -267,7 +267,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (need_convert) {
         std::unique_ptr<ParquetConvert::ColumnConvert> converter;
         ParquetConvert::ConvertParams convert_params;
-        convert_params.init(field_schema, &ctz, doris_column->size());
+        convert_params.init(field_schema, &ctz);
         RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, data_type,
                                                       &converter, &convert_params));
         auto x = doris_column->assume_mutable();

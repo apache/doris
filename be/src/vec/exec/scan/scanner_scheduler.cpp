@@ -142,12 +142,14 @@ Status ScannerScheduler::init(ExecEnv* env) {
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
     LOG(INFO) << "yyyy submit scanner ctx " << ctx->debug_string();
     if (ctx->done()) {
+        LOG(INFO) << "yyyy ctx is done, not submit" << ctx->debug_string();
         return Status::EndOfFile("ScannerContext is done");
     }
     //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
     //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
+        LOG(INFO) << "yyyy put to queue failed, not submit" << ctx->debug_string();
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
     return Status::OK();
@@ -177,23 +179,25 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        LOG(WARNING) << "could not lock task execution context, query " << ctx->debug_string()
-                     << " maybe finished";
+        LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
+                  << " maybe finished";
         return;
     }
-    //LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string() << " maybe finished";
+    LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string();
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
 
     if (ctx->done()) {
+        LOG(INFO) << "yyyy ctx done, " << ctx->debug_string();
         return;
     }
 
     std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
+        LOG(INFO) << "yyyy run is empty, skip, " << ctx->debug_string();
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
