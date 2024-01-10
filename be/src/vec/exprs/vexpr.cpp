@@ -29,6 +29,7 @@
 #include "common/exception.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "util/stack_util.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -195,6 +196,7 @@ VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
+    LOG(WARNING) << "VExpr::prepare " << state->query_id().hi << "-" << state->query_id().lo << "\n";
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
         return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
@@ -211,6 +213,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
+    LOG(WARNING) << "VExpr::open " << state->query_id().hi << "-" << state->query_id().lo << "\n";
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
@@ -412,8 +415,8 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
 }
 
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->open(state));
+    for (const auto& ctx : ctxs) {
+        RETURN_IF_ERROR(ctx->open(state));
     }
     return Status::OK();
 }
@@ -494,7 +497,11 @@ Status VExpr::get_const_col(VExprContext* context,
     // If block is empty, some functions will produce no result. So we insert a column with
     // single value here.
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+
+    _getting_const_col = true;
     RETURN_IF_ERROR(execute(context, &block, &result));
+    _getting_const_col = false;
+
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);

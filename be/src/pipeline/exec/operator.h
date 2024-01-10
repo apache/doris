@@ -330,12 +330,13 @@ public:
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
         _use_projection = _node->has_output_row_descriptor();
+        // RETURN_IF_ERROR(_node->prepare(state));
         return Status::OK();
     }
 
     Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(_node->alloc_resource(state));
-        return Status::OK();
+        // return _node->open(state);
+        return _node->alloc_resource(state);
     }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,

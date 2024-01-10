@@ -136,8 +136,9 @@ Status ExecNode::prepare(RuntimeState* state) {
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
-            std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
-                               runtime_profile()->total_time_counter()),
+            [this, capture0 = runtime_profile()->total_time_counter()] {
+                return RuntimeProfile::units_per_second(_rows_returned_counter, capture0);
+            },
             "");
     _memory_used_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
     _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
@@ -150,13 +151,13 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->prepare(state));
     }
     return Status::OK();
 }
 
-Status ExecNode::alloc_resource(doris::RuntimeState* state) {
+Status ExecNode::alloc_resource(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
@@ -569,7 +570,9 @@ Status ExecNode::get_next_after_projects(
             clear_origin_block();
         }
         auto status = func(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        if (UNLIKELY(!status.ok())) {
+            return status;
+        }
         return do_projections(&_origin_block, block);
     }
     _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());

@@ -50,14 +50,20 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprS
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
                                    FunctionContext::FunctionStateScope scope) {
-    return _impl->open(state, context, scope);
+    DCHECK(_prepare_finished);
+    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    RETURN_IF_ERROR(_impl->open(state, context, scope));
+    _open_finished = true;
+    return Status::OK();
 }
 
 void VRuntimeFilterWrapper::close(VExprContext* context,
@@ -66,6 +72,7 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     if (_always_true) {
         auto res_data_column = ColumnVector<UInt8>::create(block->rows(), 1);
         size_t num_columns_without_result = block->columns();
