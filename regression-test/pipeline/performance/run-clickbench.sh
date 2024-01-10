@@ -60,8 +60,6 @@ if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else
 echo "#### Run clickbench test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
-hot_run_time_threshold=${hot_run_time_threshold:-555}   # 单位 秒
 exit_flag=0
 
 (
@@ -258,6 +256,12 @@ exit_flag=0
     echo "#### 5. run clickbench query"
     sed -i '/^run_sql \"analyze table hits with sync;\"/d' "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
+    cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
+    hot_run_time_threshold=${hot_run_time_threshold:-52}    # 单位 秒
+    if [[ "${target_branch}" == "branch-2.0" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
+        hot_run_time_threshold=${hot_run_time_threshold:-55}    # 单位 秒
+    fi
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
     if ! (cd clickbench && bash check-query-result.sh && cd -); then exit 1; fi

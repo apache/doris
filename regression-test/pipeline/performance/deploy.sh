@@ -59,49 +59,36 @@ echo "#### Deploy Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
-need_backup_doris_logs=false
 
-echo "#### 1. try to kill old doris process"
-stop_doris
+(
+    echo "#### 1. try to kill old doris process"
+    stop_doris
 
-set -e
-echo "#### 2. copy conf from regression-test/pipeline/performance/conf/"
-cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
-cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
-target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
-sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
+    set -e
+    echo "#### 2. copy conf from regression-test/pipeline/performance/conf/"
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
+    target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
+    sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
+    sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
 
-echo "#### 3. start Doris"
-meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
-storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf storage_root_path)
-mkdir -p "${meta_dir}"
-mkdir -p "${storage_root_path}"
-if ! start_doris_fe; then
-    echo "ERROR: Start doris fe failed."
-    print_doris_fe_log
-    need_backup_doris_logs=true
-    exit_flag=1
-fi
-if ! start_doris_be; then
-    echo "ERROR: Start doris be failed."
-    print_doris_be_log
-    need_backup_doris_logs=true
-    exit_flag=1
-fi
-if ! add_doris_be_to_fe; then
-    need_backup_doris_logs=true
-    exit_flag=1
-fi
-# wait 10s for doris totally started, otherwize may encounter the error below,
-# ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
-sleep 10s
+    echo "#### 3. start Doris"
+    meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
+    storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf storage_root_path)
+    mkdir -p "${meta_dir}"
+    mkdir -p "${storage_root_path}"
+    if ! start_doris_fe; then echo "ERROR: Start doris fe failed." && exit 1; fi
+    if ! start_doris_be; then echo "ERROR: Start doris be failed." && exit 1; fi
+    if ! add_doris_be_to_fe; then echo "ERROR: Add doris be failed." && exit 1; fi
 
-echo "#### 4. set session variables"
-echo "TODO"
+    echo "#### 4. reset session variables"
+    if ! reset_doris_session_variables; then exit 1; fi
+)
+exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
-if ${need_backup_doris_logs}; then
+if [[ ${exit_flag} != "0" ]]; then
+    stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
