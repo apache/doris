@@ -31,7 +31,7 @@ using RawMaskArrayV6 = std::array<uint8_t, IPV6_BINARY_LENGTH>;
 
 template <typename RawMaskArrayT>
 static constexpr RawMaskArrayT generate_bit_mask(size_t prefix) {
-    RawMaskArrayT arr{0};
+    RawMaskArrayT arr {0};
     if (prefix >= arr.size() * 8) {
         prefix = arr.size() * 8;
     }
@@ -50,9 +50,10 @@ static constexpr RawMaskArrayT generate_bit_mask(size_t prefix) {
 
 template <typename RawMaskArrayT, size_t masksCount>
 static constexpr std::array<RawMaskArrayT, masksCount> generate_bit_masks() {
-    std::array<RawMaskArrayT, masksCount> arr{};
-    for (size_t i = 0; i < masksCount; ++i)
+    std::array<RawMaskArrayT, masksCount> arr {};
+    for (size_t i = 0; i < masksCount; ++i) {
         arr[i] = generate_bit_mask<RawMaskArrayT>(i);
+    }
     return arr;
 }
 
@@ -60,7 +61,8 @@ static constexpr std::array<RawMaskArrayT, masksCount> generate_bit_masks() {
 /// The reference is valid during all program execution time.
 /// Values of prefix_len greater than 128 interpreted as 128 exactly.
 const std::array<uint8_t, 16>& get_cidr_mask_ipv6(uint8_t prefix_len) {
-    static constexpr auto IPV6_RAW_MASK_ARRAY = generate_bit_masks<RawMaskArrayV6, IPV6_MASKS_COUNT>();
+    static constexpr auto IPV6_RAW_MASK_ARRAY =
+            generate_bit_masks<RawMaskArrayV6, IPV6_MASKS_COUNT>();
     return IPV6_RAW_MASK_ARRAY[prefix_len];
 }
 
