@@ -139,6 +139,7 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllBEs()
 
+    def exception = false;
     sql """ set group_commit = async_mode; """
         try {
             GetDebugPoint().enableDebugPointForAllBEs("VWalWriter.write_wal.fail")
@@ -146,8 +147,10 @@ suite("test_wal_mem_back_pressure_fault_injection","nonConcurrent") {
         } catch (Exception e) {
             logger.info(e.getMessage())
             assertTrue(e.getMessage().contains('Failed to write wal!'))
+            exception = true;
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("VWalWriter.write_wal.fail")
+            assertTrue(exception)
         }
 
 }
