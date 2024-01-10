@@ -26,6 +26,9 @@ public class UserException extends Exception {
     private InternalErrorCode errorCode;
     private ErrorCode mysqlErrorCode;
 
+    // store cloud error code
+    private String internalMsg;
+
     public UserException(String msg, Throwable cause) {
         super(Strings.nullToEmpty(msg), cause);
         errorCode = InternalErrorCode.INTERNAL_ERR;
@@ -55,6 +58,17 @@ public class UserException extends Exception {
         this.errorCode = errCode;
         mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
 
+    }
+
+    public UserException(String msg, String internalMsg) {
+        super(Strings.nullToEmpty(msg));
+        errorCode = InternalErrorCode.INTERNAL_ERR;
+        mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
+        this.internalMsg = Strings.nullToEmpty(internalMsg);
+    }
+
+    public String getInternalMsg() {
+        return Strings.isNullOrEmpty(internalMsg) ? getMessage() : internalMsg;
     }
 
     public InternalErrorCode getErrorCode() {
