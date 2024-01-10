@@ -247,6 +247,9 @@ struct WhichDataType {
 
     WhichDataType(const DataTypePtr& data_type) : idx(data_type->get_type_id()) {}
 
+    bool is_ipv4() const { return idx == TypeIndex::IPv4; }
+    bool is_ipv6() const { return idx == TypeIndex::IPv6; }
+
     bool is_uint8() const { return idx == TypeIndex::UInt8; }
     bool is_uint16() const { return idx == TypeIndex::UInt16; }
     bool is_uint32() const { return idx == TypeIndex::UInt32; }

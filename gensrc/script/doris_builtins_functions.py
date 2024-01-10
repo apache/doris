@@ -2018,6 +2018,11 @@ visible_functions = {
         [['is_ipv6_string'], 'BOOLEAN', ['STRING'], 'ALWAYS_NULLABLE'],
         [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'ANY_STRUCT_TYPE', ['IPV4', 'TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'ANY_STRUCT_TYPE', ['TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'ANY_STRUCT_TYPE', ['SMALLINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'ANY_STRUCT_TYPE', ['INT', 'TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'ANY_STRUCT_TYPE', ['BIGINT', 'TINYINT'], 'ALWAYS_NULLABLE']
     ],
 
     "NonNullalbe": [
