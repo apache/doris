@@ -2420,4 +2420,19 @@ public class Config extends ConfigBase {
         "The max number work threads of http upload submitter."
     })
     public static int http_load_submitter_max_worker_threads = 2;
+
+    //==========================================================================
+    //                    begin of cloud config
+    //==========================================================================
+
+    @ConfField
+    public static String cloud_unique_id = "";
+
+    public static boolean isCloudMode() {
+        return !cloud_unique_id.isEmpty();
+    }
+
+    //==========================================================================
+    //                      end of cloud config
+    //==========================================================================
 }
