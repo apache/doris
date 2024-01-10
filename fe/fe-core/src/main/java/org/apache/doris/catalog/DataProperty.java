@@ -38,7 +38,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
     public static final TStorageMedium DEFAULT_STORAGE_MEDIUM = "SSD".equalsIgnoreCase(Config.default_storage_medium)
             ? TStorageMedium.SSD : TStorageMedium.HDD;
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
-    public static final String MAX_COOLDOWN_TIME = TimeUtils.longToTimeString(MAX_COOLDOWN_TIME_MS);
 
     public static final DataProperty DEFAULT_HDD_DATA_PROPERTY = new DataProperty(TStorageMedium.HDD);
 
