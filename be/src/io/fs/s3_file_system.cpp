@@ -299,11 +299,12 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
 
     auto outcome = client->HeadObject(request);
     s3_bvar::s3_head_total << 1;
-    if (outcome.IsSuccess()) {
-        *file_size = outcome.GetResult().GetContentLength();
+    if (!outcome.IsSuccess()) {
         return s3fs_error(outcome.GetError(),
                           fmt::format("failed to get file size {}", full_path(key)));
     }
+
+    *file_size = outcome.GetResult().GetContentLength();
     return Status::OK();
 }
 
