@@ -935,9 +935,6 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
     COUNTER_UPDATE(_build_rows_counter, rows);
-    if (UNLIKELY(rows == 1)) {
-        return Status::OK();
-    }
 
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
