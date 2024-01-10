@@ -36,7 +36,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class AdminShowReplicaStatusStmt extends ShowStmt {
+public class ShowReplicaStatusStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
             .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
@@ -50,7 +50,7 @@ public class AdminShowReplicaStatusStmt extends ShowStmt {
     private Operator op;
     private ReplicaStatus statusFilter;
 
-    public AdminShowReplicaStatusStmt(TableRef tblRef, Expr where) {
+    public ShowReplicaStatusStmt(TableRef tblRef, Expr where) {
         this.tblRef = tblRef;
         this.where = where;
     }

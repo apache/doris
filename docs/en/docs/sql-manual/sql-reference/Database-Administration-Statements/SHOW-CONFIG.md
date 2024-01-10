@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ADMIN-SHOW-CONFIG",
+    "title": "SHOW-CONFIG",
     "language": "en"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-SHOW-CONFIG
+## SHOW-CONFIG
 
 ### Name
 
-ADMIN SHOW CONFIG
+SHOW CONFIG
 
 ### Description
 
@@ -37,7 +37,7 @@ This statement is used to display the configuration of the current cluster (curr
 grammar:
 
 ```sql
- ADMIN SHOW FRONTEND CONFIG [LIKE "pattern"];
+SHOW FRONTEND CONFIG [LIKE "pattern"];
 ````
 
 The columns in the results have the following meanings:
@@ -54,13 +54,13 @@ The columns in the results have the following meanings:
 1. View the configuration of the current FE node
 
    ```sql
-   ADMIN SHOW FRONTEND CONFIG;
+   SHOW FRONTEND CONFIG;
    ```
 
 2. Use the like predicate to search the configuration of the current Fe node
 
    ````
-   mysql> ADMIN SHOW FRONTEND CONFIG LIKE '%check_java_version%';
+   mysql> SHOW FRONTEND CONFIG LIKE '%check_java_version%';
    +--------------------+-------+---------+---------- -+------------+---------+
    | Key | Value | Type | IsMutable | MasterOnly | Comment |
    +--------------------+-------+---------+---------- -+------------+---------+
@@ -71,7 +71,7 @@ The columns in the results have the following meanings:
 
 ### Keywords
 
-    ADMIN, SHOW, CONFIG, ADMIN SHOW
+    SHOW, CONFIG
 
 ### Best Practice
 

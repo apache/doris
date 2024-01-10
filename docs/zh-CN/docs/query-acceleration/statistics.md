@@ -334,7 +334,7 @@ mysql> KILL ANALYZE 52357;
 
 执行ANALYZE时统计数据会被写入到内部表`__internal_schema.column_statistics`中，FE会在执行ANALYZE前检查该表tablet状态，如果存在不可用的tablet则拒绝执行作业。出现该报错请检查BE集群状态。
 
-用户可通过`SHOW BACKENDS\G`，确定BE状态是否正常。如果BE状态正常，可使用命令`ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]`，检查该库下tablet状态，确保tablet状态正常。
+用户可通过`SHOW BACKENDS\G`，确定BE状态是否正常。如果BE状态正常，可使用命令`SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]`，检查该库下tablet状态，确保tablet状态正常。
 
 <br/>
 

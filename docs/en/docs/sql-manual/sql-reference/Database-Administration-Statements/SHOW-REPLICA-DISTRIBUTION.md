@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ADMIN-SHOW-REPLICA-DISTRIBUTION",
-    "language": "zh-CN"
+    "title": "SHOW-REPLICA-DISTRIBUTION",
+    "language": "en"
 }
 ---
 
@@ -24,43 +24,43 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ADMIN-SHOW-REPLICA-DISTRIBUTION
+## SHOW-REPLICA-DISTRIBUTION
 
 ### Name
 
-ADMIN SHOW REPLICA DISTRIBUTION
+SHOW REPLICA DISTRIBUTION
 
 ### Description
 
-该语句用于展示一个表或分区副本分布状态
+This statement is used to display the distribution status of a table or partition replica
 
-语法：
+grammar:
 
 ```sql
-ADMIN SHOW REPLICA DISTRIBUTION FROM [db_name.]tbl_name [PARTITION (p1, ...)];
-```
+SHOW REPLICA DISTRIBUTION FROM [db_name.]tbl_name [PARTITION (p1, ...)];
+````
 
-说明：
+illustrate:
 
-1. 结果中的 Graph 列以图形的形式展示副本分布比例
+1. The Graph column in the result shows the replica distribution ratio in the form of a graph
 
 ### Example
 
-1. 查看表的副本分布
+1. View the replica distribution of the table
 
     ```sql
-    ADMIN SHOW REPLICA DISTRIBUTION FROM tbl1;
-    ```
+    SHOW REPLICA DISTRIBUTION FROM tbl1;
+    ````
 
- 2. 查看表的分区的副本分布
+  2. View the replica distribution of the partitions of the table
 
       ```sql
-      ADMIN SHOW REPLICA DISTRIBUTION FROM db1.tbl1 PARTITION(p1, p2);
-      ```
+     SHOW REPLICA DISTRIBUTION FROM db1.tbl1 PARTITION(p1, p2);
+      ````
 
 ### Keywords
 
-    ADMIN, SHOW, REPLICA, DISTRIBUTION, ADMIN SHOW
+    ADMIN, SHOW, REPLICA, DISTRIBUTION
 
 ### Best Practice
 
