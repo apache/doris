@@ -276,18 +276,17 @@ suite("inner_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
 
-    def mv2_2 = "select  t1.L_LINENUMBER, orders.O_CUSTKEY " +
+    def mv2_2 = "select  t1.L_LINENUMBER, orders.O_CUSTKEY, l_suppkey " +
             "from (select * from lineitem where L_LINENUMBER > 1) t1 " +
             "inner join orders on t1.L_ORDERKEY = orders.O_ORDERKEY "
     def query2_2 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where lineitem.L_LINENUMBER > 1 and l_suppkey = 3"
-    // Should success but not, because mv contains the part filter of mv, tmp
-//    order_qt_query2_2_before "${query2_2}"
-//    check_rewrite(mv2_2, query2_2, "mv2_2")
-//    order_qt_query2_2_after "${query2_2}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+    order_qt_query2_2_before "${query2_2}"
+    check_rewrite(mv2_2, query2_2, "mv2_2")
+    order_qt_query2_2_after "${query2_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
 
     def mv2_3 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY, l_suppkey " +

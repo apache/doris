@@ -161,9 +161,9 @@ class HyperGraphComparatorTest extends SqlTestBase {
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = AbstractMaterializedViewRule.extractStructInfo(p1,
+        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
                 null).get(0);
-        StructInfo st2 = AbstractMaterializedViewRule.extractStructInfo(p2,
+        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
                 null).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);
