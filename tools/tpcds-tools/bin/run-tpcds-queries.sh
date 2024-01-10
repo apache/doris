@@ -156,7 +156,11 @@ mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-for i in {1..99}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 99)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0
