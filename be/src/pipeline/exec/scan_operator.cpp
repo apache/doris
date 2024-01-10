@@ -141,13 +141,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     // could add here, not in the _init_profile() function
     _prepare_rf_timer(_runtime_profile.get());
 
-    static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
-    _wait_for_data_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForData", timer_name, 1);
-    _wait_for_scanner_done_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForScannerDone", timer_name, 1);
-    _wait_for_eos_timer = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForEos", timer_name, 1);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
 }
