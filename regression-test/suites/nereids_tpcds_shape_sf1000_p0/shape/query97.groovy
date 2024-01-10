@@ -29,6 +29,7 @@ suite("query97") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     sql 'set dump_nereids_memo=true'
     def ds = """with ssci as (
 select ss_customer_sk customer_sk

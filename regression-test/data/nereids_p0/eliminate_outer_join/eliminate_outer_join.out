@@ -2,13 +2,13 @@
 -- !1 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 ps_suppkey->[s_suppkey]
+----hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 ps_suppkey->[n_nationkey,s_suppkey]
 ------hashJoin[INNER_JOIN] hashCondition=((nation.n_nationkey = supplier.s_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[n_nationkey]
 --------hashJoin[INNER_JOIN] hashCondition=((region.r_regionkey = nation.n_regionkey)) otherCondition=() build RFs:RF0 n_regionkey->[r_regionkey]
 ----------PhysicalOlapScan[region] apply RFs: RF0
 ----------PhysicalDistribute[DistributionSpecReplicated]
 ------------filter(( not n_nationkey IS NULL) and (nation.n_nationkey > 1))
---------------PhysicalOlapScan[nation] apply RFs: RF1
+--------------PhysicalOlapScan[nation] apply RFs: RF1 RF2
 --------PhysicalDistribute[DistributionSpecReplicated]
 ----------filter(( not s_suppkey IS NULL) and (supplier.s_suppkey > 1))
 ------------PhysicalOlapScan[supplier] apply RFs: RF2

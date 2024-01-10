@@ -4,48 +4,10 @@ simple_case
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----PhysicalOlapScan[fkt_not_null]
-
--- !res --
-
--- !name --
-with_pk_col
-
--- !shape --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----PhysicalOlapScan[fkt_not_null]
-
--- !res --
-
--- !name --
-with_pk_col
-
--- !shape --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
-------PhysicalOlapScan[fkt_not_null]
-------PhysicalOlapScan[fkt_not_null]
-
--- !res --
-
--- !name --
-with_pk_col
-
--- !shape --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=() build RFs:RF1 fk->[pk]
-----filter((pkt.pk > 1))
-------PhysicalOlapScan[pkt] apply RFs: RF1
-----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=() build RFs:RF0 fk->[fk]
-------filter((fkt_not_null1.fk > 1))
---------PhysicalOlapScan[fkt_not_null] apply RFs: RF0
-------filter((fkt_not_null2.fk > 1))
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -55,10 +17,11 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----hashAgg[LOCAL]
-------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -67,13 +30,65 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalUnion
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
 ----------PhysicalOlapScan[fkt_not_null]
 ----------PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+
+-- !name --
+with_pk_col
+
+-- !shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------filter((pkt.pk > 1))
+--------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
+----------filter((fkt_not_null1.fk > 1))
+------------PhysicalOlapScan[fkt_not_null]
+----------filter((fkt_not_null2.fk > 1))
+------------PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+
+-- !name --
+with_pk_col
+
+-- !shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[fkt_not_null]
+
+-- !res --
+
+-- !name --
+with_pk_col
+
+-- !shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[fkt_not_null]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -82,11 +97,13 @@ fk with window
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----PhysicalWindow
-------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalWindow
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -95,11 +112,14 @@ fk with limit
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=() build RFs:RF0 fk->[pk]
-----PhysicalOlapScan[pkt] apply RFs: RF0
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalLimit[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------PhysicalLimit[LOCAL]
+--------------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -108,11 +128,13 @@ pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=() build RFs:RF0 fk->[pk]
-----filter((pkt.pk = 1))
-------PhysicalOlapScan[pkt] apply RFs: RF0
-----filter((fkt_not_null.fk = 1))
-------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------filter((pkt.pk = 1))
+--------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((fkt_not_null.fk = 1))
+----------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -121,11 +143,13 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=() build RFs:RF0 fk->[pk]
-----filter((pkt.pk = 1))
-------PhysicalOlapScan[pkt] apply RFs: RF0
-----filter((cast(f as DOUBLE) = 1) and (fkt_not_null.fk = 1))
-------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------filter((pkt.pk = 1))
+--------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
+----------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -134,11 +158,13 @@ pk with filter that not same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=() build RFs:RF0 fk->[pk]
-----filter((cast(p as DOUBLE) = 1) and (pkt.pk = 1))
-------PhysicalOlapScan[pkt] apply RFs: RF0
-----filter((cast(f as DOUBLE) = 1) and (fkt_not_null.fk = 1))
-------PhysicalOlapScan[fkt_not_null]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+------filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
+--------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
+----------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
 
@@ -147,8 +173,9 @@ simple_case
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL))
-----PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----filter(( not fk IS NULL))
+------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John
@@ -162,25 +189,27 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL))
-----PhysicalOlapScan[fkt]
-
--- !res --
-1	John	1
-1	John	1
-2	Alice	2
-2	Alice	2
-3	Bob	3
-
--- !name --
-with_pk_col
-
--- !shape --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=()
+--PhysicalDistribute[DistributionSpecGather]
 ----filter(( not fk IS NULL))
 ------PhysicalOlapScan[fkt]
-----PhysicalOlapScan[fkt]
+
+-- !res --
+1	John	1
+1	John	1
+2	Alice	2
+2	Alice	2
+3	Bob	3
+
+-- !name --
+with_pk_col
+
+-- !shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=()
+------filter(( not fk IS NULL))
+--------PhysicalOlapScan[fkt]
+------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John	1
@@ -198,11 +227,12 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=() build RFs:RF0 fk->[fk]
-----filter(( not fk IS NULL) and (fkt1.fk > 1))
-------PhysicalOlapScan[fkt] apply RFs: RF0
-----filter((fkt2.fk > 1))
-------PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pk = fkt2.fk)) otherCondition=()
+------filter(( not fk IS NULL) and (fkt1.fk > 1))
+--------PhysicalOlapScan[fkt]
+------filter((fkt2.fk > 1))
+--------PhysicalOlapScan[fkt]
 
 -- !res --
 2	Alice	2
@@ -216,9 +246,10 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashAgg[LOCAL]
-----filter(( not fk IS NULL))
-------PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[LOCAL]
+------filter(( not fk IS NULL))
+--------PhysicalOlapScan[fkt]
 
 -- !res --
 1	1
@@ -230,13 +261,18 @@ with_pk_col
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
-----PhysicalOlapScan[pkt]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalUnion
-----------PhysicalOlapScan[fkt]
-----------PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalUnion
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[fkt]
+----------------PhysicalDistribute[DistributionSpecExecutionAny]
+------------------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John	1
@@ -248,10 +284,11 @@ fk with window
 
 -- !shape --
 PhysicalResultSink
---PhysicalWindow
-----PhysicalQuickSort[LOCAL_SORT]
-------filter(( not fk IS NULL))
---------PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalWindow
+------PhysicalQuickSort[LOCAL_SORT]
+--------filter(( not fk IS NULL))
+----------PhysicalOlapScan[fkt]
 
 -- !res --
 1	1	1
@@ -267,18 +304,21 @@ fk with limit
 PhysicalResultSink
 --filter(( not fk IS NULL))
 ----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[fkt]
+------PhysicalDistribute[DistributionSpecGather]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[fkt]
 
 -- !res --
+1	1
 
 -- !name --
 pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL) and (fkt.fk = 1))
-----PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----filter(( not fk IS NULL) and (fkt.fk = 1))
+------PhysicalOlapScan[fkt]
 
 -- !res --
 1	John	1
@@ -289,8 +329,9 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---filter(( not fk IS NULL) and (cast(f as DOUBLE) = 1) and (fkt.fk = 1))
-----PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----filter(( not fk IS NULL) and (cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
+------PhysicalOlapScan[fkt]
 
 -- !res --
 
@@ -299,11 +340,13 @@ pk with filter that not same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=() build RFs:RF0 fk->[pk]
-----filter((cast(p as DOUBLE) = 1) and (pkt.pk = 1))
-------PhysicalOlapScan[pkt] apply RFs: RF0
-----filter((cast(f as DOUBLE) = 1) and (fkt.fk = 1))
-------PhysicalOlapScan[fkt]
+--PhysicalDistribute[DistributionSpecGather]
+----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+------filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
+--------PhysicalOlapScan[pkt]
+------PhysicalDistribute[DistributionSpecHash]
+--------filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
+----------PhysicalOlapScan[fkt]
 
 -- !res --
 
