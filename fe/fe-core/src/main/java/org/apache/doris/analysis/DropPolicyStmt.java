@@ -65,7 +65,7 @@ public class DropPolicyStmt extends DdlStmt {
             default:
                 tableName.analyze(analyzer);
                 if (user != null) {
-                    user.analyze();
+                    user.analyze(analyzer.getClusterName());
                 }
         }
         // check auth
