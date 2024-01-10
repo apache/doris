@@ -44,6 +44,7 @@ inline uint8_t get_utf8_byte_length(uint8_t character) {
     return UTF8_BYTE_LENGTH[character];
 }
 
+// copy from https://github.com/lemire/fastvalidate-utf-8/blob/master/include/simdasciicheck.h
 // The function returns true (1) if all chars passed in src are
 // 7-bit values (0x00..0x7F). Otherwise, it returns false (0).
 inline bool validate_ascii_fast(const char* src, size_t len) {
