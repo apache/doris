@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.CommonAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -153,5 +156,11 @@ public class PaimonExternalTable extends ExternalTable {
             throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
                     + getPaimonCatalogType());
         }
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new CommonAnalysisTask(info);
     }
 }

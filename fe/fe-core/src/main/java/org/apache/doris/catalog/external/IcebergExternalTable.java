@@ -23,7 +23,10 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.CommonAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
@@ -148,5 +151,11 @@ public class IcebergExternalTable extends ExternalTable {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
                 () -> StatisticsUtil.getIcebergColumnStats(colName,
                         ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name)));
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new CommonAnalysisTask(info);
     }
 }
