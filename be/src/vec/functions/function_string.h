@@ -204,20 +204,21 @@ private:
         }
 
         for (size_t i = 0; i < size; ++i) {
-            StringRef str {chars.data() + offsets[i - 1], offsets[i] - offsets[i - 1]};
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
 
             // return empty string if start > src.length
-            if (start_value > str.size || str.size == 0 || start_value == 0 || len_value <= 0) {
+            if (start_value > str_size || str_size == 0 || start_value == 0 || len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
 
             size_t byte_pos = 0;
             index.clear();
-            for (size_t j = 0, char_size = 0; j < str.size; j += char_size) {
-                char_size = get_utf8_byte_length(str.data[j]);
+            for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
+                char_size = get_utf8_byte_length(str_data[j]);
                 index.push_back(j);
                 if (start_value > 0 && index.size() > start_value + len_value) {
                     break;
@@ -238,14 +239,14 @@ private:
             }
 
             byte_pos = index[fixed_pos - 1];
-            size_t fixed_len = str.size - byte_pos;
+            size_t fixed_len = str_size - byte_pos;
             if (fixed_pos + len_value <= index.size()) {
                 fixed_len = index[fixed_pos + len_value - 1] - byte_pos;
             }
 
-            if (byte_pos <= str.size && fixed_len > 0) {
+            if (byte_pos <= str_size && fixed_len > 0) {
                 StringOP::push_value_string_reserved_and_allow_overflow(
-                        {str.data + byte_pos, fixed_len}, i, res_chars, res_offsets);
+                        {str_data + byte_pos, fixed_len}, i, res_chars, res_offsets);
             } else {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
             }
@@ -274,22 +275,23 @@ private:
         }
 
         for (size_t i = 0; i < size; ++i) {
-            StringRef str {chars.data() + offsets[i - 1], offsets[i] - offsets[i - 1]};
+            int str_size = offsets[i] - offsets[i - 1];
+            const char* str_data = (char*)chars.data() + offsets[i - 1];
 
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
 
-            if (start_value > str.size || -start_value > int(str.size) || str.size == 0) {
+            if (start_value > str_size || start_value < -str_size || str_size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
-            size_t fixed_pos = start_value;
+            int fixed_pos = start_value - 1;
             if (fixed_pos < 0) {
-                fixed_pos = str.size + fixed_pos + 1;
+                fixed_pos = str_size + fixed_pos + 1;
             }
-            size_t fixed_len = std::min<size_t>(str.size - fixed_pos + 1, len_value);
+            size_t fixed_len = std::min(str_size - fixed_pos, len_value);
             StringOP::push_value_string_reserved_and_allow_overflow(
-                    {str.data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
+                    {str_data + fixed_pos, fixed_len}, i, res_chars, res_offsets);
         }
     }
 };
