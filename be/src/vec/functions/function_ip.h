@@ -859,8 +859,8 @@ public:
                             cidr_type->get_name(), get_name());
         }
         DataTypePtr element = std::make_shared<DataTypeIPv6>();
-        return make_nullable(std::make_shared<DataTypeStruct>(DataTypes{element, element},
-                                                              Strings{"min", "max"}));
+        return make_nullable(std::make_shared<DataTypeStruct>(DataTypes {element, element},
+                                                              Strings {"min", "max"}));
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -891,7 +891,7 @@ public:
                 col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, addr_nullmap, *cidr_col,
                                                    cidr_nullmap, input_rows_count);
             } else if (const auto* str_addr_column = check_and_get_column<ColumnString>(
-                        addr_column_nullable->get_nested_column())) {
+                               addr_column_nullable->get_nested_column())) {
                 col_res = execute_impl<ColumnString>(*str_addr_column, addr_nullmap, *cidr_col,
                                                      cidr_nullmap, input_rows_count);
             } else {
@@ -904,7 +904,7 @@ public:
                 col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, nullptr, *cidr_col, nullptr,
                                                    input_rows_count);
             } else if (const auto* str_addr_column =
-                                check_and_get_column<ColumnString>(addr_column.get())) {
+                               check_and_get_column<ColumnString>(addr_column.get())) {
                 col_res = execute_impl<ColumnString>(*str_addr_column, nullptr, *cidr_col, nullptr,
                                                      input_rows_count);
             } else {
@@ -948,8 +948,8 @@ public:
     }
 
 private:
-    static void apply_cidr_mask(const char * __restrict src, char * __restrict dst_lower,
-                                char * __restrict dst_upper, UInt8 bits_to_keep) {
+    static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
+                                char* __restrict dst_upper, UInt8 bits_to_keep) {
         const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
 
         for (size_t i = 0; i < IPV6_BINARY_LENGTH; ++i) {
