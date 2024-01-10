@@ -83,6 +83,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.OriginStatement;
@@ -439,6 +440,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private String getMysqlTableSchema(String ctl, String db) {
+        if (!GlobalVariable.showFullDbNameInInfoSchemaDb) {
+            return db;
+        }
         if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return db;
         }

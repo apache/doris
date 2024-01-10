@@ -45,6 +45,7 @@ public final class GlobalVariable {
     public static final String DEFAULT_PASSWORD_LIFETIME = "default_password_lifetime";
     public static final String PASSWORD_HISTORY = "password_history";
     public static final String VALIDATE_PASSWORD_POLICY = "validate_password_policy";
+    public static final String SHOW_FULL_DBNAME_IN_INFO_SCHEMA_DB = "show_full_dbname_in_info_schema_db";
 
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
@@ -96,6 +97,12 @@ public final class GlobalVariable {
     // 2: STRONG
     @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
     public static long validatePasswordPolicy = 0;
+
+    // If set to true, the db name of TABLE_SCHEMA column in tables in information_schema
+    // database will be shown as `ctl.db`. Otherwise, show only `db`.
+    // This is used to compatible with some MySQL tools.
+    @VariableMgr.VarAttr(name = SHOW_FULL_DBNAME_IN_INFO_SCHEMA_DB, flag = VariableMgr.GLOBAL)
+    public static boolean showFullDbNameInInfoSchemaDb = false;
 
     // Don't allow to create instance.
     private GlobalVariable() {
