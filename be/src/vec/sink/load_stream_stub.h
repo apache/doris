@@ -148,10 +148,6 @@ public:
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
 
-    // close stream, usually close is initiated by the remote.
-    // in case of remote failure, we should be able to close stream locally.
-    Status close_stream();
-
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
     // if timeout_ms <= 0, will fallback to config::close_load_stream_timeout_ms

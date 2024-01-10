@@ -136,17 +136,11 @@ LoadStreamStub::LoadStreamStub(LoadStreamStub& stub)
           _tablet_schema_for_index(stub._tablet_schema_for_index),
           _enable_unique_mow_for_index(stub._enable_unique_mow_for_index) {};
 
-LoadStreamStub::~LoadStreamStub() = default;
-
-Status LoadStreamStub::close_stream() {
+LoadStreamStub::~LoadStreamStub() {
     if (_is_init.load() && !_is_closed.load()) {
-        LOG(INFO) << "closing stream, " << *this;
         auto ret = brpc::StreamClose(_stream_id);
-        if (ret != 0) {
-            return Status::InternalError("StreamClose failed, err={}", ret);
-        }
+        LOG(INFO) << *this << " is deconstructed, close " << (ret == 0 ? "success" : "failed");
     }
-    return Status::OK();
 }
 
 // open_load_stream
