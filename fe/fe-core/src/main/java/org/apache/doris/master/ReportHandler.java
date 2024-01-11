@@ -560,9 +560,12 @@ public class ReportHandler extends Daemon {
             LOG.warn("backend doesn't exist. id: " + backendId);
             return;
         }
+        List<String> badDisks = backendDisks.values().stream().filter(disk -> !disk.isUsed())
+                .map(disk -> "path=" + disk.getRootPath() + ", path hash=" + disk.getPathHash())
+                .collect(Collectors.toList());
         backend.updateDisks(backendDisks);
-        LOG.info("finished to handle disk report from backend {}, cost: {} ms",
-                backendId, (System.currentTimeMillis() - start));
+        LOG.info("finished to handle disk report from backend: {}, disk size: {}, bad disk: {}, cost: {} ms",
+                backendId, backendDisks.size(), badDisks, (System.currentTimeMillis() - start));
     }
 
     private static void cpuReport(long backendId, int cpuCores, int pipelineExecutorSize) {
