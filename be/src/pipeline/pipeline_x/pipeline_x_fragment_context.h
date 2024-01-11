@@ -126,6 +126,7 @@ private:
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
+                               const std::map<int, int>& shuffle_idx_to_instance_idx,
                                const bool ignore_data_distribution);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
@@ -133,6 +134,7 @@ private:
                                     PipelinePtr new_pipe, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
+                                    const std::map<int, int>& shuffle_idx_to_instance_idx,
                                     const bool ignore_data_distribution);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
@@ -160,9 +162,11 @@ private:
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
     Status _plan_local_exchange(int num_buckets,
-                                const std::map<int, int>& bucket_seq_to_instance_idx);
+                                const std::map<int, int>& bucket_seq_to_instance_idx,
+                                const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
+                                const std::map<int, int>& shuffle_idx_to_instance_idx,
                                 const bool ignore_data_distribution);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
@@ -239,6 +243,8 @@ private:
     std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+
+    int _total_instances = -1;
 };
 
 } // namespace pipeline
