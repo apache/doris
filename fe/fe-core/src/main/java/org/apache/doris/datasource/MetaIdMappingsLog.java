@@ -121,7 +121,7 @@ public class MetaIdMappingsLog implements Writable {
     }
 
     @Getter
-    public static class MetaIdMapping implements Writable {
+    public static class MetaIdMapping {
 
         @SerializedName(value = "opType")
         private short opType;
@@ -215,17 +215,6 @@ public class MetaIdMappingsLog implements Writable {
             this.tblName = null;
             this.partitionName = null;
             this.id = -1L;
-        }
-
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        public static MetaIdMapping read(DataInput in) throws IOException {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, MetaIdMapping.class);
         }
 
         @Override
