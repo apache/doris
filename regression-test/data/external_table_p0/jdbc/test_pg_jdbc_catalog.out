@@ -2266,9 +2266,11 @@ varchar_value	TEXT	Yes	false	\N	NONE
 
 -- !specified_database_1 --
 doris_test
+information_schema
 
 -- !specified_database_2 --
 doris_test
+information_schema
 
 -- !specified_database_3 --
 catalog_pg_test
@@ -2278,6 +2280,7 @@ pg_toast
 public
 
 -- !specified_database_4 --
+information_schema
 
 -- !test_old --
 123	abc

@@ -994,7 +994,7 @@ Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int*
 
 Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
-    if (_is_global) {
+    if (_is_global && _has_local_target) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
                 _filter_id, filters));

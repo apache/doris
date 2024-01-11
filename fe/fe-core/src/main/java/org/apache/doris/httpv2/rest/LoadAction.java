@@ -333,7 +333,12 @@ public class LoadAction extends RestBaseController {
                 .setEnableRoundRobin(true)
                 .needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
-        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> backendIds;
+        if (groupCommit) {
+            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        } else {
+            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        }
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }

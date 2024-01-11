@@ -264,11 +264,6 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public String getEngine() {
         switch (type) {
             case HIVE:

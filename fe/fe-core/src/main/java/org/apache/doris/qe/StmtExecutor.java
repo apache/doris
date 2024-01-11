@@ -2809,7 +2809,7 @@ public class StmtExecutor {
             if (coord != null) {
                 coord.close();
             }
-            AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
+            AuditLogHelper.logAuditLog(context, originStmt.originStmt, parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
             if (Config.enable_collect_internal_query_profile) {
                 updateProfile(true);
