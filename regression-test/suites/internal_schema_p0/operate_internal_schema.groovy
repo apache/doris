@@ -38,7 +38,7 @@ suite("operate_internal_schema") {
        );
     """
     //alter table
-    sql "ALTER TABLE ${testTable} MODIFY COMMENT "new_comment";"
+    sql "ALTER TABLE ${testTable} MODIFY COMMENT 'new_comment';"
     //insert
     sql "insert into ${testTable} values(1,2);"
     //update
@@ -55,7 +55,7 @@ suite("operate_internal_schema") {
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
     connect(user=admin, url=url) {
             //alter table
-            sql "ALTER TABLE ${testTable} MODIFY COMMENT "new_comment";"
+            sql "ALTER TABLE ${testTable} MODIFY COMMENT 'new_comment';"
             //insert
             sql "insert into ${testTable} values(1,2);"
             //update
