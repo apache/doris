@@ -20,7 +20,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
