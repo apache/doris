@@ -316,7 +316,7 @@ mysql> KILL ANALYZE 52357;
 |analyze_record_limit|控制统计信息作业执行记录的持久化行数|20000|
 |stats_cache_size| FE侧统计信息缓存条数 | 500000                        |
 | statistics_simultaneously_running_task_num |可同时执行的异步作业数量|3|
-| statistics_sql_mem_limit_in_bytes| 控制每个统计信息SQL可占用的BE内存| 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_sql_mem_limit_in_bytes| 控制每个统计信息SQL可占用的BE内存| `2L * 1024 * 1024 * 1024` (2GiB) |
 
 <br/>
 
