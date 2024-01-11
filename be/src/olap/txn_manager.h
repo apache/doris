@@ -77,7 +77,7 @@ using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
-    TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size);
+    TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_t txn_shard_size);
 
     ~TxnManager() {
         delete[] _txn_tablet_maps;
@@ -230,6 +230,8 @@ private:
     };
 
 private:
+    StorageEngine& _engine;
+
     const int32_t _txn_map_shard_size;
 
     const int32_t _txn_shard_size;

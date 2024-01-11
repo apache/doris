@@ -3,8 +3,8 @@
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -12,8 +12,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter((t1.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -21,8 +21,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter((t1.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -30,8 +30,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -39,9 +39,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 10))
-----------PhysicalOlapScan[t] apply RFs: RF0
+----------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -49,9 +49,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 10))
-----------PhysicalOlapScan[t] apply RFs: RF0
+----------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -60,8 +60,8 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t1.score > 10))
 ------------PhysicalOlapScan[t]
 --------PhysicalOlapScan[t]
@@ -71,8 +71,8 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t2.score > 10))
 ------------PhysicalOlapScan[t]
 --------PhysicalOlapScan[t]
@@ -81,10 +81,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF1
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------PhysicalOlapScan[t]
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t1.score > 10))
 ------------PhysicalOlapScan[t]
 
@@ -92,10 +92,10 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF1
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------PhysicalOlapScan[t]
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t2.score > 10))
 ------------PhysicalOlapScan[t]
 
@@ -104,8 +104,8 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t1.score > 10))
 ------------PhysicalOlapScan[t]
 --------PhysicalOlapScan[t]
@@ -115,8 +115,8 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t2.score > 10))
 ------------PhysicalOlapScan[t]
 --------PhysicalDistribute[DistributionSpecReplicated]
@@ -126,8 +126,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter(( not id IS NULL) and (t1.score > 5))
 ----------PhysicalOlapScan[t]
 
@@ -135,8 +135,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter(( not id IS NULL) and (t2.score > 5))
 ----------PhysicalOlapScan[t]
 
@@ -153,9 +153,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
---------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-----------PhysicalOlapScan[t] apply RFs: RF0 RF1
+------hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t]
 ----------filter((t1.score > 5))
 ------------PhysicalOlapScan[t]
 --------filter(( not score IS NULL))
@@ -199,9 +199,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter(( not name IS NULL))
-----------PhysicalOlapScan[t] apply RFs: RF0
+----------PhysicalOlapScan[t]
 --------filter((t1.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -209,9 +209,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter(( not name IS NULL))
-----------PhysicalOlapScan[t] apply RFs: RF0
+----------PhysicalOlapScan[t]
 --------filter((t1.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -219,9 +219,9 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter(( not name IS NULL))
-----------PhysicalOlapScan[t] apply RFs: RF0
+----------PhysicalOlapScan[t]
 --------filter((t1.score > 10))
 ----------PhysicalOlapScan[t]
 
@@ -229,8 +229,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t1_alias.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t1_alias.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter((t1_alias.name > '2023-01-01'))
 ----------PhysicalOlapScan[t]
 
@@ -262,8 +262,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------PhysicalProject
 ----------filter((t2.score > 20))
 ------------PhysicalOlapScan[t]
@@ -296,8 +296,8 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t]
 --------filter(( not name IS NULL))
 ----------PhysicalOlapScan[t]
 

@@ -70,6 +70,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -196,6 +197,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
 
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -249,11 +253,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
     _tablet_schema_cache->start();
 
-    // S3 buffer pool
-    _s3_buffer_pool = new io::S3FileBufferPool();
-    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->s3_file_upload_thread_pool());
-
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
@@ -262,7 +261,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _storage_engine = new StorageEngine(options);
     auto st = _storage_engine->open();
     if (!st.ok()) {
-        LOG(ERROR) << "Lail to open StorageEngine, res=" << st;
+        LOG(ERROR) << "Fail to open StorageEngine, res=" << st;
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
@@ -561,7 +560,6 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
@@ -638,6 +636,10 @@ void ExecEnv::destroy() {
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
+
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    SAFE_DELETE(_runtime_query_statistics_mgr);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

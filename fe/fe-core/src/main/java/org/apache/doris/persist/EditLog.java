@@ -673,7 +673,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
                     AbstractJob job = (AbstractJob) journal.getData();
-                    Env.getCurrentEnv().getJobManager().replayEndJob(job);
+                    Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
                     break;
                 }
                 /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
@@ -1625,7 +1625,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logEndJob(AbstractJob job) {
+    public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 

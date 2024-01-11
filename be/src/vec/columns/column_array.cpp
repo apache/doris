@@ -395,10 +395,17 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 }
 
 void ColumnArray::insert(const Field& x) {
-    const Array& array = doris::vectorized::get<const Array&>(x);
-    size_t size = array.size();
-    for (size_t i = 0; i < size; ++i) get_data().insert(array[i]);
-    get_offsets().push_back(get_offsets().back() + size);
+    if (x.is_null()) {
+        get_data().insert(Null());
+        get_offsets().push_back(get_offsets().back() + 1);
+    } else {
+        const auto& array = doris::vectorized::get<const Array&>(x);
+        size_t size = array.size();
+        for (size_t i = 0; i < size; ++i) {
+            get_data().insert(array[i]);
+        }
+        get_offsets().push_back(get_offsets().back() + size);
+    }
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {

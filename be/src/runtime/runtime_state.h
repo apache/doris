@@ -553,15 +553,18 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int operator_size, int sink_size);
+    void resize_op_id_to_local_state(int operator_size);
 
     auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
 
     void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context_inited = true;
         _task_execution_context = context;
     }
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        CHECK(_task_execution_context_inited)
+                << "_task_execution_context_inited == false, the ctx is not inited";
         return _task_execution_context;
     }
 
@@ -572,6 +575,10 @@ private:
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
+    // Could not find a better way to record if the weak ptr is inited, use a bool to record
+    // it. In some unit test cases, the runtime state's task ctx is not inited, then the test
+    // hang, it is very hard to debug.
+    bool _task_execution_context_inited = false;
     // Hold execution context for other threads
     std::weak_ptr<TaskExecutionContext> _task_execution_context;
 

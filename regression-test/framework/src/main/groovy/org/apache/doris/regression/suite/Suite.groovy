@@ -890,7 +890,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
 
     void setFeConfig(String key, Object value) {

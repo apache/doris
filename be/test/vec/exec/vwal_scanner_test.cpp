@@ -226,7 +226,6 @@ TEST_F(VWalScannerTest, normal) {
     index_vector.emplace_back(0);
     index_vector.emplace_back(1);
     index_vector.emplace_back(2);
-    _env->_wal_manager->add_wal_column_index(txn_id, index_vector);
     //    config::group_commit_replay_wal_dir = wal_dir;
     NewFileScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);

@@ -2207,6 +2207,11 @@ true	abc	def	2022-10-11	1.234	1	2	99	2022-10-22T10:59:59	34.123
 -- !partition_2_4 --
 4	A	2020-12-02T08:00
 
+-- !num_zero --
+001	123.45
+002	678.90
+003	1011.12
+
 -- !test_insert1 --
 doris1	18
 
@@ -2261,9 +2266,11 @@ varchar_value	TEXT	Yes	false	\N	NONE
 
 -- !specified_database_1 --
 doris_test
+information_schema
 
 -- !specified_database_2 --
 doris_test
+information_schema
 
 -- !specified_database_3 --
 catalog_pg_test
@@ -2273,6 +2280,7 @@ pg_toast
 public
 
 -- !specified_database_4 --
+information_schema
 
 -- !test_old --
 123	abc

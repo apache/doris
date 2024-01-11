@@ -501,6 +501,8 @@ public class Alter {
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                         || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)
+                        || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)

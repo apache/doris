@@ -36,7 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.nereids.util.ImmutableEquivalenceSet;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -145,7 +145,7 @@ public class EliminateJoinByFK extends DefaultPlanRewriter<JobContext> implement
             return project;
         }
 
-        private @Nullable Map<Slot, Slot> mapPrimaryToForeign(ImmutableEquivalenceSet<Slot> equivalenceSet,
+        private @Nullable Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
                 Set<Slot> foreignKeys) {
             ImmutableMap.Builder<Slot, Slot> builder = new ImmutableMap.Builder<>();
             for (Slot foreignSlot : foreignKeys) {
@@ -164,7 +164,7 @@ public class EliminateJoinByFK extends DefaultPlanRewriter<JobContext> implement
         // 4. if foreign key is null, add a isNotNull predicate for null-reject join condition
         private Plan eliminateJoin(LogicalProject<LogicalJoin<?, ?>> project, ForeignKeyContext context) {
             LogicalJoin<?, ?> join = project.child();
-            ImmutableEquivalenceSet<Slot> equalSet = join.getEqualSlots();
+            ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
             Set<Slot> leftSlots = Sets.intersection(join.left().getOutputSet(), equalSet.getAllItemSet());
             Set<Slot> rightSlots = Sets.intersection(join.right().getOutputSet(), equalSet.getAllItemSet());
             if (context.isForeignKey(leftSlots) && context.isPrimaryKey(rightSlots)) {

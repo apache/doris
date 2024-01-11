@@ -207,17 +207,31 @@ public class PhysicalHashJoin<
                 "join child node is null");
 
         Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(probeExpr);
+        PhysicalRelation target1 = (pair == null) ? null : pair.first;
+        PhysicalRelation target2 = null;
+        pair = ctx.getAliasTransferMap().get(srcExpr);
+        PhysicalRelation srcNode = (pair == null) ? null : pair.first;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
+                        pair = ctx.getAliasTransferMap().get(equalTo.right());
+                        target2 = (pair == null) ? null : pair.first;
                     } else if (probeExpr.equals(equalTo.right())) {
                         probExprList.add(equalTo.left());
+                        pair = ctx.getAliasTransferMap().get(equalTo.left());
+                        target2 = (pair == null) ? null : pair.first;
+                    }
+                    if (target2 != null) {
+                        ctx.getExpandedRF().add(
+                            new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
                     }
                 }
                 probExprList.remove(srcExpr);
+
             }
         }
         for (Expression prob : probExprList) {

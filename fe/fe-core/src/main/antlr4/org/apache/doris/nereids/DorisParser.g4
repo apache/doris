@@ -65,7 +65,7 @@ statement
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relation (COMMA relation)*)?
-        whereClause                                                    #delete
+        whereClause?                                                   #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
@@ -102,6 +102,7 @@ statement
         constraint                                                        #addConstraint
     | ALTER TABLE table=relation
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | SHOW CONSTRAINTS FROM table=relation                                 #showConstraint
     | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     ;
 

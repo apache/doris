@@ -287,7 +287,7 @@ public:
                       << print_id(_state->fragment_instance_id())
                       << " current pipeline exceed run time "
                       << config::enable_debug_log_timeout_secs << " seconds. Task state "
-                      << get_state_name(get_state()) << debug_string();
+                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
         }
     }
 
@@ -389,9 +389,6 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    Status _collect_query_statistics();
-    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root

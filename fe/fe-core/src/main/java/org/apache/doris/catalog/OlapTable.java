@@ -21,7 +21,6 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -1114,6 +1113,14 @@ public class OlapTable extends Table {
         return getOrCreatTableProperty().getGroupCommitIntervalMs();
     }
 
+    public void setGroupCommitDataBytes(int groupCommitInterValMs) {
+        getOrCreatTableProperty().setGroupCommitDataBytes(groupCommitInterValMs);
+    }
+
+    public int getGroupCommitDataBytes() {
+        return getOrCreatTableProperty().getGroupCommitDataBytes();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1254,11 +1261,6 @@ public class OlapTable extends Table {
             dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
-    }
-
-    @Override
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new RuntimeException("Don't support anymore");
     }
 
     // Get the md5 of signature string of this table with specified partitions.
@@ -2388,7 +2390,7 @@ public class OlapTable extends Table {
                 && getEnableUniqueKeyMergeOnWrite());
     }
 
-    public void initAutoIncrentGenerator(long dbId) {
+    public void initAutoIncrementGenerator(long dbId) {
         for (Column column : fullSchema) {
             if (column.isAutoInc()) {
                 autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
@@ -2490,9 +2492,7 @@ public class OlapTable extends Table {
     public List<Tablet> getAllTablets() throws AnalysisException {
         List<Tablet> tablets = Lists.newArrayList();
         for (Partition partition : getPartitions()) {
-            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
-                tablets.add(tablet);
-            }
+            tablets.addAll(partition.getBaseIndex().getTablets());
         }
         return tablets;
     }
