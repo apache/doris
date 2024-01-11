@@ -15,45 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.external;
+package org.apache.doris.datasource.infoschema;
 
+import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 
-/**
- * TestExternalTable is a table for unit test.
- */
-public class TestExternalTable extends ExternalTable {
-    private static final Logger LOG = LogManager.getLogger(TestExternalTable.class);
+public class ExternalInfoSchemaTable extends ExternalTable {
 
-    public TestExternalTable(long id, String name, String dbName, TestExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.TEST_EXTERNAL_TABLE);
-    }
-
-    @Override
-    public synchronized void makeSureInitialized() {
-        super.makeSureInitialized();
-        this.objectCreated = true;
-    }
-
-    @Override
-    public TTableDescriptor toThrift() {
-        makeSureInitialized();
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.TEST_EXTERNAL_TABLE,
-                getFullSchema().size(),
-                0, getName(), "");
-        return tTableDescriptor;
+    public ExternalInfoSchemaTable(long id, String name, ExternalCatalog catalog) {
+        super(id, name, catalog, InfoSchemaDb.DATABASE_NAME, TableType.SCHEMA);
     }
 
     @Override
     public List<Column> initSchema() {
-        return ((TestExternalCatalog) catalog).mockedSchema(dbName, name);
+        makeSureInitialized();
+        List<Column> columns = SchemaTable.TABLE_MAP.get(name).getFullSchema();
+        return columns;
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(this.name));
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.SCHEMA_TABLE,
+                getFullSchema().size(), 0, this.name, "");
+        tTableDescriptor.setSchemaTable(tSchemaTable);
+        return tTableDescriptor;
     }
 }
