@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
