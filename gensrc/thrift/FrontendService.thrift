@@ -406,6 +406,11 @@ struct TQueryStatistics {
     5: optional i64 max_peak_memory_bytes
 }
 
+struct TReportWorkloadRuntimeStatusParams {
+    1: optional i64 backend_id
+    2: map<string, TQueryStatistics> query_statistics_map
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -470,6 +475,8 @@ struct TReportExecStatusParams {
   23: optional list<TDetailedReportParams> detailed_report
 
   24: optional TQueryStatistics query_statistics
+
+  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {

@@ -115,12 +115,6 @@ public:
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
     void set_is_root_pipeline() { _is_root_pipeline = true; }
     bool is_root_pipeline() const { return _is_root_pipeline; }
-    void set_collect_query_statistics_with_every_batch() {
-        _collect_query_statistics_with_every_batch = true;
-    }
-    [[nodiscard]] bool collect_query_statistics_with_every_batch() const {
-        return _collect_query_statistics_with_every_batch;
-    }
 
     static bool is_hash_exchange(ExchangeType idx) {
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
@@ -235,7 +229,6 @@ private:
     bool _always_can_read = false;
     bool _always_can_write = false;
     bool _is_root_pipeline = false;
-    bool _collect_query_statistics_with_every_batch = false;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.

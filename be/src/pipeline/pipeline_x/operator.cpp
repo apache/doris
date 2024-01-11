@@ -316,7 +316,9 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _rows_returned_counter(nullptr),
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
-          _state(state) {}
+          _state(state) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
