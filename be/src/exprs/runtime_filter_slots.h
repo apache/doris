@@ -57,7 +57,7 @@ public:
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
             }
-            for (auto filter : filters) {
+            for (auto* filter : filters) {
                 filter->set_ignored("");
                 filter->signal();
             }
@@ -166,7 +166,7 @@ public:
         return Status::OK();
     }
 
-    void insert(const std::unordered_set<const vectorized::Block*>& datas) {
+    void insert(const vectorized::Block* block) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
             if (iter == _runtime_filters.end()) {
@@ -174,18 +174,16 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            for (const auto* it : datas) {
-                auto column = it->get_by_position(result_column_id).column;
-                for (auto* filter : iter->second) {
-                    filter->insert_batch(column, 1);
-                }
+            const auto& column = block->get_by_position(result_column_id).column;
+            for (auto* filter : iter->second) {
+                filter->insert_batch(column, 1);
             }
         }
     }
 
     bool ready_finish_publish() {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
+            for (auto* filter : pair.second) {
                 if (!filter->is_finish_rpc()) {
                     return false;
                 }
@@ -196,7 +194,7 @@ public:
 
     void finish_publish() {
         for (auto& pair : _runtime_filters) {
-            for (auto filter : pair.second) {
+            for (auto* filter : pair.second) {
                 static_cast<void>(filter->join_rpc());
             }
         }

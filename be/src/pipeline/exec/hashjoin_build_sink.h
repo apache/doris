@@ -94,7 +94,10 @@ protected:
     friend class HashJoinBuildSinkOperatorX;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    friend struct vectorized::ProcessRuntimeFilterBuild;
+    template <typename Parent>
+    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
+                                                           vectorized::Block* block, Parent* parent,
+                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -107,7 +110,6 @@ protected:
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
