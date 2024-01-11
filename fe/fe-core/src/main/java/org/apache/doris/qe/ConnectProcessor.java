@@ -356,7 +356,7 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
             }
         }
-        Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
+        AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, null, true);
     }
 
     // Process COM_QUERY statement,
@@ -439,7 +439,8 @@ public class ConnectProcessor {
                         finalizeCommand();
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
+                        true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;

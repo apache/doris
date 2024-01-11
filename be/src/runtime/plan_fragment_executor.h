@@ -47,7 +47,6 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
 
 namespace vectorized {
 class Block;
@@ -81,8 +80,7 @@ public:
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
     using report_status_callback =
-            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool,
-                               std::shared_ptr<QueryStatistics>)>;
+            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool)>;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -198,12 +196,6 @@ private:
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
-
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
@@ -244,16 +236,7 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
-    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
-        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
-            return _query_statistics;
-        }
-        return nullptr;
-    }
-
-    void _collect_node_statistics();
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

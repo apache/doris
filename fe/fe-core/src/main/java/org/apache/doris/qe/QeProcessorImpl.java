@@ -184,6 +184,15 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.debug("params: {}", params);
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();
+
+        if (params.isSetReportWorkloadRuntimeStatus()) {
+            Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().updateBeQueryStats(params.report_workload_runtime_status);
+            if (!params.isSetQueryId()) {
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+        }
+
         final QueryInfo info = coordinatorMap.get(params.query_id);
 
         if (info == null) {

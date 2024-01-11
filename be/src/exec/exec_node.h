@@ -157,13 +157,6 @@ public:
     // so should be fast.
     [[nodiscard]] virtual Status reset(RuntimeState* state);
 
-    // This should be called before close() and after get_next(), it is responsible for
-    // collecting statistics sent with row batch, it can't be called when prepare() returns
-    // error.
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
-
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
-                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -241,6 +234,8 @@ public:
     ExecNode* child(int i) { return _children[i]; }
 
     size_t children_count() const { return _children.size(); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 protected:
     friend class DataSink;
@@ -333,6 +328,8 @@ protected:
     void add_runtime_exec_option(const std::string& option);
 
     std::atomic<bool> _can_read = false;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
 private:
     friend class pipeline::OperatorBase;

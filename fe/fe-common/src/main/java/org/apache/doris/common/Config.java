@@ -2257,6 +2257,16 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(mutable = true)
+    public static int workload_runtime_status_thread_interval_ms = 2000;
+
+    // NOTE: it should bigger than be config report_query_statistics_interval_ms
+    @ConfField(mutable = true)
+    public static int query_audit_log_timeout_ms = 5000;
+
+    @ConfField(mutable = true)
+    public static int be_report_query_statistics_timeout_ms = 60000;
+
     @ConfField(masterOnly = true, description = {
         "设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
             + "后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。"

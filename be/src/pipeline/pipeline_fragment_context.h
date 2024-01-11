@@ -121,10 +121,6 @@ public:
         return _task_group_entity;
     }
 
-    void set_query_statistics(std::shared_ptr<QueryStatistics> query_statistics) {
-        _query_statistics = query_statistics;
-    }
-
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -207,13 +203,6 @@ protected:
 
     DescriptorTbl* _desc_tbl = nullptr;
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
-    std::shared_ptr<QueryStatistics> _dml_query_statistics() {
-        if (_query_statistics && _query_statistics->collect_dml_statistics()) {
-            return _query_statistics;
-        }
-        return nullptr;
-    }
-    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 } // namespace pipeline
 } // namespace doris

@@ -34,7 +34,6 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class QueryStatistics;
 class ResultWriter;
 class RowDescriptor;
 class TExpr;
@@ -136,8 +135,6 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status) override;
     virtual RuntimeProfile* profile() override { return _profile; }
-
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
