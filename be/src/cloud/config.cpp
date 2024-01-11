@@ -17,10 +17,8 @@
 
 #include "cloud/config.h"
 
-namespace doris {
-namespace config {
+namespace doris::config {
 
-// TODO
+DEFINE_String(cloud_unique_id, "");
 
-} // namespace config
-} // namespace doris
+} // namespace doris::config

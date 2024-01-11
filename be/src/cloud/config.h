@@ -19,10 +19,12 @@
 
 #include "common/config.h"
 
-namespace doris {
-namespace config {
+namespace doris::config {
 
-// TODO
+DECLARE_String(cloud_unique_id);
 
-} // namespace config
-} // namespace doris
+static inline bool is_cloud_mode() {
+    return !cloud_unique_id.empty();
+}
+
+} // namespace doris::config
