@@ -2442,6 +2442,23 @@ public class Config extends ConfigBase {
         return !cloud_unique_id.isEmpty();
     }
 
+    /**
+     * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     */
+    @ConfField
+    public static String meta_service_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static boolean meta_service_connection_pooled = true;
+
+    @ConfField(mutable = true)
+    public static int meta_service_connection_pool_size = 20;
+
+    // A connection will expire after a random time during [base, 2*base), so that the FE
+    // has a chance to connect to a new RS. Set zero to disable it.
+    @ConfField(mutable = true)
+    public static int meta_service_connection_age_base_minutes = 5;
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
