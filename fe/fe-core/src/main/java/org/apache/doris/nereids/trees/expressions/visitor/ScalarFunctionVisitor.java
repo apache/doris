@@ -383,6 +383,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIPv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIPv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -1194,6 +1196,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6CIDRToRange(Ipv6CIDRToRange ipv6CIDRToRange, C context) {
         return visitScalarFunction(ipv6CIDRToRange, context);
+    }
+
+    default R visitToIPv4(ToIPv4 toIPv4, C context) {
+        return visitScalarFunction(toIPv4, context);
+    }
+
+    default R visitToIPv6(ToIPv6 toIPv6, C context) {
+        return visitScalarFunction(toIPv6, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

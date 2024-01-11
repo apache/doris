@@ -393,6 +393,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIPv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIPv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -623,6 +625,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpv6String.class, "is_ipv6_string"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
+            scalar(ToIPv4.class, "to_ipv4"),
+            scalar(ToIPv6.class, "to_ipv6"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),

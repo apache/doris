@@ -885,4 +885,85 @@ private:
     }
 };
 
+template <typename Type>
+class FunctionToIP : public IFunction {
+    static_assert(std::is_same_v<Type, IPv4> || std::is_same_v<Type, IPv6>);
+
+public:
+    static constexpr auto name = std::is_same_v<Type, IPv4> ? "to_ipv4" : "to_ipv6";
+
+    static FunctionPtr create() { return std::make_shared<FunctionToIP<Type>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (!is_string(remove_nullable(arguments[0]))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of argument of function {}, expected String",
+                            arguments[0]->get_name(), get_name());
+        }
+
+        if constexpr (std::is_same_v<Type, IPv4>) {
+            return make_nullable(std::make_shared<DataTypeIPv4>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeIPv6>());
+        }
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnPtr addr_column = block.get_by_position(arguments[0]).column;
+        const ColumnString* str_addr_column = nullptr;
+        const NullMap* addr_null_map = nullptr;
+
+        if (addr_column->is_nullable()) {
+            const auto* addr_column_nullable = assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column = check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            addr_null_map = &addr_column_nullable->get_null_map_data();
+        } else {
+            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+        }
+
+        auto col_res = ColumnVector<Type>::create(input_rows_count, 0);
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+        auto& res_null_map_data = res_null_map->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (addr_null_map && (*addr_null_map)[i]) {
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            if constexpr (std::is_same_v<Type, IPv4>) {
+                StringRef ipv4_str = str_addr_column->get_data_at(i);
+                IPv4 ipv4_val = 0;
+                if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {
+                    col_res_data[i] = ipv4_val;
+                } else {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Invalid IPv4 String '{}'", ipv4_str.to_string_view());
+                }
+            } else {
+                StringRef ipv6_str = str_addr_column->get_data_at(i);
+                IPv6 ipv6_val = 0;
+                if (IPv6Value::from_string(ipv6_val, ipv6_str.data, ipv6_str.size)) {
+                    col_res_data[i] = ipv6_val;
+                } else {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "Invalid IPv6 String '{}'", ipv6_str.to_string_view());
+                }
+            }
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(col_res), std::move(res_null_map)));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized

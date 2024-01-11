@@ -42,5 +42,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
     factory.register_function<FunctionIPv6CIDRToRange>();
+    factory.register_function<FunctionToIP<IPv4>>();
+    factory.register_function<FunctionToIP<IPv6>>();
 }
 } // namespace doris::vectorized
