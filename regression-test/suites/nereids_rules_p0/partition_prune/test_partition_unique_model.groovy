@@ -20,6 +20,7 @@ suite("test_partition_unique_model") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists xinan;"
