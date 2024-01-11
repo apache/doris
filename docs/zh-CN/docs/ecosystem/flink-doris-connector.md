@@ -395,6 +395,7 @@ ON a.city = c.city
 
 ## Flink 写入指标
 其中Counter类型的指标值为导入任务从开始到当前的累加值，可以在Flink Webui metrics中观察各表的各项指标。
+
 | Name                      | Metric Type | Description                                |
 | ------------------------- | ----------- | ------------------------------------------ |
 | totalFlushLoadBytes       | Counter     | 已经刷新导入的总字节数                     |
