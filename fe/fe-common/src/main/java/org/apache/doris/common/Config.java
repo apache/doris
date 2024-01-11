@@ -2450,6 +2450,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 
+    @ConfField
+    public static int cloud_meta_service_rpc_failed_retry_times = 200;
+
+    @ConfField
+    public static int default_get_version_from_ms_timeout_second = 3;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_multi_replica = false;
+
+    @ConfField(mutable = true)
+    public static int cloud_replica_num = 3;
+
+    @ConfField(mutable = true)
+    public static int cloud_cold_read_percent = 10; // 10%
+
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

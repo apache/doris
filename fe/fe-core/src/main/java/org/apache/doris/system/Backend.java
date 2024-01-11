@@ -120,6 +120,9 @@ public class Backend implements Writable {
     @SerializedName("tagMap")
     private Map<String, String> tagMap = Maps.newHashMap();
 
+    private boolean isSmoothUpgradeSrc = false; // This be process is old process when doing smooth upgrade
+    private boolean isSmoothUpgradeDst = false; // This be process is new process when doing smooth upgrade
+
     // cpu cores
     @SerializedName("cpuCores")
     private int cpuCores = 1;
@@ -172,6 +175,38 @@ public class Backend implements Writable {
         this.isDecommissioned = new AtomicBoolean(false);
 
         this.tagMap.put(locationTag.type, locationTag.value);
+    }
+
+    public String getCloudClusterStatus() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, "");
+    }
+
+    public void setCloudClusterStatus(final String clusterStatus) {
+        tagMap.put(Tag.CLOUD_CLUSTER_STATUS, clusterStatus);
+    }
+
+    public String getCloudClusterName() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+    }
+
+    public void setCloudClusterName(final String clusterName) {
+        tagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
+    }
+
+    public String getCloudClusterId() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_ID, "");
+    }
+
+    public String getCloudUniqueId() {
+        return tagMap.getOrDefault(Tag.CLOUD_UNIQUE_ID, "");
+    }
+
+    public String getCloudPublicEndpoint() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+    }
+
+    public String getCloudPrivateEndpoint() {
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
     }
 
     public long getId() {
@@ -367,6 +402,22 @@ public class Backend implements Writable {
 
     public BackendStatus getBackendStatus() {
         return backendStatus;
+    }
+
+    public void setSmoothUpgradeSrc(boolean is) {
+        this.isSmoothUpgradeSrc = is;
+    }
+
+    public boolean isSmoothUpgradeSrc() {
+        return this.isSmoothUpgradeSrc;
+    }
+
+    public void setSmoothUpgradeDst(boolean is) {
+        this.isSmoothUpgradeDst = is;
+    }
+
+    public boolean isSmoothUpgradeDst() {
+        return this.isSmoothUpgradeDst;
     }
 
     public int getHeartbeatFailureCounter() {
