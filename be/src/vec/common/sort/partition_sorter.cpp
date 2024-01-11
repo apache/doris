@@ -66,7 +66,7 @@ Status PartitionSorter::prepare_for_read() {
     auto& cursors = _state->get_cursors();
     auto& blocks = _state->get_sorted_block();
     auto& priority_queue = _state->get_priority_queue();
-    for (const auto& block : blocks) {
+    for (auto& block : blocks) {
         cursors.emplace_back(block, _sort_description);
     }
     for (auto& cursor : cursors) {

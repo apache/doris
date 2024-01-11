@@ -202,7 +202,7 @@ public:
         _local_channel_dependency = local_channel_dependency;
     }
 
-    virtual bool should_wait();
+    bool should_wait();
 
     virtual Status get_batch(Block* next_block, bool* eos);
 
