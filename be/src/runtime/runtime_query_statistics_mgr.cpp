@@ -20,6 +20,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/debug_util.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -37,9 +38,11 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
     // 1 get query statistics map
     std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
-    std::map<std::string, bool> query_finished;
+    std::map<std::string, std::pair<bool, bool>> qs_status; // <finished, timeout>
     {
         std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
+        int64_t current_time = MonotonicMillis();
+        int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
         for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
             if (fe_qs_map.find(qs_ctx_ptr->fe_addr) == fe_qs_map.end()) {
                 std::map<std::string, TQueryStatistics> tmp_map;
@@ -53,7 +56,14 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
             TQueryStatistics ret_t_qs;
             tmp_qs.to_thrift(&ret_t_qs);
             fe_qs_map.at(qs_ctx_ptr->fe_addr)[query_id] = ret_t_qs;
-            query_finished[query_id] = qs_ctx_ptr->is_query_finished;
+
+            bool is_query_finished = qs_ctx_ptr->is_query_finished;
+            bool is_timeout_after_finish = false;
+            if (is_query_finished) {
+                is_timeout_after_finish =
+                        (current_time - qs_ctx_ptr->query_finish_time) > conf_qs_timeout;
+            }
+            qs_status[query_id] = std::make_pair(is_query_finished, is_timeout_after_finish);
         }
     }
 
@@ -87,8 +97,12 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         try {
             coord->reportExecStatus(res, params);
             rpc_result[addr] = true;
+        } catch (apache::thrift::TApplicationException& e) {
+            LOG(WARNING) << "fe " << add_str
+                         << " throw exception when report statistics, reason=" << e.what()
+                         << " , you can see fe log for details.";
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "report workload runtime stats to " << add_str
+            LOG(WARNING) << "report workload runtime statistics to " << add_str
                          << " failed,  err: " << e.what();
             rpc_status = coord.reopen();
             if (!rpc_status.ok()) {
@@ -108,14 +122,20 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
     }
 
     //  3 when query is finished and (last rpc is send success), remove finished query statistics
+    if (fe_qs_map.size() == 0) {
+        return;
+    }
+
     {
         std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
         for (auto& [addr, qs_map] : fe_qs_map) {
-            if (rpc_result[addr]) {
-                for (auto& [query_id, qs] : qs_map) {
-                    if (query_finished[query_id]) {
-                        _query_statistics_ctx_map.erase(query_id);
-                    }
+            bool is_rpc_success = rpc_result[addr];
+            for (auto& [query_id, qs] : qs_map) {
+                auto& qs_status_pair = qs_status[query_id];
+                bool is_query_finished = qs_status_pair.first;
+                bool is_timeout_after_finish = qs_status_pair.second;
+                if ((is_rpc_success && is_query_finished) || is_timeout_after_finish) {
+                    _query_statistics_ctx_map.erase(query_id);
                 }
             }
         }
@@ -128,7 +148,9 @@ void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
     // when a query get query_ctx succ, but failed before create node/operator,
     // it may not register query statistics, so it can not be mark finish
     if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
-        _query_statistics_ctx_map.at(query_id)->is_query_finished = true;
+        auto* qs_ptr = _query_statistics_ctx_map.at(query_id).get();
+        qs_ptr->is_query_finished = true;
+        qs_ptr->query_finish_time = MonotonicMillis();
     }
 }
 
