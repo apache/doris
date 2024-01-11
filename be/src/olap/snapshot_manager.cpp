@@ -590,7 +590,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
             if (res.ok() && request.__isset.is_copy_tablet_task && request.is_copy_tablet_task) {
-                res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
+                res = new_tablet_meta->save_as_json(json_header_path);
             }
         } else {
             res = Status::Error<INVALID_SNAPSHOT_VERSION>(
