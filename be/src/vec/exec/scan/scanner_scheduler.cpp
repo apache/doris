@@ -174,10 +174,11 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
-                  << " maybe finished";
+        LOG(WARNING) << "could not lock task execution context, query " << ctx->debug_string()
+                     << " maybe finished";
         return;
     }
+
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
