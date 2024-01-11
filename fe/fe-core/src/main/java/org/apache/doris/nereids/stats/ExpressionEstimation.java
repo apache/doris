@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -169,35 +170,50 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
-        if (colStats.minExpr instanceof StringLiteral || colStats.maxExpr instanceof StringLiteral) {
-            if (targetType.isDateLikeType()) {
-                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-                if (colStats.minExpr != null) {
-                    try {
-                        String strMin = colStats.minExpr.getStringValue();
-                        DateLiteral dateMinLiteral = new DateLiteral(strMin);
-                        long min = dateMinLiteral.getValue();
-                        builder.setMinValue(min);
-                        builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                    } catch (AnalysisException e) {
-                        // ignore exception. do not convert min
-                    }
+        // cast str to date/datetime
+        if (colStats.minExpr instanceof StringLiteral
+                && colStats.maxExpr instanceof StringLiteral
+                && targetType.isDateLikeType()) {
+            boolean convertSuccess = true;
+            ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+            if (colStats.minExpr != null) {
+                try {
+                    String strMin = colStats.minExpr.getStringValue();
+                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                    long min = dateMinLiteral.getValue();
+                    builder.setMinValue(min);
+                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
                 }
-                if (colStats.maxExpr != null) {
-                    try {
-                        String strMax = colStats.maxExpr.getStringValue();
-                        DateLiteral dateMaxLiteral = new DateLiteral(strMax);
-                        long max = dateMaxLiteral.getValue();
-                        builder.setMaxValue(max);
-                        builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                    } catch (AnalysisException e) {
-                        // ignore exception. do not convert max
-                    }
+            }
+            if (convertSuccess && colStats.maxExpr != null) {
+                try {
+                    String strMax = colStats.maxExpr.getStringValue();
+                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                    long max = dateMaxLiteral.getValue();
+                    builder.setMaxValue(max);
+                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
+                } catch (AnalysisException e) {
+                    convertSuccess = false;
                 }
+            }
+            if (convertSuccess) {
                 return builder.build();
             }
         }
-        return colStats;
+        // cast numeric to numeric
+        if (colStats.minExpr instanceof NumericLiteralExpr && colStats.maxExpr instanceof NumericLiteralExpr) {
+            if (targetType.isNumericType()) {
+                return colStats;
+            }
+        }
+
+        // cast other date types, set min/max infinity
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+        builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
+                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+        return builder.build();
     }
 
     @Override

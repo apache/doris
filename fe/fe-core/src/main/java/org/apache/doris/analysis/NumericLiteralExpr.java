@@ -14,29 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LiteralExpr.java
+// and modified by Doris
 
-package org.apache.doris.nereids.trees.expressions.literal;
+package org.apache.doris.analysis;
 
-import org.apache.doris.nereids.types.DataType;
-
-/** IntegralLiteral */
-public abstract class IntegerLikeLiteral extends NumericLiteral {
-    /**
-     * Constructor for Literal.
-     *
-     * @param dataType logical data type in Nereids
-     */
-    public IntegerLikeLiteral(DataType dataType) {
-        super(dataType);
+public abstract class NumericLiteralExpr extends LiteralExpr {
+    public NumericLiteralExpr() {
+        super();
     }
 
-    public int getIntValue() {
-        return getNumber().intValue();
+    public NumericLiteralExpr(NumericLiteralExpr other) {
+        super(other);
     }
-
-    public long getLongValue() {
-        return getNumber().longValue();
-    }
-
-    public abstract Number getNumber();
 }
