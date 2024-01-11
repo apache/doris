@@ -159,5 +159,12 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStream._dispatch.unknown_loadid", "")
     // LoadStream dispatch meet unknown src id
     load_with_injection("LoadStream._dispatch.unknown_srcid", "")
+
+    // LoadStream meets StreamRPC idle timeout
+    try {
+        load_with_injection("LoadStreamStub._send_with_retry.delay_before_send", "")
+    } catch(Exception e) {
+        logger.info(e.getMessage())
+    }
 }
 
