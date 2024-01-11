@@ -73,7 +73,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
-            profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
+            profile(), p.is_merging());
     auto* source_dependency = _dependency;
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
@@ -133,7 +133,6 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::prepare(state));
     DCHECK_GT(_num_senders, 0);
-    _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));

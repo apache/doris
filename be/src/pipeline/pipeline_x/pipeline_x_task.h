@@ -62,7 +62,8 @@ public:
         return Status::InternalError("Should not reach here!");
     }
 
-    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink);
+    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
+                   QueryContext* query_ctx);
 
     Status execute(bool* eos) override;
 

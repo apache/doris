@@ -1213,6 +1213,9 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_ready();
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
