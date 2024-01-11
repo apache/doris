@@ -70,6 +70,7 @@ class Thread;
 class ThreadPool;
 class TxnManager;
 class ReportWorker;
+class CreateTabletIdxCache;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -82,7 +83,7 @@ class StorageEngine {
 public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
-    
+
     enum class Disk_remaining_level { LOW, MID, HIGH };
 
     [[nodiscard]] Status open();
@@ -108,7 +109,8 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
+    std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
+                                                       TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
 
     uint32_t available_storage_medium_type_count() const {
@@ -126,7 +128,7 @@ public:
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
     Status obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
-                             std::string* shared_path, DataDir** store);
+                             std::string* shared_path, DataDir** store, int64_t partition_id);
 
     // Load new tablet to make it effective.
     //
@@ -360,8 +362,6 @@ private:
         bool is_used;
     };
 
- 
-
     EngineOptions _options;
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
@@ -493,10 +493,65 @@ private:
 
     std::atomic<bool> _need_clean_trash {false};
 
-    // next index for create tablet
-    std::map<TStorageMedium::type, int> _store_next_index;
+    std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
+};
+
+// lru cache for create tabelt round robin in disks
+// key: partitionId_medium
+// value: index
+class CreateTabletIdxCache : public LRUCachePolicy {
+public:
+    // get key, delimiter with DELIMITER '-'
+    static std::string get_key(int64_t partition_id, TStorageMedium::type medium) {
+        return fmt::format("{}-{}", partition_id, medium);
+    }
+
+    // -1 not found key in lru
+    int64 get_index(const std::string& key) {
+        if (key.empty()) {
+            return {};
+        }
+        auto lru_handle = cache()->lookup(key);
+        if (lru_handle) {
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
+            value->last_visit_time = UnixMillis();
+            VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
+            return value->idx;
+        }
+        return -1;
+    }
+
+    void set_index(const std::string& key, int next_idx) {
+        assert(next_idx >= 0);
+        if (key.empty()) {
+            return;
+        }
+        CacheValue* value = new CacheValue;
+        value->last_visit_time = UnixMillis();
+        value->idx = next_idx;
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            CacheValue* cache_value = (CacheValue*)value;
+            delete cache_value;
+        };
+        auto lru_handle =
+                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int64));
+        cache()->release(lru_handle);
+    }
+
+    struct CacheValue : public LRUCacheValueBase {
+        int64 idx = 0;
+    };
+
+    CreateTabletIdxCache(size_t capacity)
+            : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             /*stale_sweep_time_s*/ 30 * 60) {}
+
+private:
+    static constexpr char DELIMITER = '-';
 };
 
 } // namespace doris

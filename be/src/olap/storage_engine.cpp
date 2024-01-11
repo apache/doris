@@ -130,7 +130,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _memtable_flush_executor(nullptr),
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
-          _stream_load_recorder(nullptr) {
+          _heartbeat_flags(nullptr),
+          _stream_load_recorder(nullptr),
+          _create_tablet_idx_lru_cache(new CreateTabletIdxCache(10000)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -432,25 +434,23 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
 }
 
 StorageEngine::Disk_remaining_level get_available_level(double disk_usage_percent) {
-    assert(disk_usage_percent >= 0 && disk_usage_percent <= 1);
+    assert(disk_usage_percent <= 1);
     if (disk_usage_percent < 0.7) {
         return StorageEngine::Disk_remaining_level::LOW;
     } else if (disk_usage_percent < 0.85) {
         return StorageEngine::Disk_remaining_level::MID;
-    } else {
-        return StorageEngine::Disk_remaining_level::HIGH;
     }
-    return StorageEngine::Disk_remaining_level::LOW;
+    return StorageEngine::Disk_remaining_level::HIGH;
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        TStorageMedium::type storage_medium) {
+        int64 partition_id, TStorageMedium::type storage_medium) {
     struct DirInfo {
         DataDir* data_dir;
 
         StorageEngine::Disk_remaining_level available_level;
 
-        bool operator<(const DirInfo& other) {
+        bool operator<(const DirInfo& other) const {
             if (available_level != other.available_level) {
                 return available_level < other.available_level;
             }
@@ -459,31 +459,37 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     };
 
     std::vector<DirInfo> dir_infos;
-    int next_index = 0;
+    int curr_index = 0;
 
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        if (_store_next_index.find(storage_medium) == _store_next_index.end()) {
-            _store_next_index[storage_medium] = rand() % 100; 
-        }
 
-        next_index = _store_next_index[storage_medium]++;
-        if (next_index < 0) {
-            next_index = 0;
-            _store_next_index[storage_medium] = next_index + 1;
+        auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
+        curr_index = _create_tablet_idx_lru_cache->get_index(key);
+        // -1, lru can't find key
+        if (curr_index == -1) {
+            auto init_num = rand() % 100;
+            curr_index = init_num;
+            _create_tablet_idx_lru_cache->set_index(key, init_num);
+        } else {
+            int64_t next_index = curr_index + 1;
+            // int64 overflow
+            if (next_index < 0) {
+                curr_index = 0;
+            }
+            _create_tablet_idx_lru_cache->set_index(key, next_index);
         }
 
         for (auto& it : _store_map) {
             DataDir* data_dir = it.second;
             if (data_dir->is_used()) {
                 if ((_available_storage_medium_type_count == 1 ||
-                    data_dir->storage_medium() == storage_medium) && 
+                     data_dir->storage_medium() == storage_medium) &&
                     !data_dir->reach_capacity_limit(0)) {
-                    size_t disk_available = data_dir->disk_available();
                     DirInfo dir_info;
                     dir_info.data_dir = data_dir;
-                    dir_info.available_level = get_available_level(disk_available);
+                    dir_info.available_level = get_available_level(data_dir->get_usage(0));
                     dir_infos.push_back(dir_info);
                 }
             }
@@ -505,7 +511,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         // data dirs [i, end) have the same tablet size, round robin range [i, end)
         size_t count = end - i;
         for (size_t k = 0; k < count; k++) {
-            size_t index = i + (k + next_index) % count;
+            size_t index = i + (k + curr_index) % count;
             stores.push_back(dir_infos[index].data_dir);
         }
         i = end;
@@ -1075,7 +1081,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     std::vector<DataDir*> stores;
     {
         SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
-        stores = get_stores_for_create_tablet(request.storage_medium);
+        stores = get_stores_for_create_tablet(request.partition_id, request.storage_medium);
     }
     if (stores.empty()) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
@@ -1085,7 +1091,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
-                                        std::string* shard_path, DataDir** store) {
+                                        std::string* shard_path, DataDir** store,
+                                        int64_t partition_id) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
@@ -1093,7 +1100,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
                 "invalid output parameter which is null pointer.");
     }
 
-    auto stores = get_stores_for_create_tablet(storage_medium);
+    auto stores = get_stores_for_create_tablet(partition_id, storage_medium);
     if (stores.empty()) {
         return Status::Error<NO_AVAILABLE_ROOT_PATH>(
                 "no available disk can be used to create tablet.");
