@@ -23,7 +23,7 @@ suite("operate_internal_schema") {
     sql "use __internal_schema"
     sql "DROP TABLE IF EXISTS ${testTable}"
     //alter db
-    sql "ALTER DATABASE __internal_schema SET PROPERTIES("replication_allocation" = "");"
+    sql "ALTER DATABASE __internal_schema SET PROPERTIES('replication_allocation' = '');"
     //create table
     sql """
        CREATE TABLE IF NOT EXISTS ${testTable}
