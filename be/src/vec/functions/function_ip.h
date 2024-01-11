@@ -921,8 +921,10 @@ public:
         const NullMap* addr_null_map = nullptr;
 
         if (addr_column->is_nullable()) {
-            const auto* addr_column_nullable = assert_cast<const ColumnNullable*>(addr_column.get());
-            str_addr_column = check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            const auto* addr_column_nullable =
+                    assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column =
+                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
             addr_null_map = &addr_column_nullable->get_null_map_data();
         } else {
             str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
@@ -945,8 +947,8 @@ public:
                 if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {
                     col_res_data[i] = ipv4_val;
                 } else {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "Invalid IPv4 String '{}'", ipv4_str.to_string_view());
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 String '{}'",
+                                    ipv4_str.to_string_view());
                 }
             } else {
                 StringRef ipv6_str = str_addr_column->get_data_at(i);
@@ -954,8 +956,8 @@ public:
                 if (IPv6Value::from_string(ipv6_val, ipv6_str.data, ipv6_str.size)) {
                     col_res_data[i] = ipv6_val;
                 } else {
-                    throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                    "Invalid IPv6 String '{}'", ipv6_str.to_string_view());
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 String '{}'",
+                                    ipv6_str.to_string_view());
                 }
             }
         }
