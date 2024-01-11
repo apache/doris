@@ -19,7 +19,7 @@
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
 suite("operate_internal_schema") {
-    def testTable = "user"
+    def testTable = "operate_internal_schema_user"
     sql "use __internal_schema"
     sql "DROP TABLE IF EXISTS ${testTable}"
     //alter db
