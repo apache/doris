@@ -93,7 +93,7 @@ public class DecimalV3Literal extends Literal {
         int realScale = value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            if (precision < realPrecision || scale < realScale) {
+            if (precision < realPrecision || scale < realScale || precision - scale < realPrecision - realScale) {
                 valid = false;
             }
         } else {
