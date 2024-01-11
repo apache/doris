@@ -342,7 +342,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     _root_pipeline = fragment_context->add_pipeline();
     _root_pipeline->set_is_root_pipeline();
-    _root_pipeline->set_collect_query_statistics_with_every_batch();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         // DataSinkOperator is builded here
@@ -854,7 +853,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
                     _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i], false));
+                    thrift_sink.multi_cast_stream_sink.destinations[i]));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
@@ -945,7 +944,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2),
-             _dml_query_statistics()},
+             _query_ctx->get_query_statistics()},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 

@@ -70,6 +70,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -196,6 +197,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
 
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -638,6 +642,10 @@ void ExecEnv::destroy() {
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
+
+    // NOTE: runtime query statistics mgr could be visited by query and daemon thread
+    // so it should be created before all query begin and deleted after all query and daemon thread stoppped
+    SAFE_DELETE(_runtime_query_statistics_mgr);
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

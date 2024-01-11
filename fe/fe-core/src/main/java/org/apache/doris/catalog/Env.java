@@ -230,6 +230,7 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -491,6 +492,9 @@ public class Env {
     private WorkloadGroupMgr workloadGroupMgr;
 
     private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
+
+    private WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr;
+
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -739,6 +743,7 @@ public class Env {
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
+        this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -833,6 +838,10 @@ public class Env {
 
     public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
         return workloadSchedPolicyMgr;
+    }
+
+    public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
+        return workloadRuntimeStatusMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1014,6 +1023,7 @@ public class Env {
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
         workloadActionPublisherThread.start();
+        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.

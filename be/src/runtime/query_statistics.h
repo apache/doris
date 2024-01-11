@@ -59,13 +59,8 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics(TQueryType::type query_type = TQueryType::type::SELECT)
-            : scan_rows(0),
-              scan_bytes(0),
-              cpu_ms(0),
-              returned_rows(0),
-              max_peak_memory_bytes(0),
-              _query_type(query_type) {}
+    QueryStatistics()
+            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -103,8 +98,9 @@ public:
     void clearNodeStatistics();
 
     void clear() {
-        scan_rows = 0;
-        scan_bytes = 0;
+        scan_rows.store(0);
+        scan_bytes.store(0);
+
         cpu_ms = 0;
         returned_rows = 0;
         max_peak_memory_bytes = 0;
@@ -119,13 +115,13 @@ public:
     bool collected() const { return _collected; }
     void set_collected() { _collected = true; }
 
-    // LOAD does not need to collect information on the exchange node.
-    bool collect_dml_statistics() { return _query_type == TQueryType::LOAD; }
+    int64_t get_scan_rows() { return scan_rows.load(); }
+    int64_t get_scan_bytes() { return scan_bytes.load(); }
 
 private:
     friend class QueryStatisticsRecvr;
-    int64_t scan_rows;
-    int64_t scan_bytes;
+    std::atomic<int64_t> scan_rows;
+    std::atomic<int64_t> scan_bytes;
     int64_t cpu_ms;
     // number rows returned by query.
     // only set once by result sink when closing.
@@ -137,7 +133,6 @@ private:
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
-    const TQueryType::type _query_type;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
