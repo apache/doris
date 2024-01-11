@@ -23,6 +23,7 @@
 #include <chrono>
 
 #include "client_cache.h"
+#include "common/compiler_util.h"
 #include "common/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -53,7 +54,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                     txn_id, label, load_instance_id.to_string());
         }
     }
-    if (runtime_state->is_cancelled()) {
+    if (UNLIKELY(runtime_state->is_cancelled())) {
         return Status::Cancelled(runtime_state->cancel_reason());
     }
     RETURN_IF_ERROR(status);
