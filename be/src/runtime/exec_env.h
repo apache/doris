@@ -52,7 +52,6 @@ namespace taskgroup {
 class TaskGroupManager;
 }
 namespace io {
-class S3FileBufferPool;
 class FileCacheFactory;
 } // namespace io
 namespace segment_v2 {
@@ -75,6 +74,7 @@ class MemTracker;
 class StorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
+class RuntimeQueryStatiticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
@@ -154,6 +154,9 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
+    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+        return _runtime_query_statistics_mgr;
+    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -248,7 +251,6 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     StorageEngine* get_storage_engine() { return _storage_engine; }
-    io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -362,7 +364,6 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
-    io::S3FileBufferPool* _s3_buffer_pool = nullptr;
     StorageEngine* _storage_engine = nullptr;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
@@ -384,6 +385,8 @@ private:
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
+
+    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 };
 
 template <>

@@ -221,6 +221,11 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             def masterFe = cluster.getMasterFe()
+            for (def i=0; masterFe == null && i<30; i++) {
+                masterFe = cluster.getMasterFe()
+                Thread.sleep(1000)
+            }
+            assertNotNull(masterFe)
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
                     masterFe.host, masterFe.queryPort)
@@ -885,7 +890,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
 
     void setFeConfig(String key, Object value) {

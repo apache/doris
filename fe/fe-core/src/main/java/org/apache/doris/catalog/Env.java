@@ -230,6 +230,7 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
@@ -491,6 +492,9 @@ public class Env {
     private WorkloadGroupMgr workloadGroupMgr;
 
     private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
+
+    private WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr;
+
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -739,6 +743,7 @@ public class Env {
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
+        this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -833,6 +838,10 @@ public class Env {
 
     public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
         return workloadSchedPolicyMgr;
+    }
+
+    public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
+        return workloadRuntimeStatusMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1014,6 +1023,7 @@ public class Env {
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
         workloadActionPublisherThread.start();
+        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -3290,6 +3300,13 @@ public class Env {
                 sb.append(olapTable.isInMemory()).append("\"");
             }
 
+            // storage medium
+            if (olapTable.getStorageMedium() != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+                sb.append(olapTable.getStorageMedium().name().toLowerCase());
+                sb.append("\"");
+            }
+
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
@@ -3405,6 +3422,10 @@ public class Env {
             // group commit interval ms
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
             sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
@@ -4898,7 +4919,7 @@ public class Env {
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
+                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 

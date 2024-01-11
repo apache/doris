@@ -55,6 +55,7 @@ public class ShowTableStatsStmt extends ShowStmt {
                     .add("columns")
                     .add("trigger")
                     .add("new_partition")
+                    .add("user_inject")
                     .build();
 
     private final TableName tableName;
@@ -151,6 +152,7 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(tableStatistic.analyzeColumns().toString());
         row.add(tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.newPartitionLoaded.get()));
+        row.add(String.valueOf(tableStatistic.userInjected));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
     }

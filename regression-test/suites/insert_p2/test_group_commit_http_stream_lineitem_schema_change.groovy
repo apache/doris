@@ -368,7 +368,7 @@ l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c14, c15, c
 
 
     def process = { table_name ->
-        for (int i = 1; i <= 4; i++) {
+        for (int i = 1; i <= 5; i++) {
             switch (i) {
                 case SC.TRUNCATE_TABLE.value:
                     truncate(table_name)

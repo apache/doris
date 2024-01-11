@@ -19,10 +19,10 @@
 
 #include <butil/macros.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <list>
@@ -87,7 +87,7 @@ static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(
 
 class Tablet final : public BaseTablet {
 public:
-    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
+    Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string_view& cumulative_compaction_type = "");
 
     DataDir* data_dir() const { return _data_dir; }
@@ -363,14 +363,17 @@ public:
 
     RowsetSharedPtr need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    std::pair<int64_t, int64_t> cooldown_conf() const {
+    struct CooldownConf {
+        int64_t term = -1;
+        int64_t cooldown_replica_id = -1;
+    };
+
+    CooldownConf cooldown_conf() const {
         std::shared_lock rlock(_cooldown_conf_lock);
-        return {_cooldown_replica_id, _cooldown_term};
+        return _cooldown_conf;
     }
 
-    std::pair<int64_t, int64_t> cooldown_conf_unlocked() const {
-        return {_cooldown_replica_id, _cooldown_term};
-    }
+    CooldownConf cooldown_conf_unlocked() const { return _cooldown_conf; }
 
     // Return `true` if update success
     bool update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id);
@@ -379,8 +382,6 @@ public:
 
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
-
-    static void remove_unused_remote_files();
 
     uint32_t calc_cold_data_compaction_score() const;
 
@@ -557,6 +558,8 @@ public:
             SegmentCacheHandle* segment_cache_handle,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
             OlapReaderStatistics* stats);
+    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
+    bool is_alter_failed() { return _alter_failed; }
 
 private:
     Status _init_once_action();
@@ -597,6 +600,8 @@ private:
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);
+    bool _has_data_to_cooldown();
+    int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -608,6 +613,7 @@ public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
+    StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
     TimestampedVersionTracker _timestamped_version_tracker;
 
@@ -674,8 +680,7 @@ private:
     int64_t _skip_base_compaction_ts;
 
     // cooldown related
-    int64_t _cooldown_replica_id = -1;
-    int64_t _cooldown_term = -1;
+    CooldownConf _cooldown_conf;
     // `_cooldown_conf_lock` is used to serialize update cooldown conf and all operations that:
     // 1. read cooldown conf
     // 2. upload rowsets to remote storage
@@ -685,8 +690,8 @@ private:
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
     int64_t _last_failed_follow_cooldown_time = 0;
-
-    DISALLOW_COPY_AND_ASSIGN(Tablet);
+    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
+    std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
 };

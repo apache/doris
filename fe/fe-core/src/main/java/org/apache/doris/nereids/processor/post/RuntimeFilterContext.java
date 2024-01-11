@@ -96,6 +96,8 @@ public class RuntimeFilterContext {
 
     public List<RuntimeFilter> prunedRF = Lists.newArrayList();
 
+    public final List<Plan> needRfPlans = Lists.newArrayList();
+
     private final IdGenerator<RuntimeFilterId> generator = RuntimeFilterId.createGenerator();
 
     // exprId of target to runtime filter.
@@ -197,14 +199,20 @@ public class RuntimeFilterContext {
                 RuntimeFilter rf = iter.next();
                 if (rf.getBuilderNode().equals(builderNode)) {
                     builderNode.getRuntimeFilters().remove(rf);
-                    for (Slot target : rf.getTargetSlots()) {
-                        if (target.getExprId().equals(targetId)) {
-                            Pair<PhysicalRelation, Slot> pair = aliasTransferMap.get(target);
-                            if (pair != null) {
-                                pair.first.removeAppliedRuntimeFilter(rf);
-                            }
+                    for (int i = 0; i < rf.getTargetSlots().size(); i++) {
+                        Slot targetSlot = rf.getTargetSlots().get(i);
+                        if (targetSlot.getExprId().equals(targetId)) {
+                            rf.getTargetScans().get(i).removeAppliedRuntimeFilter(rf);
                         }
                     }
+                    // for (Slot target : rf.getTargetSlots()) {
+                    //     if (target.getExprId().equals(targetId)) {
+                    //         Pair<PhysicalRelation, Slot> pair = aliasTransferMap.get(target);
+                    //         if (pair != null) {
+                    //             pair.first.removeAppliedRuntimeFilter(rf);
+                    //         }
+                    //     }
+                    // }
                     iter.remove();
                     prunedRF.add(rf);
                 }
@@ -236,6 +244,22 @@ public class RuntimeFilterContext {
 
     public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
         return aliasTransferMap;
+    }
+
+    public Pair<PhysicalRelation, Slot> aliasTransferMapRemove(NamedExpression slot) {
+        return aliasTransferMap.remove(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> getAliasTransferPair(NamedExpression slot) {
+        return aliasTransferMap.get(slot);
+    }
+
+    public Pair<PhysicalRelation, Slot> aliasTransferMapPut(NamedExpression slot, Pair<PhysicalRelation, Slot> pair) {
+        return aliasTransferMap.put(slot, pair);
+    }
+
+    public boolean aliasTransferMapContains(NamedExpression slot) {
+        return aliasTransferMap.containsKey(slot);
     }
 
     public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {

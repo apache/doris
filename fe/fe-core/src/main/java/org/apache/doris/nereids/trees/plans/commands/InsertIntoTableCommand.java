@@ -136,6 +136,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         PhysicalOlapTableSink<?> physicalOlapTableSink;
         DataSink sink;
         InsertExecutor insertExecutor;
+        Table targetTable;
         TableIf targetTableIf = InsertExecutor.getTargetTable(logicalQuery, ctx);
         // should lock target table until we begin transaction.
         targetTableIf.readLock();
@@ -159,7 +160,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             physicalOlapTableSink = plan.get();
 
-            Table targetTable = physicalOlapTableSink.getTargetTable();
+            targetTable = physicalOlapTableSink.getTargetTable();
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
@@ -187,6 +188,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             targetTableIf.readUnlock();
         }
 
+        boolean isEnableMemtableOnSinkNode =
+                    ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
+                    ? insertExecutor.getCoordinator().getQueryOptions().isEnableMemtableOnSinkNode() : false;
+        insertExecutor.getCoordinator().getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption
         // so we need to set this here

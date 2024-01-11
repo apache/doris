@@ -1027,6 +1027,7 @@ DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
@@ -1079,10 +1080,6 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt32(s3_write_buffer_size);
-// the size of the whole s3 buffer pool, which indicates the s3 file writer
-// can at most buffer 50MB data. And the num of multi part upload task is
-// s3_write_buffer_whole_size / s3_write_buffer_size
-DECLARE_mInt32(s3_write_buffer_whole_size);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
@@ -1187,10 +1184,11 @@ DECLARE_mInt32(group_commit_insert_threads);
 DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
 DECLARE_Bool(wait_internal_group_commit_finish);
 // Max size(bytes) of group commit queues, used for mem back pressure.
-DECLARE_Int32(group_commit_queue_mem_limit);
+DECLARE_mInt32(group_commit_queue_mem_limit);
 // Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
+DECLARE_Bool(group_commit_wait_replay_wal_finish);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1232,7 +1230,14 @@ DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
+DECLARE_mInt64(enable_debug_log_timeout_secs);
+
 DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
+
+DECLARE_mInt32(report_query_statistics_interval_ms);
 
 #ifdef BE_TEST
 // test s3
@@ -1307,7 +1312,8 @@ public:
     // or set `retval` to `defstr`
     // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                        std::string& rawval) const;
 
     void set(const std::string& key, const std::string& val);
 

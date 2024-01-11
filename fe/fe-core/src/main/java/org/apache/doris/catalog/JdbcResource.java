@@ -94,6 +94,11 @@ public class JdbcResource extends Resource {
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
+    public static final String MIN_POOL_SIZE = "min_pool_size";
+    public static final String MAX_POOL_SIZE = "max_pool_size";
+    public static final String MAX_IDLE_TIME = "max_idle_time";
+    public static final String MAX_WAIT_TIME = "max_wait_time";
+    public static final String KEEP_ALIVE = "keep_alive";
     public static final String CHECK_SUM = "checksum";
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -111,7 +116,12 @@ public class JdbcResource extends Resource {
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
             INCLUDE_DATABASE_LIST,
-            EXCLUDE_DATABASE_LIST
+            EXCLUDE_DATABASE_LIST,
+            MIN_POOL_SIZE,
+            MAX_POOL_SIZE,
+            MAX_IDLE_TIME,
+            MAX_WAIT_TIME,
+            KEEP_ALIVE
     ).build();
 
     // The default value of optional properties
@@ -123,6 +133,11 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MIN_POOL_SIZE, "1");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_POOL_SIZE, "100");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_IDLE_TIME, "30000");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_WAIT_TIME, "5000");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(KEEP_ALIVE, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.

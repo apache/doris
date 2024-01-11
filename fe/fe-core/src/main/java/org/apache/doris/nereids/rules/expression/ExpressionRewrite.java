@@ -203,7 +203,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     return join;
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
-                        rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
+                        rewriteOtherJoinConjuncts, join.getDistributeHint(), join.getMarkJoinSlotReference(),
                         join.children());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }

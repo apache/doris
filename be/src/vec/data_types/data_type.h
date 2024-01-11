@@ -55,6 +55,10 @@ class Field;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
+constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
+inline size_t upper_int32(size_t size) {
+    return (3 + size) / 4.0;
+}
 
 /** Properties of data type.
   * Contains methods for serialization/deserialization.
@@ -194,10 +198,6 @@ public:
     virtual size_t get_size_of_value_in_memory() const;
 
     virtual bool is_nullable() const { return false; }
-
-    /** Is this type can represent only NULL value? (It also implies is_nullable)
-      */
-    virtual bool only_null() const { return false; }
 
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }

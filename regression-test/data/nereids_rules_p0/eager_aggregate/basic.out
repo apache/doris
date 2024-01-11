@@ -3,32 +3,32 @@
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=() build RFs:RF0 device_id->[device_id]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[LOCAL]
 ----------filter((a.event_id = 'ad_click'))
-------------PhysicalOlapScan[com_dd_library] apply RFs: RF0
+------------PhysicalOlapScan[com_dd_library]
 --------hashAgg[LOCAL]
-----------filter((cast(experiment_id as DOUBLE) = 37))
+----------filter((cast(experiment_id as DOUBLE) = 37.0))
 ------------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !2 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=() build RFs:RF0 device_id->[device_id]
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[LOCAL]
-----------PhysicalOlapScan[com_dd_library] apply RFs: RF0
+----------PhysicalOlapScan[com_dd_library]
 --------hashAgg[LOCAL]
-----------filter((cast(experiment_id as DOUBLE) = 73))
+----------filter((cast(experiment_id as DOUBLE) = 73.0))
 ------------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !3 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=() build RFs:RF0 device_id->[device_id]
---------PhysicalOlapScan[com_dd_library] apply RFs: RF0
---------filter((cast(experiment_id as DOUBLE) = 73))
+------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
+--------PhysicalOlapScan[com_dd_library]
+--------filter((cast(experiment_id as DOUBLE) = 73.0))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !4 --

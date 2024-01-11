@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
@@ -264,6 +265,32 @@ public:
     bool is_running() { return _running.load(); }
     void set_running(bool running) { _running = running; }
 
+    bool is_exceed_debug_timeout() {
+        if (_has_exceed_timeout) {
+            return true;
+        }
+        // If enable_debug_log_timeout_secs <= 0, then disable the log
+        if (_pipeline_task_watcher.elapsed_time() >
+            config::enable_debug_log_timeout_secs * 1000l * 1000l * 1000l) {
+            _has_exceed_timeout = true;
+            return true;
+        }
+        return false;
+    }
+
+    void log_detail_if_need() {
+        if (config::enable_debug_log_timeout_secs < 1) {
+            return;
+        }
+        if (is_exceed_debug_timeout()) {
+            LOG(INFO) << "query id|instanceid " << print_id(_state->query_id()) << "|"
+                      << print_id(_state->fragment_instance_id())
+                      << " current pipeline exceed run time "
+                      << config::enable_debug_log_timeout_secs << " seconds. Task state "
+                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
+        }
+    }
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -278,7 +305,7 @@ protected:
     uint32_t _index;
     PipelinePtr _pipeline;
     bool _dependency_finish = false;
-
+    bool _has_exceed_timeout = false;
     bool _prepared;
     bool _opened;
     RuntimeState* _state = nullptr;
@@ -362,9 +389,6 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    Status _collect_query_statistics();
-    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root

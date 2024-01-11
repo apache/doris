@@ -278,14 +278,14 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& st
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams.streams() | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
-                                     _txn_id, *_schema, tablets_for_schema, _total_streams,
-                                     _state->enable_profile()));
+        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
+                                     *node_info, _txn_id, *_schema, tablets_for_schema,
+                                     _total_streams, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams.streams() | std::ranges::views::drop(1)) {
-        RETURN_IF_ERROR(stream->open(_state->exec_env()->brpc_internal_client_cache(), *node_info,
-                                     _txn_id, *_schema, {}, _total_streams,
+        RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
+                                     *node_info, _txn_id, *_schema, {}, _total_streams,
                                      _state->enable_profile()));
     }
     return Status::OK();
@@ -365,7 +365,7 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
     return Status::OK();
 }
 
-Status VTabletWriterV2::append_block(Block& input_block) {
+Status VTabletWriterV2::write(Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -456,7 +456,7 @@ Status VTabletWriterV2::_cancel(Status status) {
         _delta_writer_for_tablet.reset();
     }
     for (const auto& [_, streams] : _streams_for_node) {
-        streams->release();
+        streams->release(status);
     }
     return Status::OK();
 }
@@ -470,9 +470,9 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -513,7 +513,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // defer stream release to prevent memory leak
         Defer defer([&] {
             for (const auto& [_, streams] : _streams_for_node) {
-                streams->release();
+                streams->release(status);
             }
             _streams_for_node.clear();
         });
@@ -541,16 +541,43 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
         }
 
+        std::unordered_map<int64_t, int> failed_tablets;
+
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (const auto& [node_id, streams] : _streams_for_node) {
             for (const auto& stream : streams->streams()) {
+                std::unordered_set<int64_t> known_tablets;
+                for (auto [tablet_id, _] : stream->failed_tablets()) {
+                    if (known_tablets.contains(tablet_id)) {
+                        continue;
+                    }
+                    known_tablets.insert(tablet_id);
+                    failed_tablets[tablet_id]++;
+                }
                 for (auto tablet_id : stream->success_tablets()) {
+                    if (known_tablets.contains(tablet_id)) {
+                        continue;
+                    }
+                    known_tablets.insert(tablet_id);
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet_id;
                     commit_info.backendId = node_id;
                     tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
             }
+        }
+        for (auto [tablet_id, replicas] : failed_tablets) {
+            if (replicas <= (_num_replicas - 1) / 2) {
+                continue;
+            }
+            auto backends = _location->find_tablet(tablet_id)->node_ids;
+            for (auto& backend_id : backends) {
+                auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
+                if (failed_tablets.contains(tablet_id)) {
+                    return failed_tablets[tablet_id];
+                }
+            }
+            DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";
         }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),

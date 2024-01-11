@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <shared_mutex>
 #include <thread>
 #include <unordered_map>
@@ -47,13 +48,6 @@ class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
 
 public:
-    enum WalStatus {
-        PREPARE = 0,
-        REPLAY = 1,
-        CREATE = 2,
-    };
-
-public:
     WalManager(ExecEnv* exec_env, const std::string& wal_dir);
     ~WalManager();
     Status init();
@@ -63,34 +57,32 @@ public:
     // wal back pressure
     Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
-    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
-                                        bool is_add_pre_allocated);
+    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
+                                        size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
 
     // replay wal
-    Status add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id, const std::string& label,
-                        std::string& base_path);
+    Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
+                           const std::string& label, std::string& base_path);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
-    Status delete_wal(int64_t wal_id, size_t block_queue_pre_allocated = 0);
+    Status delete_wal(int64_t table_id, int64_t wal_id, size_t block_queue_pre_allocated = 0);
+    Status rename_to_tmp_path(const std::string wal, int64_t table_id, int64_t wal_id);
     Status add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_id, std::string wal);
-    // used for ut
+    void add_wal_queue(int64_t table_id, int64_t wal_id);
+    void erase_wal_queue(int64_t table_id, int64_t wal_id);
+    size_t get_wal_queue_size(int64_t table_id);
+    // fot ut
     size_t get_wal_table_size(int64_t table_id);
-    // TODO util function, should remove
-    Status create_wal_reader(const std::string& wal_path, std::shared_ptr<WalReader>& wal_reader);
-    Status create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer);
 
-    // for wal status, can be removed
-    Status get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
-                                     PGetWalQueueSizeResponse* response);
-    void add_wal_status_queue(int64_t table_id, int64_t wal_id, WalStatus wal_status);
-    Status erase_wal_status_queue(int64_t table_id, int64_t wal_id);
-    void print_wal_status_queue();
-
-    // for _wal_column_id_map, can be removed
-    void add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
-    void erase_wal_column_index(int64_t wal_id);
-    Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
+    //for test relay
+    Status add_wal_cv_map(int64_t wal_id, std::shared_ptr<std::mutex> lock,
+                          std::shared_ptr<std::condition_variable> cv);
+    Status erase_wal_cv_map(int64_t wal_id);
+    Status get_lock_and_cv(int64_t wal_id, std::shared_ptr<std::mutex>& lock,
+                           std::shared_ptr<std::condition_variable>& cv);
+    Status wait_replay_wal_finish(int64_t wal_id);
+    Status notify_relay_wal(int64_t wal_id);
 
 private:
     // wal back pressure
@@ -109,12 +101,11 @@ public:
     // used for be ut
     size_t wal_limit_test_bytes;
 
-    const std::string tmp = "tmp";
-
 private:
     ExecEnv* _exec_env = nullptr;
     std::atomic<bool> _stop;
     CountDownLatch _stop_background_threads_latch;
+    const std::string _tmp = "tmp";
 
     // wal back pressure
     std::vector<std::string> _wal_dirs;
@@ -128,17 +119,17 @@ private:
     std::shared_mutex _table_lock;
     std::map<int64_t, std::shared_ptr<WalTable>> _table_map;
 
-    std::shared_mutex _wal_lock;
+    std::shared_mutex _wal_path_lock;
     std::unordered_map<int64_t, std::string> _wal_path_map;
-    // TODO no use? need remove it. And the map dose not clear
-    std::unordered_map<int64_t, std::shared_ptr<WalWriter>> _wal_id_to_writer_map;
 
-    // TODO Now only used for debug wal status, consider remove it
-    std::shared_mutex _wal_status_lock;
-    std::unordered_map<int64_t, std::unordered_map<int64_t, WalStatus>> _wal_status_queues;
+    std::shared_mutex _wal_queue_lock;
+    std::unordered_map<int64_t, std::set<int64_t>> _wal_queues;
 
-    // TODO should remove
-    std::shared_mutex _wal_column_id_map_lock;
-    std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
+    // for test relay
+    // <lock, condition_variable>
+    using WalCvInfo =
+            std::pair<std::shared_ptr<std::mutex>, std::shared_ptr<std::condition_variable>>;
+    std::shared_mutex _wal_cv_lock;
+    std::unordered_map<int64_t, WalCvInfo> _wal_cv_map;
 };
 } // namespace doris

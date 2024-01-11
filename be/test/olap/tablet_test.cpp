@@ -79,7 +79,10 @@ public:
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
 
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
@@ -240,7 +243,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, nullptr));
     static_cast<void>(_tablet->init());
 
     for (auto ptr : expired_rs_metas) {
@@ -277,7 +280,7 @@ TEST_F(TestTablet, pad_rowset) {
     }
 
     static_cast<void>(_data_dir->init());
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, _data_dir.get()));
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, _data_dir.get()));
     static_cast<void>(_tablet->init());
 
     Version version(5, 5);
@@ -321,7 +324,7 @@ TEST_F(TestTablet, cooldown_policy) {
         static_cast<void>(_tablet_meta->add_rs_meta(rowset));
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
+    TabletSharedPtr _tablet(new Tablet(*k_engine, _tablet_meta, nullptr));
     static_cast<void>(_tablet->init());
     constexpr int64_t storage_policy_id = 10000;
     _tablet->set_storage_policy_id(storage_policy_id);

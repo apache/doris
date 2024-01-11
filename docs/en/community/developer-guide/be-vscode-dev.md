@@ -309,7 +309,7 @@ lldb's attach mode is faster than gdb，and the usage is similar to gdb. we shou
 }
 ```
 
-It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work。
+It should be noted that this method requires the system `glibc` version to be `2.18+`. you can refer [Get VSCode CodeLLDB plugin work on CentOS 7](https://gist.github.com/JaySon-Huang/63dcc6c011feb5bd6deb1ef0cf1a9b96) to make plugin work.
 
 ## Debugging core dump files
 

@@ -483,7 +483,12 @@ public class AnalysisManager implements Writable {
         if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
             info.timeCostInMs = time - info.lastExecTimeInMs;
             info.lastExecTimeInMs = time;
-            logCreateAnalysisTask(info);
+            // Persist task info for manual job.
+            if (info.jobType.equals(JobType.MANUAL)) {
+                logCreateAnalysisTask(info);
+            } else {
+                replayCreateAnalysisTask(info);
+            }
         }
         info.lastExecTimeInMs = time;
         AnalysisInfo job = analysisJobInfoMap.get(info.jobId);
@@ -494,6 +499,10 @@ public class AnalysisManager implements Writable {
         // Synchronize the job state change in job level.
         synchronized (job) {
             job.lastExecTimeInMs = time;
+            if (taskState.equals(AnalysisState.FAILED)) {
+                String errMessage = String.format("%s:[%s] ", info.colName, message);
+                job.message = job.message == null ? errMessage : job.message + errMessage;
+            }
             // Set the job state to RUNNING when its first task becomes RUNNING.
             if (info.state.equals(AnalysisState.RUNNING) && job.state.equals(AnalysisState.PENDING)) {
                 job.state = AnalysisState.RUNNING;
@@ -548,6 +557,17 @@ public class AnalysisManager implements Writable {
         jobInfo.colToPartitions.clear();
         if (jobInfo.partitionNames != null) {
             jobInfo.partitionNames.clear();
+        }
+    }
+
+    @VisibleForTesting
+    public void updateTableStatsForAlterStats(AnalysisInfo jobInfo, TableIf tbl) {
+        TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
+        if (tableStats == null) {
+            updateTableStatsStatus(new TableStatsMeta(0, jobInfo, tbl));
+        } else {
+            tableStats.update(jobInfo, tbl);
+            logCreateTableStats(tableStats);
         }
     }
 
@@ -645,6 +665,7 @@ public class AnalysisManager implements Writable {
             }
             tableStats.updatedTime = 0;
         }
+        tableStats.userInjected = false;
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
     }
@@ -936,7 +957,7 @@ public class AnalysisManager implements Writable {
     // Set to true means new partition loaded data
     public void setNewPartitionLoaded(long tblId) {
         TableStatsMeta statsStatus = idToTblStats.get(tblId);
-        if (statsStatus != null) {
+        if (statsStatus != null && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
             statsStatus.newPartitionLoaded.set(true);
             logCreateTableStats(statsStatus);
         }

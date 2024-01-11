@@ -27,11 +27,14 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <map>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
@@ -485,7 +488,7 @@ void ColumnObject::Subcolumn::finalize() {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        st.to_string() + ", real_code:{}", st.code());
             }
-            part = ptr;
+            part = ptr->convert_to_full_column_if_const();
         }
         result_column->insert_range_from(*part, 0, part_size);
     }
@@ -1007,12 +1010,12 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
         return;
     }
     root.SetObject();
-    for (auto it = node_root->children.begin(); it != node_root->children.end(); ++it) {
-        auto child = it->get_second();
+    // sort to make output stable
+    std::vector<StringRef> sorted_keys = node_root->get_sorted_chilren_keys();
+    for (const StringRef& key : sorted_keys) {
         rapidjson::Value value(rapidjson::kObjectType);
-        get_json_by_column_tree(value, allocator, child.get());
-        root.AddMember(rapidjson::StringRef(it->get_first().data, it->get_first().size), value,
-                       allocator);
+        get_json_by_column_tree(value, allocator, node_root->get_child_node(key).get());
+        root.AddMember(rapidjson::StringRef(key.data, key.size), value, allocator);
     }
 }
 
@@ -1079,14 +1082,6 @@ bool ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBu
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        if (subcolumn->data.data.empty() || subcolumn->data.get_finalized_column_ptr() == nullptr) {
-            // TODO this is a tmp defensive code to prevent from crash and
-            // print more info about crash info
-            LOG(WARNING) << "Dump crash debug info"
-                         << ", structure:" << JsonFunctions::print_json_value(*doc_structure)
-                         << ", num_rows: " << num_rows << ", row_position: " << row;
-            return false;
-        }
         find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
                                  subcolumn->data.get_least_common_type_serde(), root,
                                  doc_structure->GetAllocator(), row);
@@ -1471,6 +1466,38 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
             callback(*part);
         }
     }
+}
+
+std::string ColumnObject::debug_string() const {
+    std::stringstream res;
+    res << get_family_name() << "(num_row = " << num_rows;
+    for (auto& entry : subcolumns) {
+        if (entry->data.is_finalized()) {
+            res << "[column:" << entry->data.data[0]->dump_structure()
+                << ",type:" << entry->data.data_types[0]->get_name()
+                << ",path:" << entry->path.get_path() << "],";
+        }
+    }
+    res << ")";
+    return res.str();
+}
+
+Status ColumnObject::sanitize() const {
+    RETURN_IF_CATCH_EXCEPTION(check_consistency());
+    for (const auto& subcolumn : subcolumns) {
+        if (subcolumn->data.is_finalized()) {
+            auto column = subcolumn->data.get_least_common_type()->create_column();
+            std::string original = subcolumn->data.get_finalized_column().get_family_name();
+            std::string expected = column->get_family_name();
+            if (original != expected) {
+                return Status::InternalError("Incompatible type between {} and {}, debug_info:",
+                                             original, expected, debug_string());
+            }
+        }
+    }
+
+    VLOG_DEBUG << "sanitized " << debug_string();
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

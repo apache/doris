@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 
 import com.google.common.collect.ImmutableList;
 
@@ -232,6 +233,13 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             }
             if ("1".equals(desc) || "true".equals(desc.toLowerCase(Locale.ROOT))) {
                 return Literal.of(true);
+            }
+        }
+        if (targetType instanceof IntegralType) {
+            // do trailing zeros to avoid number parse error when cast to integral type
+            BigDecimal bigDecimal = new BigDecimal(desc);
+            if (bigDecimal.stripTrailingZeros().scale() <= 0) {
+                desc = bigDecimal.stripTrailingZeros().toPlainString();
             }
         }
         if (targetType.isTinyIntType()) {

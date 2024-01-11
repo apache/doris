@@ -208,6 +208,10 @@ public:
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
+    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
+
+    std::shared_ptr<QueryStatistics> get_query_statistics();
+
 public:
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;

@@ -35,7 +35,15 @@ WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 WalWriter::~WalWriter() {}
 
 Status WalWriter::init() {
+    io::Path wal_path = _file_name;
+    auto parent_path = wal_path.parent_path();
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(parent_path, &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
+    }
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
+    LOG(INFO) << "create wal " << _file_name;
     return Status::OK();
 }
 

@@ -38,16 +38,17 @@ public:
               _limit(limit),
               _used(used),
               _pre_allocated(pre_allocated) {}
-    std::string get_wal_dir();
+    const std::string& get_wal_dir() const;
     size_t get_limit();
+    size_t get_used();
+    size_t get_pre_allocated();
     void set_limit(size_t limit);
     void set_used(size_t used);
-    // TODO increase_pre_allocated and decrease_pre_allocated
-    void set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated);
+    void set_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
     size_t available();
     Status update_wal_dir_limit(size_t limit = -1);
     Status update_wal_dir_used(size_t used = -1);
-    Status update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated = true);
+    void update_wal_dir_pre_allocated(size_t increase_pre_allocated, size_t decrease_pre_allocated);
 
 private:
     std::string _wal_dir;
@@ -66,13 +67,14 @@ public:
     Status add(const std::string& wal_dir, size_t limit, size_t used, size_t pre_allocated);
     std::string get_available_random_wal_dir();
     size_t get_max_available_size();
-    Status update_wal_dir_limit(std::string wal_dir, size_t limit = -1);
+    Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
     Status update_all_wal_dir_limit();
-    Status update_wal_dir_used(std::string wal_dir, size_t used = -1);
+    Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
     Status update_all_wal_dir_used();
-    Status update_wal_dir_pre_allocated(std::string wal_dir, size_t pre_allocated,
-                                        bool is_add_pre_allocated);
+    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t increase_pre_allocated,
+                                        size_t decrease_pre_allocated);
     Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
+    Status get_wal_dir_info(const std::string& wal_dir, std::shared_ptr<WalDirInfo>& wal_dir_info);
 
 private:
     std::vector<std::shared_ptr<WalDirInfo>> _wal_dirs_info_vec;
