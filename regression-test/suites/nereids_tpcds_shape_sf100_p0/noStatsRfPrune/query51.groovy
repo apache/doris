@@ -27,7 +27,8 @@ suite("query51") {
 sql 'set enable_runtime_filter_prune=true'
     sql 'set parallel_pipeline_task_num=8'
     sql 'set forbid_unknown_col_stats=false'
-sql 'set enable_stats=false'
+    sql 'set enable_stats=false'
+    sql "set runtime_filter_type=8"
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
