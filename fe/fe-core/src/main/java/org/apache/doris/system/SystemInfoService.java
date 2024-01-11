@@ -185,7 +185,9 @@ public class SystemInfoService {
             if (getBackendWithHeartbeatPort(hostInfo.getHost(), hostInfo.getPort()) != null) {
                 String backendIdentifier = hostInfo.getHost() + ":"
                         + hostInfo.getPort();
-                throw new DdlException("Same backend already exists[" + backendIdentifier + "]");
+                LOG.warn("Same backend already exists {} ", backendIdentifier);
+                return;
+                // throw new DdlException("Same backend already exists[" + backendIdentifier + "]");
             }
         }
 
