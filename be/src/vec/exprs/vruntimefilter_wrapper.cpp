@@ -95,7 +95,10 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
                                                           block->rows());
         } else {
-            return Status::InternalError("Invalid type for runtime filters!");
+            return Status::InternalError(
+                    "Invalid type for runtime filters!, and _expr_name is: {}. _data_type is: {}. "
+                    "result_column_id is: {}. block structure: {}.",
+                    _expr_name, _data_type->get_name(), *result_column_id, block->dump_structure());
         }
 
         calculate_filter(_filtered_rows, _scan_rows, _has_calculate_filter, _always_true);
