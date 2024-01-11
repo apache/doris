@@ -20,5 +20,14 @@
 namespace doris::config {
 
 DEFINE_String(cloud_unique_id, "");
+DEFINE_String(meta_service_endpoint, "");
+DEFINE_Bool(meta_service_use_load_balancer, "false");
+DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
+DEFINE_Bool(meta_service_connection_pooled, "true");
+DEFINE_mInt64(meta_service_connection_pool_size, "20");
+DEFINE_mInt32(meta_service_connection_age_base_minutes, "5");
+DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
+DEFINE_mInt32(meta_service_rpc_retry_times, "200");
+DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
 
 } // namespace doris::config
