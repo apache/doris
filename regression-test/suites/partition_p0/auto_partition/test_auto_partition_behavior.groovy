@@ -192,4 +192,66 @@ suite("test_auto_partition_behavior") {
     }
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
     qt_sql_overwrite2 """ select * from rewrite """ // Xxx
+
+    // prohibit NULLABLE auto partition column
+    // legacy
+    sql " set experimental_enable_nereids_planner=false "
+    test {
+        sql "drop table if exists test_null1"
+        sql """
+            create table test_null1(
+                k0 datetime(6) null
+            )
+            auto partition by range date_trunc(k0, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "The auto partition column must be NOT NULL"
+    }
+    test {
+        sql "drop table if exists test_null2"
+        sql """
+            create table test_null2(
+                k0 int null
+            )
+            auto partition by list (k0)
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "The auto partition column must be NOT NULL"
+    }
+    // nereids
+    sql " set experimental_enable_nereids_planner=true "
+    test {
+        sql "drop table if exists test_null1"
+        sql """
+            create table test_null1(
+                k0 datetime(6) null
+            )
+            auto partition by range date_trunc(k0, 'hour')
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "The auto partition column must be NOT NULL"
+    }
+    test {
+        sql "drop table if exists test_null2"
+        sql """
+            create table test_null2(
+                k0 int null
+            )
+            auto partition by list (k0)
+            (
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+        exception "The auto partition column must be NOT NULL"
+    }
 }

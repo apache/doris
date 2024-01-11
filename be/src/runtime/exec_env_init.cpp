@@ -261,7 +261,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _storage_engine = new StorageEngine(options);
     auto st = _storage_engine->open();
     if (!st.ok()) {
-        LOG(ERROR) << "Lail to open StorageEngine, res=" << st;
+        LOG(ERROR) << "Fail to open StorageEngine, res=" << st;
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());

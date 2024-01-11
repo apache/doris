@@ -2063,15 +2063,6 @@ public class Config extends ConfigBase {
     public static long lock_reporting_threshold_ms = 500L;
 
     /**
-     * If false, when select from tables in information_schema database,
-     * the result will not contain the information of the table in external catalog.
-     * This is to avoid query time when external catalog is not reachable.
-     * TODO: this is a temp solution, we should support external catalog in the future.
-     */
-    @ConfField(mutable = true)
-    public static boolean infodb_support_ext_catalog = false;
-
-    /**
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
@@ -2430,4 +2421,36 @@ public class Config extends ConfigBase {
         "The max number work threads of http upload submitter."
     })
     public static int http_load_submitter_max_worker_threads = 2;
+
+    //==========================================================================
+    //                    begin of cloud config
+    //==========================================================================
+
+    @ConfField
+    public static String cloud_unique_id = "";
+
+    public static boolean isCloudMode() {
+        return !cloud_unique_id.isEmpty();
+    }
+
+    /**
+     * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     */
+    @ConfField
+    public static String meta_service_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static boolean meta_service_connection_pooled = true;
+
+    @ConfField(mutable = true)
+    public static int meta_service_connection_pool_size = 20;
+
+    // A connection will expire after a random time during [base, 2*base), so that the FE
+    // has a chance to connect to a new RS. Set zero to disable it.
+    @ConfField(mutable = true)
+    public static int meta_service_connection_age_base_minutes = 5;
+
+    //==========================================================================
+    //                      end of cloud config
+    //==========================================================================
 }

@@ -767,7 +767,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY)
     public boolean showHiddenColumns = false;
 
-    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE)
+    @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
+            "是否允许 NULLABLE 列作为 PARTITION 列。开启后，RANGE PARTITION 允许 NULLABLE PARTITION 列"
+                    + "（LIST PARTITION当前不支持）。默认开。",
+            "Whether to allow NULLABLE columns as PARTITION columns. When ON, RANGE PARTITION allows "
+                    + "NULLABLE PARTITION columns (LIST PARTITION is not supported currently). ON by default." })
     public boolean allowPartitionColumnNullable = true;
 
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
@@ -863,7 +867,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 1048576;
+    private int runtimeBloomFilterMinSize = 2048;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -1366,7 +1370,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
-    public int loadStreamPerNode = 60;
+    public int loadStreamPerNode = 20;
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";

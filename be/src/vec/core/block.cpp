@@ -192,18 +192,6 @@ void Block::insert(ColumnWithTypeAndName&& elem) {
     data.emplace_back(std::move(elem));
 }
 
-void Block::insert_unique(const ColumnWithTypeAndName& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(elem);
-    }
-}
-
-void Block::insert_unique(ColumnWithTypeAndName&& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(std::move(elem));
-    }
-}
-
 void Block::erase(const std::set<size_t>& positions) {
     for (unsigned long position : std::ranges::reverse_view(positions)) {
         erase(position);
@@ -415,9 +403,9 @@ size_t Block::bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method bytes. All Columns are {}", elem.name,
-                    ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->byte_size();
     }
@@ -433,9 +421,9 @@ size_t Block::allocated_bytes() const {
             for (const auto& e : data) {
                 ss << e.name + " ";
             }
-            LOG(FATAL) << fmt::format(
-                    "Column {} in block is nullptr, in method allocated_bytes. All Columns are {}",
-                    elem.name, ss.str());
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
+                            elem.name, ss.str());
         }
         res += elem.column->allocated_bytes();
     }
@@ -568,6 +556,16 @@ Columns Block::get_columns() const {
     size_t num_columns = data.size();
     Columns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        columns[i] = data[i].column->convert_to_full_column_if_const();
+    }
+    return columns;
+}
+
+Columns Block::get_columns_and_convert() {
+    size_t num_columns = data.size();
+    Columns columns(num_columns);
+    for (size_t i = 0; i < num_columns; ++i) {
+        data[i].column = data[i].column->convert_to_full_column_if_const();
         columns[i] = data[i].column;
     }
     return columns;
