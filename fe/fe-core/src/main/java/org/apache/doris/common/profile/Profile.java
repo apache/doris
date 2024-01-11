@@ -110,7 +110,6 @@ public class Profile {
         try {
             builder.append("\n");
             executionProfile.getExecutionProfile().prettyPrint(builder, "");
-            LOG.info(builder.toString());
         } catch (Throwable aggProfileException) {
             LOG.warn("build merged simple profile failed", aggProfileException);
             builder.append("build merged simple profile failed");
