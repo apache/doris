@@ -53,7 +53,6 @@ public final class GlobalVariable {
     public static final String SQL_CONVERTER_SERVICE = "sql_converter_service";
     public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
-    public static final String AUDIT_PLUGIN_MAX_BATCH_ROWS = "audit_plugin_max_batch_rows";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
 
@@ -119,9 +118,6 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
-
-    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_ROWS, flag = VariableMgr.GLOBAL)
-    public static long auditPluginMaxBatchRows = 1000;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchInternalSec = 60;

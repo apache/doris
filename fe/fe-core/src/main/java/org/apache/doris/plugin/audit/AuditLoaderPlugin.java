@@ -91,7 +91,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             this.lastLoadTimeAuditLog = System.currentTimeMillis();
             // make capacity large enough to avoid blocking.
             // and it will not be too large because the audit log will flush if num in queue is larger than
-            // GlobalVariable.auditPluginMaxBatchRows.
+            // GlobalVariable.audit_plugin_max_batch_bytes.
             this.auditEventQueue = Queues.newLinkedBlockingDeque(100000);
             this.streamLoader = new AuditStreamLoader();
             this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
@@ -129,7 +129,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
             // improvement can be considered.
-            LOG.debug("encounter exception when putting current audit batch, discard current audit event", e);
+            ++discardLogNum;
+            LOG.debug("encounter exception when putting current audit batch, discard current audit event."
+                    + " total discard num: {}", discardLogNum, e);
         }
     }
 
@@ -188,8 +190,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         long currentTime = System.currentTimeMillis();
 
         if (auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
-                || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000
-                || auditLogNum >= GlobalVariable.auditPluginMaxBatchRows) {
+                || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000) {
             // begin to load
             try {
                 String token = "";
