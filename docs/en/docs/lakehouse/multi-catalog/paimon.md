@@ -81,7 +81,7 @@ CREATE CATALOG `paimon_kerberos` PROPERTIES (
 >
 > Place it in directory `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` and restart be
 >
-> Starting from version 2.0.2, this file can be placed in BE's `custom_lib/` directory (if it does not exist, just create it manually) to prevent the file from being lost due to the replacement of the lib directory when upgrading the cluster.
+> Since 2.0.4, paimon-s3.jar is included in binary release package, no need to download manually.
 
 ```sql
 CREATE CATALOG `paimon_s3` PROPERTIES (
@@ -100,7 +100,8 @@ CREATE CATALOG `paimon_s3` PROPERTIES (
 > user need download [paimon-oss-0.5.0-incubating.jar](https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.5.0-incubating/paimon-oss-0.5.0-incubating.jar)
 >
 > Place it in directory `${DORIS_HOME}/be/lib/java_extensions/preload-extensions` and restart be
-
+>
+> Since 2.0.4, paimon-oss.jar is included in binary release package, no need to download manually.
 
 ```sql
 CREATE CATALOG `paimon_oss` PROPERTIES (
