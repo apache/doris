@@ -138,6 +138,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                     materializationContext.getMvExprToMvScanExprMapping(),
                                     queryToViewSlotMapping)));
         }
+        // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
+        // Should not rewrite
         if (queryTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()
                 || viewTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
