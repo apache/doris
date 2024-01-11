@@ -49,8 +49,6 @@ namespace doris {
 
 using std::stringstream;
 
-const int CHECK_TXNS_MAX_WAIT_TIME_SECS = 60;
-
 EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& tablet,
                                                        DataDir* dest_store)
         : _tablet(tablet), _dest_store(dest_store) {
@@ -113,16 +111,15 @@ Status EngineStorageMigrationTask::_check_running_txns() {
 }
 
 Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
-        std::unique_lock<std::shared_mutex>* migration_wlock) {
+        std::unique_lock<std::shared_timed_mutex>* migration_wlock) {
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration_wlock is transferred to the caller if check succ
     DCHECK_NE(migration_wlock, nullptr);
     Status res = Status::OK();
-    int try_times = 1;
     do {
         // to avoid invalid loops, the lock is guaranteed to be acquired here
         {
-            std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
+            std::unique_lock<std::shared_timed_mutex> wlock(_tablet->get_migration_lock());
             res = _check_running_txns();
             if (res.ok()) {
                 // transfer the lock to the caller
@@ -130,8 +127,7 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
                 return res;
             }
         }
-        sleep(std::min(config::sleep_one_second * try_times, CHECK_TXNS_MAX_WAIT_TIME_SECS));
-        ++try_times;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     } while (!_is_timeout());
     return res;
 }
@@ -214,8 +210,8 @@ Status EngineStorageMigrationTask::_migrate() {
     uint64_t shard = 0;
     std::string full_path;
     {
-        std::unique_lock<std::shared_mutex> migration_wlock(_tablet->get_migration_lock(),
-                                                            std::try_to_lock);
+        std::unique_lock<std::shared_timed_mutex> migration_wlock(_tablet->get_migration_lock(),
+                                                                  std::chrono::seconds(1));
         if (!migration_wlock.owns_lock()) {
             return Status::InternalError("could not own migration_wlock");
         }
@@ -250,7 +246,7 @@ Status EngineStorageMigrationTask::_migrate() {
         if (!res.ok()) {
             break;
         }
-        std::unique_lock<std::shared_mutex> migration_wlock;
+        std::unique_lock<std::shared_timed_mutex> migration_wlock;
         res = _check_running_txns_until_timeout(&migration_wlock);
         if (!res.ok()) {
             break;
