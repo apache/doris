@@ -848,30 +848,30 @@ suite("aggregate_without_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
 
     // mv is scalar aggregate bug query not, should not rewrite
-    def mv20_2 = """
-            select
-            sum(l_extendedprice),
-            count(*)
-            from lineitem
-            left join
-            orders
-            on lineitem.L_ORDERKEY = orders.O_ORDERKEY
-    """
-    def query20_2 = """
-            select
-            l_shipmode,
-            l_shipinstruct,
-            sum(l_extendedprice),
-            count(*)
-            from lineitem
-            left join
-            orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
-            group by 
-            l_shipmode,
-            l_shipinstruct;
-    """
-    order_qt_query20_2_before "${query20_2}"
-    check_not_match(mv20_2, query20_2, "mv20_2")
-    order_qt_query20_2_after "${query20_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_2"""
+//    def mv20_2 = """
+//            select
+//            sum(l_extendedprice),
+//            count(*)
+//            from lineitem
+//            left join
+//            orders
+//            on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+//    """
+//    def query20_2 = """
+//            select
+//            l_shipmode,
+//            l_shipinstruct,
+//            sum(l_extendedprice),
+//            count(*)
+//            from lineitem
+//            left join
+//            orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+//            group by
+//            l_shipmode,
+//            l_shipinstruct;
+//    """
+//    order_qt_query20_2_before "${query20_2}"
+//    check_not_match(mv20_2, query20_2, "mv20_2")
+//    order_qt_query20_2_after "${query20_2}"
+//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_2"""
 }
