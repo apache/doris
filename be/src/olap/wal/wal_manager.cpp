@@ -352,8 +352,10 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, int64_t wal_
     }
     table_ptr->add_wal(wal_id, wal);
 #ifndef BE_TEST
-    RETURN_IF_ERROR(update_wal_dir_limit(_get_base_wal_path(wal)));
-    RETURN_IF_ERROR(update_wal_dir_used(_get_base_wal_path(wal)));
+    WARN_IF_ERROR(update_wal_dir_limit(_get_base_wal_path(wal)),
+                  "Failed to update wal dir limit while add recover wal!");
+    WARN_IF_ERROR(update_wal_dir_used(_get_base_wal_path(wal)),
+                  "Failed to update wal dir used while add recove wal!");
 #endif
     return Status::OK();
 }
