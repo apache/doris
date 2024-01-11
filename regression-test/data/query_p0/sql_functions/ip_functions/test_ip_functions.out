@@ -138,3 +138,18 @@ AAAAAAAAFFFFFFFFFFFFFFFFAAAAAAAA
 
 -- !sql --
 2A0206B8000000000000000000000011
+
+-- !sql --
+0
+
+-- !sql --
+1
+
+-- !sql --
+\N
+
+-- !sql --
+0
+
+-- !sql --
+1

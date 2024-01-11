@@ -77,4 +77,10 @@ suite("ip_functions") {
     qt_ip53 "SELECT is_ipv4_string('255.255.255.256');"
     qt_ip54 "SELECT is_ipv6_string('2001:5b0:23ff:fffa::113');"
     qt_ip55 "SELECT is_ipv6_string('2001:da8:e000:1691:2eaa:7eff:ffe7:7924e');"
+
+    qt_ip56 "SELECT is_ipv4_mapped(inet6_aton('::10.0.5.9'));"
+    qt_ip57 "SELECT is_ipv4_mapped(inet6_aton('::ffff:10.0.5.9'));"
+    qt_ip58 "SELECT is_ipv4_mapped(inet6_aton(NULL));"
+    qt_ip59 "SELECT is_ipv4_mapped(inet6_aton('::'));"
+    qt_ip60 "SELECT is_ipv4_mapped(inet6_aton('::ffff:c0a8:0001'));"
 }

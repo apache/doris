@@ -163,3 +163,18 @@ true
 
 -- !ip55 --
 false
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+\N
+
+-- !sql --
+false
+
+-- !sql --
+true

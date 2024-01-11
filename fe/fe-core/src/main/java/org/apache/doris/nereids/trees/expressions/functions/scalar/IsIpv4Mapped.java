@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -32,26 +33,26 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function ipv6_string_to_num
+ * scalar function is_ipv4_mapped
  */
-public class Ipv6StringToNum extends ScalarFunction
+public class IsIpv4Mapped extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
-    public Ipv6StringToNum(Expression arg0) {
-        super("ipv6_string_to_num", arg0);
+    public IsIpv4Mapped(Expression arg0) {
+        super("is_ipv4_mapped", arg0);
     }
 
     @Override
-    public Ipv6StringToNum withChildren(List<Expression> children) {
+    public IsIpv4Mapped withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv6_string_to_num accept 1 args, but got %s (%s)",
+                "is_ipv4_mapped accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv6StringToNum(children.get(0));
+        return new IsIpv4Mapped(children.get(0));
     }
 
     @Override
@@ -61,6 +62,6 @@ public class Ipv6StringToNum extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIpv6StringToNum(this, context);
+        return visitor.visitIsIpv4Mapped(this, context);
     }
 }

@@ -360,7 +360,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     ColumnUInt8::MutablePtr col_null_map_to;
     ColumnUInt8::Container* vec_null_map_to = nullptr;
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+    if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
         col_null_map_to = ColumnUInt8::create(column_size, false);
         vec_null_map_to = &col_null_map_to->get_data();
     }
@@ -372,7 +372,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
             if constexpr (std::is_same_v<ToColumn, ColumnString>) {
                 auto col_res = ColumnString::create();
 
-                if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
                     col_null_map_to = ColumnUInt8::create(column_size, false);
                     if (null_map) {
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
@@ -390,7 +390,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 memcpy(vec_res.data(), string_column.get_chars().data(),
                        column_size * IPV6_BINARY_LENGTH);
 
-                if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
                     col_null_map_to = ColumnUInt8::create(column_size, false);
                     if (null_map) {
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
@@ -459,9 +459,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         }
 
         if (null_map && (*null_map)[i]) {
-            if (exception_mode == IPStringToNumExceptionMode::Throw) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
-            } else if (exception_mode == IPStringToNumExceptionMode::Default) {
+            if (exception_mode == IPStringToNumExceptionMode::Default) {
                 std::fill_n(&vec_res[out_offset], offset_inc, 0);
             } else {
                 std::fill_n(&vec_res[out_offset], offset_inc, 0);
@@ -502,7 +500,8 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 col_res->insert_data(reinterpret_cast<const char*>(res_value), IPV6_BINARY_LENGTH);
             }
         } else {
-            if (exception_mode == IPStringToNumExceptionMode::Throw) {
+            if (exception_mode == IPStringToNumExceptionMode::Throw &&
+                (!null_map || !(*null_map)[i])) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
             }
             std::fill_n(&vec_res[out_offset], offset_inc, 0);
@@ -510,14 +509,14 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 auto* column_string = assert_cast<ColumnString*>(col_res.get());
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
                 (*vec_null_map_to)[i] = true;
             }
         }
         src_offset = src_next_offset;
     }
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+    if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
         return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
     }
     return col_res;
@@ -564,7 +563,7 @@ public:
 
         auto result_type = std::make_shared<DataTypeString>();
 
-        if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+        if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
             return make_nullable(result_type);
         }
 
@@ -580,7 +579,7 @@ public:
         if (column->is_nullable()) {
             const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
             column = column_nullable->get_nested_column_ptr();
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            if constexpr (exception_mode != IPStringToNumExceptionMode::Default) {
                 null_map_column = column_nullable->get_null_map_column_ptr();
                 null_map = &column_nullable->get_null_map_data();
             }
@@ -829,6 +828,61 @@ public:
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
+    }
+};
+
+class FunctionIsIPv4Mapped : public IFunction {
+public:
+    static constexpr auto name = "is_ipv4_mapped";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv4Mapped>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeUInt8>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const auto* col_in = check_and_get_column<ColumnString>(column.get());
+
+        if (!col_in)
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            column->get_name(), get_name());
+        size_t col_size = col_in->size();
+        auto col_res = ColumnUInt8::create(col_size, 0);
+        auto null_map = ColumnUInt8::create(col_size, 0);
+
+        for (size_t i = 0; i < col_size; ++i) {
+            auto& col_res_data = col_res->get_data();
+            auto& null_map_data = null_map->get_data();
+
+            if (col_in->is_null_at(i)) {
+                null_map_data[i] = 1;
+            } else {
+                auto ipv4_in = col_in->get_data_at(i);
+                if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+                    col_res_data[i] = 1;
+                }
+            }
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    static bool is_ipv4_mapped(const UInt8* address) {
+        return (unaligned_load_little_endian<UInt64>(address) == 0) &&
+               ((unaligned_load_little_endian<UInt64>(address + 8) & 0x00000000FFFFFFFFull) ==
+                0x00000000FFFF0000ull);
     }
 };
 
