@@ -38,8 +38,8 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
 
     auto& p = _parent->cast<FileScanOperatorX>();
-    size_t shard_num =
-            std::min<size_t>(config::doris_scanner_thread_pool_thread_num, _scan_ranges.size());
+    size_t shard_num = std::min<size_t>(config::doris_remote_scanner_thread_pool_thread_num,
+                                        _scan_ranges.size());
     _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
     for (auto& scan_range : _scan_ranges) {
         std::unique_ptr<vectorized::VFileScanner> scanner = vectorized::VFileScanner::create_unique(
@@ -60,8 +60,8 @@ std::string FileScanLocalState::name_suffix() const {
 
 void FileScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners =
-            config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
+    int max_scanners = config::doris_remote_scanner_thread_pool_thread_num /
+                       state->query_parallel_instance_num();
     max_scanners = max_scanners == 0 ? 1 : max_scanners;
     // For select * from table limit 10; should just use one thread.
     if (should_run_serial()) {

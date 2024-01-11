@@ -393,20 +393,26 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `doris_scanner_thread_pool_queue_size`
 
 * 类型：int32
-* 描述：Scanner线程池的队列长度。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 描述：Scanner线程池读取本地文件的队列长度。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
 * 默认值：102400
 
 #### `doris_scanner_thread_pool_thread_num`
 
 * 类型：int32
-* 描述：Scanner线程池线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
-* 默认值：48
+* 描述：Scanner线程池读取本地文件的线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
+* 默认值：vcores * 2
 
-#### `doris_max_remote_scanner_thread_pool_thread_num`
+#### `doris_remote_scanner_thread_pool_queue_size`
 
 * 类型：int32
-* 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
-* 默认值：512
+* 描述：Scanner线程池读取远程文件的队列长度。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
+#### `doris_remote_scanner_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：Scanner线程池读取远程文件的线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
+* 默认值：vcores * 2
 
 #### `enable_prefetch`
 

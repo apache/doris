@@ -81,11 +81,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
     if (limit < 0) {
         limit = -1;
     }
-    _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
-    _max_thread_num *= num_parallel_instances;
-    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
-    DCHECK(_max_thread_num > 0);
-    _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
+    _max_thread_num = _scanners.size();
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
     if ((_parent && _parent->should_run_serial()) ||
@@ -129,11 +125,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
     if (limit < 0) {
         limit = -1;
     }
-    _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
-    _max_thread_num *= num_parallel_instances;
-    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
-    DCHECK(_max_thread_num > 0);
-    _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
+    _max_thread_num = _scanners.size();
     // 1. Calculate max concurrency
     // For select * from table limit 10; should just use one thread.
     if ((_parent && _parent->should_run_serial()) ||

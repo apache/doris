@@ -382,20 +382,25 @@ There are two ways to configure BE configuration items:
 #### `doris_scanner_thread_pool_queue_size`
 
 * Type: int32
-* Description: The queue length of the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Description: The queue length of the Scanner thread pool to read local files. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 * Default value: 102400
 
 #### `doris_scanner_thread_pool_thread_num`
 
 * Type: int32
-* Description: The number of threads in the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
-* Default value: 48
+* Description: The number of threads in the Scanner thread pool to read local files. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
+* Default value: vcores * 2
 
-#### `doris_max_remote_scanner_thread_pool_thread_num`
+#### `doris_remote_scanner_thread_pool_queue_size`
 
 * Type: int32
-* Description: Max thread number of Remote scanner thread pool. Remote scanner thread pool is used for scan task of all external data sources.
-* Default: 512
+* Description: The queue length of the Scanner thread pool to read remote files. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+* Default value: 102400
+
+#### `doris_remote_scanner_thread_pool_thread_num`
+* Type: int32
+* Description: The number of threads in the Scanner thread pool to read remote files. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
+* Default value: vcores * 2
 
 #### `enable_prefetch`
 
