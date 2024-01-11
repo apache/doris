@@ -87,6 +87,20 @@ suite("test_multi_replica_fault_injection", "nonConcurrent") {
             }
         }
 
+        def load_with_injection = { injection1, injection2, error_msg->
+            try {
+                GetDebugPoint().enableDebugPointForAllBEs(injection1)
+                GetDebugPoint().enableDebugPointForAllBEs(injection2)
+                sql "insert into test select * from baseall where k1 <= 3"
+            } catch(Exception e) {
+                logger.info(e.getMessage())
+                assertTrue(e.getMessage().contains(error_msg))
+            } finally {
+                GetDebugPoint().disableDebugPointForAllBEs(injection1)
+                GetDebugPoint().disableDebugPointForAllBEs(injection2)
+            }
+        }
+
         // StreamSinkFileWriter appendv write segment failed one replica
         // success
         load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "sucess")

@@ -162,7 +162,7 @@ suite("load_stream_fault_injection", "nonConcurrent") {
 
     // LoadStream meets StreamRPC idle timeout
     try {
-        load_with_injection("LoadStreamStub._send_with_retry.delay_before_send", "")
+        load_with_injection("LoadStreamStub._send_with_retry.delay_before_send", "PInternalServiceImpl.open_load_stream.set_idle_timeout", "")
     } catch(Exception e) {
         logger.info(e.getMessage())
     }
