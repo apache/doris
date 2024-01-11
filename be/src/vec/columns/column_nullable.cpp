@@ -257,15 +257,22 @@ size_t ColumnNullable::get_max_row_byte_size() const {
 
 void ColumnNullable::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                    size_t max_row_byte_size) const {
-    const auto& arr = get_null_map_data();
-    static constexpr auto s = sizeof(arr[0]);
-    for (size_t i = 0; i < num_rows; ++i) {
-        auto* val = const_cast<char*>(keys[i].data + keys[i].size);
-        *val = (arr[i] ? 1 : 0);
-        keys[i].size += s;
+    if (has_null()) {
+        const auto& arr = get_null_map_data();
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
+            *val = (arr[i] ? 1 : 0);
+            keys[i].size++;
+        }
+        get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto* val = const_cast<char*>(keys[i].data + keys[i].size);
+            *val = 0;
+            keys[i].size++;
+        }
+        get_nested_column().serialize_vec(keys, num_rows, max_row_byte_size);
     }
-
-    get_nested_column().serialize_vec_with_null_map(keys, num_rows, arr.data());
 }
 
 void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
@@ -282,7 +289,11 @@ void ColumnNullable::deserialize_vec(std::vector<StringRef>& keys, const size_t 
         keys[i].data += sizeof(val);
         keys[i].size -= sizeof(val);
     }
-    get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
+    if (_has_null) {
+        get_nested_column().deserialize_vec_with_null_map(keys, num_rows, arr.data());
+    } else {
+        get_nested_column().deserialize_vec(keys, num_rows);
+    }
 }
 
 void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t length) {

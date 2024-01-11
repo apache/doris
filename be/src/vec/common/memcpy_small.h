@@ -82,7 +82,12 @@ inline void memcpy_small_allow_read_write_overflow15(void* __restrict dst,
 
 #endif
 
-template <typename T>
+// assume input address not aligned by default
+template <typename T, bool aligned = false>
 void memcpy_fixed(char* lhs, const char* rhs) {
-    *(T*)lhs = *(T*)rhs;
+    if constexpr (aligned || sizeof(T) <= 8) {
+        *(T*)lhs = *(T*)rhs;
+    } else {
+        memcpy(lhs, rhs, sizeof(T));
+    }
 }
