@@ -79,7 +79,7 @@ template <typename T>
 void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                      size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
@@ -89,7 +89,7 @@ void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys,
                                                    const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
