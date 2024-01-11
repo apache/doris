@@ -116,7 +116,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto aggregate_data = _pool->add(new PartitionBlocks());
+                    auto* aggregate_data = _pool->add(new PartitionBlocks());
                     _value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);
                     _num_partition++;

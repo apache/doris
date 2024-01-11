@@ -24,7 +24,10 @@
 #include <variant>
 
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/memcpy_small.h"
 
+using StringKey2 = doris::vectorized::UInt16;
+using StringKey4 = doris::vectorized::UInt32;
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
 struct StringKey24 {
@@ -35,17 +38,24 @@ struct StringKey24 {
     bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 
+struct StringHashMapSubKeys {
+    using T1 = StringKey2;
+    using T2 = StringKey4;
+    using T3 = StringKey16;
+};
+
 template <typename StringKey>
 StringKey toStringKey(const doris::StringRef& key) {
     DCHECK_LE(key.size, sizeof(StringKey));
     StringKey string_key {};
-    memcpy((char*)&string_key, key.data, key.size);
+    memcpy_small((char*)&string_key, key.data, key.size);
     return string_key;
 }
 
-inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
+template <typename T>
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
     assert(n != 0);
-    return {reinterpret_cast<const char*>(&n), 8ul - (__builtin_clzll(n) >> 3)};
+    return {reinterpret_cast<const char*>(&n), sizeof(T) - (__builtin_clzll(n) >> 3)};
 }
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.high != 0);
@@ -58,7 +68,8 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
 
 struct StringHashTableHash {
 #if defined(__SSE4_2__) || defined(__aarch64__)
-    size_t ALWAYS_INLINE operator()(StringKey8 key) const {
+    template <typename T>
+    size_t ALWAYS_INLINE operator()(T key) const {
         size_t res = -1ULL;
         res = _mm_crc32_u64(res, key);
         return res;
@@ -77,23 +88,18 @@ struct StringHashTableHash {
         return res;
     }
 #else
-    size_t ALWAYS_INLINE operator()(StringKey8 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 8);
-    }
-    size_t ALWAYS_INLINE operator()(StringKey16 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 16);
-    }
-    size_t ALWAYS_INLINE operator()(StringKey24 key) const {
-        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 24);
+    template <typename T>
+    size_t ALWAYS_INLINE operator()(T key) const {
+        return util_hash::CityHash64(reinterpret_cast<const char*>(&key), sizeof(T));
     }
 #endif
     size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
-        if (key.size <= 8) {
-            return StringHashTableHash()(toStringKey<StringKey8>(key));
-        } else if (key.size <= 16) {
-            return StringHashTableHash()(toStringKey<StringKey16>(key));
-        } else if (key.size <= 24) {
-            return StringHashTableHash()(toStringKey<StringKey24>(key));
+        if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
+            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T1>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
+            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T2>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T3)) {
+            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T3>(key));
         }
         return doris::StringRefHash()(key);
     }
@@ -194,10 +200,9 @@ struct StringHashTableGrower : public HashTableGrowerWithPrecalculation<initial_
 template <typename Mapped>
 struct StringHashTableLookupResult {
     Mapped* mapped_ptr;
-    StringHashTableLookupResult() : mapped_ptr(nullptr) {}                        /// NOLINT
-    StringHashTableLookupResult(Mapped* mapped_ptr_) : mapped_ptr(mapped_ptr_) {} /// NOLINT
-    StringHashTableLookupResult(std::nullptr_t) {}                                /// NOLINT
-    const VoidKey getKey() const { return {}; }                                   /// NOLINT
+    StringHashTableLookupResult() : mapped_ptr(nullptr) {}
+    StringHashTableLookupResult(Mapped* mapped_ptr_) : mapped_ptr(mapped_ptr_) {}
+    StringHashTableLookupResult(std::nullptr_t) {}
     auto& get_mapped() { return *mapped_ptr; }
     auto& operator*() { return *this; }
     auto& operator*() const { return *this; }
@@ -226,7 +231,6 @@ ALWAYS_INLINE inline auto lookup_result_get_mapped(StringHashTableLookupResult<M
 template <typename SubMaps>
 class StringHashTable : private boost::noncopyable {
 protected:
-    static constexpr size_t NUM_MAPS = 5;
     // Map for storing empty string
     using T0 = typename SubMaps::T0;
 
@@ -238,9 +242,6 @@ protected:
     // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
     using Self = StringHashTable;
-
-    template <typename, typename, size_t>
-    friend class TwoLevelStringHashTable;
 
     T0 m0;
     T1 m1;
@@ -443,8 +444,6 @@ protected:
             }
         }
 
-        size_t get_collision_chain_length() const { return 0; }
-
         /**
           * A hack for HashedDictionary.
           *
@@ -481,21 +480,6 @@ public:
               m3 {reserve_for_num_elements / 4},
               ms {reserve_for_num_elements / 4} {}
 
-    StringHashTable(StringHashTable&& rhs) noexcept
-            : m1(std::move(rhs.m1)),
-              m2(std::move(rhs.m2)),
-              m3(std::move(rhs.m3)),
-              ms(std::move(rhs.ms)) {}
-
-    StringHashTable& operator=(StringHashTable&& other) {
-        std::swap(m0, other.m0);
-        std::swap(m1, other.m1);
-        std::swap(m2, other.m2);
-        std::swap(m3, other.m3);
-        std::swap(ms, other.ms);
-        return *this;
-    }
-
     ~StringHashTable() = default;
 
     size_t hash(const doris::StringRef& key) { return StringHashTableHash()(key); }
@@ -524,24 +508,17 @@ public:
             return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
         }
 
-        switch ((sz - 1) >> 3) {
-        case 0: // 1..8 bytes
-        {
-            return func(self.m1, toStringKey<StringKey8>(key), key, hash_value);
+        if (sz <= sizeof(StringHashMapSubKeys::T1)) {
+            return func(self.m1, toStringKey<StringHashMapSubKeys::T1>(key), key, hash_value);
         }
-        case 1: // 9..16 bytes
-        {
-            return func(self.m2, toStringKey<StringKey16>(key), key, hash_value);
+        if (sz <= sizeof(StringHashMapSubKeys::T2)) {
+            return func(self.m2, toStringKey<StringHashMapSubKeys::T2>(key), key, hash_value);
         }
-        case 2: // 17..24 bytes
-        {
-            return func(self.m3, toStringKey<StringKey24>(key), key, hash_value);
+        if (sz <= sizeof(StringHashMapSubKeys::T3)) {
+            return func(self.m3, toStringKey<StringHashMapSubKeys::T3>(key), key, hash_value);
         }
-        default: // >= 25 bytes
-        {
-            return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
-        }
-        }
+
+        return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
     }
 
     struct EmplaceCallable {
@@ -626,10 +603,6 @@ public:
 
     ConstLookupResult ALWAYS_INLINE find(const Key& x, size_t hash_value) const {
         return dispatch(*this, x, hash_value, FindCallable {});
-    }
-
-    bool ALWAYS_INLINE has(const Key& x, size_t = 0) const {
-        return dispatch(*this, x, FindCallable {}) != nullptr;
     }
 
     size_t size() const { return m0.size() + m1.size() + m2.size() + m3.size() + ms.size(); }

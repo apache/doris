@@ -108,11 +108,14 @@ struct StringHashMapCell<doris::StringRef, TMapped>
 template <typename TMapped, typename Allocator>
 struct StringHashMapSubMaps {
     using T0 = StringHashTableEmpty<StringHashMapCell<doris::StringRef, TMapped>>;
-    using T1 = HashMapTable<StringKey8, StringHashMapCell<StringKey8, TMapped>, StringHashTableHash,
-                            StringHashTableGrower<>, Allocator>;
-    using T2 = HashMapTable<StringKey16, StringHashMapCell<StringKey16, TMapped>,
+    using T1 = HashMapTable<StringHashMapSubKeys::T1,
+                            StringHashMapCell<StringHashMapSubKeys::T1, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
-    using T3 = HashMapTable<StringKey24, StringHashMapCell<StringKey24, TMapped>,
+    using T2 = HashMapTable<StringHashMapSubKeys::T2,
+                            StringHashMapCell<StringHashMapSubKeys::T2, TMapped>,
+                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
+    using T3 = HashMapTable<StringHashMapSubKeys::T3,
+                            StringHashMapCell<StringHashMapSubKeys::T3, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
     using Ts = HashMapTable<doris::StringRef, StringHashMapCell<doris::StringRef, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
@@ -135,29 +138,6 @@ public:
         if (inserted) new (&it->get_mapped()) TMapped();
 
         return it->get_mapped();
-    }
-
-    template <typename Func>
-    void ALWAYS_INLINE for_each_value(Func&& func) {
-        if (this->m0.size()) {
-            func(doris::StringRef {}, this->m0.zero_value()->get_second());
-        }
-
-        for (auto& v : this->m1) {
-            func(v.get_key(), v.get_second());
-        }
-
-        for (auto& v : this->m2) {
-            func(v.get_key(), v.get_second());
-        }
-
-        for (auto& v : this->m3) {
-            func(v.get_key(), v.get_second());
-        }
-
-        for (auto& v : this->ms) {
-            func(v.get_key(), v.get_second());
-        }
     }
 
     template <typename Func>

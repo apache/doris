@@ -573,11 +573,6 @@ protected:
         auto get_ptr() const { return ptr; }
         size_t get_hash() const { return ptr->get_hash(*container); }
 
-        size_t get_collision_chain_length() const {
-            return container->grower.place((ptr - container->buf) -
-                                           container->grower.place(get_hash()));
-        }
-
         /**
           * A hack for HashedDictionary.
           *

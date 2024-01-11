@@ -86,6 +86,10 @@ bool DataQueue::has_data_or_finished(int child_idx) {
 //so next loop, will check the record idx + 1 first
 //maybe it's useful with many queue, others maybe always 0
 bool DataQueue::remaining_has_data() {
+    if (_child_count == 1) {
+        return _cur_blocks_nums_in_queue[_flag_queue_idx];
+    }
+
     int count = _child_count;
     while (--count >= 0) {
         _flag_queue_idx++;

@@ -22,6 +22,8 @@
 
 #include <string.h>
 
+#include <cstdint>
+
 #if defined(__SSE2__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
 
@@ -89,5 +91,16 @@ void memcpy_fixed(char* lhs, const char* rhs) {
         *(T*)lhs = *(T*)rhs;
     } else {
         memcpy(lhs, rhs, sizeof(T));
+    }
+}
+
+inline void memcpy_small(char* lhs, const char* rhs, size_t n) {
+    while (n >= 4) {
+        memcpy_fixed<uint32_t>(lhs, rhs);
+        n -= 8;
+    }
+    while (n >= 1) {
+        memcpy_fixed<uint8_t>(lhs, rhs);
+        n--;
     }
 }
