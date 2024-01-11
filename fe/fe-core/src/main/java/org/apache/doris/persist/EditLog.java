@@ -81,7 +81,9 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
+import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -1080,6 +1082,10 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
+                    if (journal.getData() instanceof AnalysisJobInfo) {
+                        // For rollback compatible.
+                        break;
+                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1088,6 +1094,10 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
+                    if (journal.getData() instanceof AnalysisTaskInfo) {
+                        // For rollback compatible.
+                        break;
+                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1131,7 +1141,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_PERSIST_AUTO_JOB: {
-                    env.getAnalysisManager().replayPersistSysJob((AnalysisInfo) journal.getData());
+                    // Do nothing
                     break;
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
@@ -1151,6 +1161,12 @@ public class EditLog {
                 case OperationType.OP_ALTER_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
+                    break;
+                }
+                case OperationType.OP_LOG_UPDATE_ROWS:
+                case OperationType.OP_LOG_NEW_PARTITION_LOADED:
+                case OperationType.OP_LOG_ALTER_COLUMN_STATS: {
+                    // TODO: implement this while statistics finished related work.
                     break;
                 }
                 default: {
@@ -1964,10 +1980,6 @@ public class EditLog {
 
     public void logCreateTableStats(TableStatsMeta tableStats) {
         logEdit(OperationType.OP_UPDATE_TABLE_STATS, tableStats);
-    }
-
-    public void logAutoJob(AnalysisInfo analysisInfo) {
-        logEdit(OperationType.OP_PERSIST_AUTO_JOB, analysisInfo);
     }
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {

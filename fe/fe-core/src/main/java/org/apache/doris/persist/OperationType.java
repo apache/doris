@@ -345,6 +345,7 @@ public class OperationType {
 
     public static final short OP_UPDATE_TABLE_STATS = 455;
 
+    @Deprecated
     public static final short OP_PERSIST_AUTO_JOB = 456;
 
     public static final short OP_DELETE_TABLE_STATS = 457;
@@ -357,6 +358,11 @@ public class OperationType {
 
     public static final short OP_INSERT_OVERWRITE = 461;
 
+    public static final short OP_LOG_UPDATE_ROWS = 462;
+
+    public static final short OP_LOG_NEW_PARTITION_LOADED = 463;
+
+    public static final short OP_LOG_ALTER_COLUMN_STATS = 464;
 
     /**
      * Get opcode name by op code.
