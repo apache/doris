@@ -53,6 +53,7 @@ suite("operate_internal_schema") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
     connect(user="admin", url=url) {
+            sql "use __internal_schema;"
             try {
                 //alter db
                 sql "ALTER DATABASE __internal_schema SET PROPERTIES('replication_allocation' = '');"
