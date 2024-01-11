@@ -146,9 +146,9 @@ echo "downloading paimon oss/s3 deps jars"
 paimon_s3=${ROOT}/paimon-s3-0.6.0-incubating.jar
 paimon_oss=${ROOT}/paimon-oss-0.6.0-incubating.jar
 rm -rf "${paimon_s3}"
-wget https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar -P ${ROOT}/
+wget https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-s3/0.6.0-incubating/paimon-s3-0.6.0-incubating.jar -P "${ROOT}"/
 rm -rf "${paimon_oss}"
-wget https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.6.0-incubating/paimon-oss-0.6.0-incubating.jar -P ${ROOT}/
+wget https://repo.maven.apache.org/maven2/org/apache/paimon/paimon-oss/0.6.0-incubating/paimon-oss-0.6.0-incubating.jar -P "${ROOT}"/
 echo "downloaded paimon oss/s3 deps jars:"
 echo "${paimon_s3}"
 echo "${paimon_oss}"
