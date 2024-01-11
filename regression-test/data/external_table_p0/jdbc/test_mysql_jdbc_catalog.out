@@ -251,6 +251,7 @@ information_schema
 
 -- !specified_database_2 --
 doris_test
+information_schema
 
 -- !specified_database_3 --
 information_schema
@@ -261,6 +262,7 @@ show_test_do_not_modify
 sys
 
 -- !specified_database_4 --
+information_schema
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}

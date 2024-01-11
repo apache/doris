@@ -18,7 +18,7 @@ ex_tb0
 ex_tb1
 
 -- !select --
-test_show_where_mysql_jdbc_catalog.show_test_do_not_modify
+show_test_do_not_modify
 
 -- !select --
 ex_tb0
