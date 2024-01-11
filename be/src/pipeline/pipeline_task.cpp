@@ -299,6 +299,9 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
+    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
+    }
 
     return Status::OK();
 }
@@ -395,10 +398,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::PENDING_FINISH) {
             COUNTER_UPDATE(_pending_finish_counts, 1);
         }
-    }
-
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
     }
 
     _cur_state = state;
