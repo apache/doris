@@ -250,8 +250,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
 
-    _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
-    _tablet_schema_cache->start();
+    _tablet_schema_cache =
+            TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
     // S3 buffer pool
     _s3_buffer_pool = new io::S3FileBufferPool();
@@ -526,7 +526,6 @@ void ExecEnv::destroy() {
 
     SAFE_STOP(_wal_manager);
     _wal_manager.reset();
-    SAFE_STOP(_tablet_schema_cache);
     SAFE_STOP(_load_channel_mgr);
     SAFE_STOP(_scanner_scheduler);
     SAFE_STOP(_broker_mgr);
