@@ -577,6 +577,9 @@ suite("test_build_mtmv") {
 
     // test build mv which containing literal varchar field
     sql """
+    drop table if exists lineitem
+    """
+    sql """
     CREATE TABLE IF NOT EXISTS lineitem (
       l_orderkey    INTEGER NOT NULL,
       l_partkey     INTEGER NOT NULL,
