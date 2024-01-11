@@ -53,7 +53,9 @@ suite("operate_internal_schema") {
 
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
-    connect(user=admin, url=url) {
+    connect(user="admin", url=url) {
+            //alter db
+            sql "ALTER DATABASE __internal_schema SET PROPERTIES('replication_allocation' = '');"
             //alter table
             sql "ALTER TABLE ${testTable} MODIFY COMMENT 'new_comment';"
             //insert
@@ -66,6 +68,8 @@ suite("operate_internal_schema") {
             sql "truncate table ${testTable};"
             // insert overwrite
             sql "insert overwrite table ${testTable} values(1,3)"
+            // insert overwrite
+            sql "drop table ${testTable}"
         }
 
 }
