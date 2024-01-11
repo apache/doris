@@ -196,7 +196,8 @@ VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
-    LOG(WARNING) << "VExpr::prepare " << state->query_id().hi << "-" << state->query_id().lo << "\n";
+    LOG(WARNING) << "VExpr::prepare " << state->query_id().hi << "-" << state->query_id().lo
+                 << "\n";
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
         return Status::Error<ErrorCode::EXCEEDED_LIMIT>(

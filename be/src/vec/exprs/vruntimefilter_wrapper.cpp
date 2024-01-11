@@ -50,8 +50,8 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprS
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
-    RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
-    RETURN_IF_ERROR(_impl->prepare(state, desc, context));
+    // RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
+    RETURN_IF_ERROR_OR_PREPARED(_impl->prepare(state, desc, context));
     _expr_name = fmt::format("VRuntimeFilterWrapper({})", _impl->expr_name());
     _prepare_finished = true;
     return Status::OK();
@@ -60,7 +60,7 @@ Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& 
 Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
                                    FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    // RETURN_IF_ERROR(VExpr::open(state, context, scope));
     RETURN_IF_ERROR(_impl->open(state, context, scope));
     _open_finished = true;
     return Status::OK();
@@ -87,7 +87,15 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         return Status::OK();
     } else {
         _scan_rows += block->rows();
+
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(true);
+        }
         RETURN_IF_ERROR(_impl->execute(context, block, result_column_id));
+        if (_getting_const_col) {
+            _impl->set_getting_const_col(false);
+        }
+
         uint8_t* data = nullptr;
         const ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
         if (is_column_const(*result_column.column)) {

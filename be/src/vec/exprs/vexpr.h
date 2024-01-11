@@ -163,6 +163,8 @@ public:
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
+    void set_getting_const_col(bool val = true) { _getting_const_col = val; }
+
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
     virtual bool is_compound_predicate() const { return false; }
