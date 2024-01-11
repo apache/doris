@@ -1043,15 +1043,15 @@ suite("aggregate_with_roll_up") {
             ifnull(o_totalprice, 0) as price_with_no_null
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
-        )    
-        select 
+        )
+        select
           l_shipdate,
           sum(price_with_no_null)
         from
           cte_view_1 cte_view
         group by
           l_shipdate
-        order by 
+        order by
           l_shipdate
         limit 10;
     """
