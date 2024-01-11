@@ -25,6 +25,7 @@
 
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
@@ -82,14 +83,34 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         RETURN_IF_ERROR(_impl->execute(context, block, result_column_id));
         uint8_t* data = nullptr;
         const ColumnWithTypeAndName& result_column = block->get_by_position(*result_column_id);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(*result_column.column)) {
+        if (is_column_const(*result_column.column)) {
+            auto const_data_column =
+                    static_cast<const ColumnConst&>(*result_column.column).get_data_column_ptr();
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*const_data_column)) {
+                const auto& nested_column_data =
+                        static_cast<const ColumnVector<UInt8>&>(*nullable->get_nested_column_ptr())
+                                .get_data();
+                const auto& null_map_data = static_cast<const ColumnVector<UInt8>&>(
+                                                    *nullable->get_null_map_column_ptr())
+                                                    .get_data();
+                if (nested_column_data[0] == 0 || null_map_data[0] == 1) {
+                    _filtered_rows += block->rows();
+                }
+            } else if (const auto* res_col =
+                               check_and_get_column<ColumnVector<UInt8>>(*const_data_column)) {
+                if (res_col->get_data()[0] == 0) {
+                    _filtered_rows += block->rows();
+                }
+            }
+        } else if (const auto* nullable =
+                           check_and_get_column<ColumnNullable>(*result_column.column)) {
             data = ((ColumnVector<UInt8>*)nullable->get_nested_column_ptr().get())
                            ->get_data()
                            .data();
             _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
                                                           nullable->get_null_map_data().data(),
                                                           block->rows());
-        } else if (auto* res_col =
+        } else if (const auto* res_col =
                            check_and_get_column<ColumnVector<UInt8>>(*result_column.column)) {
             data = const_cast<uint8_t*>(res_col->get_data().data());
             _filtered_rows += doris::simd::count_zero_num(reinterpret_cast<const int8_t*>(data),
