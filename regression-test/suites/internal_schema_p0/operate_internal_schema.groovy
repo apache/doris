@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// this suite is for creating table with timestamp datatype in defferent 
-// case. For example: 'year' and 'Year' datatype should also be valid in definition
+import org.junit.Assert;
 
 suite("operate_internal_schema") {
     def testTable = "operate_internal_schema_user"
@@ -54,22 +53,69 @@ suite("operate_internal_schema") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
     connect(user="admin", url=url) {
-            //alter db
-            sql "ALTER DATABASE __internal_schema SET PROPERTIES('replication_allocation' = '');"
-            //alter table
-            sql "ALTER TABLE ${testTable} MODIFY COMMENT 'new_comment';"
-            //insert
-            sql "insert into ${testTable} values(1,2);"
-            //update
-            sql "update ${testTable} set age=2 where user_id=1;"
-            //delete
-            sql "delete from ${testTable} where user_id=1;"
-            // truncate
-            sql "truncate table ${testTable};"
-            // insert overwrite
-            sql "insert overwrite table ${testTable} values(1,3)"
-            // insert overwrite
-            sql "drop table ${testTable}"
-        }
+            try {
+                //alter db
+                sql "ALTER DATABASE __internal_schema SET PROPERTIES('replication_allocation' = '');"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
 
+            try {
+                //alter table
+                sql "ALTER TABLE ${testTable} MODIFY COMMENT 'new_comment';"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+            try {
+                //insert
+                sql "insert into ${testTable} values(1,2);"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+            try {
+                //update
+                sql "update ${testTable} set age=2 where user_id=1;"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+            try {
+                //delete
+                sql "delete from ${testTable} where user_id=1;"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+            try {
+                // truncate
+                sql "truncate table ${testTable};"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+            try {
+                 // insert overwrite
+                sql "insert overwrite table ${testTable} values(1,3)"
+                Assert.fail();
+            } catch (Exception e) {
+                log.info(e.getMessage())
+            }
+
+           try {
+               // drop table
+               sql "drop table ${testTable}"
+               Assert.fail();
+           } catch (Exception e) {
+               log.info(e.getMessage())
+           }
+        }
+        sql "drop table ${testTable}"
 }
