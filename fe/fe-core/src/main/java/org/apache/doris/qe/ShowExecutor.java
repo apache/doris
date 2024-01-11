@@ -242,6 +242,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -1016,7 +1017,9 @@ public class ShowExecutor {
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDb());
+        String ctl = showStmt.getCtl();
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctl)
+                .getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
@@ -1031,7 +1034,7 @@ public class ShowExecutor {
                     continue;
                 }
                 final String columnName = col.getName();
-                final String columnType = col.getOriginType().toString();
+                final String columnType = col.getOriginType().toString().toLowerCase(Locale.ROOT);
                 final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                 final String isKey = col.isKey() ? "YES" : "NO";
                 final String defaultValue = col.getDefaultValue();
@@ -1068,18 +1071,22 @@ public class ShowExecutor {
     private void handleShowIndex() throws AnalysisException {
         ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
-        OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
-        table.readLock();
-        try {
-            List<Index> indexes = table.getIndexes();
-            for (Index index : indexes) {
-                rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                        "", String.join(",", index.getColumns()), "", "", "", "",
-                        "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
+                .getDbOrAnalysisException(showStmt.getDbName());
+        if (db instanceof Database) {
+            OlapTable table = db.getOlapTableOrAnalysisException(showStmt.getTableName().getTbl());
+            table.readLock();
+            try {
+                List<Index> indexes = table.getIndexes();
+                for (Index index : indexes) {
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                            "", String.join(",", index.getColumns()), "", "", "", "",
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                }
+            } finally {
+                table.readUnlock();
             }
-        } finally {
-            table.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
