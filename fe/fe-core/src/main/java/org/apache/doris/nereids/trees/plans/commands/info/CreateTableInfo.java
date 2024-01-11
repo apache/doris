@@ -254,7 +254,7 @@ public class CreateTableInfo {
             dbName = ctx.getDatabase();
         }
         try {
-            InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get().getCurrentUserIdentity());
+            InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

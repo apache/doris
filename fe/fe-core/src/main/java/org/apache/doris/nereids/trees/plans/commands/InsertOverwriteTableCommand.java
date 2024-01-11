@@ -113,7 +113,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         PhysicalOlapTableSink<?> physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
         OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         InternalDatabaseUtil
-                .checkDatabase(targetTable.getQualifiedDbName(), ConnectContext.get().getCurrentUserIdentity());
+                .checkDatabase(targetTable.getQualifiedDbName(), ConnectContext.get());
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),

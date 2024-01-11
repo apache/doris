@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -27,22 +26,11 @@ import com.google.common.base.Preconditions;
 public class InternalDatabaseUtil {
 
     public static void checkDatabase(String dbName, ConnectContext ctx) throws AnalysisException {
-        Preconditions.checkNotNull(dbName);
+        Preconditions.checkNotNull(dbName, "require dbName object");
         if (!FeConstants.INTERNAL_DB_NAME.equals(dbName)) {
             return;
         }
         if (ctx == null || ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser()) {
-            throw new AnalysisException("Not allowed to operate database: " + dbName);
-        }
-    }
-
-    public static void checkDatabase(String dbName, UserIdentity userIdentity) throws AnalysisException {
-        Preconditions.checkNotNull(dbName);
-        Preconditions.checkNotNull(userIdentity);
-        if (userIdentity.isRootUser()) {
-            return;
-        }
-        if (FeConstants.INTERNAL_DB_NAME.equals(dbName)) {
             throw new AnalysisException("Not allowed to operate database: " + dbName);
         }
     }

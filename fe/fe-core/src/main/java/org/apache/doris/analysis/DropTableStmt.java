@@ -86,7 +86,7 @@ public class DropTableStmt extends DdlStmt {
         tableName.analyze(analyzer);
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get().getCurrentUserIdentity());
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         // check access
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                                                                 tableName.getTbl(), PrivPredicate.DROP)) {

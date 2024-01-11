@@ -76,7 +76,7 @@ public class InsertOverwriteTableStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         target.getTblName().analyze(analyzer);
-        InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get().getCurrentUserIdentity());
+        InternalDatabaseUtil.checkDatabase(getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), getDb(), getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",

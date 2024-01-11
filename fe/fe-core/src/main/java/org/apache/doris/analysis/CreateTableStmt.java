@@ -286,7 +286,7 @@ public class CreateTableStmt extends DdlStmt {
         FeNameFormat.checkTableName(tableName.getTbl());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get().getCurrentUserIdentity());
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");

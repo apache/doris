@@ -59,7 +59,7 @@ public class DropDbStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
-        InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get().getCurrentUserIdentity());
+        InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         // Don't allow to drop mysql compatible databases
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
         if (db != null && (db instanceof Database) && ((Database) db).isMysqlCompatibleDatabase()) {

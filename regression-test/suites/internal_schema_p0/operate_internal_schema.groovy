@@ -18,7 +18,7 @@
 import org.junit.Assert;
 
 suite("operate_internal_schema") {
-    def testTable = "operate_internal_schema_user"
+    def testTable = "operate_internal_schema_tbl"
     sql "use __internal_schema"
     sql "DROP TABLE IF EXISTS ${testTable}"
     //alter db
@@ -49,10 +49,14 @@ suite("operate_internal_schema") {
     // insert overwrite
     sql "insert overwrite table ${testTable} values(1,3)"
 
-
+    def user = 'operate_internal_schema_user'
+    def pwd = 'C123_567p'
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """GRANT ADMIN_PRIV ON *.*.* TO ${user}"""
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + tokens[2] + "/" + "__internal_schema" + "?"
-    connect(user="admin", url=url) {
+    connect(user=user, password="${pwd}", url=url) {
             sql "use __internal_schema;"
             try {
                 //alter db
