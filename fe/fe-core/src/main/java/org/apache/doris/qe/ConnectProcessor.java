@@ -181,12 +181,6 @@ public abstract class ConnectProcessor {
         String convertedStmt = convertOriginStmt(originStmt);
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
-        ctx.getAuditEventBuilder().reset();
-        ctx.getAuditEventBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setSqlHash(ctx.getSqlHash());
 
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
