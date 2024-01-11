@@ -33,7 +33,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -217,7 +216,6 @@ public class DeleteStmt extends DdlStmt {
         tableName = targetTableRef.getName();
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get().getCurrentUserIdentity());
         // check load privilege, select privilege will check when analyze insert stmt
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.LOAD)) {
