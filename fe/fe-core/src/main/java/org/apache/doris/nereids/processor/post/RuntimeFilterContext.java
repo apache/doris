@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -125,7 +126,7 @@ public class RuntimeFilterContext {
 
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newLinkedHashMap();
 
-    private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
+    private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
 
     // cte to related joins map which can extract common runtime filter to cte inside
     private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newLinkedHashMap();
@@ -146,6 +147,30 @@ public class RuntimeFilterContext {
     private final FilterSizeLimits limits;
 
     private int targetNullCount = 0;
+
+    private final List<ExpandRF> expandedRF = Lists.newArrayList();
+
+    /**
+     * info about expand rf by inner join
+     */
+    public static class ExpandRF {
+        public AbstractPhysicalJoin buildNode;
+
+        public PhysicalRelation srcNode;
+        public PhysicalRelation target1;
+
+        public PhysicalRelation target2;
+
+        public EqualPredicate equal;
+
+        public ExpandRF(AbstractPhysicalJoin buildNode, PhysicalRelation srcNode,
+                        PhysicalRelation target1, PhysicalRelation target2, EqualPredicate equal) {
+            this.buildNode = buildNode;
+            this.srcNode = srcNode;
+            this.target1 = target1;
+            this.target2 = target2;
+        }
+    }
 
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
@@ -307,12 +332,23 @@ public class RuntimeFilterContext {
         targetNullCount++;
     }
 
-    public void addEffectiveSrcNode(Plan node) {
-        effectiveSrcNodes.add(node);
+    /**
+     * the selectivity produced by predicate or rf
+     */
+    public enum EffectiveSrcType {
+        NATIVE, REF
+    }
+
+    public void addEffectiveSrcNode(Plan node, EffectiveSrcType type) {
+        effectiveSrcNodes.put(node, type);
     }
 
     public boolean isEffectiveSrcNode(Plan node) {
-        return effectiveSrcNodes.contains(node);
+        return effectiveSrcNodes.keySet().contains(node);
+    }
+
+    public EffectiveSrcType getEffectiveSrcType(Plan plan) {
+        return effectiveSrcNodes.get(plan);
     }
 
     @VisibleForTesting
@@ -334,5 +370,23 @@ public class RuntimeFilterContext {
             olapSlot = (SlotReference) aliasTransferMap.get(olapSlot).second;
         }
         return olapSlot;
+    }
+
+    /**
+     * return the info about expand_runtime_filter_by_inner_join
+     */
+    public ExpandRF getExpandRfByJoin(AbstractPhysicalJoin join) {
+        if (join instanceof PhysicalHashJoin) {
+            for (ExpandRF expand : expandedRF) {
+                if (expand.buildNode.equals(join)) {
+                    return expand;
+                }
+            }
+        }
+        return null;
+    }
+
+    public List<ExpandRF> getExpandedRF() {
+        return expandedRF;
     }
 }

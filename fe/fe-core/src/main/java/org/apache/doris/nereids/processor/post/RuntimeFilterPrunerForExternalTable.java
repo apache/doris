@@ -97,7 +97,8 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
                                                   CascadesContext context) {
         join.right().accept(this, context);
         join.right().setMutableState(MutableState.KEY_PARENT, join);
-        join.setMutableState(MutableState.KEY_RF_JUMP, join.right().getMutableState(MutableState.KEY_RF_JUMP).get());
+        join.setMutableState(MutableState.KEY_RF_JUMP,
+                join.right().getMutableState(MutableState.KEY_RF_JUMP).get());
         join.left().accept(this, context);
         join.left().setMutableState(MutableState.KEY_PARENT, join);
         return join;
@@ -121,15 +122,18 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
         Plan cursor = scan;
         Optional<Plan> parent = cursor.getMutableState(MutableState.KEY_PARENT);
         while (parent.isPresent()) {
-            if (joinAndAncestors.contains(parent.get())) {
-                Optional oi = parent.get().getMutableState(MutableState.KEY_RF_JUMP);
-                if (oi.isPresent() && ConnectContext.get() != null
-                        && (int) (oi.get()) > ConnectContext.get().getSessionVariable().runtimeFilterJumpThreshold) {
-                    return true;
-                }
-            } else {
-                if (isBuildSide(parent.get(), cursor)) {
-                    return false;
+            if (parent.get() instanceof Join) {
+                if (joinAndAncestors.contains(parent.get())) {
+                    Optional oi = parent.get().getMutableState(MutableState.KEY_RF_JUMP);
+                    if (oi.isPresent() && ConnectContext.get() != null
+                            && (int) (oi.get())
+                            > ConnectContext.get().getSessionVariable().runtimeFilterJumpThreshold) {
+                        return true;
+                    }
+                } else {
+                    if (isBuildSide(parent.get(), cursor)) {
+                        return false;
+                    }
                 }
             }
             cursor = parent.get();
@@ -148,6 +152,9 @@ public class RuntimeFilterPrunerForExternalTable extends PlanPostProcessor {
             Optional oi = child.getMutableState(MutableState.KEY_RF_JUMP);
             if (oi.isPresent()) {
                 int jump = (Integer) (oi.get());
+                if (child instanceof Join) {
+                    jump++;
+                }
                 if (jump > maxJump) {
                     maxJump = jump;
                 }
