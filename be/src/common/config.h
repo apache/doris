@@ -829,8 +829,6 @@ DECLARE_Int64(open_load_stream_timeout_ms);
 // timeout for load stream close wait in ms
 DECLARE_Int64(close_load_stream_timeout_ms);
 
-// idle timeout for load stream in ms
-DECLARE_Int64(load_stream_idle_timeout_ms);
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
 // brpc streaming messages_in_batch

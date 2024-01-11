@@ -151,7 +151,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            bool enable_profile) {
+                            int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return Status::OK();
@@ -160,7 +160,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = config::load_stream_max_buf_size;
-    opt.idle_timeout_ms = config::load_stream_idle_timeout_ms;
+    opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
     brpc::Controller cntl;
@@ -174,6 +174,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
     request.set_total_streams(total_streams);
+    request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
@@ -368,10 +369,6 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         int ret;
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
-            DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
-                int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
-                bthread_usleep(delay_ms * 1000);
-            });
             ret = brpc::StreamWrite(_stream_id, buf);
         }
         DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
