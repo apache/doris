@@ -27,7 +27,7 @@ import java.text.NumberFormat;
 /**
  * float type literal
  */
-public class FloatLiteral extends Literal {
+public class FloatLiteral extends FractionalLiteral {
 
     private final float value;
 
