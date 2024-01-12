@@ -893,33 +893,33 @@ public:
             WhichDataType sub_addr_type(remove_nullable(addr_column_with_type_and_name.type));
 
             if (sub_addr_type.is_ipv6()) {
-                const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(
-                        addr_column_nullable->get_nested_column());
+                const auto* ipv6_addr_column =
+                        check_and_get_column<ColumnIPv6>(addr_column_nullable->get_nested_column());
                 col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, addr_null_map, *cidr_col,
-                        cidr_null_map, input_rows_count);
+                                                   cidr_null_map, input_rows_count);
             } else if (sub_addr_type.is_string()) {
                 const auto* str_addr_column = check_and_get_column<ColumnString>(
                         addr_column_nullable->get_nested_column());
                 col_res = execute_impl<ColumnString>(*str_addr_column, addr_null_map, *cidr_col,
-                        cidr_null_map, input_rows_count);
+                                                     cidr_null_map, input_rows_count);
             } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}, Expected IPv6 or String",
-                                            addr_column->get_name(), get_name());
+                return Status::RuntimeError(
+                        "Illegal column {} of argument of function {}, Expected IPv6 or String",
+                        addr_column->get_name(), get_name());
             }
         } else {
             if (addr_type.is_ipv6()) {
-                const auto* ipv6_addr_column =
-                        check_and_get_column<ColumnIPv6>(addr_column.get());
+                const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
                 col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, nullptr, *cidr_col, nullptr,
-                        input_rows_count);
+                                                   input_rows_count);
             } else if (addr_type.is_string()) {
-                const auto* str_addr_column =
-                        check_and_get_column<ColumnString>(addr_column.get());
+                const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
                 col_res = execute_impl<ColumnString>(*str_addr_column, nullptr, *cidr_col, nullptr,
-                        input_rows_count);
+                                                     input_rows_count);
             } else {
-                return Status::RuntimeError("Illegal column {} of argument of function {}, Expected IPv6 or String",
-                                            addr_column->get_name(), get_name());
+                return Status::RuntimeError(
+                        "Illegal column {} of argument of function {}, Expected IPv6 or String",
+                        addr_column->get_name(), get_name());
             }
         }
 

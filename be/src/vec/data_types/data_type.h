@@ -311,10 +311,10 @@ struct WhichDataType {
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
 
-#define IS_DATATYPE(name, method) \
-inline bool is_##name(const DataTypePtr& data_type) { \
-    return WhichDataType(data_type).is_##method(); \
-}
+#define IS_DATATYPE(name, method)                         \
+    inline bool is_##name(const DataTypePtr& data_type) { \
+        return WhichDataType(data_type).is_##method();    \
+    }
 
 IS_DATATYPE(uint8, uint8)
 IS_DATATYPE(uint16, uint16)
