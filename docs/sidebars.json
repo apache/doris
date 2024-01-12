@@ -238,6 +238,7 @@
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/external-statistics",
+                "lakehouse/sql-dialect",
                 "lakehouse/fs-benchmark-tool",
                 "lakehouse/faq"
             ]
