@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
@@ -115,7 +116,12 @@ public class DFSFileSystem extends RemoteFileSystem {
                     return ugi;
                 }
             } catch (IOException e) {
-                LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
+
+                if (Config.print_error_no_stacktrace) {
+                    LOG.warn("A SecurityException occurs with kerberos, do login immediately." + e.getMessage());
+                } else {
+                    LOG.warn("A SecurityException occurs with kerberos, do login immediately.", e);
+                }
                 return doLogin(conf);
             }
         }
@@ -249,7 +255,11 @@ public class DFSFileSystem extends RemoteFileSystem {
             try {
                 currentStreamOffset = fsDataInputStream.getPos();
             } catch (IOException e) {
-                LOG.error("errors while get file pos from output stream", e);
+                if (Config.print_error_no_stacktrace) {
+                    LOG.error("errors while get file pos from output stream" + e.getMessage());
+                } else {
+                    LOG.error("errors while get file pos from output stream", e);
+                }
                 throw new IOException("errors while get file pos from output stream", e);
             }
             if (currentStreamOffset != readOffset) {
@@ -285,7 +295,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 return ByteBuffer.wrap(buf, 0, readLength);
             } catch (IOException e) {
-                LOG.error("errors while read data from stream", e);
+                if (Config.print_error_no_stacktrace) {
+                    LOG.error("errors while read data from stream" + e.getMessage());
+                } else {
+                    LOG.error("errors while read data from stream", e);
+                }
                 throw new IOException("errors while read data from stream " + e.getMessage());
             }
         }
@@ -316,7 +330,11 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
             return Status.OK;
         } catch (Exception e) {
-            LOG.error("errors while check path exist " + remotePath, e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while check path exist " + remotePath + ", " + e.getMessage());
+            } else {
+                LOG.error("errors while check path exist " + remotePath, e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to check remote path exist: " + remotePath + ". msg: " + e.getMessage());
         }
@@ -336,7 +354,11 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             fsDataOutputStream.writeBytes(content);
         } catch (IOException e) {
-            LOG.error("errors while write data to output stream", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while write data to output stream " + e.getMessage());
+            } else {
+                LOG.error("errors while write data to output stream", e);
+            }
             status = new Status(Status.ErrCode.COMMON_ERROR, "write exception: " + e.getMessage());
         } finally {
             Status closeStatus = operations.closeWriter(OpParams.of(fsDataOutputStream));
@@ -377,7 +399,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                 try {
                     fsDataOutputStream.write(readBuf, 0, bytesRead);
                 } catch (IOException e) {
-                    LOG.error("errors while write data to output stream", e);
+                    if (Config.print_error_no_stacktrace) {
+                        LOG.error("errors while write data to output stream " + e.getMessage());
+                    } else {
+                        LOG.error("errors while write data to output stream", e);
+                    }
                     lastErrMsg = String.format(
                             "failed to write hdfs. current write offset: %d, write length: %d, "
                                     + "file length: %d, file: %s, msg: errors while write data to output stream",
@@ -486,7 +512,11 @@ public class DFSFileSystem extends RemoteFileSystem {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
         } catch (Exception e) {
-            LOG.error("errors while get file status ", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while get file status " + e.getMessage());
+            } else {
+                LOG.error("errors while get file status ", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         LOG.info("finish list path {}", remotePath);

@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
@@ -157,11 +158,19 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
             } else {
-                LOG.warn("headObject failed:", e);
+                if (Config.print_error_no_stacktrace) {
+                    LOG.warn("headObject failed:" + e.getMessage());
+                } else {
+                    LOG.warn("headObject failed:", e);
+                }
                 return new Status(Status.ErrCode.COMMON_ERROR, "headObject failed: " + e.getMessage());
             }
         } catch (UserException ue) {
-            LOG.warn("connect to s3 failed: ", ue);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("connect to s3 failed: " + ue.getMessage());
+            } else {
+                LOG.warn("connect to s3 failed: ", ue);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -179,7 +188,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     Status.ErrCode.COMMON_ERROR,
                     "get file from s3 error: " + s3Exception.awsErrorDetails().errorMessage());
         } catch (UserException ue) {
-            LOG.warn("connect to s3 failed: ", ue);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("connect to s3 failed: " + ue.getMessage());
+            } else {
+                LOG.warn("connect to s3 failed: " + ue);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.toString());
@@ -198,10 +211,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("put object success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("put object failed:", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("put object failed:" + e.getMessage());
+            } else {
+                LOG.error("put object failed:", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "put object failed: " + e.getMessage());
         } catch (Exception ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("connect to s3 failed: " + ue.getMessage());
+            } else {
+                LOG.warn("connect to s3 failed: ", ue);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -217,13 +238,21 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("delete file " + remotePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.warn("delete file failed: ", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("delete file failed: " + e.getMessage());
+            } else {
+                LOG.warn("delete file failed: ", e);
+            }
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
                 return Status.OK;
             }
             return new Status(Status.ErrCode.COMMON_ERROR, "delete file failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.warn("connect to s3 failed: ", ue);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("connect to s3 failed: " + ue.getMessage());
+            } else {
+                LOG.warn("connect to s3 failed: ", ue);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -268,7 +297,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } catch (DdlException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
         } catch (Exception e) {
-            LOG.warn("delete objects {} failed, force visual host style {}", absolutePath, e, forceHostedStyle);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("delete objects {} failed, force visual host style {}" + e.getMessage(),
+                            absolutePath, forceHostedStyle);
+            } else {
+                LOG.warn("delete objects {} failed, force visual host style {}. {}", absolutePath, forceHostedStyle, e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "delete objects failed: " + e.getMessage());
         }
     }
@@ -288,10 +322,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("copy file from " + origFilePath + " to " + destFilePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("copy file failed: ", e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("copy to s3 failed: " + e.getMessage());
+            } else {
+                LOG.error("copy to s3 failed: ", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "copy file failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("copy to s3 failed: ", ue);
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("copy to s3 failed: " + ue.getMessage());
+            } else {
+                LOG.error("copy to s3 failed: ", ue);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -331,7 +373,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
             return new RemoteObjects(remoteObjects, response.isTruncated(), response.nextContinuationToken());
         } catch (Exception e) {
-            LOG.warn("Failed to list objects for S3: {}", absolutePath, e);
+            if (Config.print_error_no_stacktrace) {
+                LOG.warn("Failed to list objects for S3: {}. " + e.getMessage(), absolutePath);
+            } else {
+                LOG.warn("Failed to list objects for S3: {}", absolutePath, e);
+            }
             throw new DdlException("Failed to list objects for S3, Error message: " + e.getMessage(), e);
         }
     }

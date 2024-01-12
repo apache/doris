@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
@@ -102,7 +103,12 @@ public class S3FileSystem extends ObjFileSystem {
                     }
                 }
             }
-            LOG.error("errors while get file status ", e);
+
+            if (Config.print_error_no_stacktrace) {
+                LOG.error("errors while get file status " + e.getMessage());
+            } else {
+                LOG.error("errors while get file status ", e);
+            }
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
