@@ -658,6 +658,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     /**
+     * Check runtime filter push down project/distribute pre-conditions.
+     */
+    public static boolean checkPushDownPreconditionsForProjectOrDistribute(RuntimeFilterContext ctx, Slot slot) {
+        if (slot == null || !ctx.aliasTransferMapContains(slot)) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    /**
      * Check runtime filter push down pre-conditions, such as builder side join type, etc.
      */
     public static boolean checkPushDownPreconditionsForJoin(AbstractPhysicalJoin physicalJoin,

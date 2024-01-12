@@ -134,22 +134,26 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
+        if (probeSlot == null) {
             return false;
         }
-        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
+        if (RuntimeFilterGenerator.checkPushDownPreconditionsForProjectOrDistribute(ctx, probeSlot)) {
+            PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
+            if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
+                return false;
+            }
+            // TODO: global rf need merge stage which is heavy
+            // add some rule, such as bc only is allowed for
+            // pushing down through distribute, currently always pushing.
+            AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
+            return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
+                    type, buildSideNdv, exprOrder);
+        } else {
+            // if probe slot doesn't exist in aliasTransferMap, then try to pass it to child
+            AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
+            return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
+                    type, buildSideNdv, exprOrder);
         }
-        // TODO: global rf need merge stage which is heavy
-        // add some rule, such as bc only is allowed for
-        // pushing down through distribute, currently always pushing.
-        AbstractPhysicalPlan childPlan = (AbstractPhysicalPlan) child(0);
-        return childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
-                type, buildSideNdv, exprOrder);
     }
 
     @Override
