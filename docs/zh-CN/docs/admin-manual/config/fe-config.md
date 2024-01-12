@@ -678,6 +678,18 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 http header size 配置参数
 
+#### `http_sql_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/query中sql任务的最大线程池
+
+#### `http_load_submitter_max_worker_threads`
+
+默认值：2
+
+http请求处理/api/upload任务的最大线程池
+
 ### 查询引擎
 
 #### `default_max_query_instances`

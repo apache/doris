@@ -628,6 +628,9 @@ public class Role implements Writable, GsonPostProcessable {
             return;
         }
         existingPriv.remove(privs);
+        if (existingPriv.isEmpty()) {
+            tblPatternToPrivs.remove(tblPattern);
+        }
         revokePrivs(tblPattern, privs);
         revokeCols(colPrivileges);
     }

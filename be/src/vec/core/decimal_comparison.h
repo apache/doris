@@ -99,7 +99,7 @@ public:
     }
 
     static bool compare(A a, B b, UInt32 scale_a, UInt32 scale_b) {
-        static const UInt32 max_scale = max_decimal_precision<Decimal128>();
+        static const UInt32 max_scale = max_decimal_precision<Decimal128I>();
         if (scale_a > max_scale || scale_b > max_scale) {
             LOG(FATAL) << "Bad scale of decimal field";
         }

@@ -234,6 +234,35 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     return pos;
 }
 
+int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+    const auto& rhs = assert_cast<const ColumnMap&>(rhs_);
+
+    size_t lhs_size = size_at(n);
+    size_t rhs_size = rhs.size_at(m);
+
+    size_t lhs_offset = offset_at(n);
+    size_t rhs_offset = rhs.offset_at(m);
+
+    size_t min_size = std::min(lhs_size, rhs_size);
+
+    for (size_t i = 0; i < min_size; ++i) {
+        // if any value in key not equal, just return
+        if (int res = get_keys().compare_at(lhs_offset + i, rhs_offset + i, rhs.get_keys(),
+                                            nan_direction_hint);
+            res) {
+            return res;
+        }
+        // // if any value in value not equal, just return
+        if (int res = get_values().compare_at(lhs_offset + i, rhs_offset + i, rhs.get_values(),
+                                              nan_direction_hint);
+            res) {
+            return res;
+        }
+    }
+
+    return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
 void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     size_t kv_size = size_at(n);
     size_t offset = offset_at(n);

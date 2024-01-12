@@ -163,7 +163,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalApply that = (LogicalApply) o;
+        LogicalApply<?, ?> that = (LogicalApply<?, ?>) o;
         return Objects.equals(correlationSlot, that.getCorrelationSlot())
                 && Objects.equals(subqueryExpr, that.getSubqueryExpr())
                 && Objects.equals(correlationFilter, that.getCorrelationFilter())
@@ -191,10 +191,11 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                     .addAll(correlationSlot)
                     .add(correlationFilter.get())
                     .build();
+        } else {
+            return new ImmutableList.Builder<Expression>()
+                    .addAll(correlationSlot)
+                    .build();
         }
-        return new ImmutableList.Builder<Expression>()
-                .addAll(correlationSlot)
-                .build();
     }
 
     public LogicalApply<Plan, Plan> withSubqueryExprAndChildren(SubqueryExpr subqueryExpr, List<Plan> children) {

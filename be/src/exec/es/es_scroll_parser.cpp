@@ -471,7 +471,13 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     if (obj.HasMember("fields")) {
         pure_doc_value = true;
     }
-    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
+    // obj may be neither have `_source` nor `fields` field.
+    const rapidjson::Value* line = nullptr;
+    if (obj.HasMember(FIELD_SOURCE)) {
+        line = &obj[FIELD_SOURCE];
+    } else if (obj.HasMember("fields")) {
+        line = &obj["fields"];
+    }
 
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
         const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
@@ -496,17 +502,18 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
                                               : slot_desc->col_name().c_str();
 
-        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
-        if (itr == line.MemberEnd() && slot_desc->is_nullable()) {
-            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-            nullable_column->insert_data(nullptr, 0);
-            continue;
-        } else if (itr == line.MemberEnd() && !slot_desc->is_nullable()) {
-            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
-            return Status::RuntimeError(details);
+        if (line == nullptr || line->FindMember(col_name) == line->MemberEnd()) {
+            if (slot_desc->is_nullable()) {
+                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+                nullable_column->insert_data(nullptr, 0);
+                continue;
+            } else {
+                std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+                return Status::RuntimeError(details);
+            }
         }
 
-        const rapidjson::Value& col = line[col_name];
+        const rapidjson::Value& col = (*line)[col_name];
 
         PrimitiveType type = slot_desc->type().type;
 

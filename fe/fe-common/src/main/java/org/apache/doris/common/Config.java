@@ -291,6 +291,16 @@ public class Config extends ConfigBase {
                     + "each element is a CIDR representation of the network address"})
     public static String priority_networks = "";
 
+    @ConfField(description = {"是否重置 BDBJE 的复制组，如果所有的可选节点都无法启动，"
+            + "可以将元数据拷贝到另一个节点，并将这个配置设置为 true，尝试重启 FE。更多信息请参阅官网的元数据故障恢复文档。",
+            "If true, FE will reset bdbje replication group(that is, to remove all electable nodes info) "
+                    + "and is supposed to start as Master. "
+                    + "If all the electable nodes can not start, we can copy the meta data "
+                    + "to another node and set this config to true to try to restart the FE. "
+                    + "For more information, please refer to the metadata failure recovery document "
+                    + "on the official website."})
+    public static String metadata_failure_recovery = "false";
+
     @ConfField(mutable = true, description = {"是否忽略元数据延迟，如果 FE 的元数据延迟超过这个阈值，"
             + "则非 Master FE 仍然提供读服务。这个配置可以用于当 Master FE 因为某些原因停止了较长时间，"
             + "但是仍然希望非 Master FE 可以提供读服务。",
@@ -1012,6 +1022,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    /**
+     * if set to false, TabletScheduler will not do disk balance for replica num = 1.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_disk_balance_for_single_replica = false;
 
     // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
     // skip checking.
@@ -2251,4 +2267,16 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/query中sql任务的最大线程池。",
+        "The max number work threads of http sql submitter."
+    })
+    public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/upload任务的最大线程池。",
+        "The max number work threads of http upload submitter."
+    })
+    public static int http_load_submitter_max_worker_threads = 2;
 }

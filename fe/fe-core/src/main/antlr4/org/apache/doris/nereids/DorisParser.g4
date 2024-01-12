@@ -60,6 +60,7 @@ statement
 identifierOrText
     : errorCapturingIdentifier
     | STRING_LITERAL
+    | LEADING_STRING
     ;
 
 userIdentify
@@ -191,7 +192,7 @@ havingClause
 selectHint: HINT_START hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
 
 hintStatement
-    : hintName=identifier LEFT_PAREN parameters+=hintAssignment (COMMA parameters+=hintAssignment)* RIGHT_PAREN
+    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
     ;
 
 hintAssignment
@@ -683,6 +684,7 @@ nonReserved
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
+    | LEADING
     | LEFT_BRACE
     | LESS
     | LEVEL
@@ -718,6 +720,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | ORDERED
     | PARAMETER
     | PARSED
     | PASSWORD

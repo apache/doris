@@ -1033,14 +1033,16 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
@@ -1172,6 +1174,11 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The timeout config for S3 write buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
+
+DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 #ifdef BE_TEST
 // test s3

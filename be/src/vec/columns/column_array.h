@@ -163,10 +163,8 @@ public:
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
-    }
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";

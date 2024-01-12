@@ -192,6 +192,8 @@ public class StatisticsUtil {
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
+        sessionVariable.enablePushDownMinMaxOnUnique = true;
+        sessionVariable.enablePushDownStringMinMax = true;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());

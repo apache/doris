@@ -123,29 +123,44 @@ run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
+get_session_variable() {
+    k="$1"
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    echo "${v/*Value: /}"
+}
+backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
+backup_session_variables() {
+    while IFS= read -r line; do
+        k="${line/set global /}"
+        k="${k%=*}"
+        v=$(get_session_variable "${k}")
+        echo "set global ${k}=${v};" >>"${backup_session_variables_file}"
+    done < <(grep -v '^ *#' <"${TPCH_OPT_CONF}")
+}
+backup_session_variables
 
 echo '============================================'
+echo "Optimize session variables"
 run_sql "source ${TPCH_OPT_CONF};"
 echo '============================================'
 run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
-start=$(date +%s)
-run_sql "analyze database ${DB} with full with sync;"
-end=$(date +%s)
-totalTime=$((end - start))
-echo "analyze database ${DB} with full with sync total time: ${totalTime} s"
-echo '============================================'
-echo "Time Unit: ms"
 
 RESULT_DIR="${CURDIR}/result"
-rm "${RESULT_DIR}"
+if [[ -d "${RESULT_DIR}" ]]; then
+    rm -r "${RESULT_DIR}"
+fi
 mkdir -p "${RESULT_DIR}"
 touch result.csv
 cold_run_sum=0
 best_hot_run_sum=0
-for i in {1..22}; do
+# run part of queries, set their index to query_array
+# query_array=(59 17 29 25 47 40 54)
+query_array=$(seq 1 22)
+# shellcheck disable=SC2068
+for i in ${query_array[@]}; do
     cold=0
     hot1=0
     hot2=0
@@ -181,5 +196,10 @@ for i in {1..22}; do
 done
 
 echo "Total cold run time: ${cold_run_sum} ms"
+# tpch 流水线依赖这个'Total hot run time'字符串
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpch queries.'
+
+echo "Restore session variables"
+run_sql "source ${backup_session_variables_file};"
+rm -f "${backup_session_variables_file}"

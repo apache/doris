@@ -141,8 +141,25 @@ public class FloatLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueInFe() {
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
+            // for example '11:22:33' -> 11:22:33
+            String timeStr = getStringValue();
+            return timeStr.substring(1, timeStr.length() - 1);
+        } else {
+            return BigDecimal.valueOf(getValue()).toPlainString();
+        }
+    }
+
+    @Override
     public String getStringValueForArray() {
-        return "\"" + getStringValue() + "\"";
+        String ret = getStringValue();
+        if (type == Type.TIME || type == Type.TIMEV2) {
+            // here already wrapped in ''
+            ret = ret.substring(1, ret.length() - 1);
+        }
+        return "\"" + ret + "\"";
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {

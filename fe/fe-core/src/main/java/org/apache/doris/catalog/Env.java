@@ -1608,7 +1608,8 @@ public class Env {
      * frontend log is deleted because of checkpoint.
      */
     private void checkCurrentNodeExist() {
-        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY)
+                || Config.metadata_failure_recovery.equals("true");
         if (metadataFailureRecovery) {
             return;
         }
@@ -3192,6 +3193,14 @@ public class Env {
                 sb.append(olapTable.isDynamicSchema()).append("\"");
             }
 
+            // time series compaction empty rowsets threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3876,8 +3885,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
 
         // figure out shortKeyColumnCount
@@ -4321,7 +4330,7 @@ public class Env {
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             // rename column is not implemented for table without column unique id.
-            if (entry.getValue().getMaxColUniqueId() < 0) {
+            if (entry.getValue().getMaxColUniqueId() <= 0) {
                 throw new DdlException("not implemented for table without column unique id,"
                         + " which are created with property 'light_schema_change'.");
             }
@@ -4589,7 +4598,8 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
-                .buildEnableSingleReplicaCompaction();
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

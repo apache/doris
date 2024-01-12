@@ -404,6 +404,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -433,6 +435,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String TABLE_STATS_HEALTH_THRESHOLD
             = "table_stats_health_threshold";
+
+    public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
+
+    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -726,7 +732,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableSharedScan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL,
+            needForward = true)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -761,7 +768,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterSize = 2097152;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE, needForward = true)
-    private int runtimeBloomFilterMinSize = 1048576;
+    private int runtimeBloomFilterMinSize = 2048;
 
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE, needForward = true)
     private int runtimeBloomFilterMaxSize = 16777216;
@@ -1060,6 +1067,16 @@ public class SessionVariable implements Serializable, Writable {
             "是否启用count_on_index pushdown。", "Set whether to pushdown count_on_index."})
     public boolean enablePushDownCountOnIndex = true;
 
+    // Whether enable pushdown minmax to scan node of unique table.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE, needForward = true, description = {
+        "是否启用pushdown minmax on unique table。", "Set whether to pushdown minmax on unique table."})
+    public boolean enablePushDownMinMaxOnUnique = false;
+
+    // Whether enable push down string type minmax to scan node.
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = {
+        "是否启用string类型min max下推。", "Set whether to enable push down string type minmax."})
+    public boolean enablePushDownStringMinMax = false;
+
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
@@ -1199,6 +1216,13 @@ public class SessionVariable implements Serializable, Writable {
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
 
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                        "In the inverted index,"
+                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                        + " then skip the index and proceed directly to matching."})
+    public int invertedIndexSkipThreshold = 50;
+
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
@@ -1259,7 +1283,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
-    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+    public long hugeTableLowerBoundSizeInBytes = 0;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
@@ -1267,7 +1291,7 @@ public class SessionVariable implements Serializable, Writable {
                     "This controls the minimum time interval for automatic ANALYZE on large tables."
                             + "Within this interval,"
                             + "tables larger than huge_table_lower_bound_size_in_bytes are analyzed only once."})
-    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(12);
+    public long hugeTableAutoAnalyzeIntervalInMillis = TimeUnit.HOURS.toMillis(0);
 
     @VariableMgr.VarAttr(name = EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对外表的自动ANALYZE的最小时间间隔，在该时间间隔内的外表仅ANALYZE一次",
@@ -2175,6 +2199,18 @@ public class SessionVariable implements Serializable, Writable {
         this.disableJoinReorder = disableJoinReorder;
     }
 
+    public boolean isEnablePushDownMinMaxOnUnique() {
+        return enablePushDownMinMaxOnUnique;
+    }
+
+    public void setEnablePushDownMinMaxOnUnique(boolean enablePushDownMinMaxOnUnique) {
+        this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
+    }
+
+    public boolean isEnablePushDownStringMinMax() {
+        return enablePushDownStringMinMax;
+    }
+
     /**
      * Nereids only support vectorized engine.
      *
@@ -2446,6 +2482,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
         return tResult;
     }
 
@@ -2713,6 +2751,14 @@ public class SessionVariable implements Serializable, Writable {
         }
         setIsSingleSetVar(true);
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
+    }
+
+    public void disableNereidsJoinReorderOnce() throws DdlException {
+        if (!enableNereidsPlanner) {
+            return;
+        }
+        setIsSingleSetVar(true);
+        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
     }
 
     // return number of variables by given experimental type

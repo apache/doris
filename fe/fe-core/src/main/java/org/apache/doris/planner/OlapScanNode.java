@@ -550,7 +550,6 @@ public class OlapScanNode extends ScanNode {
             computePartitionInfo();
         }
         computeTupleState(analyzer);
-        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -922,6 +921,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(selectedIndexId != -1);
         // compute tablet info by selected index id and selected partition ids
         long start = System.currentTimeMillis();
+        computeSampleTabletIds();
         computeTabletInfo();
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
@@ -944,9 +944,7 @@ public class OlapScanNode extends ScanNode {
         long selectedRows = 0;
         long totalSampleRows = 0;
         List<Long> selectedPartitionList = new ArrayList<>();
-        if (FeConstants.runningUnitTest && selectedIndexId == -1) {
-            selectedIndexId = olapTable.getBaseIndexId();
-        }
+        Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
@@ -974,6 +972,7 @@ public class OlapScanNode extends ScanNode {
 
         // 3. Sampling partition. If Seek is specified, the partition will be the same for each sampling.
         long hitRows = 0; // The number of rows hit by the tablet
+        Set<Long> hitTabletIds = Sets.newHashSet();
         long partitionSeek = tableSample.getSeek() != -1
                 ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionList.size());
         for (int i = 0; i < selectedPartitionList.size(); i++) {
@@ -999,16 +998,24 @@ public class OlapScanNode extends ScanNode {
                     ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * tablets.size());
             for (int j = 0; j < tablets.size(); j++) {
                 int seekTid = (int) ((j + tabletSeek) % tablets.size());
+                Tablet tablet = tablets.get(seekTid);
+                if (sampleTabletIds.size() != 0 && !sampleTabletIds.contains(tablet.getId())) {
+                    // After PruneOlapScanTablet, sampleTabletIds.size() != 0,
+                    // continue sampling only in sampleTabletIds.
+                    // If it is percentage sample, the number of sampled rows is a percentage of the
+                    // total number of rows, and It is not related to sampleTabletI after PruneOlapScanTablet.
+                    continue;
+                }
                 long tabletRowCount;
                 if (!FeConstants.runningUnitTest) {
-                    tabletRowCount = tablets.get(seekTid).getRowCount(true);
+                    tabletRowCount = tablet.getRowCount(true);
                 } else {
                     tabletRowCount = selectedTable.getRowCount() / tablets.size();
                 }
                 if (tabletRowCount == 0) {
                     continue;
                 }
-                sampleTabletIds.add(tablets.get(seekTid).getId());
+                hitTabletIds.add(tablet.getId());
                 sampleRows -= tabletRowCount;
                 hitRows += tabletRowCount;
                 if (sampleRows <= 0) {
@@ -1019,7 +1026,15 @@ public class OlapScanNode extends ScanNode {
                 break;
             }
         }
-        LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}", hitRows, selectedRows);
+        if (sampleTabletIds.size() != 0) {
+            sampleTabletIds.retainAll(hitTabletIds);
+            LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
+                    hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
+        } else {
+            sampleTabletIds = hitTabletIds;
+            LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}", hitRows, selectedRows,
+                    totalSampleRows);
+        }
     }
 
     public boolean isFromPrepareStmt() {

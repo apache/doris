@@ -158,7 +158,8 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true, msg);
-        LOG_WARNING("Instance {} cancelled, reason {}", print_id(_fragment_instance_id),
+        LOG_WARNING("Query {} instance {} cancelled, reason {}, message {}", print_id(_query_id),
+                    print_id(_fragment_instance_id), PPlanFragmentCancelReason_Name(reason),
                     msg.substr(0, 50));
 
         // Print detail informations below when you debugging here.
@@ -874,7 +875,8 @@ void PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id, _backend_num, _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)});
+                       std::placeholders::_2),
+             _dml_query_statistics()});
 }
 
 } // namespace doris::pipeline

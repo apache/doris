@@ -54,11 +54,11 @@ PhysicalResultSink
 --------------------------------------------------PhysicalOlapScan[catalog_returns]
 ----------------------------------------------hashJoin[INNER_JOIN](cs.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------------------------------PhysicalProject
---------------------------------------------------filter((cs.cs_net_paid > 0.00)(cs.cs_quantity > 0)(cs.cs_net_profit > 1.00))
+--------------------------------------------------filter((cs.cs_quantity > 0)(cs.cs_net_profit > 1.00)(cs.cs_net_paid > 0.00))
 ----------------------------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
+----------------------------------------------------filter((date_dim.d_year = 1999)(date_dim.d_moy = 12))
 ------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject

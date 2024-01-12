@@ -92,10 +92,10 @@ url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
 // use `?` for placement holders, readStatement should be reused
 PreparedStatement readStatement = conn.prepareStatement("select * from tbl_point_query where key = ?");
 ...
-readStatement.setInt(1234);
+readStatement.setInt(1,1234);
 ResultSet resultSet = readStatement.executeQuery();
 ...
-readStatement.setInt(1235);
+readStatement.setInt(1,1235);
 resultSet = readStatement.executeQuery();
 ...
 ```
@@ -106,3 +106,55 @@ Doris has a page-level cache that stores data for a specific column in each page
 - `disable_storage_row_cache` : Whether to enable the row cache. It is not enabled by default.
 - `row_cache_mem_limit` : Specifies the percentage of memory occupied by the row cache. The default is 20% of memory.
 
+## Performance optimization
+1. Generally, it is effective to improve query processing capabilities by increasing the number of Observers.
+2. Query load balancing: During the enumeration, if it is found that the FE CPU that accepts enumeration requests is used too high, or the request response becomes slow, you can use jdbc load balance for load balancing, and distribute the requests to multiple nodes to share the pressure (and also You can use other methods for query load balancing configuration, such as Nginx, proxySQL)
+3. By directing the query requests to the Observer role to share the request pressure of high-concurrency queries and reducing the number of query requests sent to the fe master, it can usually solve the problem of the time-consuming fluctuation of the Fe Master node query to obtain better performance and stability
+
+## QA
+1. How to confirm that the configuration is correct and short path optimization using concurrent enumeration is used
+   A: explain sql, when SHORT-CIRCUIT appears in the execution plan, it proves that short path optimization is used
+   ```sql
+   mysql> explain select * from tbl_point_query where `key` = -2147481418 ;                                                                                                                                
+         +-----------------------------------------------------------------------------------------------+                                                                                                       
+         | Explain String(Old Planner)                                                                   |                                                                                                       
+         +-----------------------------------------------------------------------------------------------+                                                                                                       
+         | PLAN FRAGMENT 0                                                                               |                                                                                                       
+         |   OUTPUT EXPRS:                                                                               |                                                                                                       
+         |     `test`.`tbl_point_query`.`key`                                                            |                                                                                                       
+         |     `test`.`tbl_point_query`.`v1`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v2`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v3`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v4`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v5`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v6`                                                             |                                                                                                       
+         |     `test`.`tbl_point_query`.`v7`                                                             |                                                                                                       
+         |   PARTITION: UNPARTITIONED                                                                    |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   HAS_COLO_PLAN_NODE: false                                                                   |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   VRESULT SINK                                                                                |                                                                                                       
+         |      MYSQL_PROTOCAL                                                                           |                                                                                                       
+         |                                                                                               |                                                                                                       
+         |   0:VOlapScanNode                                                                             |                                                                                                       
+         |      TABLE: test.tbl_point_query(tbl_point_query), PREAGGREGATION: ON                         |                                                                                                       
+         |      PREDICATES: `key` = -2147481418 AND `test`.`tbl_point_query`.`__DORIS_DELETE_SIGN__` = 0 |                                                                                                       
+         |      partitions=1/1 (tbl_point_query), tablets=1/1, tabletList=360065                         |                                                                                                       
+         |      cardinality=9452868, avgRowSize=833.31323, numNodes=1                                    |                                                                                                       
+         |      pushAggOp=NONE                                                                           |                                                                                                       
+         |      SHORT-CIRCUIT                                                                            |                                                                                                       
+         +-----------------------------------------------------------------------------------------------+
+      ```
+2. How to confirm that prepared statement is effective
+   A: After sending the request to Doris, find the corresponding query request in fe.audit.log and find Stmt=EXECUTE(), indicating that prepared statement is effective
+   ```text
+   2024-01-02 11:15:51,248 [query] |Client=192.168.1.82:53450|User=root|Db=test|State=EOF|ErrorCode=0|ErrorMessage=|Time(ms)=49|ScanBytes=0|ScanRows=0|ReturnRows=1|StmtId=51|QueryId=b63d30b908f04dad-ab4a
+      3ba21d2c776b|IsQuery=true|isNereids=false|feIp=10.16.10.6|Stmt=EXECUTE(-2147481418)|CpuTimeMS=0|SqlHash=eee20fa2ac13a4f93bd4503a87921024|peakMemoryBytes=0|SqlDigest=|TraceId=|WorkloadGroup=|FuzzyVaria
+      bles=
+   ```
+3. Can non-primary key queries use special optimization of high-concurrency point lookups?
+   A: No, high-concurrency query only targets the equivalent query of the key column, and the query cannot contain join or nested subqueries.
+4. Is useServerPrepStmts useful in ordinary queries?
+   A: Prepared Statement currently only takes effect when primary key is checked.
+5. Does optimizer selection require global settings?
+   A: When using prepared statement for query, Doris will choose the query method with the best performance, and there is no need to manually set the optimizer.
