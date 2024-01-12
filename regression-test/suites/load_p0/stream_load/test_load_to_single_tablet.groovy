@@ -55,7 +55,7 @@ suite("test_load_to_single_tablet", "p0") {
     sql "sync"
     def totalCount = sql "select count() from ${tableName}"
     assertEquals(10, totalCount[0][0])
-    def res = sql "show tablets from ${tableName}"
+    string[][] res = sql "show tablets from ${tableName}"
     res = deduplicate_tablets(res)
     def tablet1 = res[0][0]
     def tablet2 = res[1][0]
