@@ -388,10 +388,10 @@ if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
 fi
 echo "Finished patching ${SIMDJSON_SOURCE}"
 
-if [[ "${BRPC_SOURCE}" == 'brpc-1.4.0' ]]; then
+if [[ "${BRPC_SOURCE}" == 'brpc-1.7.0' ]]; then
     cd "${TP_SOURCE_DIR}/${BRPC_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        for patch_file in "${TP_PATCH_DIR}"/brpc-*; do
+        for patch_file in "${TP_PATCH_DIR}"/brpc-1.7.0-*; do
             patch -p1 <"${patch_file}"
         done
         touch "${PATCHED_MARK}"
