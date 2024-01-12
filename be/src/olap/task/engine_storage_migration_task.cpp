@@ -90,7 +90,9 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
 
 bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
-    if (time_elapsed > config::migration_task_timeout_secs) {
+    int64_t timeout =
+            std::max(config::migration_task_timeout_secs, _tablet->tablet_local_size() / 1024);
+    if (time_elapsed > timeout) {
         LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
                      << ", tablet=" << _tablet->tablet_id();
         return true;
