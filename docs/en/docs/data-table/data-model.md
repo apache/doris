@@ -411,14 +411,22 @@ Please note that `agg_state` comes with a certain performance overhead.
 
 ## Unique Model
 
-In some multidimensional analysis scenarios, users are highly concerned about how to ensure the uniqueness of the Key,
-that is, how to create uniqueness constraints for the Primary Key. Therefore, we introduce the Unique Model. Prior to Doris 1.2,
-the Unique Model was essentially a special case of the Aggregate Model and a simplified representation of table schema.
-The Aggregate Model is implemented by Merge on Read, so it might not deliver high performance in some aggregation queries
-(see the [Limitations of Aggregate Model](#limitations-of-aggregate-model) section). In Doris 1.2, 
-we have introduced a new implementation for the Unique Model--Merge on Write, which can help achieve optimal query performance.
-For now, Merge on Read and Merge on Write will coexist in the Unique Model for a while, but in the future, 
-we plan to make Merge on Write the default implementation of the Unique Model. The following will illustrate the two implementations with examples.
+When users have data update requirement, they can choose to use the Unique data model. The Unique model ensures the uniqueness of keys, and when a user updates a piece of data, the newly written data will overwrite the old data with the same key.
+
+**Two Implementation Methods**
+
+The Unique model provides two implementation methods:
+
+- Merge-on-read: In the merge-on-read implementation, no data deduplication-related operations are triggered when writing data. All data deduplication operations occur during queries or compaction. Therefore, merge-on-read has better write performance, poorer query performance, and higher memory consumption.
+- Merge-on-write: In version 1.2, we introduced the merge-on-write implementation, which performs all data deduplication during the data writing phase, providing excellent query performance.
+
+Since version 2.0, merge-on-write has become a mature and stable, due to its excellent query performance, we recommend the majority of users to choose this implementation. Starting from version 2.1, merge-on-write has become the default implementation for the Unique model.
+For detailed differences between the two implementation methods, refer to the subsequent sections in this chapter. For performance differences between the two implementation methods, see the description in the following section [Limitations of Aggregate Model](#limitations-of-aggregate-model).
+
+**Semantic of Data Updates**
+
+- The default update semantic for the Unique model is **whole-row `UPSERT`**, meaning UPDATE OR INSERT. If the key of a row of data exists, it is updated; if it does not exist, new data is inserted. Under the whole-row `UPSERT` semantic, even if users use `insert into` to write into specific columns, Doris will fill in the columns not provided with NULL values or default values in the Planner.
+- Partial column updates: If users want to update only specific fields, they need to use the merge-on-write implementation and enable support for partial column updates through specific parameters. Refer to the documentation [Partial Column Updates](../data-operate/update-delete/partial-update.md) for relevant usage recommendations.
 
 ### Merge on Read ( Same Implementation as Aggregate Model)
 
@@ -491,7 +499,7 @@ That is to say, the Merge on Read implementation of the Unique Model is equivale
 
 ### Merge on Write
 
-The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
+The Merge on Write implementation of the Unique Model can deliver better performance in aggregation queries with primary key limitations.
 
 In Doris 1.2.0, as a new feature, Merge on Write is disabled by default(before version 2.1), and users can enable it by adding the following property:
 
@@ -501,9 +509,11 @@ In Doris 1.2.0, as a new feature, Merge on Write is disabled by default(before v
 
 In Doris 2.1, Merge on Write is enabled by default.
 
-> NOTE:
-> 1. It is recommended to use version 1.2.4 or above, as this version has fixed some bugs and stability issues.
-> 2. Add the configuration item "disable_storage_page_cache=false" to the be.conf file. Failure to add this configuration item may have a significant impact on data load performance.
+> Note:
+> 1. For users on version 1.2:
+>    1. It is recommended to use version 1.2.4 or above, as this version addresses some bugs and stability issues.
+>    2. Add the configuration item `disable_storage_page_cache=false` in `be.conf`. Failure to add this configuration item may significantly impact data import performance.
+> 2. For new users, it is strongly recommended to use version 2.0 or above. In version 2.0, there has been a significant improvement and optimization in the performance and stability of merge-on-write.
 
 Take the previous table as an example, the corresponding to CREATE TABLE statement should be:
 
@@ -545,9 +555,8 @@ On a Unique table with the Merge on Write option enabled, during the import stag
 
 [NOTE]
 
-1. The Merge on Write implementation is disabled by default can only be enabled by specifying a property when creating a new table. Before version 2.1, it's disabled by default. Since version 2.1, it's enabled by default.
+1. The implementation method of a Unique table can only be determined during table creation and cannot be modified through schema changes.
 2. The old Merge on Read cannot be seamlessly upgraded to the Merge on Write implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow-table select * from source table` to load data to new table.
-3. The two unique features `delete sign` and `sequence col` of the Unique Model can be used as normal in the new implementation, and their usage remains unchanged.
 
 </version>
 
