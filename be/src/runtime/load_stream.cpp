@@ -194,7 +194,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
                     "segment_id={}",
                     src_id, segid);
         }
-        if (!_segids_mapping[src_id]->size() <= segid) {
+        if (segid >= _segids_mapping[src_id]->size()) {
             return Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
                     src_id, segid);
