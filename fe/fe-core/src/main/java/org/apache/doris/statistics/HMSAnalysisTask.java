@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -89,12 +90,18 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
      * Get column statistics and insert the result to __internal_schema.column_statistics
      */
     protected void getTableColumnStats() throws Exception {
-        if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
+        if (!info.usingSqlForPartitionColumn) {
             try {
-                getPartitionColumnStats();
+                if (isPartitionColumn()) {
+                    getPartitionColumnStats();
+                } else {
+                    getHmsColumnStats();
+                }
             } catch (Exception e) {
-                LOG.warn("Failed to collect stats for partition col {} using metadata, "
-                        + "fallback to normal collection", col.getName(), e);
+                LOG.warn("Failed to collect stats for {}col {} using metadata, "
+                        + "fallback to normal collection",
+                        isPartitionColumn() ? "partition " : "", col.getName(), e);
+                /* retry using sql way! */
                 getOrdinaryColumnStats();
             }
         } else {
@@ -204,6 +211,32 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
         params.put("data_size", String.valueOf(dataSize));
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
+        runQuery(sql);
+    }
+
+    // Collect the spark analyzed column stats through HMS metadata.
+    private void getHmsColumnStats() throws Exception {
+        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        long count = tableStatsStatus == null ? table.estimatedRowCount() : tableStatsStatus.rowCount;
+
+        Map<String, String> params = buildStatsParams("NULL");
+        Map<StatsType, String> statsParams = new HashMap<>();
+        statsParams.put(StatsType.NDV, "ndv");
+        statsParams.put(StatsType.NUM_NULLS, "null_count");
+        statsParams.put(StatsType.MIN_VALUE, "min");
+        statsParams.put(StatsType.MAX_VALUE, "max");
+        statsParams.put(StatsType.AVG_SIZE, "avg_len");
+
+        if (table.fillColumnStatistics(info.colName, statsParams, params)) {
+            throw new AnalysisException("some column stats not available");
+        }
+
+        long dataSize = Long.valueOf(params.get("avg_len")) * count;
+        params.put("row_count", String.valueOf(count));
+        params.put("data_size", String.valueOf(dataSize));
+
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
         runQuery(sql);
