@@ -59,24 +59,32 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @Override
     protected void collect() {
-        if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-            analysisTaskExecutor.clear();
-            return;
-        }
-        if (StatisticsUtil.enableAutoAnalyze()) {
+        if (canCollect()) {
             analyzeAll();
         }
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private void analyzeAll() {
+    protected boolean canCollect() {
+        return StatisticsUtil.enableAutoAnalyze()
+            && StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()));
+    }
+
+    protected void analyzeAll() {
         List<CatalogIf> catalogs = getCatalogsInOrder();
         for (CatalogIf ctl : catalogs) {
+            if (!canCollect()) {
+                analysisTaskExecutor.clear();
+                break;
+            }
             if (!ctl.enableAutoAnalyze()) {
                 continue;
             }
             List<DatabaseIf> dbs = getDatabasesInOrder(ctl);
             for (DatabaseIf<TableIf> databaseIf : dbs) {
+                if (!canCollect()) {
+                    analysisTaskExecutor.clear();
+                    break;
+                }
                 if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
@@ -109,6 +117,10 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
             try {
+                if (!canCollect()) {
+                    analysisTaskExecutor.clear();
+                    break;
+                }
                 analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
                 if (analysisInfo == null) {
                     continue;
