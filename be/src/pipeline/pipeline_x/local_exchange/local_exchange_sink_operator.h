@@ -108,9 +108,6 @@ public:
         if (_type == ExchangeType::HASH_SHUFFLE) {
             if (_shuffle_idx_to_instance_idx.contains(-1) ||
                 _shuffle_idx_to_instance_idx.size() != _num_partitions) {
-                DCHECK(_shuffle_idx_to_instance_idx.size() == _num_partitions ||
-                       _shuffle_idx_to_instance_idx.size() == 1)
-                        << " " << _shuffle_idx_to_instance_idx.size() << " " << _num_partitions;
                 _shuffle_idx_to_instance_idx.clear();
                 for (int i = 0; i < _num_partitions; i++) {
                     _shuffle_idx_to_instance_idx.insert({i, i});
