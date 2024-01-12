@@ -125,7 +125,7 @@ public:
                 BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
