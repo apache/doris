@@ -42,12 +42,14 @@
 
 // define some common debug actions
 // usage example: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
-#define DBUG_BLOCK                                                  \
-    LOG(INFO) << "start debug block " << DP_NAME;                   \
-    while (DebugPoints::instance()->is_enable(DP_NAME)) {           \
-        std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
-    }                                                               \
-    LOG(INFO) << "end debug block" << DP_NAME;
+#define DBUG_BLOCK                                                      \
+    {                                                                   \
+        LOG(INFO) << "start debug block " << DP_NAME;                   \
+        while (DebugPoints::instance()->is_enable(DP_NAME)) {           \
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
+        }                                                               \
+        LOG(INFO) << "end debug block" << DP_NAME;                      \
+    }
 
 namespace doris {
 
