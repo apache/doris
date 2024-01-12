@@ -82,7 +82,7 @@ public class FrontendServiceImplTest {
     @Test
     public void testCreatePartitionRange() throws Exception {
         String createOlapTblStmt = new String("CREATE TABLE test.partition_range(\n"
-                + "    event_day DATETIME,\n"
+                + "    event_day DATETIME NOT NULL,\n"
                 + "    site_id INT DEFAULT '10',\n"
                 + "    city_code VARCHAR(100)\n"
                 + ")\n"
@@ -123,7 +123,7 @@ public class FrontendServiceImplTest {
         String createOlapTblStmt = new String("CREATE TABLE test.partition_list(\n"
                 + "    event_day DATETIME,\n"
                 + "    site_id INT DEFAULT '10',\n"
-                + "    city_code VARCHAR(100) not null\n"
+                + "    city_code VARCHAR(100) NOT NULL\n"
                 + ")\n"
                 + "DUPLICATE KEY(event_day, site_id, city_code)\n"
                 + "AUTO PARTITION BY list (city_code) (\n"

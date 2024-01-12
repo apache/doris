@@ -171,12 +171,19 @@ Status EngineCloneTask::_do_clone() {
             StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
-    // change failure. It should not provide normal read and write, so drop it here.
+    // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
+    // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
+        // can not drop tablet when under clone. so unregister clone tablet firstly.
+        StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
         RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
                 tablet->tablet_id(), tablet->replica_id(), false));
+        if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(
+                    _clone_req.tablet_id)) {
+            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
+        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
@@ -809,7 +816,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     {
         std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
-        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+        if (tablet->cooldown_conf_unlocked().cooldown_replica_id == tablet->replica_id()) {
             // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
             // generated in old cooldown term which may lead to such situation:
             // Replica A is cooldown replica, cooldown_meta_id=2,

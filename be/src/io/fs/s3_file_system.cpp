@@ -65,6 +65,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
@@ -77,9 +78,9 @@ namespace doris {
 namespace io {
 
 #ifndef CHECK_S3_CLIENT
-#define CHECK_S3_CLIENT(client)                         \
-    if (!client) {                                      \
-        return Status::IOError("init s3 client error"); \
+#define CHECK_S3_CLIENT(client)                               \
+    if (!client) {                                            \
+        return Status::InternalError("init s3 client error"); \
     }
 #endif
 
@@ -94,6 +95,10 @@ namespace io {
     std::string key;       \
     RETURN_IF_ERROR(get_key(path, &key));
 #endif
+
+std::string S3FileSystem::full_path(std::string_view key) const {
+    return fmt::format("{}/{}/{}", _s3_conf.endpoint, _s3_conf.bucket, key);
+}
 
 Status S3FileSystem::create(S3Conf s3_conf, std::string id, std::shared_ptr<S3FileSystem>* fs) {
     (*fs).reset(new S3FileSystem(std::move(s3_conf), std::move(id)));
@@ -113,8 +118,9 @@ S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
             _s3_conf.prefix.pop_back();
         }
     }
+    // TODO(plat1ko): AwsTransferManager will be deprecated
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            id.c_str(), config::s3_transfer_executor_pool_size);
+            _id.c_str(), config::s3_transfer_executor_pool_size);
 }
 
 S3FileSystem::~S3FileSystem() = default;
@@ -123,7 +129,7 @@ Status S3FileSystem::connect_impl() {
     std::lock_guard lock(_client_mu);
     _client = S3ClientFactory::instance().create(_s3_conf);
     if (!_client) {
-        return Status::IOError("failed to init s3 client with {}", _s3_conf.to_string());
+        return Status::InternalError("failed to init s3 client with {}", _s3_conf.to_string());
     }
     return Status::OK();
 }
@@ -166,7 +172,7 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
         outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         return Status::OK();
     }
-    return Status::IOError("failed to delete file {}: {}", file.native(), error_msg(key, outcome));
+    return s3fs_error(outcome.GetError(), fmt::format("failed to delete file {}", full_path(key)));
 }
 
 Status S3FileSystem::delete_directory_impl(const Path& dir) {
@@ -187,8 +193,9 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
         auto outcome = client->ListObjectsV2(request);
         s3_bvar::s3_list_total << 1;
         if (!outcome.IsSuccess()) {
-            return Status::IOError("failed to list objects when delete dir {}: {}", dir.native(),
-                                   error_msg(prefix, outcome));
+            return s3fs_error(
+                    outcome.GetError(),
+                    fmt::format("failed to list objects when delete dir {}", full_path(prefix)));
         }
         const auto& result = outcome.GetResult();
         Aws::Vector<Aws::S3::Model::ObjectIdentifier> objects;
@@ -203,17 +210,14 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
             auto delete_outcome = client->DeleteObjects(delete_request);
             s3_bvar::s3_delete_total << 1;
             if (!delete_outcome.IsSuccess()) {
-                return Status::IOError("failed to delete dir {}: {}", dir.native(),
-                                       error_msg(prefix, delete_outcome));
+                return s3fs_error(delete_outcome.GetError(),
+                                  fmt::format("failed to delete dir {}", full_path(prefix)));
             }
             if (!delete_outcome.GetResult().GetErrors().empty()) {
                 const auto& e = delete_outcome.GetResult().GetErrors().front();
-                return Status::IOError("fail to delete object: {}",
-                                       error_msg(e.GetKey(), e.GetMessage()));
+                return Status::InternalError("failed to delete object {}: {}",
+                                             full_path(e.GetKey()), e.GetMessage());
             }
-            VLOG_TRACE << "delete " << objects.size()
-                       << " s3 objects, endpoint: " << _s3_conf.endpoint
-                       << ", bucket: " << _s3_conf.bucket << ", prefix: " << _s3_conf.prefix;
         }
         is_trucated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());
@@ -248,15 +252,16 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         auto delete_outcome = client->DeleteObjects(delete_request);
         s3_bvar::s3_delete_total << 1;
         if (UNLIKELY(!delete_outcome.IsSuccess())) {
-            return Status::IOError(
-                    "failed to delete objects: {}",
-                    error_msg(delete_request.GetDelete().GetObjects().front().GetKey(),
-                              delete_outcome));
+            return s3fs_error(
+                    delete_outcome.GetError(),
+                    fmt::format(
+                            "failed to delete objects {}",
+                            full_path(delete_request.GetDelete().GetObjects().front().GetKey())));
         }
         if (UNLIKELY(!delete_outcome.GetResult().GetErrors().empty())) {
             const auto& e = delete_outcome.GetResult().GetErrors().front();
-            return Status::IOError("failed to delete objects: {}",
-                                   error_msg(e.GetKey(), delete_outcome));
+            return Status::InternalError("failed to delete object {}: {}", full_path(e.GetKey()),
+                                         e.GetMessage());
         }
     } while (path_iter != remote_files.end());
 
@@ -278,8 +283,8 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
         *res = false;
     } else {
-        return Status::IOError("failed to check exists {}: {}", path.native(),
-                               error_msg(key, outcome));
+        return s3fs_error(outcome.GetError(),
+                          fmt::format("failed to check exists {}", full_path(key)));
     }
     return Status::OK();
 }
@@ -294,12 +299,12 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
 
     auto outcome = client->HeadObject(request);
     s3_bvar::s3_head_total << 1;
-    if (outcome.IsSuccess()) {
-        *file_size = outcome.GetResult().GetContentLength();
-    } else {
-        return Status::IOError("failed to get file size {}, {}", file.native(),
-                               error_msg(key, outcome));
+    if (!outcome.IsSuccess()) {
+        return s3fs_error(outcome.GetError(),
+                          fmt::format("failed to get file size {}", full_path(key)));
     }
+
+    *file_size = outcome.GetResult().GetContentLength();
     return Status::OK();
 }
 
@@ -322,8 +327,8 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         auto outcome = client->ListObjectsV2(request);
         s3_bvar::s3_list_total << 1;
         if (!outcome.IsSuccess()) {
-            return Status::IOError("failed to list {}: {}", dir.native(),
-                                   error_msg(prefix, outcome));
+            return s3fs_error(outcome.GetError(),
+                              fmt::format("failed to list {}", full_path(prefix)));
         }
         for (const auto& obj : outcome.GetResult().GetContents()) {
             std::string key = obj.GetKey();
@@ -344,13 +349,7 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
-    RETURN_IF_ERROR(copy(orig_name, new_name));
-    return delete_file_impl(orig_name);
-}
-
-Status S3FileSystem::rename_dir_impl(const Path& orig_name, const Path& new_name) {
-    RETURN_IF_ERROR(copy_dir(orig_name, new_name));
-    return delete_directory_impl(orig_name);
+    return Status::NotSupported("S3FileSystem::rename_impl");
 }
 
 Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file) {
@@ -371,8 +370,8 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
     auto duration = std::chrono::duration<float>(std::chrono::steady_clock::now() - start);
 
     if (handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
-        return Status::IOError("failed to upload {}: {}", remote_file.native(),
-                               error_msg(key, handle->GetLastError().GetMessage()));
+        return s3fs_error(handle->GetLastError(), fmt::format("failed to upload {} to {}",
+                                                              local_file.native(), full_path(key)));
     }
 
     auto file_size = std::filesystem::file_size(local_file);
@@ -413,42 +412,11 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         handle->WaitUntilFinished();
         if (handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
             // TODO(cyx): Maybe we can cancel remaining handles.
-            return Status::IOError(
-                    "failed to upload: {}",
-                    error_msg(handle->GetKey(), handle->GetLastError().GetMessage()));
+            return s3fs_error(handle->GetLastError(),
+                              fmt::format("failed to upload to {}", full_path(handle->GetKey())));
         }
     }
     return Status::OK();
-}
-
-Status S3FileSystem::direct_upload_impl(const Path& remote_file, const std::string& content) {
-    CHECK_S3_CLIENT(_client);
-    Aws::S3::Model::PutObjectRequest request;
-    GET_KEY(key, remote_file);
-    request.WithBucket(_s3_conf.bucket).WithKey(key);
-    const std::shared_ptr<Aws::IOStream> input_data =
-            Aws::MakeShared<Aws::StringStream>("upload_directly");
-    *input_data << content.c_str();
-    if (input_data->good()) {
-        request.SetBody(input_data);
-    }
-    if (!input_data->good()) {
-        return Status::IOError("failed to direct upload {}: failed to read from string",
-                               remote_file.native());
-    }
-    Aws::S3::Model::PutObjectOutcome response = _client->PutObject(request);
-    s3_bvar::s3_put_total << 1;
-    if (response.IsSuccess()) {
-        return Status::OK();
-    } else {
-        return Status::IOError("failed to direct upload {}: {}", remote_file.native(),
-                               error_msg(key, response));
-    }
-}
-
-Status S3FileSystem::upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                               const std::string& checksum) {
-    return upload_impl(local_file, remote_file.string() + "." + checksum);
 }
 
 Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_file) {
@@ -470,61 +438,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
                                    remote_file.native(), local_file.native());
         }
     } else {
-        return Status::IOError("failed to download {}: {}", remote_file.native(),
-                               error_msg(key, response));
-    }
-    return Status::OK();
-}
-
-Status S3FileSystem::direct_download_impl(const Path& remote, std::string* content) {
-    CHECK_S3_CLIENT(_client);
-    Aws::S3::Model::GetObjectRequest request;
-    GET_KEY(key, remote);
-    request.WithBucket(_s3_conf.bucket).WithKey(key);
-    Aws::S3::Model::GetObjectOutcome response = _client->GetObject(request);
-    s3_bvar::s3_get_total << 1;
-    if (response.IsSuccess()) {
-        std::stringstream ss;
-        ss << response.GetResult().GetBody().rdbuf();
-        *content = ss.str();
-    } else {
-        return Status::IOError("failed to direct download {}: {}", remote.native(),
-                               error_msg(key, response));
-    }
-    return Status::OK();
-}
-
-Status S3FileSystem::copy(const Path& src, const Path& dst) {
-    CHECK_S3_CLIENT(_client);
-    Aws::S3::Model::CopyObjectRequest request;
-    GET_KEY(src_key, src);
-    GET_KEY(dst_key, dst);
-    request.WithCopySource(_s3_conf.bucket + "/" + src_key)
-            .WithKey(dst_key)
-            .WithBucket(_s3_conf.bucket);
-    Aws::S3::Model::CopyObjectOutcome response = _client->CopyObject(request);
-    s3_bvar::s3_copy_object_total << 1;
-    if (response.IsSuccess()) {
-        return Status::OK();
-    } else {
-        return Status::IOError("failed to copy from {} to {}: {}", src.native(), dst.native(),
-                               error_msg(src_key, response));
-    }
-}
-
-Status S3FileSystem::copy_dir(const Path& src, const Path& dst) {
-    std::vector<FileInfo> files;
-    bool exists = false;
-    RETURN_IF_ERROR(list_impl(src, true, &files, &exists));
-    if (!exists) {
-        return Status::IOError("path not found: {}", src.native());
-    }
-    if (files.empty()) {
-        LOG(WARNING) << "Nothing need to copy: " << src << " -> " << dst;
-        return Status::OK();
-    }
-    for (auto& file : files) {
-        RETURN_IF_ERROR(copy(src / file.file_name, dst / file.file_name));
+        return localfs_error(errno, fmt::format("failed to write file {}", local_file.native()));
     }
     return Status::OK();
 }
@@ -533,19 +447,6 @@ Status S3FileSystem::get_key(const Path& path, std::string* key) const {
     CHECK_S3_PATH(uri, path);
     *key = uri.get_key();
     return Status::OK();
-}
-
-template <typename AwsOutcome>
-std::string S3FileSystem::error_msg(const std::string& key, const AwsOutcome& outcome) const {
-    return fmt::format("(endpoint: {}, bucket: {}, key:{}, {}), {}, error code {}",
-                       _s3_conf.endpoint, _s3_conf.bucket, key,
-                       outcome.GetError().GetExceptionName(), outcome.GetError().GetMessage(),
-                       outcome.GetError().GetResponseCode());
-}
-
-std::string S3FileSystem::error_msg(const std::string& key, const std::string& err) const {
-    return fmt::format("(endpoint: {}, bucket: {}, key:{}), {}", _s3_conf.endpoint, _s3_conf.bucket,
-                       key, err);
 }
 
 } // namespace io

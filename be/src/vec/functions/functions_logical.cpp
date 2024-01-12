@@ -187,9 +187,8 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
             }
         }
 
-        if (!(is_native_number(arg_type) ||
-              (Impl::special_implementation_for_nulls() &&
-               (arg_type->only_null() || is_native_number(remove_nullable(arg_type)))))) {
+        if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
+                                             is_native_number(remove_nullable(arg_type))))) {
             LOG(FATAL) << fmt::format("Illegal type ({}) of {} argument of function {}",
                                       arg_type->get_name(), i + 1, get_name());
         }

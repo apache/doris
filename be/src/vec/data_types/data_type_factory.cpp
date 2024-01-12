@@ -188,7 +188,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
         break;
     case TYPE_QUANTILE_STATE:
         nested = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -311,13 +311,13 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::Decimal64:
         nested = std::make_shared<DataTypeDecimal<Decimal64>>(BeConsts::MAX_DECIMAL64_PRECISION, 0);
         break;
-    case TypeIndex::Decimal128:
-        nested = std::make_shared<DataTypeDecimal<Decimal128>>(BeConsts::MAX_DECIMAL128_PRECISION,
-                                                               0);
+    case TypeIndex::Decimal128V2:
+        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(BeConsts::MAX_DECIMALV2_PRECISION,
+                                                                 0);
         break;
-    case TypeIndex::Decimal128I:
-        nested = std::make_shared<DataTypeDecimal<Decimal128I>>(BeConsts::MAX_DECIMAL128_PRECISION,
-                                                                0);
+    case TypeIndex::Decimal128V3:
+        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(BeConsts::MAX_DECIMAL128_PRECISION,
+                                                                 0);
         break;
     case TypeIndex::Decimal256:
         nested = std::make_shared<DataTypeDecimal<Decimal256>>(BeConsts::MAX_DECIMAL256_PRECISION,
@@ -414,7 +414,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(27, 9);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -508,12 +508,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
                                                               pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128:
-        nested = std::make_shared<DataTypeDecimal<Decimal128>>(pcolumn.decimal_param().precision(),
-                                                               pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128I:
-        nested = std::make_shared<DataTypeDecimal<Decimal128I>>(pcolumn.decimal_param().precision(),
-                                                                pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL256:
         nested = std::make_shared<DataTypeDecimal<Decimal256>>(pcolumn.decimal_param().precision(),
@@ -667,7 +667,7 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case ::arrow::Type::DECIMAL:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>();
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>();
         break;
     case ::arrow::Type::LIST:
         DCHECK(type->num_fields() == 1);

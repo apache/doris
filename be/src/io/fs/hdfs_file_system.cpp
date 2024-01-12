@@ -306,10 +306,6 @@ Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) 
     return Status::OK();
 }
 
-Status HdfsFileSystem::rename_dir_impl(const Path& orig_name, const Path& new_name) {
-    return rename_impl(orig_name, new_name);
-}
-
 Status HdfsFileSystem::upload_impl(const Path& local_file, const Path& remote_file) {
     // 1. open local file for read
     FileSystemSPtr local_fs = global_local_filesystem();
@@ -351,21 +347,6 @@ Status HdfsFileSystem::batch_upload_impl(const std::vector<Path>& local_files,
     return Status::OK();
 }
 
-Status HdfsFileSystem::direct_upload_impl(const Path& remote_file, const std::string& content) {
-    FileWriterPtr hdfs_writer = nullptr;
-    RETURN_IF_ERROR(create_file(remote_file, &hdfs_writer));
-    RETURN_IF_ERROR(hdfs_writer->append({content}));
-    return Status::OK();
-}
-
-Status HdfsFileSystem::upload_with_checksum_impl(const Path& local, const Path& remote_file,
-                                                 const std::string& checksum) {
-    std::string temp = remote_file.string() + ".part";
-    std::string final_file = remote_file.string() + "." + checksum;
-    RETURN_IF_ERROR(upload_impl(local, temp));
-    return rename_impl(temp, final_file);
-}
-
 Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
@@ -385,7 +366,6 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
     LOG(INFO) << "read remote file: " << remote_file << " to local: " << local_file;
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);
-    size_t write_offset = 0;
     size_t cur_offset = 0;
     while (true) {
         size_t read_len = 0;
@@ -396,34 +376,9 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
             break;
         }
 
-        RETURN_IF_ERROR(local_writer->write_at(write_offset, {read_buf.get(), read_len}));
-        write_offset += read_len;
+        RETURN_IF_ERROR(local_writer->append({read_buf.get(), read_len}));
     }
 
-    return Status::OK();
-}
-
-Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
-    // 1. open remote file for read
-    FileReaderSPtr hdfs_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, &hdfs_reader, FileReaderOptions::DEFAULT));
-
-    constexpr size_t buf_sz = 1024 * 1024;
-    std::unique_ptr<char[]> read_buf(new char[buf_sz]);
-    size_t write_offset = 0;
-    size_t cur_offset = 0;
-    while (true) {
-        size_t read_len = 0;
-        Slice file_slice(read_buf.get(), buf_sz);
-        RETURN_IF_ERROR(hdfs_reader->read_at(cur_offset, file_slice, &read_len));
-        cur_offset += read_len;
-        if (read_len == 0) {
-            break;
-        }
-
-        content->insert(write_offset, read_buf.get(), read_len);
-        write_offset += read_len;
-    }
     return Status::OK();
 }
 

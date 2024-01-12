@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4StringToNumOrNull
+## IPV4_STRING_TO_NUM_OR_NULL
 
 <version since="dev">
 
-IPv4StringToNumOrNull
+IPV4_STRING_TO_NUM_OR_NULL
 
 </version>
 
@@ -34,7 +34,7 @@ IPv4StringToNumOrNull
 
 #### Syntax
 
-`BIGINT IPv4StringToNumOrNull(VARCHAR ipv4_string)`
+`BIGINT IPV4_STRING_TO_NUM_OR_NULL(VARCHAR ipv4_string)`
 
 Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated numbers in decimal form). Returns a BIGINT number representing the corresponding IPv4 address in big endian.
 
@@ -44,26 +44,26 @@ Takes a string containing an IPv4 address in the format A.B.C.D (dot-separated n
 
 ### example
 ```
-mysql> select ipv4stringtonumornull('192.168.0.1'); 
-+--------------------------------------+ 
-| ipv4stringtonumornull('192.168.0.1') | 
-+--------------------------------------+ 
-| 3232235521                           | 
-+--------------------------------------+ 
+mysql> select ipv4_string_to_num_or_null('192.168.0.1'); 
++-------------------------------------------+ 
+| ipv4_string_to_num_or_null('192.168.0.1') | 
++-------------------------------------------+ 
+| 3232235521                                | 
++-------------------------------------------+ 
 1 row in set (0.01 sec)
 
-mysql> select str, ipv4stringtonumornull(str) from ipv4_str; 
-+-----------------+----------------------------+ 
-|str              | ipv4stringtonumornull(str) | 
-+-----------------+----------------------------+ 
-| 0.0.0.0         | 0                          | 
-| 127.0.0.1       | 2130706433                 | 
-| 255.255.255.255 | 4294967295                 | 
-| invalid         | NULL                       | 
-+-----------------+----------------------------+ 
+mysql> select str, ipv4_string_to_num_or_null(str) from ipv4_str; 
++-----------------+---------------------------------+ 
+|str              | ipv4_string_to_num_or_null(str) | 
++-----------------+---------------------------------+ 
+| 0.0.0.0         | 0                               | 
+| 127.0.0.1       | 2130706433                      | 
+| 255.255.255.255 | 4294967295                      | 
+| invalid         | NULL                            | 
++-----------------+---------------------------------+ 
 4 rows in set (0.01 sec)
 ```
 
 ### keywords
 
-IPV4STRINGTONUMORNULL, IP
+IPV4_STRING_TO_NUM_OR_NULL, IP

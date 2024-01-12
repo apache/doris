@@ -17,6 +17,7 @@
 
 suite("limit_push_down") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
     sql """ SET inline_cte_referenced_threshold=0 """

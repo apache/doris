@@ -43,7 +43,7 @@ SHOW [FULL] PROCESSLIST
 illustrate:
 
 - CurrentConnected: Indicates whether the connection is currently connected
-- Id: It is the unique identifier of this thread. When we find that there is a problem with this thread, we can use the kill command to add this Id value to kill this thread. Earlier we said that the information displayed by show processlist comes from the information_schema.processlist table, so this Id is the primary key of this table.
+- Id: It is the unique identifier of this thread. When we find that there is a problem with this thread, we can use the kill command to add this Id value to kill this thread. 
 - User: refers to the user who started this thread.
 - Host: Records the IP and port number of the client sending the request. Through this information, when troubleshooting the problem, we can locate which client and which process sent the request.
 - LoginTime: Timestamp when the connection is make.

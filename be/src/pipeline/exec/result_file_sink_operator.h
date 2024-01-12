@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ResultFileSinkOperator final : public DataSinkOperator<ResultFileSinkOperatorBuilder> {
+class ResultFileSinkOperator final : public DataSinkOperator<vectorized::VResultFileSink> {
 public:
     ResultFileSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
@@ -94,7 +94,6 @@ public:
     ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                             const TResultFileSink& sink,
                             const std::vector<TPlanFragmentDestination>& destinations,
-                            bool send_query_statistics_with_every_batch,
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     Status init(const TDataSink& thrift_sink) override;
 
@@ -113,7 +112,6 @@ private:
     const std::vector<TExpr>& _t_output_expr;
 
     const std::vector<TPlanFragmentDestination> _dests;
-    bool _send_query_statistics_with_every_batch;
 
     // set file options when sink type is FILE
     std::unique_ptr<vectorized::ResultFileOptions> _file_opts;

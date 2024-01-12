@@ -81,7 +81,7 @@ Status JdbcConnector::close(Status /*unused*/) {
         return Status::OK();
     }
     if (_is_in_transaction) {
-        static_cast<void>(abort_trans());
+        RETURN_IF_ERROR(abort_trans());
     }
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
@@ -117,7 +117,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     {
         std::string local_location;
         std::hash<std::string> hash_str;
-        auto function_cache = UserFunctionCache::instance();
+        auto* function_cache = UserFunctionCache::instance();
         if (_conn_param.resource_name.empty()) {
             // for jdbcExternalTable, _conn_param.resource_name == ""
             // so, we use _conn_param.driver_path as key of jarpath
@@ -143,6 +143,11 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_batch_size(read ? state->batch_size() : 0);
         ctor_params.__set_op(read ? TJdbcOperation::READ : TJdbcOperation::WRITE);
         ctor_params.__set_table_type(_conn_param.table_type);
+        ctor_params.__set_min_pool_size(_conn_param.min_pool_size);
+        ctor_params.__set_max_pool_size(_conn_param.max_pool_size);
+        ctor_params.__set_max_idle_time(_conn_param.max_idle_time);
+        ctor_params.__set_max_wait_time(_conn_param.max_wait_time);
+        ctor_params.__set_keep_alive(_conn_param.keep_alive);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -159,7 +164,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _executor_obj, &_executor_obj));
     _is_open = true;
-    static_cast<void>(begin_trans());
+    RETURN_IF_ERROR(begin_trans());
 
     return Status::OK();
 }
@@ -617,11 +622,11 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
         if (slot_desc->type().is_hll_type()) {
-            static_cast<void>(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_json_type()) {
-            static_cast<void>(_cast_string_to_json(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type().is_bitmap_type()) {
-            static_cast<void>(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
+            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
         }
     }
     return Status::OK();
@@ -649,7 +654,7 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;
@@ -686,7 +691,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;
@@ -723,7 +728,7 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     Block cast_block(argument_template);
     int result_idx = cast_block.columns();
     cast_block.insert({nullptr, make_nullable(_target_data_type), "cast_result"});
-    static_cast<void>(func_cast->execute(nullptr, cast_block, {0, 1}, result_idx, rows));
+    RETURN_IF_ERROR(func_cast->execute(nullptr, cast_block, {0}, result_idx, rows));
 
     auto res_col = cast_block.get_by_position(result_idx).column;
     block->get_by_position(column_index).type = _target_data_type;

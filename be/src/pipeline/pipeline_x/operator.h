@@ -107,6 +107,8 @@ public:
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
+    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+
 protected:
     friend class OperatorXBase;
 
@@ -118,6 +120,8 @@ protected:
     // Record this node memory size. it is expected that artificial guarantees are accurate,
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -401,7 +405,6 @@ public:
     RuntimeState* state() { return _state; }
     RuntimeProfile* profile() { return _profile; }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    QueryStatistics* query_statistics() { return _query_statistics.get(); }
     [[nodiscard]] RuntimeProfile* faker_runtime_profile() const {
         return _faker_runtime_profile.get();
     }
@@ -418,8 +421,6 @@ protected:
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker;
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;

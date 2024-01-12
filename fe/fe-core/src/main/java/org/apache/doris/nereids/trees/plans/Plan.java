@@ -163,7 +163,7 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shape(String prefix) {
         StringBuilder builder = new StringBuilder();
-        String me = shapeInfo();
+        String me = this.getClass().getSimpleName();
         String prefixTail = "";
         if (! ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
             builder.append(prefix).append(shapeInfo()).append("\n");

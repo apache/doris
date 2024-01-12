@@ -150,8 +150,6 @@ public:
 
     void addSize(size_t delta) { s += delta; }
 
-    bool is_dummy() const override { return true; }
-
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
     }

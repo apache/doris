@@ -73,7 +73,9 @@ private:
 public:
     ColumnPtr convert_to_full_column() const;
 
-    ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
+    ColumnPtr convert_to_full_column_if_const() const override {
+        return convert_to_full_column()->convert_to_full_column_if_const();
+    }
 
     ColumnPtr remove_low_cardinality() const;
 

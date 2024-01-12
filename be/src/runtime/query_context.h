@@ -93,6 +93,8 @@ public:
         return false;
     }
 
+    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
+
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
                 is_serial ? ThreadPool::ExecutionMode::SERIAL
@@ -205,6 +207,10 @@ public:
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
+    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
+
+    std::shared_ptr<QueryStatistics> get_query_statistics();
 
 public:
     DescriptorTbl* desc_tbl = nullptr;

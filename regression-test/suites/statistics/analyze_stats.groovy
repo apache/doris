@@ -121,8 +121,6 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=true;
         """
 
-    Thread.sleep(1000 * 60)
-
     sql """
         SELECT * FROM ${tbl};
     """
@@ -2576,6 +2574,115 @@ PARTITION `p599` VALUES IN (599)
    assertEquals("\'name1\'", result[0][6])
    assertEquals("\'name3\'", result[0][7])
 
+   // Test partititon load data for the first time.
+   sql """
+     CREATE TABLE `partition_test` (
+      `id` INT NOT NULL,
+      `name` VARCHAR(25) NOT NULL,
+      `comment` VARCHAR(152) NULL
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT 'OLAP'
+      PARTITION BY RANGE(`id`)
+      (PARTITION p1 VALUES [("0"), ("100")),
+       PARTITION p2 VALUES [("100"), ("200")),
+       PARTITION p3 VALUES [("200"), ("300")))
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1");
+     """
+
+   sql """analyze table partition_test with sync"""
+   sql """insert into partition_test values (1, '1', '1')"""
+   def partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   assertEquals(partition_result[0][0], "1")
+   sql """analyze table partition_test with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (101, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "true")
+   sql """analyze table partition_test(id) with sync"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+   sql """insert into partition_test values (102, '1', '1')"""
+   partition_result = sql """show table stats partition_test"""
+   assertEquals(partition_result[0][6], "false")
+
+   // Test sample agg table value column
+   sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+   Thread.sleep(1000 * 60)
+   sql """analyze table agg_table_test with sample rows 100 with sync"""
+   def agg_result = sql """show column stats agg_table_test (name)"""
+   assertEquals(agg_result[0][6], "N/A")
+   assertEquals(agg_result[0][7], "N/A")
+
+   // Test sample string type min max
+   sql """
+     CREATE TABLE `string_min_max` (
+      `id` BIGINT NOT NULL,
+      `name` string NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=NONE"
+   }
+   sql """set enable_pushdown_string_minmax = true"""
+   explain {
+       sql("select min(name), max(name) from string_min_max")
+       contains "pushAggOp=MINMAX"
+   }
+
+   // Test alter
+    sql """
+      CREATE TABLE alter_test(
+       `id`      int NOT NULL,
+       `name`     VARCHAR(25) NOT NULL
+      )ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+   sql """ANALYZE TABLE alter_test WITH SYNC"""
+   def alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+   sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("true", alter_result[0][7])
+   sql """ANALYZE TABLE alter_test WITH SYNC"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+   sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("true", alter_result[0][7])
+   sql """drop stats alter_test"""
+   alter_result = sql """show table stats alter_test"""
+   assertEquals("false", alter_result[0][7])
+
    // Test trigger type.
    sql """DROP DATABASE IF EXISTS trigger"""
    sql """CREATE DATABASE IF NOT EXISTS trigger"""
@@ -2614,5 +2721,4 @@ PARTITION `p599` VALUES IN (599)
        assertEquals(result[1][10], "MANUAL")
    }
    sql """DROP DATABASE IF EXISTS trigger"""
-
 }

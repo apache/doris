@@ -460,6 +460,9 @@ public class Load {
         Map<String, Expr> mvDefineExpr = Maps.newHashMap();
         for (Column column : tbl.getFullSchema()) {
             if (column.getDefineExpr() != null) {
+                if (column.getDefineExpr().getType().isInvalid()) {
+                    column.getDefineExpr().setType(column.getType());
+                }
                 mvDefineExpr.put(column.getName(), column.getDefineExpr());
             }
         }
@@ -472,11 +475,14 @@ public class Load {
         LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
-    private static Expr getExprFromDesc(Analyzer analyzer, SlotDescriptor slotDesc, SlotRef slot)
-            throws AnalysisException {
-        SlotRef newSlot = new SlotRef(slotDesc);
-        newSlot.setType(slotDesc.getType());
-        Expr rhs = newSlot;
+    private static SlotRef getSlotFromDesc(SlotDescriptor slotDesc) {
+        SlotRef slot = new SlotRef(slotDesc);
+        slot.setType(slotDesc.getType());
+        return slot;
+    }
+
+    public static Expr getExprFromDesc(Analyzer analyzer, Expr rhs, SlotRef slot) throws AnalysisException {
+        Type rhsType = rhs.getType();
         rhs = rhs.castTo(slot.getType());
 
         if (slot.getDesc() == null) {
@@ -484,13 +490,13 @@ public class Load {
             return rhs;
         }
 
-        if (newSlot.isNullable() && !slot.isNullable()) {
+        if (rhs.isNullable() && !slot.isNullable()) {
             rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
-        } else if (!newSlot.isNullable() && slot.isNullable()) {
+        } else if (!rhs.isNullable() && slot.isNullable()) {
             rhs = new FunctionCallExpr("nullable", Lists.newArrayList(rhs));
-            rhs.setType(slotDesc.getType());
+            rhs.setType(rhsType);
             rhs.analyze(analyzer);
         }
         return rhs;
@@ -553,7 +559,8 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
+                    smap.getRhs().add(
+                            getExprFromDesc(analyzer, getSlotFromDesc(slotDescByName.get(slot.getColumnName())), slot));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),

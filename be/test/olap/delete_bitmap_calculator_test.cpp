@@ -71,7 +71,10 @@ static TabletColumn create_int_sequence_value(int32_t id, bool is_nullable = tru
 class DeleteBitmapCalculatorTest : public testing::Test {
 public:
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(kSegmentDir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(kSegmentDir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(kSegmentDir);
+        ASSERT_TRUE(st.ok()) << st;
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);

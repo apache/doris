@@ -277,7 +277,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_connect_timeout_seconds`
 
 * 描述：默认thrift客户端连接超时时间
-* 默认值：3 (m)
+* 默认值：3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -498,7 +498,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `max_base_compaction_threads`
 
 * 类型：int32
-* 描述：Base Compaction线程池中线程数量的最大值。
+* 描述：Base Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
 * 默认值：4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -639,8 +639,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * 类型：int32
-* 描述：Cumulative Compaction线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Cumulative Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `enable_segcompaction`
 
@@ -712,8 +712,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * 类型：int32
-* 描述：Single Replica Compaction 线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Single Replica Compaction 线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `update_replica_infos_interval_seconds`
 

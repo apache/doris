@@ -95,6 +95,9 @@ void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
     ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); i++) {
         int column_id = -1;

@@ -215,7 +215,6 @@ public:
         _queue_dependency = queue_dependency;
         _finish_dependency = finish_dependency;
     }
-    void set_query_statistics(QueryStatistics* statistics) { _statistics = statistics; }
 
     void set_should_stop() {
         _should_stop = true;

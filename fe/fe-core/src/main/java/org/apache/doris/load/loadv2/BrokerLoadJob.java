@@ -209,13 +209,15 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                        ? this.enableMemTableOnSinkNode : false;
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                        useNewLoadScanNode(), getPriority(), enableMemTableOnSinkNode);
+                        useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
 
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

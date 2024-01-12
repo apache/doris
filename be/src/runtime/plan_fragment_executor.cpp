@@ -92,10 +92,11 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _closed(false),
           _is_report_success(false),
           _is_report_on_cancel(true),
-          _collect_query_statistics_with_every_batch(false),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR) {
     _report_thread_future = _report_thread_promise.get_future();
     _start_time = VecDateTimeValue::local_time();
+    _query_statistics = std::make_shared<QueryStatistics>();
+    _query_ctx->register_query_statistics(_query_statistics);
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -148,6 +149,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     if (request.__isset.wal_id) {
         _runtime_state->set_wal_id(request.wal_id);
+    }
+    if (request.__isset.content_length) {
+        _runtime_state->set_content_length(request.content_length);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -228,11 +232,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
-
-        _collect_query_statistics_with_every_batch =
-                params.__isset.send_query_statistics_with_every_batch
-                        ? params.send_query_statistics_with_every_batch
-                        : false;
     } else {
         // _sink is set to nullptr
         _sink.reset(nullptr);
@@ -251,11 +250,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
-
-    _query_statistics.reset(new QueryStatistics(request.query_options.query_type));
-    if (_sink != nullptr) {
-        _sink->set_query_statistics(_query_statistics);
-    }
     return Status::OK();
 }
 
@@ -333,10 +327,7 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             st = get_vectorized_internal(block.get(), &eos);
             RETURN_IF_ERROR(st);
 
-            // Collect this plan and sub plan statistics, and send to parent plan.
-            if (_collect_query_statistics_with_every_batch) {
-                _collect_query_statistics();
-            }
+            _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
@@ -348,7 +339,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         }
     }
     {
-        _collect_query_statistics();
         Status status;
         {
             std::lock_guard<std::mutex> l(_status_lock);
@@ -425,44 +415,6 @@ bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
         return true;
     }
     return false;
-}
-
-void PlanFragmentExecutor::_collect_query_statistics() {
-    _query_statistics->clear();
-    Status status;
-    /// TODO(yxc):
-    // The judgment of enable_local_exchange here is a bug, it should not need to be checked. I will fix this later.
-    bool _is_local = false;
-    if (_runtime_state->query_options().__isset.enable_local_exchange) {
-        _is_local = _runtime_state->query_options().enable_local_exchange;
-    }
-
-    if (_is_local) {
-        if (_runtime_state->num_per_fragment_instances() == 1) {
-            status = _plan->collect_query_statistics(_query_statistics.get());
-        } else {
-            status = _plan->collect_query_statistics(_query_statistics.get(),
-                                                     _runtime_state->per_fragment_instance_idx());
-        }
-    } else {
-        status = _plan->collect_query_statistics(_query_statistics.get());
-    }
-
-    if (!status.ok()) {
-        LOG(INFO) << "collect query statistics failed, st=" << status;
-        return;
-    }
-    _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    if (_runtime_state->backend_id() != -1) {
-        _collect_node_statistics();
-    }
-}
-
-void PlanFragmentExecutor::_collect_node_statistics() {
-    DCHECK(_runtime_state->backend_id() != -1);
-    NodeStatistics* node_statistics =
-            _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -556,7 +508,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             std::bind(&PlanFragmentExecutor::update_status, this, std::placeholders::_1),
             std::bind(&PlanFragmentExecutor::cancel, this, std::placeholders::_1,
                       std::placeholders::_2),
-            _dml_query_statistics()};
+            _query_ctx->get_query_statistics()};
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.

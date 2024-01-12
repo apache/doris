@@ -67,7 +67,8 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
     pipeline->incr_created_tasks();
 }
 
-Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink) {
+Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
+                              QueryContext* query_ctx) {
     DCHECK(_sink);
     DCHECK(_cur_state == PipelineTaskState::NOT_READY) << get_state_name(_cur_state);
     _init_profile();
@@ -97,6 +98,8 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
                              _le_state_map,  _task_idx,   _source_dependency[op->operator_id()]};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
+        query_ctx->register_query_statistics(
+                _state->get_local_state(op->operator_id())->query_statistics_ptr());
     }
 
     _block = doris::vectorized::Block::create_unique();
