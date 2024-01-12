@@ -285,11 +285,13 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
             } else if (eos) {
                 CHECK(!_is_finishing && _busy_channels > 0 &&
-                      _finish_dependency->is_blocked_by() != nullptr)
+                      (_finish_dependency == nullptr ||
+                       _finish_dependency->is_blocked_by() != nullptr))
                         << "_should_stop: " << _should_stop.load()
                         << " _is_finishing: " << _is_finishing.load()
-                        << " _busy_channels: " << _busy_channels.load()
-                        << " _finish_dependency: " << _finish_dependency->debug_string(0);
+                        << " _busy_channels: " << _busy_channels.load() << " _finish_dependency: "
+                        << (_finish_dependency == nullptr ? "NULL"
+                                                          : _finish_dependency->debug_string(0));
                 _ended(id);
             } else {
                 static_cast<void>(_send_rpc(id));
