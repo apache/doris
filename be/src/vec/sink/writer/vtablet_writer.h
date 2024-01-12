@@ -392,6 +392,9 @@ protected:
     bool _is_closed = false;
 
     RuntimeState* _state = nullptr;
+    // A context lock for callbacks, the callback has to lock the ctx, to avoid
+    // the object is deleted during callback is running.
+    std::weak_ptr<TaskExecutionContext> _task_exec_ctx;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
     // rows number filtered per tablet, tablet_id -> filtered_rows_num
@@ -518,7 +521,7 @@ public:
 
     Status init_properties(ObjectPool* pool);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status close(Status) override;
 

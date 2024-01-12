@@ -118,6 +118,55 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+
+        createTable("CREATE TABLE `lineitem_no_data` (\n"
+                + "      `l_orderkey` BIGINT NOT NULL,\n"
+                + "      `l_linenumber` INT NOT NULL,\n"
+                + "      `l_partkey` INT NOT NULL,\n"
+                + "      `l_suppkey` INT NOT NULL,\n"
+                + "      `l_quantity` DECIMAL(15, 2) NOT NULL,\n"
+                + "      `l_extendedprice` DECIMAL(15, 2) NOT NULL,\n"
+                + "      `l_discount` DECIMAL(15, 2) NOT NULL,\n"
+                + "      `l_tax` DECIMAL(15, 2) NOT NULL,\n"
+                + "      `l_returnflag` VARCHAR(1) NOT NULL,\n"
+                + "      `l_linestatus` VARCHAR(1) NOT NULL,\n"
+                + "      `l_commitdate` DATE NOT NULL,\n"
+                + "      `l_receiptdate` DATE NOT NULL,\n"
+                + "      `l_shipinstruct` VARCHAR(25) NOT NULL,\n"
+                + "      `l_shipmode` VARCHAR(10) NOT NULL,\n"
+                + "      `l_comment` VARCHAR(44) NOT NULL,\n"
+                + "      `l_shipdate` DATE NOT NULL\n"
+                + "    ) ENGINE=OLAP\n"
+                + "    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )\n"
+                + "    COMMENT 'OLAP'\n"
+                + "    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()\n"
+                + "    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96\n"
+                + "    PROPERTIES (\n"
+                + "       \"replication_num\" = \"1\"\n"
+                + "    );\n"
+                + "\n");
+        // Should not make scan to empty relation when the table used by materialized view has no data
+        connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE");
+    }
+
+    @Test
+    public void getRelatedTableInfoWhenAutoPartitionTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select * from "
+                                + "(select * from lineitem_no_data "
+                                + "where l_shipdate >= \"2023-12-01\" and l_shipdate <= \"2023-12-03\") t1 "
+                                + "left join "
+                                + "(select * from orders where o_orderdate >= \"2023-12-01\" and o_orderdate <= \"2023-12-03\" ) t2 "
+                                + "on t1.l_orderkey = o_orderkey;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem_no_data",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
     }
 
     @Test

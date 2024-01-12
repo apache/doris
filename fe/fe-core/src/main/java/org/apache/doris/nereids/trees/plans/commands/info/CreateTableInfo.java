@@ -138,6 +138,7 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
+        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -173,6 +174,7 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
+        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -650,8 +652,13 @@ public class CreateTableInfo {
             throw new AnalysisException("Complex type column can't be partition column: "
                     + column.getType().toString());
         }
+        // prohibit to create auto partition with null column anyhow
+        if (this.isAutoPartition && column.isNullable()) {
+            throw new AnalysisException("The auto partition column must be NOT NULL");
+        }
         if (!ctx.getSessionVariable().isAllowPartitionColumnNullable() && column.isNullable()) {
-            throw new AnalysisException("The partition column must be NOT NULL");
+            throw new AnalysisException(
+                    "The partition column must be NOT NULL with allow_partition_column_nullable OFF");
         }
         if (partitionType.equalsIgnoreCase(PartitionType.LIST.name()) && column.isNullable()) {
             throw new AnalysisException("The list partition column must be NOT NULL");
@@ -881,5 +888,15 @@ public class CreateTableInfo {
                 throw new AnalysisException("unsupported argument " + child.toString());
             }
         }).collect(Collectors.toList());
+    }
+
+    private void appendColumnFromExprs() {
+        for (Expression autoExpr : autoPartitionExprs) {
+            for (Expression child : autoExpr.children()) {
+                if (child instanceof UnboundSlot) {
+                    partitionColumns.add(((UnboundSlot) child).getName());
+                }
+            }
+        }
     }
 }

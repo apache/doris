@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -52,7 +52,7 @@ Doris allows users to manually trigger the collection and update of statistics b
 Syntax:
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name > 
+ANALYZE < TABLE table_name | DATABASE db_name >
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
@@ -146,7 +146,7 @@ mysql> show analyze 245073\G;
             col_name: [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct]
             job_type: MANUAL
        analysis_type: FUNDAMENTALS
-             message: 
+             message:
 last_exec_time_in_ms: 2023-11-07 11:00:52
                state: FINISHED
             progress: 16 Finished  |  0 Failed  |  0 In Progress  |  16 Total
@@ -322,8 +322,8 @@ The following FE configuration options are typically not a major concern:
 
 When ANALYZE is executed, statistics data is written to the internal table `__internal_schema.column_statistics`. FE checks the tablet status of this table before executing ANALYZE. If there are unavailable tablets, the task is rejected. Please check the BE cluster status if this error occurs.
 
-Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE status is normal, you can use the command `ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]` to check the tablet status within this database, ensuring that the tablet status is also normal.
+Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE status is normal, you can use the command `SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]` to check the tablet status within this database, ensuring that the tablet status is also normal.
 
 ### 4.2 Failure of ANALYZE on Large Tables
 
-Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`. 
+Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`.

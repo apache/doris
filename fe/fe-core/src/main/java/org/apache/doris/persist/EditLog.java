@@ -52,6 +52,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
@@ -672,7 +673,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
                     AbstractJob job = (AbstractJob) journal.getData();
-                    Env.getCurrentEnv().getJobManager().replayEndJob(job);
+                    Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
                     break;
                 }
                 /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
@@ -1130,6 +1131,11 @@ public class EditLog {
                 case OperationType.OP_ALTER_MTMV: {
                     final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
                     env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
+                }
+                case OperationType.OP_INSERT_OVERWRITE: {
+                    final InsertOverwriteLog insertOverwriteLog = (InsertOverwriteLog) journal.getData();
+                    env.getInsertOverwriteManager().replayInsertOverwriteLog(insertOverwriteLog);
                     break;
                 }
                 case OperationType.OP_ALTER_REPOSITORY: {
@@ -1619,7 +1625,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logEndJob(AbstractJob job) {
+    public void logDeleteJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
@@ -1961,6 +1967,10 @@ public class EditLog {
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
 
+    }
+
+    public void logInsertOverwrite(InsertOverwriteLog log) {
+        logEdit(OperationType.OP_INSERT_OVERWRITE, log);
     }
 
     public String getNotReadyReason() {

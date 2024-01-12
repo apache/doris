@@ -119,6 +119,6 @@ public class AuditLogHelper {
                 }
             }
         }
-        Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
+        Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(ctx.getAuditEventBuilder().build());
     }
 }

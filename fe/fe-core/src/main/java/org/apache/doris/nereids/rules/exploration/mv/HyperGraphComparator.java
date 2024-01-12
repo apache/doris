@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.ConflictRulesMaker;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,8 +41,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * HyperGraphComparator
@@ -62,12 +64,14 @@ public class HyperGraphComparator {
     // record inferred edges when comparing mv
     private final HyperGraph queryHyperGraph;
     private final HyperGraph viewHyperGraph;
-    private final Map<JoinEdge, Pair<JoinType, Set<Slot>>> inferredViewEdgeMap = new HashMap<>();
     private final Map<Edge, List<? extends Expression>> pullUpQueryExprWithEdge = new HashMap<>();
     private final Map<Edge, List<? extends Expression>> pullUpViewExprWithEdge = new HashMap<>();
     private final LogicalCompatibilityContext logicalCompatibilityContext;
+    private final Map<JoinEdge, Pair<JoinType, Set<Slot>>> inferredViewEdgeWithCond = new HashMap<>();
+    private List<JoinEdge> viewJoinEdgesAfterInferring;
+    private List<FilterEdge> viewFilterEdgesAfterInferring;
 
-    HyperGraphComparator(HyperGraph queryHyperGraph, HyperGraph viewHyperGraph,
+    public HyperGraphComparator(HyperGraph queryHyperGraph, HyperGraph viewHyperGraph,
             LogicalCompatibilityContext logicalCompatibilityContext) {
         this.queryHyperGraph = queryHyperGraph;
         this.viewHyperGraph = viewHyperGraph;
@@ -87,9 +91,18 @@ public class HyperGraphComparator {
 
     private ComparisonResult isLogicCompatible() {
         // 1 try to construct a map which can be mapped from edge to edge
-        Map<Edge, Edge> queryToView = constructMapWithNode();
+        Map<Edge, Edge> queryToView = constructQueryToViewMapWithExpr();
+        if (!makeViewJoinCompatible(queryToView)) {
+            return ComparisonResult.newInvalidResWithErrorMessage("Join types are not compatible\n");
+        }
+        refreshViewEdges();
 
-        // 2. compare them by expression and extract residual expr
+        // 2. compare them by expression and nodes. Note compare edges after inferring for nodes
+        boolean matchNodes = queryToView.entrySet().stream()
+                .allMatch(e -> compareEdgeWithNode(e.getKey(), e.getValue()));
+        if (!matchNodes) {
+            return ComparisonResult.newInvalidResWithErrorMessage("Join nodes are not compatible\n");
+        }
         queryToView.forEach(this::compareEdgeWithExpr);
 
         // 3. process residual edges
@@ -108,21 +121,50 @@ public class HyperGraphComparator {
     private ComparisonResult buildComparisonRes() {
         ComparisonResult.Builder builder = new ComparisonResult.Builder();
         for (Entry<Edge, List<? extends Expression>> e : pullUpQueryExprWithEdge.entrySet()) {
-            if (!e.getValue().isEmpty() && !canPullUp(e.getKey())) {
-                return ComparisonResult.INVALID;
+            List<? extends Expression> rawFilter = e.getValue().stream()
+                    .filter(expr -> !ExpressionUtils.isInferred(expr))
+                    .collect(Collectors.toList());
+            if (!rawFilter.isEmpty() && !canPullUp(e.getKey())) {
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "\nwith error edge " + e);
             }
-            builder.addQueryExpressions(e.getValue());
+            builder.addQueryExpressions(rawFilter);
         }
         for (Entry<Edge, List<? extends Expression>> e : pullUpViewExprWithEdge.entrySet()) {
-            if (!e.getValue().isEmpty() && !canPullUp(e.getKey())) {
-                return ComparisonResult.INVALID;
+            List<? extends Expression> rawFilter = e.getValue().stream()
+                    .filter(expr -> !ExpressionUtils.isInferred(expr))
+                    .collect(Collectors.toList());
+            if (!rawFilter.isEmpty() && !canPullUp(getViewEdgeAfterInferring(e.getKey()))) {
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "with error edge\n" + e);
             }
-            builder.addViewExpressions(e.getValue());
+            builder.addViewExpressions(rawFilter);
         }
-        for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeMap.values()) {
+        for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
         return builder.build();
+    }
+
+    /**
+     * get error message
+     */
+    public String getErrorMessage() {
+        return String.format(
+                "graph logical is not equal\n query join edges is\n %s,\n view join edges is\n %s,\n"
+                        + "query filter edges\n is %s,\nview filter edges\n is %s\n"
+                        + "inferred edge with conditions\n %s",
+                getQueryJoinEdges(),
+                getViewJoinEdges(),
+                getQueryFilterEdges(),
+                getViewFilterEdges(),
+                inferredViewEdgeWithCond);
+    }
+
+    private Edge getViewEdgeAfterInferring(Edge edge) {
+        if (edge instanceof JoinEdge) {
+            return viewJoinEdgesAfterInferring.get(edge.getIndex());
+        } else {
+            return viewFilterEdgesAfterInferring.get(edge.getIndex());
+        }
     }
 
     private boolean canPullUp(Edge edge) {
@@ -131,10 +173,10 @@ public class HyperGraphComparator {
             return false;
         }
         boolean pullFromLeft = edge.getLeftRejectEdge().stream()
-                .map(e -> inferredViewEdgeMap.getOrDefault(e, Pair.of(e.getJoinType(), null)))
+                .map(e -> inferredViewEdgeWithCond.getOrDefault(e, Pair.of(e.getJoinType(), null)))
                 .allMatch(e -> canPullFromLeft(edge, e.first));
         boolean pullFromRight = edge.getRightRejectEdge().stream()
-                .map(e -> inferredViewEdgeMap.getOrDefault(e, Pair.of(e.getJoinType(), null)))
+                .map(e -> inferredViewEdgeWithCond.getOrDefault(e, Pair.of(e.getJoinType(), null)))
                 .allMatch(e -> canPullFromRight(edge, e.first));
         return pullFromLeft && pullFromRight;
     }
@@ -175,6 +217,24 @@ public class HyperGraphComparator {
         return ImmutableSet.copyOf(queryHyperGraph.getFilterEdges());
     }
 
+    private List<Edge> getQueryEdges() {
+        return ImmutableList.<Edge>builder()
+                .addAll(getQueryJoinEdges())
+                .addAll(getQueryFilterEdges()).build();
+    }
+
+    private boolean makeViewJoinCompatible(Map<Edge, Edge> queryToView) {
+        for (Entry<Edge, Edge> entry : queryToView.entrySet()) {
+            if (entry.getKey() instanceof JoinEdge && entry.getValue() instanceof JoinEdge) {
+                boolean res = compareJoinEdgeOrInfer((JoinEdge) entry.getKey(), (JoinEdge) entry.getValue());
+                if (!res) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private Set<FilterEdge> getViewFilterEdgeSet() {
         return ImmutableSet.copyOf(viewHyperGraph.getFilterEdges());
     }
@@ -191,6 +251,12 @@ public class HyperGraphComparator {
         return viewHyperGraph.getFilterEdges();
     }
 
+    private List<Edge> getViewEdges() {
+        return ImmutableList.<Edge>builder()
+                .addAll(getViewJoinEdges())
+                .addAll(getViewFilterEdges()).build();
+    }
+
     private Map<Expression, Expression> getQueryToViewExprMap() {
         return logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping();
     }
@@ -199,43 +265,74 @@ public class HyperGraphComparator {
         return logicalCompatibilityContext.getQueryToViewNodeIDMapping();
     }
 
-    private Map<Edge, Edge> constructMapWithNode() {
-        // TODO use hash map to reduce loop
-        Map<Edge, Edge> joinEdgeMap = getQueryJoinEdges().stream().map(qe -> {
-            Optional<JoinEdge> viewEdge = getViewJoinEdges().stream()
-                    .filter(ve -> compareEdgeWithNode(qe, ve)).findFirst();
-            return Pair.of(qe, viewEdge);
-        }).filter(e -> e.second.isPresent()).collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second.get()));
-        Map<Edge, Edge> filterEdgeMap = getQueryFilterEdges().stream().map(qe -> {
-            Optional<FilterEdge> viewEdge = getViewFilterEdges().stream()
-                    .filter(ve -> compareEdgeWithNode(qe, ve)).findFirst();
-            return Pair.of(qe, viewEdge);
-        }).filter(e -> e.second.isPresent()).collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second.get()));
-        return ImmutableMap.<Edge, Edge>builder().putAll(joinEdgeMap).putAll(filterEdgeMap).build();
+    private Map<Edge, Edge> constructQueryToViewMapWithExpr() {
+        Map<Expression, Edge> viewExprToEdge = getViewEdges().stream()
+                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
+                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
+        Map<Expression, Edge> queryExprToEdge = getQueryEdges().stream()
+                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
+                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
+        return queryExprToEdge.entrySet().stream()
+                .filter(entry -> viewExprToEdge.containsKey(getViewExprFromQueryExpr(entry.getKey())))
+                .map(entry -> Pair.of(entry.getValue(),
+                        viewExprToEdge.get(getViewExprFromQueryExpr(entry.getKey()))))
+                .distinct()
+                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
+    }
+
+    private Expression getViewExprFromQueryExpr(Expression query) {
+        return logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping().get(query);
+    }
+
+    private void refreshViewEdges() {
+        List<FilterEdge> newFilterEdges = getViewFilterEdges().stream()
+                .map(FilterEdge::clear)
+                .collect(ImmutableList.toImmutableList());
+
+        List<JoinEdge> newJoinEdges = new ArrayList<>();
+        for (JoinEdge joinEdge : getViewJoinEdges()) {
+            JoinType newJoinType = inferredViewEdgeWithCond
+                    .getOrDefault(joinEdge, Pair.of(joinEdge.getJoinType(), null)).first;
+            JoinEdge newJoinEdge = joinEdge.withJoinTypeAndCleanCR(newJoinType);
+            newJoinEdges.add(newJoinEdge);
+            ConflictRulesMaker.makeJoinConflictRules(newJoinEdge, newJoinEdges);
+            ConflictRulesMaker.makeFilterConflictRules(newJoinEdge, newJoinEdges, newFilterEdges);
+        }
+
+        viewJoinEdgesAfterInferring = ImmutableList.copyOf(newJoinEdges);
+        viewFilterEdgesAfterInferring = ImmutableList.copyOf(newFilterEdges);
     }
 
     private boolean compareEdgeWithNode(Edge query, Edge view) {
         if (query instanceof FilterEdge && view instanceof FilterEdge) {
-            return compareEdgeWithFilter((FilterEdge) query, (FilterEdge) view);
+            return compareFilterEdgeWithNode((FilterEdge) query, viewFilterEdgesAfterInferring.get(view.getIndex()));
         } else if (query instanceof JoinEdge && view instanceof JoinEdge) {
-            return compareJoinEdge((JoinEdge) query, (JoinEdge) view);
+            return compareJoinEdgeWithNode((JoinEdge) query, viewJoinEdgesAfterInferring.get(view.getIndex()));
         }
         return false;
     }
 
-    private boolean compareEdgeWithFilter(FilterEdge query, FilterEdge view) {
-        long qChild = query.getReferenceNodes();
-        long vChild = view.getReferenceNodes();
-        return rewriteQueryNodeMap(qChild) == vChild;
+    private boolean compareFilterEdgeWithNode(FilterEdge query, FilterEdge view) {
+        return rewriteQueryNodeMap(query.getReferenceNodes()) == view.getReferenceNodes();
     }
 
-    private boolean compareJoinEdge(JoinEdge query, JoinEdge view) {
+    private boolean compareJoinEdgeWithNode(JoinEdge query, JoinEdge view) {
+        boolean res = false;
+        if (query.getJoinType().swap() == view.getJoinType()) {
+            res |= rewriteQueryNodeMap(query.getLeftExtendedNodes()) == view.getRightExtendedNodes()
+                    && rewriteQueryNodeMap(query.getRightExtendedNodes()) == view.getLeftExtendedNodes();
+        }
+        res |= rewriteQueryNodeMap(query.getLeftExtendedNodes()) == view.getLeftExtendedNodes()
+                && rewriteQueryNodeMap(query.getRightExtendedNodes()) == view.getRightExtendedNodes();
+        return res;
+    }
+
+    private boolean compareJoinEdgeOrInfer(JoinEdge query, JoinEdge view) {
         if (query.getJoinType().equals(view.getJoinType())
                 || canInferredJoinTypeMap.containsKey(Pair.of(query.getJoinType(), view.getJoinType()))) {
             if (tryInferEdge(query, view)) {
                 return true;
             }
-
         }
 
         if (query.getJoinType().swap().equals(view.getJoinType())
@@ -249,8 +346,8 @@ public class HyperGraphComparator {
     }
 
     private boolean tryInferEdge(JoinEdge query, JoinEdge view) {
-        if (rewriteQueryNodeMap(query.getLeftExtendedNodes()) != view.getLeftExtendedNodes()
-                || rewriteQueryNodeMap(query.getRightExtendedNodes()) != view.getRightExtendedNodes()) {
+        if (rewriteQueryNodeMap(query.getLeftRequiredNodes()) != view.getLeftRequiredNodes()
+                || rewriteQueryNodeMap(query.getRightRequiredNodes()) != view.getRightRequiredNodes()) {
             return false;
         }
         if (!query.getJoinType().equals(view.getJoinType())) {
@@ -263,7 +360,7 @@ public class HyperGraphComparator {
                     noNullableChild.first ? view.getJoin().left().getOutputSet() : ImmutableSet.of(),
                     noNullableChild.second ? view.getJoin().right().getOutputSet() : ImmutableSet.of()
             );
-            inferredViewEdgeMap.put(view, Pair.of(query.getJoinType(), noNullableSlot));
+            inferredViewEdgeWithCond.put(view, Pair.of(query.getJoinType(), noNullableSlot));
         }
         return true;
     }

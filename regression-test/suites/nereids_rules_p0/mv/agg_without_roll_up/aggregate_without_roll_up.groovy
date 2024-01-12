@@ -19,12 +19,11 @@ suite("aggregate_without_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
-    sql "SET global enable_auto_analyze = false"
 
     sql """
     drop table if exists orders
@@ -150,7 +149,7 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -169,12 +168,12 @@ suite("aggregate_without_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 
-    // single table
-    // with filter
+//    // single table
+//    // with filter
     def mv1_0 = "select o_shippriority, o_comment, " +
             "sum(o_totalprice) as sum_total, " +
             "max(o_totalprice) as max_total, " +

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,4 +68,9 @@ public class StructInfoNode extends AbstractNode {
         return graphs;
     }
 
+    @Override
+    public String toString() {
+        return Utils.toSqlString("StructInfoNode[" + this.getName() + "]",
+                "plan", this.plan.treeString());
+    }
 }

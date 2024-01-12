@@ -319,8 +319,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
-
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
@@ -542,7 +544,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

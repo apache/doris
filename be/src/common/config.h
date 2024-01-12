@@ -256,6 +256,8 @@ DECLARE_Int32(sys_log_roll_num);
 DECLARE_Strings(sys_log_verbose_modules);
 // verbose log level
 DECLARE_Int32(sys_log_verbose_level);
+// verbose log FLAGS_v
+DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
 
@@ -318,7 +320,8 @@ DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 // the prune stale interval of all cache
 DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
-DECLARE_mInt32(tablet_lookup_cache_clean_interval);
+DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
+DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
@@ -836,6 +839,8 @@ DECLARE_Int32(load_stream_messages_in_batch);
 DECLARE_Int32(load_stream_eagain_wait_seconds);
 // max tasks per flush token in load stream
 DECLARE_Int32(load_stream_flush_token_max_tasks);
+// max wait flush token time in load stream
+DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -863,6 +868,10 @@ DECLARE_mInt32(external_table_connect_timeout_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
+
+// A common object cache depends on an Sharded LRU Cache.
+DECLARE_mInt32(common_obj_lru_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
@@ -1018,6 +1027,7 @@ DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
@@ -1043,13 +1053,16 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1067,10 +1080,6 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt32(s3_write_buffer_size);
-// the size of the whole s3 buffer pool, which indicates the s3 file writer
-// can at most buffer 50MB data. And the num of multi part upload task is
-// s3_write_buffer_whole_size / s3_write_buffer_size
-DECLARE_mInt32(s3_write_buffer_whole_size);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
@@ -1165,16 +1174,21 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 // BitmapValue serialize version.
 DECLARE_Int16(bitmap_serialize_version);
 
-// group commit insert config
+// group commit config
 DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);
-
-// This config can be set to limit thread number in group commit insert thread pool.
+// This config can be set to limit thread number in group commit request fragment thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
 DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
 DECLARE_Bool(wait_internal_group_commit_finish);
+// Max size(bytes) of group commit queues, used for mem back pressure.
+DECLARE_mInt32(group_commit_queue_mem_limit);
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DECLARE_mString(group_commit_wal_max_disk_limit);
+DECLARE_Bool(group_commit_wait_replay_wal_finish);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1183,6 +1197,8 @@ DECLARE_Bool(wait_internal_group_commit_finish);
 DECLARE_Int32(scan_thread_nice_value);
 // Used to modify the recycle interval of tablet schema cache
 DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+// Granularity is at the column level
+DECLARE_mInt32(tablet_schema_cache_capacity);
 
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
@@ -1200,13 +1216,6 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
 
-// Max size(bytes) of group commit queues, used for mem back pressure.
-DECLARE_Int32(group_commit_max_queue_size);
-
-// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
-// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
-DECLARE_mString(group_commit_wal_max_disk_limit);
-
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
 
@@ -1222,6 +1231,16 @@ DECLARE_Bool(enable_snapshot_action);
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
+
+DECLARE_mInt64(enable_debug_log_timeout_secs);
+
+DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
+
+DECLARE_mInt32(report_query_statistics_interval_ms);
+DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
 #ifdef BE_TEST
 // test s3
@@ -1296,7 +1315,8 @@ public:
     // or set `retval` to `defstr`
     // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                        std::string& rawval) const;
 
     void set(const std::string& key, const std::string& val);
 

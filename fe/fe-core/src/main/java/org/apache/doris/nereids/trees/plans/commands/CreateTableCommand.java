@@ -73,6 +73,14 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();

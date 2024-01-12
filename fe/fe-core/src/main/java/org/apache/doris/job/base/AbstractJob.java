@@ -50,6 +50,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Data
@@ -105,7 +107,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                        UserIdentity createUser,
                        JobExecutionConfiguration jobConfig) {
         this(jobId, jobName, jobStatus, currentDbName, comment,
-                createUser, jobConfig, System.currentTimeMillis(), null, null);
+                createUser, jobConfig, System.currentTimeMillis(), null);
     }
 
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
@@ -114,8 +116,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                        UserIdentity createUser,
                        JobExecutionConfiguration jobConfig,
                        Long createTimeMs,
-                       String executeSql,
-                       List<T> runningTasks) {
+                       String executeSql) {
         this.jobId = jobId;
         this.jobName = jobName;
         this.jobStatus = jobStatus;
@@ -125,10 +126,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         this.jobConfig = jobConfig;
         this.createTimeMs = createTimeMs;
         this.executeSql = executeSql;
-        this.runningTasks = runningTasks;
     }
 
     private List<T> runningTasks = new ArrayList<>();
+
+    private Lock createTaskLock = new ReentrantLock();
 
     @Override
     public void cancelAllTasks() throws JobException {
@@ -201,13 +203,22 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             log.info("job is not ready for scheduling, job id is {}", jobId);
             return new ArrayList<>();
         }
-        return createTasks(taskType, taskContext);
+        try {
+            //it's better to use tryLock and add timeout limit
+            createTaskLock.lock();
+            if (!isReadyForScheduling(taskContext)) {
+                log.info("job is not ready for scheduling, job id is {}", jobId);
+                return new ArrayList<>();
+            }
+            List<T> tasks = createTasks(taskType, taskContext);
+            tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
+            return tasks;
+        } finally {
+            createTaskLock.unlock();
+        }
     }
 
     public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
-        if (CollectionUtils.isEmpty(getRunningTasks())) {
-            runningTasks = new ArrayList<>();
-        }
         tasks.forEach(task -> {
             task.setTaskType(taskType);
             task.setJobId(getJobId());
@@ -247,7 +258,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (newJobStatus.equals(JobStatus.FINISHED)) {
             this.finishTimeMs = System.currentTimeMillis();
         }
-        if (JobStatus.PAUSED.equals(newJobStatus)) {
+        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
             cancelAllTasks();
         }
         jobStatus = newJobStatus;
@@ -260,6 +271,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.runningTasks = new ArrayList<>();
+        job.createTaskLock = new ReentrantLock();
         return job;
     }
 
@@ -267,8 +279,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         Env.getCurrentEnv().getEditLog().logCreateJob(this);
     }
 
-    public void logFinalOperation() {
-        Env.getCurrentEnv().getEditLog().logEndJob(this);
+    public void logDeleteOperation() {
+        Env.getCurrentEnv().getEditLog().logDeleteJob(this);
     }
 
     public void logUpdateOperation() {

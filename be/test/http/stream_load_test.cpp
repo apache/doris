@@ -35,7 +35,7 @@
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/utils.h"
-#include "olap/wal_manager.h"
+#include "olap/wal/wal_manager.h"
 #include "runtime/exec_env.h"
 
 namespace doris {

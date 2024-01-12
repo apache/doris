@@ -35,7 +35,7 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """insert into ${table_name} values (3, '{"": ""}')"""
     qt_sql """select v:`` from ${table_name} order by k"""
     sql """insert into ${table_name} values (4, '{"!@#^&*()": "11111"}')"""
-    qt_sql """select v:`!@#^&*()` from ${table_name} order by k"""
+    qt_sql """select cast(v:`!@#^&*()` as string) from ${table_name} order by k"""
     sql """insert into ${table_name} values (5, '{"123": "456", "789": "012"}')"""
     qt_sql """select cast(v:`123` as string) from ${table_name} order by k"""
     // sql """insert into ${table_name} values (6, '{"\\n123": "t123", "\\\"123": "123"}')"""

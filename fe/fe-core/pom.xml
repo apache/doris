@@ -482,6 +482,10 @@ under the License.
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
         </dependency>
         <dependency>
@@ -678,12 +682,6 @@ under the License.
         <dependency>
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
-        </dependency>
-
-        <!-- trino-parser -->
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-parser</artifactId>
         </dependency>
 
         <!-- for arrow flight sql -->

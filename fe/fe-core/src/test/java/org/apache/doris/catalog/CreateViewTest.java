@@ -133,11 +133,6 @@ public class CreateViewTest {
         Assert.assertEquals(1, view4.getFullSchema().size());
         Assert.assertNotNull(view4.getColumn("s1"));
 
-        View view5 = (View) db.getTableOrDdlException("view5");
-        Assert.assertTrue(view5.getDdlSql().contains("hour"));
-        Assert.assertTrue(view5.getDdlSql().contains("now"));
-        Assert.assertTrue(view5.getDdlSql().contains("curdate"));
-
         View view6 = (View) db.getTableOrDdlException("view6");
         Assert.assertEquals(4, view6.getFullSchema().size());
         Assert.assertNotNull(view6.getColumn("k1"));

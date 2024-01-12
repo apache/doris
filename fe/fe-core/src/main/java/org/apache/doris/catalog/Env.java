@@ -69,6 +69,7 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
@@ -146,6 +147,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
@@ -229,7 +231,9 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -489,6 +493,9 @@ public class Env {
     private WorkloadGroupMgr workloadGroupMgr;
 
     private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
+
+    private WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr;
+
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -513,6 +520,8 @@ public class Env {
     private WorkloadActionPublishThread workloadActionPublisherThread;
 
     private MTMVService mtmvService;
+
+    private InsertOverwriteManager insertOverwriteManager;
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -735,6 +744,7 @@ public class Env {
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
+        this.workloadRuntimeStatusMgr = new WorkloadRuntimeStatusMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -747,6 +757,7 @@ public class Env {
         this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
                 Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
+        this.insertOverwriteManager = new InsertOverwriteManager();
     }
 
     public static void destroyCheckpoint() {
@@ -806,6 +817,10 @@ public class Env {
         return mtmvService;
     }
 
+    public InsertOverwriteManager getInsertOverwriteManager() {
+        return insertOverwriteManager;
+    }
+
     public TabletScheduler getTabletScheduler() {
         return tabletScheduler;
     }
@@ -824,6 +839,10 @@ public class Env {
 
     public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
         return workloadSchedPolicyMgr;
+    }
+
+    public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
+        return workloadRuntimeStatusMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -998,11 +1017,14 @@ public class Env {
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
+        WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
+        topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
 
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
         workloadActionPublisherThread.start();
+        workloadRuntimeStatusMgr.start();
     }
 
     // wait until FE is ready.
@@ -1492,6 +1514,8 @@ public class Env {
         // so no need to check 'isReady' flag in this method
         postProcessAfterMetadataReplayed(false);
 
+        insertOverwriteManager.allTaskFail();
+
         toMasterProgress = "start daemon threads";
 
         // start all daemon threads that only running on MASTER FE
@@ -1623,6 +1647,7 @@ public class Env {
         // binlog gcer
         binlogGcer.start();
         columnIdFlusher.start();
+        insertOverwriteManager.start();
     }
 
     // start threads that should running on all FE
@@ -2142,6 +2167,18 @@ public class Env {
     public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
         this.analysisManager = AnalysisManager.readFields(in);
         LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
+    public long loadInsertOverwrite(DataInputStream in, long checksum) throws IOException {
+        this.insertOverwriteManager = InsertOverwriteManager.read(in);
+        LOG.info("finished replay iot from image");
+        return checksum;
+    }
+
+    public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
+        this.insertOverwriteManager.write(out);
+        LOG.info("finished save iot to image");
         return checksum;
     }
 
@@ -3264,6 +3301,13 @@ public class Env {
                 sb.append(olapTable.isInMemory()).append("\"");
             }
 
+            // storage medium
+            if (olapTable.getStorageMedium() != null) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM).append("\" = \"");
+                sb.append(olapTable.getStorageMedium().name().toLowerCase());
+                sb.append("\"");
+            }
+
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
@@ -3354,6 +3398,14 @@ public class Env {
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
+            // time series compaction empty rowsets threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3371,6 +3423,10 @@ public class Env {
             // group commit interval ms
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
             sb.append(olapTable.getGroupCommitIntervalMs()).append("\"");
+
+            // group commit data bytes
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
+            sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
             // enable duplicate without keys by default
             if (olapTable.isDuplicateWithoutKey()) {
@@ -4498,7 +4554,7 @@ public class Env {
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             // rename column is not implemented for table without column unique id.
-            if (entry.getValue().getMaxColUniqueId() < 0) {
+            if (entry.getValue().getMaxColUniqueId() <= 0) {
                 throw new DdlException("not implemented for table without column unique id,"
                         + " which are created with property 'light_schema_change'.");
             }
@@ -4768,7 +4824,8 @@ public class Env {
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
-                .buildEnableSingleReplicaCompaction();
+                .buildEnableSingleReplicaCompaction()
+                .buildTimeSeriesCompactionEmptyRowsetsThreshold();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4863,7 +4920,7 @@ public class Env {
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
-                                + ((HashDistributionInfo) distributionInfo).getDistributionColumns());
+                                + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
                 }
 
@@ -4912,6 +4969,27 @@ public class Env {
 
     public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
         this.alter.getClusterHandler().cancel(stmt);
+    }
+
+    public void checkCloudClusterPriv(String clusterName) throws DdlException {
+        // check resource usage privilege
+        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+                clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new DdlException("USAGE denied to user "
+                    + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
+                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        }
+
+        if (!Env.getCurrentSystemInfo().getCloudClusterNames().contains(clusterName)) {
+            LOG.debug("current instance does not have a cluster name :{}", clusterName);
+            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+                    ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
+        }
+    }
+
+    public static void waitForAutoStart(final String clusterName) throws DdlException {
+        // TODO: merge from cloud.
+        throw new DdlException("Env.waitForAutoStart unimplemented");
     }
 
     // Switch catalog of this sesseion.

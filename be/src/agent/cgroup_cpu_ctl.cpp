@@ -33,7 +33,7 @@ Status CgroupCpuCtl::init() {
     }
 
     if (access(_doris_cgroup_cpu_path.c_str(), F_OK) != 0) {
-        LOG(ERROR) << "doris cgroup cpu path not exists, path=" << _doris_cgroup_cpu_path;
+        LOG(INFO) << "doris cgroup cpu path not exists, path=" << _doris_cgroup_cpu_path;
         return Status::InternalError<false>("doris cgroup cpu path {} not exists.",
                                             _doris_cgroup_cpu_path);
     }

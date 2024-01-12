@@ -95,7 +95,7 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
+                   size_t result, size_t input_rows_count, bool dry_run = false) const override;
 
     bool is_deterministic() const override { return false; }
 

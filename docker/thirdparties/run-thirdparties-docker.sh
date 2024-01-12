@@ -107,7 +107,7 @@ if [[ "${COMPONENTS}"x == ""x ]]; then
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
-    echo "Must set CONTAINER_UID to a unique name in custom_settings.sh"
+    echo "Must set CONTAINER_UID to a unique name in custom_settings.env"
     exit 1
 fi
 
