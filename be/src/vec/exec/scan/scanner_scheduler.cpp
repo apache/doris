@@ -145,8 +145,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
         LOG(INFO) << "yyyy ctx is done, not submit" << ctx->debug_string();
         return Status::EndOfFile("ScannerContext is done");
     }
-    //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
-    //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         LOG(INFO) << "yyyy put to queue failed, not submit" << ctx->debug_string();
