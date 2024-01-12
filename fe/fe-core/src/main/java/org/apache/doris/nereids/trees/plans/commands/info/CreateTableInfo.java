@@ -46,6 +46,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -254,7 +255,11 @@ public class CreateTableInfo {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = ctx.getDatabase();
         }
-
+        try {
+            InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                 tableName, PrivPredicate.CREATE)) {
             try {
