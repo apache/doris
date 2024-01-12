@@ -655,7 +655,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 hasUnknownCol = true;
             }
         }
-        if (hasUnknownCol && ConnectContext.get() != null) {
+        if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
         Statistics stats = new Statistics(rowCount, columnStatisticMap);

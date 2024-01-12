@@ -51,7 +51,7 @@ public class Optimizer {
                 cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         boolean optimizeWithUnknownColStats = false;
-        if (ConnectContext.get() != null) {
+        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
                 optimizeWithUnknownColStats = true;
             }
