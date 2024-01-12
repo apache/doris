@@ -34,7 +34,7 @@ under the License.
 `VARCHAR json_replace(VARCHAR json_str, VARCHAR path, VARCHAR val[, VARCHAR path, VARCHAR val] ...)`
 
 
-`json_set` 函数在 JSON 中更新数据并返回结果。如果 `json_str` 或 `path` 为 NULL，则返回 NULL。否则，如果 `json_str` 不是有效的 JSON 或任何 `path` 参数不是有效的路径表达式或包含了 * 通配符，则会返回错误。
+`json_replace` 函数在 JSON 中更新数据并返回结果。如果 `json_str` 或 `path` 为 NULL，则返回 NULL。否则，如果 `json_str` 不是有效的 JSON 或任何 `path` 参数不是有效的路径表达式或包含了 * 通配符，则会返回错误。
 
 路径值对按从左到右的顺序进行评估。
 
