@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.CommonAnalysisTask;
+import org.apache.doris.statistics.ExternalAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -161,6 +161,6 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
-        return new CommonAnalysisTask(info);
+        return new ExternalAnalysisTask(info);
     }
 }

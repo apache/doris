@@ -32,7 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.Set;
 
-public class HMSAnalysisTask extends CommonAnalysisTask {
+public class HMSAnalysisTask extends ExternalAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(HMSAnalysisTask.class);
     private HMSExternalTable hmsExternalTable;
 

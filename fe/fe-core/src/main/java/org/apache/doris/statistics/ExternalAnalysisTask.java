@@ -35,8 +35,8 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
-public class CommonAnalysisTask extends BaseAnalysisTask {
-    private static final Logger LOG = LogManager.getLogger(CommonAnalysisTask.class);
+public class ExternalAnalysisTask extends BaseAnalysisTask {
+    private static final Logger LOG = LogManager.getLogger(ExternalAnalysisTask.class);
 
     private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT ROUND(COUNT(1) * ${scaleFactor}) as rowCount "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints}";
@@ -45,10 +45,10 @@ public class CommonAnalysisTask extends BaseAnalysisTask {
     private ExternalTable table;
 
     // For test
-    public CommonAnalysisTask() {
+    public ExternalAnalysisTask() {
     }
 
-    public CommonAnalysisTask(AnalysisInfo info) {
+    public ExternalAnalysisTask(AnalysisInfo info) {
         super(info);
         isTableLevelTask = info.externalTableLevelTask;
         isPartitionOnly = info.partitionOnly;
