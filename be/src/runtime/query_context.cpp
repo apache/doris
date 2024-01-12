@@ -131,4 +131,19 @@ std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
             print_id(_query_id));
 }
 
+void QueryContext::register_mem_tracker_statistics() {
+    if (query_mem_tracker) {
+        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                print_id(_query_id), query_mem_tracker->get_query_statistics(), coord_addr);
+    }
+}
+
+void QueryContext::register_cpu_statistics() {
+    if (!_cpu_statistics) {
+        _cpu_statistics = std::make_shared<QueryStatistics>();
+        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                print_id(_query_id), _cpu_statistics, coord_addr);
+    }
+}
+
 } // namespace doris

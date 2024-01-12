@@ -212,6 +212,12 @@ public:
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
 
+    void register_mem_tracker_statistics();
+
+    void register_cpu_statistics();
+
+    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
+
 public:
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
@@ -278,6 +284,8 @@ private:
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
+
+    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
 };
 
 } // namespace doris
