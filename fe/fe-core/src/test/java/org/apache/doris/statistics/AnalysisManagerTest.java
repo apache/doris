@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
@@ -352,6 +353,58 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(2, simpleQueue.size());
         simpleQueue = analysisManager.createSimpleQueue(null, analysisManager);
         Assertions.assertEquals(0, simpleQueue.size());
+    }
+
+    @Test
+    public void testShowAutoJobs(@Injectable ShowAnalyzeStmt stmt) {
+        new MockUp<ShowAnalyzeStmt>() {
+            @Mock
+            public String getStateValue() {
+                return null;
+            }
+
+            @Mock
+            public TableName getDbTableName() {
+                return null;
+            }
+
+            @Mock
+            public boolean isAuto() {
+                return true;
+            }
+        };
+        AnalysisManager analysisManager = new AnalysisManager();
+        analysisManager.analysisJobInfoMap.put(
+            1L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.MANUAL).build());
+        analysisManager.analysisJobInfoMap.put(
+            2L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
+        analysisManager.analysisJobInfoMap.put(
+            3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
+        analysisManager.analysisJobInfoMap.put(
+            4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
+        List<AnalysisInfo> analysisInfos = analysisManager.showAnalysisJob(stmt);
+        Assertions.assertEquals(3, analysisInfos.size());
+        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
+        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
+        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
+    }
+
+    @Test
+    public void testShowAutoTasks(@Injectable ShowAnalyzeStmt stmt) {
+        AnalysisManager analysisManager = new AnalysisManager();
+        analysisManager.analysisTaskInfoMap.put(
+            1L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.MANUAL).build());
+        analysisManager.analysisTaskInfoMap.put(
+            2L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
+        analysisManager.analysisTaskInfoMap.put(
+            3L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
+        analysisManager.analysisTaskInfoMap.put(
+            4L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
+        List<AnalysisInfo> analysisInfos = analysisManager.findTasks(1);
+        Assertions.assertEquals(3, analysisInfos.size());
+        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
+        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
+        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
     }
 
 }
