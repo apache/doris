@@ -56,26 +56,6 @@ struct StringHashMapCell<StringKey16, TMapped>
 };
 
 template <typename TMapped>
-struct StringHashMapCell<StringKey24, TMapped>
-        : public HashMapCell<StringKey24, TMapped, StringHashTableHash, HashTableNoState> {
-    using Base = HashMapCell<StringKey24, TMapped, StringHashTableHash, HashTableNoState>;
-    using value_type = typename Base::value_type;
-    using Base::Base;
-    static constexpr bool need_zero_value_storage = false;
-    bool is_zero(const HashTableNoState& state) const { return is_zero(this->value.first, state); }
-
-    // Zero means unoccupied cells in hash table. Use key with last word = 0 as
-    // zero keys, because such keys are unrepresentable (no way to encode length).
-    static bool is_zero(const StringKey24& key, const HashTableNoState&) { return key.c == 0; }
-    void set_zero() { this->value.first.c = 0; }
-
-    // external
-    const doris::StringRef get_key() const { return to_string_ref(this->value.first); } /// NOLINT
-    // internal
-    static const StringKey24& get_key(const value_type& value_) { return value_.first; }
-};
-
-template <typename TMapped>
 struct StringHashMapCell<doris::StringRef, TMapped>
         : public HashMapCellWithSavedHash<doris::StringRef, TMapped, StringHashTableHash,
                                           HashTableNoState> {
@@ -117,6 +97,9 @@ struct StringHashMapSubMaps {
     using T3 = HashMapTable<StringHashMapSubKeys::T3,
                             StringHashMapCell<StringHashMapSubKeys::T3, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
+    using T4 = HashMapTable<StringHashMapSubKeys::T4,
+                            StringHashMapCell<StringHashMapSubKeys::T4, TMapped>,
+                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
     using Ts = HashMapTable<doris::StringRef, StringHashMapCell<doris::StringRef, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
 };
@@ -135,18 +118,33 @@ public:
         LookupResult it;
         bool inserted;
         this->emplace(x, it, inserted);
-        if (inserted) new (&it->get_mapped()) TMapped();
+        if (inserted) {
+            new (&it->get_mapped()) TMapped();
+        }
 
         return it->get_mapped();
     }
 
     template <typename Func>
     void ALWAYS_INLINE for_each_mapped(Func&& func) {
-        if (this->m0.size()) func(this->m0.zero_value()->get_second());
-        for (auto& v : this->m1) func(v.get_second());
-        for (auto& v : this->m2) func(v.get_second());
-        for (auto& v : this->m3) func(v.get_second());
-        for (auto& v : this->ms) func(v.get_second());
+        if (this->m0.size()) {
+            func(this->m0.zero_value()->get_second());
+        }
+        for (auto& v : this->m1) {
+            func(v.get_second());
+        }
+        for (auto& v : this->m2) {
+            func(v.get_second());
+        }
+        for (auto& v : this->m3) {
+            func(v.get_second());
+        }
+        for (auto& v : this->m4) {
+            func(v.get_second());
+        }
+        for (auto& v : this->ms) {
+            func(v.get_second());
+        }
     }
     template <typename MappedType>
     char* get_null_key_data() {

@@ -30,22 +30,16 @@ using StringKey2 = doris::vectorized::UInt16;
 using StringKey4 = doris::vectorized::UInt32;
 using StringKey8 = doris::vectorized::UInt64;
 using StringKey16 = doris::vectorized::UInt128;
-struct StringKey24 {
-    doris::vectorized::UInt64 a;
-    doris::vectorized::UInt64 b;
-    doris::vectorized::UInt64 c;
-
-    bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
-};
 
 struct StringHashMapSubKeys {
     using T1 = StringKey2;
     using T2 = StringKey4;
-    using T3 = StringKey16;
+    using T3 = StringKey8;
+    using T4 = StringKey16;
 };
 
 template <typename StringKey>
-StringKey toStringKey(const doris::StringRef& key) {
+StringKey to_string_key(const doris::StringRef& key) {
     DCHECK_LE(key.size, sizeof(StringKey));
     StringKey string_key {};
     memcpy_small((char*)&string_key, key.data, key.size);
@@ -60,10 +54,6 @@ inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.high != 0);
     return {reinterpret_cast<const char*>(&n), 16ul - (__builtin_clzll(n.high) >> 3)};
-}
-inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
-    assert(n.c != 0);
-    return {reinterpret_cast<const char*>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
 }
 
 struct StringHashTableHash {
@@ -80,13 +70,6 @@ struct StringHashTableHash {
         res = _mm_crc32_u64(res, key.high);
         return res;
     }
-    size_t ALWAYS_INLINE operator()(StringKey24 key) const {
-        size_t res = -1ULL;
-        res = _mm_crc32_u64(res, key.a);
-        res = _mm_crc32_u64(res, key.b);
-        res = _mm_crc32_u64(res, key.c);
-        return res;
-    }
 #else
     template <typename T>
     size_t ALWAYS_INLINE operator()(T key) const {
@@ -95,11 +78,13 @@ struct StringHashTableHash {
 #endif
     size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
         if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
-            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T1>(key));
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T1>(key));
         } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
-            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T2>(key));
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T2>(key));
         } else if (key.size <= sizeof(StringHashMapSubKeys::T3)) {
-            return StringHashTableHash()(toStringKey<StringHashMapSubKeys::T3>(key));
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T3>(key));
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T4)) {
+            return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T4>(key));
         }
         return doris::StringRefHash()(key);
     }
@@ -238,6 +223,7 @@ protected:
     using T1 = typename SubMaps::T1;
     using T2 = typename SubMaps::T2;
     using T3 = typename SubMaps::T3;
+    using T4 = typename SubMaps::T4;
 
     // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
@@ -247,6 +233,7 @@ protected:
     T1 m1;
     T2 m2;
     T3 m3;
+    T4 m4;
     Ts ms;
 
     using Cell = typename Ts::cell_type;
@@ -260,7 +247,8 @@ protected:
         typename T1::iterator iterator1;
         typename T2::iterator iterator2;
         typename T3::iterator iterator3;
-        typename Ts::iterator iterator4;
+        typename T4::iterator iterator4;
+        typename Ts::iterator iterator5;
 
         typename Ts::cell_type cell;
 
@@ -270,39 +258,52 @@ protected:
         iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
-                sub_table_index = 4;
-                iterator4 = container->ms.end();
+                sub_table_index = 5;
+                iterator5 = container->ms.end();
             } else {
                 sub_table_index = 0;
-                if (container->m0.size() == 0)
+                if (container->m0.size() == 0) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator1 = container->m1.begin();
-                if (iterator1 == container->m1.end())
+                if (iterator1 == container->m1.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator2 = container->m2.begin();
-                if (iterator2 == container->m2.end())
+                if (iterator2 == container->m2.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
                 iterator3 = container->m3.begin();
-                if (iterator3 == container->m3.end())
+                if (iterator3 == container->m3.end()) {
                     sub_table_index++;
-                else
+                } else {
                     return;
+                }
 
-                iterator4 = container->ms.begin();
+                iterator4 = container->m4.begin();
+                if (iterator4 == container->m4.end()) {
+                    sub_table_index++;
+                } else {
+                    return;
+                }
+
+                iterator5 = container->ms.begin();
             }
         }
 
         bool operator==(const iterator_base& rhs) const {
-            if (sub_table_index != rhs.sub_table_index) return false;
+            if (sub_table_index != rhs.sub_table_index) {
+                return false;
+            }
             switch (sub_table_index) {
             case 0: {
                 return true;
@@ -318,6 +319,9 @@ protected:
             }
             case 4: {
                 return iterator4 == rhs.iterator4;
+            }
+            case 5: {
+                return iterator5 == rhs.iterator5;
             }
             }
             LOG(FATAL) << "__builtin_unreachable";
@@ -356,6 +360,13 @@ protected:
             }
             case 4: {
                 ++iterator4;
+                if (iterator4 == container->m4.end()) {
+                    need_switch_to_next = true;
+                }
+                break;
+            }
+            case 5: {
+                ++iterator5;
                 break;
             }
             }
@@ -386,7 +397,14 @@ protected:
                     break;
                 }
                 case 4: {
-                    iterator4 = container->ms.begin();
+                    iterator4 = container->m4.begin();
+                    if (iterator4 == container->m4.end()) {
+                        need_switch_to_next = true;
+                    }
+                    break;
+                }
+                case 5: {
+                    iterator5 = container->ms.begin();
                     break;
                 }
                 }
@@ -417,6 +435,10 @@ protected:
                 const_cast<iterator_base*>(this)->cell = *iterator4;
                 break;
             }
+            case 5: {
+                const_cast<iterator_base*>(this)->cell = *iterator5;
+                break;
+            }
             }
             return cell;
         }
@@ -439,7 +461,10 @@ protected:
                 return iterator3->get_hash(container->m3);
             }
             case 4: {
-                return iterator4->get_hash(container->ms);
+                return iterator4->get_hash(container->m4);
+            }
+            case 5: {
+                return iterator5->get_hash(container->ms);
             }
             }
         }
@@ -475,10 +500,11 @@ public:
     StringHashTable() = default;
 
     explicit StringHashTable(size_t reserve_for_num_elements)
-            : m1 {reserve_for_num_elements / 4},
-              m2 {reserve_for_num_elements / 4},
-              m3 {reserve_for_num_elements / 4},
-              ms {reserve_for_num_elements / 4} {}
+            : m1 {reserve_for_num_elements / 5},
+              m2 {reserve_for_num_elements / 5},
+              m3 {reserve_for_num_elements / 5},
+              m4 {reserve_for_num_elements / 5},
+              ms {reserve_for_num_elements / 5} {}
 
     ~StringHashTable() = default;
 
@@ -509,13 +535,16 @@ public:
         }
 
         if (sz <= sizeof(StringHashMapSubKeys::T1)) {
-            return func(self.m1, toStringKey<StringHashMapSubKeys::T1>(key), key, hash_value);
+            return func(self.m1, to_string_key<StringHashMapSubKeys::T1>(key), key, hash_value);
         }
         if (sz <= sizeof(StringHashMapSubKeys::T2)) {
-            return func(self.m2, toStringKey<StringHashMapSubKeys::T2>(key), key, hash_value);
+            return func(self.m2, to_string_key<StringHashMapSubKeys::T2>(key), key, hash_value);
         }
         if (sz <= sizeof(StringHashMapSubKeys::T3)) {
-            return func(self.m3, toStringKey<StringHashMapSubKeys::T3>(key), key, hash_value);
+            return func(self.m3, to_string_key<StringHashMapSubKeys::T3>(key), key, hash_value);
+        }
+        if (sz <= sizeof(StringHashMapSubKeys::T4)) {
+            return func(self.m4, to_string_key<StringHashMapSubKeys::T4>(key), key, hash_value);
         }
 
         return func(self.ms, std::forward<KeyHolder>(key), key, hash_value);
@@ -571,12 +600,14 @@ public:
         if (!key.size) {
             return;
         }
-        if (key.size <= 8) {
+        if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
             m1.template prefetch<read>(hash_value);
-        } else if (key.size <= 16) {
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
             m2.template prefetch<read>(hash_value);
-        } else if (key.size <= 24) {
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T3)) {
             m3.template prefetch<read>(hash_value);
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T4)) {
+            m4.template prefetch<read>(hash_value);
         } else {
             ms.template prefetch<read>(hash_value);
         }
@@ -590,10 +621,11 @@ public:
         auto ALWAYS_INLINE operator()(Submap& map, const SubmapKey& key, const Origin& origin,
                                       size_t hash) {
             auto it = map.find(key, hash);
-            if (!it)
+            if (!it) {
                 return decltype(&it->get_mapped()) {};
-            else
+            } else {
                 return &it->get_mapped();
+            }
         }
     };
 
@@ -605,10 +637,12 @@ public:
         return dispatch(*this, x, hash_value, FindCallable {});
     }
 
-    size_t size() const { return m0.size() + m1.size() + m2.size() + m3.size() + ms.size(); }
+    size_t size() const {
+        return m0.size() + m1.size() + m2.size() + m3.size() + m4.size() + ms.size();
+    }
 
     bool empty() const {
-        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty();
+        return m0.empty() && m1.empty() && m2.empty() && m3.empty() && m4.empty() && ms.empty();
     }
 
     size_t get_buffer_size_in_bytes() const {
@@ -639,6 +673,7 @@ public:
 
     bool add_elem_size_overflow(size_t add_size) const {
         return m1.add_elem_size_overflow(add_size) || m2.add_elem_size_overflow(add_size) ||
-               m3.add_elem_size_overflow(add_size) || ms.add_elem_size_overflow(add_size);
+               m3.add_elem_size_overflow(add_size) || m4.add_elem_size_overflow(add_size) ||
+               ms.add_elem_size_overflow(add_size);
     }
 };
