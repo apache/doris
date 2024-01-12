@@ -172,6 +172,10 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
+    bool is_shuffled_hash_join() const override {
+        return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,

@@ -732,7 +732,10 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
             sink_id, local_exchange_id, _total_instances, data_distribution.partition_exprs,
             bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     RETURN_IF_ERROR(new_pip->set_sink(sink));
-    RETURN_IF_ERROR(new_pip->sink_x()->init(data_distribution.distribution_type, num_buckets));
+    RETURN_IF_ERROR(new_pip->sink_x()->init(data_distribution.distribution_type, num_buckets,
+                                            operator_xs.size() > idx
+                                                    ? operator_xs[idx]->is_shuffled_hash_join()
+                                                    : cur_pipe->sink_x()->is_shuffled_hash_join()));
 
     // 2. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
