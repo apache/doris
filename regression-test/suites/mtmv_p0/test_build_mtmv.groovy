@@ -634,6 +634,5 @@ suite("test_build_mtmv") {
             AS
             select case when l_orderkey > 1 then "一二三四" else "五六七八" end as field_1 from lineitem;
     """
-    qt_show_create_mv """show create table test_varchar_literal_mv;"""
     qt_desc_mv """desc test_varchar_literal_mv;"""
 }

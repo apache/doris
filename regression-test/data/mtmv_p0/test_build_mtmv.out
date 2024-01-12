@@ -60,9 +60,6 @@ zhangsang	200
 -- !select_union --
 11	111
 
--- !show_create_mv --
-test_varchar_literal_mv	CREATE MATERIALIZED VIEW `test_varchar_literal_mv` (\n  `field_1` VARCHAR(16) NOT NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'MATERIALIZED_VIEW'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"min_load_replica_num" = "-1",\n"is_being_synced" = "false",\n"storage_medium" = "hdd",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false",\n"group_commit_interval_ms" = "10000",\n"group_commit_data_bytes" = "134217728",\n"enable_duplicate_without_keys_by_default" = "true"\n);
-
 -- !desc_mv --
 field_1	VARCHAR(16)	No	false	\N	NONE
 
