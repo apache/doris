@@ -133,6 +133,7 @@ enum class JsonbType : char {
     T_Array = 0x0B,
     T_Int128 = 0x0C,
     T_Float = 0x0D,
+    T_Decimal = 0x0E, // decimal(38, 10)
     NUM_TYPES,
 };
 
@@ -510,6 +511,7 @@ public:
     bool isObject() const { return (type_ == JsonbType::T_Object); }
     bool isArray() const { return (type_ == JsonbType::T_Array); }
     bool isInt128() const { return (type_ == JsonbType::T_Int128); }
+    bool isDecimal() const { return (type_ == JsonbType::T_Decimal); }
 
     JsonbType type() const { return type_; }
 
@@ -528,6 +530,8 @@ public:
             return "bigint";
         case JsonbType::T_Int128:
             return "largeint";
+        case JsonbType::T_Decimal:
+            return "decimal";
         case JsonbType::T_Double:
             return "double";
         case JsonbType::T_Float:
@@ -695,6 +699,8 @@ public:
             return ((JsonbInt64Val*)this)->val();
         case JsonbType::T_Int128:
             return ((JsonbInt128Val*)this)->val();
+        case JsonbType::T_Decimal:
+            return ((JsonbInt128Val*)this)->val();
         default:
             return 0;
         }
@@ -719,6 +725,8 @@ public:
         case JsonbType::T_Int64:
             return ((JsonbInt64Val*)this)->setVal((int64_t)val);
         case JsonbType::T_Int128:
+            return ((JsonbInt128Val*)this)->setVal(val);
+        case JsonbType::T_Decimal:
             return ((JsonbInt128Val*)this)->setVal(val);
         default:
             return false;
@@ -1185,7 +1193,8 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     case JsonbType::T_Float: {
         return sizeof(type_) + sizeof(float);
     }
-    case JsonbType::T_Int128: {
+    case JsonbType::T_Int128:
+    case JsonbType::T_Decimal: {
         return sizeof(type_) + sizeof(int128_t);
     }
     case JsonbType::T_String:
@@ -1222,6 +1231,7 @@ inline unsigned int JsonbValue::size() const {
     case JsonbType::T_Float: {
         return sizeof(float);
     }
+    case JsonbType::T_Decimal:
     case JsonbType::T_Int128: {
         return sizeof(int128_t);
     }
@@ -1251,6 +1261,7 @@ inline int JsonbValue::length() const {
     case JsonbType::T_Double:
     case JsonbType::T_Float:
     case JsonbType::T_Int128:
+    case JsonbType::T_Decimal:
     case JsonbType::T_String:
     case JsonbType::T_Binary:
     case JsonbType::T_Null:
@@ -1275,6 +1286,7 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     case JsonbType::T_Int16:
     case JsonbType::T_Int32:
     case JsonbType::T_Int64:
+    case JsonbType::T_Decimal:
     case JsonbType::T_Int128: {
         return ((JsonbIntVal*)(this))->val() == ((JsonbIntVal*)(rhs))->val();
     }
@@ -1360,6 +1372,7 @@ inline const char* JsonbValue::getValuePtr() const {
     case JsonbType::T_Int64:
     case JsonbType::T_Double:
     case JsonbType::T_Float:
+    case JsonbType::T_Decimal:
     case JsonbType::T_Int128:
         return ((char*)this) + sizeof(JsonbType);
 

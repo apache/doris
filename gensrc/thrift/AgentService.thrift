@@ -119,6 +119,12 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
 }
 
+struct TVariantConfig {
+    1: optional bool enable_decimal_type;
+    2: optional double ratio_of_defaults_as_sparse_column;
+    3: optional i64 threshold_rows_to_estimate_sparse_column;
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -151,6 +157,7 @@ struct TCreateTabletReq {
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
+    27: optional TVariantConfig variant_config
 }
 
 struct TDropTabletReq {
@@ -421,6 +428,7 @@ struct TTabletMetaInfo {
     15: optional bool skip_write_index_on_load
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold
+    18: optional TVariantConfig variant_config 
 }
 
 struct TUpdateTabletMetaInfoReq {

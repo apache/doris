@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -233,6 +234,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.readLock();
         try {
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            VariantConfig variantConfig = new VariantConfig(tbl.getVariantConfig());
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
@@ -276,7 +278,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                 tbl.storeRowColumn(),
-                                binlogConfig);
+                                binlogConfig,
+                                variantConfig);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);

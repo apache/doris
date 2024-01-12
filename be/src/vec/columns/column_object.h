@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/variant_config.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -71,7 +72,7 @@ struct FieldInfo {
     /// Number of dimension in array. 0 if field is scalar.
     size_t num_dimensions;
 };
-void get_field_info(const Field& field, FieldInfo* info);
+void get_field_info(const Field& field, FieldInfo* info, const VariantConfig& config);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnObject is not suitable for writing into tables
@@ -125,7 +126,7 @@ public:
         /// Inserts a field, which scalars can be arbitrary, but number of
         /// dimensions should be consistent with current common type.
         /// throws InvalidArgument when meet conflict types
-        void insert(Field field);
+        void insert(Field field, const VariantConfig& config);
 
         void insert(Field field, FieldInfo info);
 
@@ -141,7 +142,8 @@ public:
         /// creates a single column that stores all values.
         void finalize();
 
-        bool check_if_sparse_column(size_t num_rows);
+        bool check_if_sparse_column(size_t num_rows, int rows_threshold_to_estimate_spasr,
+                                    double defaults_ratio_to_estimate_sparse);
 
         /// Returns last inserted field.
         Field get_last_field() const;
@@ -221,6 +223,8 @@ private:
     // the leaves is null.In order to display whole document, copy
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
+    // Table level config
+    VariantConfig config;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -229,10 +233,15 @@ public:
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
+    // Write path, more configurable
+    ColumnObject(VariantConfig variantConfig);
+
     ~ColumnObject() override = default;
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
+
+    const VariantConfig& var_config() const { return config; }
 
     MutableColumnPtr get_root() {
         if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {

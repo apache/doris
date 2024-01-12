@@ -104,6 +104,8 @@ public class TableProperty implements Writable {
                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
+    // variant
+    private VariantConfig variantConfig;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -353,6 +355,24 @@ public class TableProperty implements Writable {
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
+    public TableProperty buildVariantConfig() {
+        VariantConfig variantConfig = new VariantConfig();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)) {
+            variantConfig.setEnableDecimalType(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)) {
+            variantConfig.setRatioOfDefaultsAsSparseColumn(Double.parseDouble(
+                    properties.get(PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN)) {
+            variantConfig.setThresholdRowsToEstimateSparseColumn(Long.parseLong(
+                    properties.get(PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN)));
+        }
+        this.variantConfig = variantConfig;
+        return this;
+    }
+
     public TableProperty buildBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
@@ -371,6 +391,25 @@ public class TableProperty implements Writable {
         this.binlogConfig = binlogConfig;
 
         return this;
+    }
+
+    public VariantConfig getVariantConfig() {
+        if (variantConfig == null) {
+            buildVariantConfig();
+        }
+        return variantConfig;
+    }
+
+    public void setVariantConfig(VariantConfig variantConfig) {
+        Map<String, String> variantProperties = Maps.newHashMap();
+        variantProperties.put(PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN,
+                    String.valueOf(variantConfig.getRatioOfDefaultsAsSparseColumn()));
+        variantProperties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE,
+                String.valueOf(variantConfig.isEnableDecimalType()));
+        variantProperties.put(PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN,
+                String.valueOf(variantConfig.getThresholdRowsToEstimateSparseColumn()));
+        modifyTableProperties(variantProperties);
+        this.variantConfig = variantConfig;
     }
 
     public BinlogConfig getBinlogConfig() {

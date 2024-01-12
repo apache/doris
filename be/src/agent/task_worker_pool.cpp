@@ -71,6 +71,7 @@
 #include "olap/task/engine_storage_migration_task.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "olap/variant_config.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
@@ -803,6 +804,31 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             }
             tablet->tablet_schema_unlocked()->set_skip_write_index_on_load(
                     tablet_meta_info.skip_write_index_on_load);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.variant_config) {
+            // check fields set
+            const auto& t_variant_config = tablet_meta_info.variant_config;
+            if (!t_variant_config.__isset.enable_decimal_type ||
+                !t_variant_config.__isset.ratio_of_defaults_as_sparse_column ||
+                !t_variant_config.__isset.threshold_rows_to_estimate_sparse_column) {
+                status = Status::InvalidArgument("invalid variant config, some fields not set");
+                LOG(WARNING) << fmt::format(
+                        "invalid variant config, some fields not set, tablet_id={}, "
+                        "t_variant_config={}",
+                        tablet_meta_info.tablet_id,
+                        apache::thrift::ThriftDebugString(t_variant_config));
+                continue;
+            }
+
+            VariantConfig new_variant_config;
+            new_variant_config = tablet_meta_info.variant_config;
+            LOG(INFO) << fmt::format(
+                    "update tablet meta variant config. tablet_id={}, old_variant_config={}, "
+                    "new_variant_config={}",
+                    tablet_meta_info.tablet_id, tablet->tablet_meta()->variant_config().to_string(),
+                    new_variant_config.to_string());
+            tablet->set_variant_config(new_variant_config);
             need_to_save = true;
         }
         if (need_to_save) {

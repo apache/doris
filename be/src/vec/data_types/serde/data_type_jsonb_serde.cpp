@@ -151,6 +151,10 @@ static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& 
     case JsonbType::T_Double:
         target.SetDouble(static_cast<const JsonbDoubleVal&>(val).val());
         break;
+    case JsonbType::T_Int128:
+        // maybe overflow
+        target.SetUint(static_cast<const JsonbInt128Val&>(val).val());
+        break;
     case JsonbType::T_Int64:
         target.SetInt64(static_cast<const JsonbInt64Val&>(val).val());
         break;

@@ -23,6 +23,7 @@
 #include "vec/common/demangle.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -47,6 +48,8 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<UInt128>());
     case Field::Types::Int64:
         return visitor(field.template get<Int64>());
+    case Field::Types::Int128:
+        return visitor(field.template get<Int128>());
     case Field::Types::Float64:
         return visitor(field.template get<Float64>());
     case Field::Types::String:
@@ -68,7 +71,7 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case Field::Types::JSONB:
         return visitor(field.template get<JsonbField>());
     default:
-        LOG(FATAL) << "Bad type of Field";
+        LOG(FATAL) << "Bad type of Field:" << field.get_type();
         return {};
     }
 }

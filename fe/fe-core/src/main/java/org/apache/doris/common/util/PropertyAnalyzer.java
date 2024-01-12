@@ -192,6 +192,13 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
+    // variant properties
+    public static final String PROPERTIES_VARIANT_PREFIX = "variant.";
+    public static final String PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE = "variant.enable_decimal_type";
+    public static final String PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN
+                = "variant.ratio_of_defaults_as_sparse_column";
+    public static final String VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN
+            = "variant.threshold_rows_to_estimate_sparse_column";
 
     /**
      * check and replace members of DataProperty by properties.
@@ -997,6 +1004,50 @@ public class PropertyAnalyzer {
             }
         }
         return false;
+    }
+
+    public static Map<String, String> analyzeVariantConfig(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return null;
+        }
+
+        Map<String, String> variantConfigMap = Maps.newHashMap();
+        // check "variant.enable_decimal_type";
+        if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)) {
+            String enableDecimalType = properties.get(PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE);
+            try {
+                variantConfigMap.put(PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE,
+                        String.valueOf(Boolean.parseBoolean(enableDecimalType)));
+                properties.remove(PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid variant enable_decimal_type value: " + enableDecimalType);
+            }
+        }
+        // check "variant.ratio_of_defaults_as_sparse_column"
+        if (properties.containsKey(PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)) {
+            String ratio = properties.get(PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN);
+            try {
+                variantConfigMap.put(PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN,
+                        String.valueOf(Double.parseDouble(ratio)));
+                properties.remove(PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid variant ratio_of_defaults_as_sparse_column value: " + ratio);
+            }
+        }
+        // check "variant.threshold_rows_to_estimate_sparse_column"
+        if (properties.containsKey(VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN)) {
+            String threholdToEstimateSparse = properties.get(VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN);
+            try {
+                variantConfigMap.put(VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN,
+                        String.valueOf(Long.parseLong(threholdToEstimateSparse)));
+                properties.remove(VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN);
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Invalid variant threshold_rows_to_estimate_sparse_column value: " + threholdToEstimateSparse);
+            }
+        }
+
+        return variantConfigMap;
     }
 
     public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {

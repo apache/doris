@@ -364,14 +364,14 @@ Status VScanNode::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
-    auto init_value_range = [&](SlotDescriptor* slot, PrimitiveType type) {
-        switch (type) {
-#define M(NAME)                                                                          \
-    case TYPE_##NAME: {                                                                  \
-        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),       \
-                                            slot->type().precision, slot->type().scale); \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                   \
-        break;                                                                           \
+    auto init_value_range = [&](SlotDescriptor* slot, const TypeDescriptor& type_desc) {
+        switch (type_desc.type) {
+#define M(NAME)                                                                    \
+    case TYPE_##NAME: {                                                            \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(), \
+                                            type_desc.precision, type_desc.scale); \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};             \
+        break;                                                                     \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -413,7 +413,7 @@ Status VScanNode::_normalize_conjuncts() {
                 continue;
             }
         }
-        init_value_range(slots[slot_idx], slots[slot_idx]->type().type);
+        init_value_range(slots[slot_idx], slots[slot_idx]->type());
     }
 
     get_cast_types_for_variants();

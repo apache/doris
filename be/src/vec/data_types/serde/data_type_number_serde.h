@@ -24,6 +24,7 @@
 
 #include <ostream>
 #include <string>
+#include <type_traits>
 
 #include "common/status.h"
 #include "data_type_serde.h"
@@ -300,8 +301,8 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column, rapid
         result.SetUint(data[row_num]);
     } else if constexpr (std::is_same_v<T, Int64>) {
         result.SetInt64(data[row_num]);
-    } else if constexpr (std::is_same_v<T, UInt64>) {
-        result.SetUint64(data[row_num]);
+    } else if constexpr (std::is_same_v<T, UInt64> || std::is_same_v<T, Int128>) {
+        result.SetUint64(static_cast<uint64_t>(data[row_num]));
     } else if constexpr (std::is_same_v<T, float>) {
         result.SetFloat(data[row_num]);
     } else if constexpr (std::is_same_v<T, double>) {

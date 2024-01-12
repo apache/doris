@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.policy.Policy;
@@ -118,6 +119,8 @@ public class CreateReplicaTask extends AgentTask {
     private BinlogConfig binlogConfig;
     private List<Integer> clusterKeyIndexes;
 
+    private VariantConfig variantConfig;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -138,7 +141,8 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionTimeThresholdSeconds,
                              long timeSeriesCompactionEmptyRowsetsThreshold,
                              boolean storeRowColumn,
-                             BinlogConfig binlogConfig) {
+                             BinlogConfig binlogConfig,
+                             VariantConfig variantConfig) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -181,6 +185,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
+        this.variantConfig = variantConfig;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -330,6 +335,10 @@ public class CreateReplicaTask extends AgentTask {
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());
+        }
+
+        if (variantConfig != null) {
+            createTabletReq.setVariantConfig(variantConfig.toThrift());
         }
 
         return createTabletReq;

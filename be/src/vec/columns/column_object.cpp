@@ -37,11 +37,13 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "olap/variant_config.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -153,6 +155,7 @@ public:
 /// More optimized version of FieldToDataType.
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
+    FieldVisitorToScalarType(const VariantConfig& config) : config(config) {}
     using FieldType = Field::Types::Which;
     size_t operator()(const Array& x) {
         size_t size = x.size();
@@ -164,15 +167,23 @@ public:
     // TODO doris not support unsigned integers for now
     // treat as signed integers
     size_t operator()(const UInt64& x) {
-        field_types.insert(FieldType::UInt64);
         if (x <= std::numeric_limits<Int8>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int8);
         } else if (x <= std::numeric_limits<Int16>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int16);
         } else if (x <= std::numeric_limits<Int32>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int32);
-        } else {
+        } else if (x <= std::numeric_limits<Int64>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int64);
+        } else {
+            // treat as Int128 to prevent from overflow
+            have_int128s = true;
+            field_types.insert(FieldType::Int128);
+            type_indexes.insert(TypeIndex::Int128);
         }
         return 0;
     }
@@ -196,8 +207,25 @@ public:
         type_indexes.insert(TypeIndex::JSONB);
         return 0;
     }
+
+    size_t operator()(const DecimalField<Decimal128V3>& x) {
+        field_types.insert(FieldType::Decimal128V3);
+        type_indexes.insert(TypeIndex::Decimal128V3);
+        return 0;
+    }
     size_t operator()(const Null&) {
         have_nulls = true;
+        return 0;
+    }
+    size_t operator()(const Float64& x) {
+        if (config.is_enable_decimal_type()) {
+            have_decimals = true;
+            field_types.insert(FieldType::Decimal128V3);
+            type_indexes.insert(TypeIndex::Decimal128V3);
+            return 0;
+        }
+        field_types.insert(FieldType::Float64);
+        type_indexes.insert(TypeIndex::Float64);
         return 0;
     }
     template <typename T>
@@ -211,17 +239,22 @@ public:
         get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, type);
     }
     bool contain_nulls() const { return have_nulls; }
-    bool need_convert_field() const { return field_types.size() > 1; }
+    bool need_convert_field() const {
+        return field_types.size() > 1 || have_decimals || have_int128s;
+    }
 
 private:
+    const VariantConfig& config;
     phmap::flat_hash_set<TypeIndex> type_indexes;
     phmap::flat_hash_set<FieldType> field_types;
+    bool have_decimals = false;
+    bool have_int128s = false;
     bool have_nulls = false;
 };
 
 } // namespace
-void get_field_info(const Field& field, FieldInfo* info) {
-    FieldVisitorToScalarType to_scalar_type_visitor;
+void get_field_info(const Field& field, FieldInfo* info, const VariantConfig& config) {
+    FieldVisitorToScalarType to_scalar_type_visitor(config);
     apply_visitor(to_scalar_type_visitor, field);
     DataTypePtr type = nullptr;
     to_scalar_type_visitor.get_scalar_type(&type);
@@ -271,9 +304,9 @@ size_t ColumnObject::Subcolumn::Subcolumn::allocatedBytes() const {
     return res;
 }
 
-void ColumnObject::Subcolumn::insert(Field field) {
+void ColumnObject::Subcolumn::insert(Field field, const VariantConfig& config) {
     FieldInfo info;
-    get_field_info(field, &info);
+    get_field_info(field, &info, config);
     insert(std::move(field), std::move(info));
 }
 
@@ -444,8 +477,10 @@ ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
             [&](const auto& subcolumn) { return subcolumn.index(indexes, limit); });
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows,
+                                                     int rows_threshold_to_estimate_spasr,
+                                                     double defaults_ratio_to_estimate_sparse) {
+    if (num_rows < rows_threshold_to_estimate_spasr) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -454,7 +489,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
                            defaults_ratio.size();
-    return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
+    return default_ratio >= defaults_ratio_to_estimate_sparse;
 }
 
 void ColumnObject::Subcolumn::finalize() {
@@ -586,6 +621,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     }
 }
 
+ColumnObject::ColumnObject(VariantConfig variant_config)
+        : is_nullable(true), num_rows(0), config(std::move(variant_config)) {
+    subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
+}
+
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),
@@ -666,7 +706,7 @@ void ColumnObject::try_insert(const Field& field) {
         if (!root) {
             doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Failed to find root column_path");
         }
-        root->insert(field);
+        root->insert(field, config);
         ++num_rows;
         return;
     }
@@ -691,7 +731,7 @@ void ColumnObject::try_insert(const Field& field) {
             doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                              fmt::format("Failed to find sub column {}", key.get_path()));
         }
-        subcolumn->insert(value);
+        subcolumn->insert(value, config);
     }
     for (auto& entry : subcolumns) {
         if (!inserted.contains(entry->path.get_path())) {
@@ -1209,7 +1249,9 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
 
         // Check and spilit sparse subcolumns
-        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
+        if (!ignore_sparse && (entry->data.check_if_sparse_column(
+                                      num_rows, config.threshold_rows_to_estimate_sparse_column(),
+                                      config.ratio_of_defaults_as_sparse_column()))) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;

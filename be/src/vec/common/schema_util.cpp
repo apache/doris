@@ -190,6 +190,11 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_default_value("[]");
         return;
     }
+    if (data_type->get_type_id() == TypeIndex::Decimal128V3) {
+        column.set_precision(data_type->get_precision());
+        column.set_frac(data_type->get_scale());
+        return;
+    }
     // size is not fixed when type is string or json
     if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
         return;
@@ -374,11 +379,12 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     return Status::OK();
 }
 
-Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                                        const VariantConfig& config) {
     try {
         // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos));
-        vectorized::schema_util::finalize_variant_columns(block, variant_pos,
+        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos, config));
+        vectorized::schema_util::finalize_variant_columns(block, variant_pos, config,
                                                           false /*not ingore sparse*/);
         vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
     } catch (const doris::Exception& e) {
@@ -389,7 +395,8 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
     return Status::OK();
 }
 
-Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             const VariantConfig& config) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         const auto& column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -421,7 +428,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) 
                             : var.get_root();
         }
 
-        MutableColumnPtr variant_column = ColumnObject::create(true);
+        MutableColumnPtr variant_column = ColumnObject::create(config);
         parse_json_to_variant(*variant_column.get(),
                               assert_cast<const ColumnString&>(*raw_json_column));
         // Wrap variant with nullmap if it is nullable
@@ -438,7 +445,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) 
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                              bool ignore_sparse) {
+                              const VariantConfig& config, bool ignore_sparse) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto& column_ref = block.get_by_position(variant_pos[i]).column->assume_mutable_ref();
         auto& column =
