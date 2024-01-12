@@ -2450,6 +2450,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 
+    @ConfField(mutable = false)
+    public static boolean enable_sts_vpc = true;
+
+    @ConfField(mutable = true)
+    public static int sts_duration = 3600;
+
     @ConfField
     public static int cloud_meta_service_rpc_failed_retry_times = 200;
 
