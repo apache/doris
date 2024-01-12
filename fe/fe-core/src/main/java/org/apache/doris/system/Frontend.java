@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -161,5 +162,9 @@ public class Frontend implements Writable {
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
         sb.append(", ").append(host).append(":").append(editLogPort);
         return sb.toString();
+    }
+
+    public HostInfo toHostInfo() {
+        return new HostInfo(ip, hostName, editLogPort);
     }
 }
