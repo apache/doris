@@ -139,7 +139,9 @@ public:
             return;
         }
         _consumption->add(bytes);
-        _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+        }
     }
 
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
@@ -185,7 +187,7 @@ protected:
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
 
-    std::shared_ptr<QueryStatistics> _query_statistics = std::make_shared<QueryStatistics>();
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

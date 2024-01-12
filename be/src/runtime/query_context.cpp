@@ -133,8 +133,14 @@ std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
 
 void QueryContext::register_mem_tracker_statistics() {
     if (query_mem_tracker) {
-        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
-                print_id(_query_id), query_mem_tracker->get_query_statistics(), coord_addr);
+        std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
+        std::string query_id = print_id(_query_id);
+        if (qs) {
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
+                                                                                 coord_addr);
+        } else {
+            LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
+        }
     }
 }
 
