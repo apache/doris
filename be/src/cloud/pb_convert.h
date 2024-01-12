@@ -19,11 +19,34 @@
 
 namespace doris::cloud {
 
+// RowsetMetaPB <=> RowsetMetaCloudPB
+RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB&);
+RowsetMetaCloudPB doris_rowset_meta_to_cloud(RowsetMetaPB&&);
+void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in);
+void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in);
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB&);
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&&);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in);
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in);
+
+// TabletSchemaPB <=> TabletSchemaCloudPB
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB&);
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(TabletSchemaPB&&);
+void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB& in);
+void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in);
 TabletSchemaPB cloud_tablet_schema_to_doris(const TabletSchemaCloudPB&);
 TabletSchemaPB cloud_tablet_schema_to_doris(TabletSchemaCloudPB&&);
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB& in);
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in);
+
+// TabletMetaPB <=> TabletMetaCloudPB
+TabletMetaCloudPB doris_tablet_meta_to_cloud(const TabletMetaPB&);
+TabletMetaCloudPB doris_tablet_meta_to_cloud(TabletMetaPB&&);
+void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in);
+void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in);
+TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB&);
+TabletMetaPB cloud_tablet_meta_to_doris(TabletMetaCloudPB&&);
+void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in);
+void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in);
 
 } // namespace doris::cloud

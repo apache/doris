@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
@@ -207,7 +208,8 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
             return Status::InternalError("failed to get tablet meta: {}", resp.status().msg());
         }
         *tablet_meta = std::make_shared<TabletMeta>();
-        (*tablet_meta)->init_from_pb(resp.tablet_meta());
+        (*tablet_meta)
+                ->init_from_pb(cloud_tablet_meta_to_doris(std::move(*resp.mutable_tablet_meta())));
         VLOG_DEBUG << "get tablet meta, tablet_id: " << (*tablet_meta)->tablet_id();
         return Status::OK();
     }
