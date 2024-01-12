@@ -183,7 +183,8 @@
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
                 "advanced/compute-node",
-                "advanced/lateral-view"
+                "advanced/lateral-view",
+                "advanced/auto-increment"
             ]
         },
         {
