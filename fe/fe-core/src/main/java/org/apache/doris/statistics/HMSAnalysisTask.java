@@ -33,7 +33,7 @@ import java.util.Set;
 
 public class HMSAnalysisTask extends CommonAnalysisTask {
     private static final Logger LOG = LogManager.getLogger(HMSAnalysisTask.class);
-    private HMSExternalTable table;
+    private HMSExternalTable hmsExternalTable;
 
     // for test
     public HMSAnalysisTask() {
@@ -41,12 +41,18 @@ public class HMSAnalysisTask extends CommonAnalysisTask {
 
     public HMSAnalysisTask(AnalysisInfo info) {
         super(info);
-        table = (HMSExternalTable) tbl;
+        hmsExternalTable = (HMSExternalTable) tbl;
     }
 
     private boolean isPartitionColumn() {
-        return table.getPartitionColumns().stream().anyMatch(c -> c.getName().equals(col.getName()));
+        return hmsExternalTable.getPartitionColumns().stream().anyMatch(c -> c.getName().equals(col.getName()));
     }
+
+    // For test
+    protected void setTable(HMSExternalTable table) {
+        this.hmsExternalTable = table;
+    }
+
 
     @Override
     protected void getOrdinaryColumnStats() throws Exception {
@@ -66,7 +72,7 @@ public class HMSAnalysisTask extends CommonAnalysisTask {
     // Collect the partition column stats through HMS metadata.
     // Get all the partition values and calculate the stats based on the values.
     private void getPartitionColumnStats() throws Exception {
-        Set<String> partitionNames = table.getPartitionNames();
+        Set<String> partitionNames = hmsExternalTable.getPartitionNames();
         Set<String> ndvPartValues = Sets.newHashSet();
         long numNulls = 0;
         long dataSize = 0;
@@ -92,8 +98,9 @@ public class HMSAnalysisTask extends CommonAnalysisTask {
             }
         }
         // Estimate the row count. This value is inaccurate if the table stats is empty.
-        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        long count = tableStatsStatus == null ? table.estimatedRowCount() : tableStatsStatus.rowCount;
+        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
+                .findTableStatsStatus(hmsExternalTable.getId());
+        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
         dataSize = dataSize * count / partitionNames.size();
         numNulls = numNulls * count / partitionNames.size();
         int ndv = ndvPartValues.size();

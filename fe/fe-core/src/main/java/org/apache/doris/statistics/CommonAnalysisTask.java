@@ -63,10 +63,6 @@ public class CommonAnalysisTask extends BaseAnalysisTask {
         }
     }
 
-    // For test
-    protected void setTable(ExternalTable table) {
-        this.table = table;
-    }
 
     /**
      * Get table row count
