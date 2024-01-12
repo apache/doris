@@ -207,17 +207,31 @@ public class PhysicalHashJoin<
                 "join child node is null");
 
         Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(probeExpr);
+        PhysicalRelation target1 = (pair == null) ? null : pair.first;
+        PhysicalRelation target2 = null;
+        pair = ctx.getAliasTransferMap().get(srcExpr);
+        PhysicalRelation srcNode = (pair == null) ? null : pair.first;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
+                        pair = ctx.getAliasTransferMap().get(equalTo.right());
+                        target2 = (pair == null) ? null : pair.first;
                     } else if (probeExpr.equals(equalTo.right())) {
                         probExprList.add(equalTo.left());
+                        pair = ctx.getAliasTransferMap().get(equalTo.left());
+                        target2 = (pair == null) ? null : pair.first;
+                    }
+                    if (target2 != null) {
+                        ctx.getExpandedRF().add(
+                            new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
                     }
                 }
                 probExprList.remove(srcExpr);
+
             }
         }
         for (Expression prob : probExprList) {
@@ -225,20 +239,6 @@ public class PhysicalHashJoin<
                     srcExpr, prob, type, buildSideNdv, exprOrder);
             pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
-        }
-
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
-            return false;
-        }
-        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
         }
 
         return pushedDown;
@@ -257,7 +257,6 @@ public class PhysicalHashJoin<
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
         }
-        // builder.append("jump: ").append(getMutableState(MutableState.KEY_RF_JUMP));
         return builder.toString();
     }
 

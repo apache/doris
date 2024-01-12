@@ -32,8 +32,9 @@ public:
     ~QueryStatisticsCtx() = default;
 
     std::vector<std::shared_ptr<QueryStatistics>> qs_list;
-    std::atomic<bool> is_query_finished;
+    bool is_query_finished;
     TNetworkAddress fe_addr;
+    int64_t query_finish_time;
 };
 
 class RuntimeQueryStatiticsMgr {

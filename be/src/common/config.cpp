@@ -1125,6 +1125,7 @@ DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
+DEFINE_mInt32(tablet_schema_cache_capacity, "102400");
 
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
@@ -1162,6 +1163,8 @@ DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
 DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
+// 30s
+DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
 // clang-format off
 #ifdef BE_TEST

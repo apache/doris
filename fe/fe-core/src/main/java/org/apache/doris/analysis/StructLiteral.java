@@ -46,11 +46,26 @@ public class StructLiteral extends LiteralExpr {
     public StructLiteral(LiteralExpr... exprs) throws AnalysisException {
         type = new StructType();
         children = new ArrayList<>();
+        for (int i = 0; i < exprs.length; i++) {
+            if (!StructType.STRUCT.supportSubType(exprs[i].getType())) {
+                throw new AnalysisException("Invalid element type in STRUCT: " + exprs[i].getType());
+            }
+            ((StructType) type).addField(
+                    new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), exprs[i].getType()));
+            children.add(exprs[i]);
+        }
+    }
+
+    /**
+     * for nereids
+     */
+    public StructLiteral(Type type, LiteralExpr... exprs) throws AnalysisException {
+        this.type = type;
+        this.children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
             if (!StructType.STRUCT.supportSubType(expr.getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT: " + expr.getType());
             }
-            ((StructType) type).addField(new StructField(expr.getType()));
             children.add(expr);
         }
     }
@@ -104,8 +119,8 @@ public class StructLiteral extends LiteralExpr {
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
-            String fieldName = new StructField(child.getType()).getName();
-            list.add("\"" + fieldName + (i + 1) + "\": " + getStringLiteralForComplexType(child));
+            list.add("\"" + ((StructType) type).getFields().get(i).getName() + "\": "
+                    + getStringLiteralForComplexType(child));
         }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
