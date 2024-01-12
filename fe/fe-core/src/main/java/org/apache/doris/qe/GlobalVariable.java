@@ -50,7 +50,7 @@ public final class GlobalVariable {
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
-    public static final String SQL_CONVERTER_SERVICE = "sql_converter_service";
+    public static final String SQL_CONVERTER_SERVICE_URL = "sql_converter_service_url";
     public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
@@ -110,8 +110,8 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = SHOW_FULL_DBNAME_IN_INFO_SCHEMA_DB, flag = VariableMgr.GLOBAL)
     public static boolean showFullDbNameInInfoSchemaDb = false;
 
-    @VariableMgr.VarAttr(name = SQL_CONVERTER_SERVICE, flag = VariableMgr.GLOBAL)
-    public static String sqlConverterService = "";
+    @VariableMgr.VarAttr(name = SQL_CONVERTER_SERVICE_URL, flag = VariableMgr.GLOBAL)
+    public static String sqlConverterServiceUrl = "";
 
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
     public static boolean enableAuditLoader = false;

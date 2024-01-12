@@ -99,7 +99,7 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
 
     @Override
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
-        String targetURL = GlobalVariable.sqlConverterService;
+        String targetURL = GlobalVariable.sqlConverterServiceUrl;
         if (Strings.isNullOrEmpty(targetURL)) {
             return null;
         }
