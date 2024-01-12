@@ -165,6 +165,10 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
+    bool is_shuffled_hash_join() const override {
+        return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+
 private:
     friend class HashJoinBuildSinkLocalState;
 
