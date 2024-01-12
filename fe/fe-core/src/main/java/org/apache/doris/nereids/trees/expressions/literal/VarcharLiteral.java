@@ -21,7 +21,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.Utils;
 
 /**
  * Varchar type literal, in theory,
@@ -30,8 +29,7 @@ import org.apache.doris.nereids.util.Utils;
 public class VarcharLiteral extends StringLikeLiteral {
 
     public VarcharLiteral(String value) {
-        super(value, VarcharType.createVarcharType(Utils.containChinese(value)
-                ? value.length() * CHINESE_CHAR_BYTE_LENGTH : value.length()));
+        super(value, VarcharType.createVarcharType(value.length()));
     }
 
     public VarcharLiteral(String value, int len) {
