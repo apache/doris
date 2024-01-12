@@ -31,16 +31,13 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -61,7 +58,6 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -85,7 +81,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (materializationContexts.isEmpty()) {
             return rewriteResults;
         }
-        List<StructInfo> queryStructInfos = extractStructInfo(queryPlan, cascadesContext);
+        List<StructInfo> queryStructInfos = MaterializedViewUtils.extractStructInfo(queryPlan, cascadesContext);
         // TODO Just Check query queryPlan firstly, support multi later.
         StructInfo queryStructInfo = queryStructInfos.get(0);
         if (!checkPattern(queryStructInfo)) {
@@ -99,7 +95,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (checkIfRewritten(queryPlan, materializationContext)) {
                 continue;
             }
-            List<StructInfo> viewStructInfos = extractStructInfo(materializationContext.getMvPlan(), cascadesContext);
+            List<StructInfo> viewStructInfos = MaterializedViewUtils.extractStructInfo(
+                    materializationContext.getMvPlan(), cascadesContext);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one
                 materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
@@ -145,16 +142,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                     comparisonResult.getErrorMessage()));
                     continue;
                 }
-                // TODO: Use set of list? And consider view expr
-                List<Expression> pulledUpExpressions = ImmutableList.copyOf(comparisonResult.getQueryExpressions());
-                // set pulled up expression to queryStructInfo predicates and update related predicates
-                if (!pulledUpExpressions.isEmpty()) {
-                    queryStructInfo.addPredicates(pulledUpExpressions);
-                }
                 SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
                         queryToViewSlotMapping, comparisonResult, cascadesContext);
                 // Can not compensate, bail out
-                if (compensatePredicates.isEmpty()) {
+                if (compensatePredicates.isInvalid()) {
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Predicate compensate fail",
                                     String.format("query predicates = %s,\n query equivalenceClass = %s, \n"
@@ -222,6 +213,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewriteResults;
     }
 
+    /**
+     * Check the logical properties of rewritten plan by mv is the same with source plan
+     */
     protected boolean checkOutput(Plan sourcePlan, Plan rewrittenPlan, MaterializationContext materializationContext) {
         if (sourcePlan.getGroupExpression().isPresent() && !rewrittenPlan.getLogicalProperties()
                 .equals(sourcePlan.getGroupExpression().get().getOwnerGroup().getLogicalProperties())) {
@@ -238,7 +232,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * Partition will be pruned in query then add the record the partitions to select partitions on
+     * Partition will be pruned in query then add the pruned partitions to select partitions field of
      * catalog relation.
      * Maybe only just some partitions is valid in materialized view, so we should check if the mv can
      * offer the partitions which query used or not.
@@ -285,10 +279,23 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Use target expression to represent the source expression. Visit the source expression,
      * try to replace the source expression with target expression in targetExpressionMapping, if found then
      * replace the source expression by target expression mapping value.
-     * Note: make the target expression map key to source based according to targetExpressionNeedSourceBased,
-     * if targetExpressionNeedSourceBased is true, we should make it source based.
-     * the key expression in targetExpressionMapping should be shuttled. with the method
-     * ExpressionUtils.shuttleExpressionWithLineage.
+     *
+     * @param sourceExpressionsToWrite the source expression to write by target expression
+     * @param sourcePlan the source plan witch the source expression belong to
+     * @param targetExpressionMapping target expression mapping, if finding the expression in key set of the mapping
+     *         then use the corresponding value of mapping to replace it
+     * @param targetExpressionNeedSourceBased if targetExpressionNeedSourceBased is true,
+     *         we should make the target expression map key to source based,
+     *         Note: the key expression in targetExpressionMapping should be shuttled. with the method
+     *         ExpressionUtils.shuttleExpressionWithLineage.
+     *         example as following:
+     *         source                           target
+     *         project(slot 1, 2)              project(slot 3, 2, 1)
+     *         scan(table)                        scan(table)
+     *         then
+     *         transform source to:
+     *         project(slot 2, 1)
+     *         target
      */
     protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
             ExpressionMapping targetExpressionMapping, SlotMapping sourceToTargetMapping,
@@ -296,15 +303,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
         // can not be represented by target expressions, return null.
-        //
-        // example as following:
-        //     source                           target
-        //        project(slot 1, 2)              project(slot 3, 2, 1)
-        //          scan(table)                        scan(table)
-        //
-        //     transform source to:
-        //        project(slot 2, 1)
-        //            target
         // generate target to target replacement expression mapping, and change target expression to source based
         List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
                 sourceExpressionsToWrite, sourcePlan);
@@ -348,6 +346,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewrittenExpressions;
     }
 
+    /**
+     * Rewrite single expression, the logic is the same with above
+     */
     protected Expression rewriteExpression(Expression sourceExpressionsToWrite, Plan sourcePlan,
             ExpressionMapping targetExpressionMapping, SlotMapping sourceToTargetMapping,
             boolean targetExpressionNeedSourceBased) {
@@ -374,27 +375,43 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             ComparisonResult comparisonResult,
             CascadesContext cascadesContext
     ) {
+        // TODO: Use set of list? And consider view expr
+        List<Expression> queryPulledUpExpressions = ImmutableList.copyOf(comparisonResult.getQueryExpressions());
+        // set pulled up expression to queryStructInfo predicates and update related predicates
+        if (!queryPulledUpExpressions.isEmpty()) {
+            queryStructInfo.addPredicates(queryPulledUpExpressions);
+        }
+        List<Expression> viewPulledUpExpressions = ImmutableList.copyOf(comparisonResult.getViewExpressions());
+        // set pulled up expression to viewStructInfo predicates and update related predicates
+        if (!viewPulledUpExpressions.isEmpty()) {
+            viewStructInfo.addPredicates(viewPulledUpExpressions);
+        }
         // viewEquivalenceClass to query based
         SlotMapping viewToQuerySlotMapping = queryToViewSlotMapping.inverse();
-        final Set<Expression> equalCompensateConjunctions = compensateEquivalence(
+        // equal predicate compensate
+        final Set<Expression> equalCompensateConjunctions = Predicates.compensateEquivalence(
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
                 comparisonResult);
         // range compensate
-        final Set<Expression> rangeCompensatePredicates = compensateRangePredicate(
+        final Set<Expression> rangeCompensatePredicates = Predicates.compensateRangePredicate(
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
                 comparisonResult);
         // residual compensate
-        final Set<Expression> residualCompensatePredicates = compensateResidualPredicate(
+        final Set<Expression> residualCompensatePredicates = Predicates.compensateResidualPredicate(
                 queryStructInfo,
                 viewStructInfo,
                 viewToQuerySlotMapping,
                 comparisonResult);
-        // if the join type in query and mv plan is different, we should check and add filter on mv to make
-        // the mv join type is accord with query
+        if (equalCompensateConjunctions == null || rangeCompensatePredicates == null
+                || residualCompensatePredicates == null) {
+            return SplitPredicate.INVALID_INSTANCE;
+        }
+        // if the join type in query and mv plan is different, we should check query is have the
+        // filters which rejects null
         Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
         // check query is use the null reject slot which view comparison need
         if (!requireNoNullableViewSlot.isEmpty()) {
@@ -403,7 +420,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     cascadesContext);
             if (nullRejectPredicates.isEmpty() || queryPulledUpPredicates.containsAll(nullRejectPredicates)) {
                 // query has not null reject predicates, so return
-                return SplitPredicate.invalid();
+                return SplitPredicate.INVALID_INSTANCE;
             }
             Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
                     .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
@@ -413,120 +430,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     .collect(Collectors.toSet());
             if (requireNoNullableViewSlot.stream().anyMatch(
                     set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty())) {
-                return SplitPredicate.invalid();
+                return SplitPredicate.INVALID_INSTANCE;
             }
         }
-        return SplitPredicate.of(ExpressionUtils.and(equalCompensateConjunctions),
-                rangeCompensatePredicates.isEmpty() ? BooleanLiteral.of(true)
+        return SplitPredicate.of(equalCompensateConjunctions.isEmpty() ? BooleanLiteral.TRUE
+                        : ExpressionUtils.and(equalCompensateConjunctions),
+                rangeCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(rangeCompensatePredicates),
-                residualCompensatePredicates.isEmpty() ? BooleanLiteral.of(true)
+                residualCompensatePredicates.isEmpty() ? BooleanLiteral.TRUE
                         : ExpressionUtils.and(residualCompensatePredicates));
-    }
-
-    protected Set<Expression> compensateEquivalence(StructInfo queryStructInfo,
-            StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping,
-            ComparisonResult comparisonResult) {
-        EquivalenceClass queryEquivalenceClass = queryStructInfo.getEquivalenceClass();
-        EquivalenceClass viewEquivalenceClass = viewStructInfo.getEquivalenceClass();
-        Map<SlotReference, SlotReference> viewToQuerySlotMap = viewToQuerySlotMapping.toSlotReferenceMap();
-        EquivalenceClass viewEquivalenceClassQueryBased = viewEquivalenceClass.permute(viewToQuerySlotMap);
-        if (viewEquivalenceClassQueryBased == null) {
-            return ImmutableSet.of();
-        }
-        final Set<Expression> equalCompensateConjunctions = new HashSet<>();
-        if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
-            equalCompensateConjunctions.add(BooleanLiteral.of(true));
-        }
-        if (queryEquivalenceClass.isEmpty()
-                && !viewEquivalenceClass.isEmpty()) {
-            return ImmutableSet.of();
-        }
-        EquivalenceClassSetMapping queryToViewEquivalenceMapping =
-                EquivalenceClassSetMapping.generate(queryEquivalenceClass, viewEquivalenceClassQueryBased);
-        // can not map all target equivalence class, can not compensate
-        if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
-                < viewEquivalenceClass.getEquivalenceSetList().size()) {
-            return ImmutableSet.of();
-        }
-        // do equal compensate
-        Set<Set<SlotReference>> mappedQueryEquivalenceSet =
-                queryToViewEquivalenceMapping.getEquivalenceClassSetMap().keySet();
-        queryEquivalenceClass.getEquivalenceSetList().forEach(
-                queryEquivalenceSet -> {
-                    // compensate the equivalence in query but not in view
-                    if (!mappedQueryEquivalenceSet.contains(queryEquivalenceSet)) {
-                        Iterator<SlotReference> iterator = queryEquivalenceSet.iterator();
-                        SlotReference first = iterator.next();
-                        while (iterator.hasNext()) {
-                            Expression equals = new EqualTo(first, iterator.next());
-                            equalCompensateConjunctions.add(equals);
-                        }
-                    } else {
-                        // compensate the equivalence both in query and view, but query has more equivalence
-                        Set<SlotReference> viewEquivalenceSet =
-                                queryToViewEquivalenceMapping.getEquivalenceClassSetMap().get(queryEquivalenceSet);
-                        Set<SlotReference> copiedQueryEquivalenceSet = new HashSet<>(queryEquivalenceSet);
-                        copiedQueryEquivalenceSet.removeAll(viewEquivalenceSet);
-                        SlotReference first = viewEquivalenceSet.iterator().next();
-                        for (SlotReference slotReference : copiedQueryEquivalenceSet) {
-                            Expression equals = new EqualTo(first, slotReference);
-                            equalCompensateConjunctions.add(equals);
-                        }
-                    }
-                }
-        );
-        return equalCompensateConjunctions;
-    }
-
-    protected Set<Expression> compensateResidualPredicate(StructInfo queryStructInfo,
-            StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping,
-            ComparisonResult comparisonResult) {
-        SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
-        SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
-        Expression queryResidualPredicate = querySplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicate = viewSplitPredicate.getResidualPredicate();
-        Expression viewResidualPredicateQueryBased =
-                ExpressionUtils.replace(viewResidualPredicate, viewToQuerySlotMapping.toSlotReferenceMap());
-        Set<Expression> queryResidualSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(queryResidualPredicate));
-        Set<Expression> viewResidualQueryBasedSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(viewResidualPredicateQueryBased));
-        // query residual predicate can not contain all view residual predicate when view have residual predicate,
-        // bail out
-        if (!viewResidualPredicateQueryBased.equals(BooleanLiteral.TRUE)
-                && !queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
-            return ImmutableSet.of();
-        }
-        queryResidualSet.removeAll(viewResidualQueryBasedSet);
-        return queryResidualSet;
-    }
-
-    protected Set<Expression> compensateRangePredicate(StructInfo queryStructInfo,
-            StructInfo viewStructInfo,
-            SlotMapping viewToQuerySlotMapping,
-            ComparisonResult comparisonResult) {
-        // TODO range predicates and residual predicates compensate, Simplify implementation.
-        SplitPredicate querySplitPredicate = queryStructInfo.getSplitPredicate();
-        SplitPredicate viewSplitPredicate = viewStructInfo.getSplitPredicate();
-
-        Expression queryRangePredicate = querySplitPredicate.getRangePredicate();
-        Expression viewRangePredicate = viewSplitPredicate.getRangePredicate();
-        Expression viewRangePredicateQueryBased =
-                ExpressionUtils.replace(viewRangePredicate, viewToQuerySlotMapping.toSlotReferenceMap());
-
-        Set<Expression> queryRangeSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(queryRangePredicate));
-        Set<Expression> viewRangeQueryBasedSet =
-                Sets.newHashSet(ExpressionUtils.extractConjunction(viewRangePredicateQueryBased));
-        // query range predicate can not contain all view range predicate when view have range predicate, bail out
-        if (!viewRangePredicateQueryBased.equals(BooleanLiteral.TRUE)
-                && !queryRangeSet.containsAll(viewRangeQueryBasedSet)) {
-            return ImmutableSet.of();
-        }
-        queryRangeSet.removeAll(viewRangeQueryBasedSet);
-        return queryRangeSet;
     }
 
     /**
@@ -552,23 +464,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return MatchMode.COMPLETE;
         }
         return MatchMode.NOT_MATCH;
-    }
-
-    /**
-     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
-     */
-    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
-        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
-                .isEmpty()) {
-            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
-        } else {
-            // build struct info and add them to current group
-            List<StructInfo> structInfos = StructInfo.of(plan);
-            if (plan.getGroupExpression().isPresent()) {
-                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
-            }
-            return structInfos;
-        }
     }
 
     /**
