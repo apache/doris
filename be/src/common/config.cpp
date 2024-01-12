@@ -453,8 +453,8 @@ DEFINE_mInt32(finished_migration_tasks_size, "10000");
 // If size less than this, the remaining rowsets will be force to complete
 DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
-// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
-DEFINE_mInt32(migration_task_timeout_secs, "20480");
+// timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
+DEFINE_mInt32(migration_task_timeout_secs, "300");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
