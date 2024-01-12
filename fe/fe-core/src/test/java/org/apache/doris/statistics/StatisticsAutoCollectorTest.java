@@ -31,6 +31,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -459,5 +460,75 @@ public class StatisticsAutoCollectorTest {
         for (BaseAnalysisTask task : analysisTasks.values()) {
             Assertions.assertNotNull(task.getTableSample());
         }
+    }
+
+    @Test
+    public void testDisableAuto1() throws Exception {
+        InternalCatalog catalog1 = new InternalCatalog();
+        List<CatalogIf> catalogs = Lists.newArrayList();
+        catalogs.add(catalog1);
+
+        new MockUp<StatisticsAutoCollector>() {
+            @Mock
+            public List<CatalogIf> getCatalogsInOrder() {
+                return catalogs;
+            }
+
+            @Mock
+            protected boolean canCollect() {
+                return false;
+            }
+
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        new Expectations(catalog1) {{
+                catalog1.enableAutoAnalyze();
+                times = 0;
+            }};
+
+        sac.analyzeAll();
+    }
+
+    @Test
+    public void testDisableAuto2() throws Exception {
+        InternalCatalog catalog1 = new InternalCatalog();
+        List<CatalogIf> catalogs = Lists.newArrayList();
+        catalogs.add(catalog1);
+
+        Database db1 = new Database();
+        List<DatabaseIf<? extends TableIf>> dbs = Lists.newArrayList();
+        dbs.add(db1);
+
+        new MockUp<StatisticsAutoCollector>() {
+            int count = 0;
+            boolean[] canCollectReturn = {true, false};
+            @Mock
+            public List<CatalogIf> getCatalogsInOrder() {
+                return catalogs;
+            }
+
+            @Mock
+            public List<DatabaseIf<? extends TableIf>> getDatabasesInOrder(CatalogIf<DatabaseIf> catalog) {
+                return dbs;
+            }
+
+                @Mock
+            protected boolean canCollect() {
+                return canCollectReturn[count++];
+            }
+
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        new Expectations(catalog1, db1) {{
+                catalog1.enableAutoAnalyze();
+                result = true;
+                times = 1;
+                db1.getFullName();
+                times = 0;
+            }};
+
+        sac.analyzeAll();
     }
 }
