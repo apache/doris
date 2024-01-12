@@ -433,14 +433,14 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-StorageEngine::Disk_remaining_level get_available_level(double disk_usage_percent) {
+StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent) {
     assert(disk_usage_percent <= 1);
     if (disk_usage_percent < 0.7) {
-        return StorageEngine::Disk_remaining_level::LOW;
+        return StorageEngine::DiskRemainingLevel::LOW;
     } else if (disk_usage_percent < 0.85) {
-        return StorageEngine::Disk_remaining_level::MID;
+        return StorageEngine::DiskRemainingLevel::MID;
     }
-    return StorageEngine::Disk_remaining_level::HIGH;
+    return StorageEngine::DiskRemainingLevel::HIGH;
 }
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
@@ -448,7 +448,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     struct DirInfo {
         DataDir* data_dir;
 
-        StorageEngine::Disk_remaining_level available_level;
+        StorageEngine::DiskRemainingLevel available_level;
 
         bool operator<(const DirInfo& other) const {
             if (available_level != other.available_level) {
@@ -466,20 +466,14 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         std::lock_guard<std::mutex> l(_store_lock);
 
         auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
+
         curr_index = _create_tablet_idx_lru_cache->get_index(key);
         // -1, lru can't find key
         if (curr_index == -1) {
-            auto init_num = rand() % 100;
-            curr_index = init_num;
-            _create_tablet_idx_lru_cache->set_index(key, init_num);
-        } else {
-            int64_t next_index = curr_index + 1;
-            // int64 overflow
-            if (next_index < 0) {
-                curr_index = 0;
-            }
-            _create_tablet_idx_lru_cache->set_index(key, next_index);
+            curr_index = std::max(0, _last_use_index[storage_medium] + 1);
         }
+        _last_use_index[storage_medium] = curr_index;
+        _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
 
         for (auto& it : _store_map) {
             DataDir* data_dir = it.second;

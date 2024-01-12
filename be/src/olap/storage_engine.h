@@ -84,7 +84,7 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    enum class Disk_remaining_level { LOW, MID, HIGH };
+    enum class DiskRemainingLevel { LOW, MID, HIGH };
 
     [[nodiscard]] Status open();
 
@@ -493,6 +493,9 @@ private:
 
     std::atomic<bool> _need_clean_trash {false};
 
+    // next index for create tablet
+    std::map<TStorageMedium::type, int> _last_use_index;
+
     std::unique_ptr<CreateTabletIdxCache> _create_tablet_idx_lru_cache;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
@@ -510,9 +513,6 @@ public:
 
     // -1 not found key in lru
     int64 get_index(const std::string& key) {
-        if (key.empty()) {
-            return {};
-        }
         auto lru_handle = cache()->lookup(key);
         if (lru_handle) {
             Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
@@ -526,9 +526,6 @@ public:
 
     void set_index(const std::string& key, int next_idx) {
         assert(next_idx >= 0);
-        if (key.empty()) {
-            return;
-        }
         CacheValue* value = new CacheValue;
         value->last_visit_time = UnixMillis();
         value->idx = next_idx;
@@ -549,9 +546,6 @@ public:
             : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
                              LRUCacheType::NUMBER,
                              /*stale_sweep_time_s*/ 30 * 60) {}
-
-private:
-    static constexpr char DELIMITER = '-';
 };
 
 } // namespace doris
