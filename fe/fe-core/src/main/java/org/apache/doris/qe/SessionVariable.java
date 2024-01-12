@@ -809,7 +809,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
-    private boolean enablePipelineXEngine = true;
+    private boolean enablePipelineXEngine = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
