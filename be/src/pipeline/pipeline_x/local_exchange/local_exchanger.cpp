@@ -121,6 +121,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         auto map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                            ._shuffle_idx_to_instance_idx;
         for (size_t i = 0; i < _num_partitions; i++) {
+            DCHECK(map.contains(i));
+            DCHECK(map[i] >= 0 && map[i] < _num_partitions) << map[i] << " " << _num_partitions;
             size_t start = local_state._partition_rows_histogram[i];
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {

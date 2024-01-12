@@ -106,6 +106,12 @@ public:
         _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
         _type = type;
         if (_type == ExchangeType::HASH_SHUFFLE) {
+            if (_shuffle_idx_to_instance_idx.contains(-1)) {
+                _shuffle_idx_to_instance_idx.clear();
+                for (int i = 0; i < _num_partitions; i++) {
+                    _shuffle_idx_to_instance_idx.insert({i, i});
+                }
+            }
             _partitioner.reset(
                     new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
             RETURN_IF_ERROR(_partitioner->init(_texprs));
@@ -145,7 +151,7 @@ private:
     const std::vector<TExpr>& _texprs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
-    const std::map<int, int> _shuffle_idx_to_instance_idx;
+    std::map<int, int> _shuffle_idx_to_instance_idx;
 };
 
 } // namespace doris::pipeline
