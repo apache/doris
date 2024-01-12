@@ -48,7 +48,7 @@
         while (DebugPoints::instance()->is_enable(DP_NAME)) {           \
             std::this_thread::sleep_for(std::chrono::milliseconds(10)); \
         }                                                               \
-        LOG(INFO) << "end debug block" << DP_NAME;                      \
+        LOG(INFO) << "end debug block " << DP_NAME;                     \
     }
 
 namespace doris {
