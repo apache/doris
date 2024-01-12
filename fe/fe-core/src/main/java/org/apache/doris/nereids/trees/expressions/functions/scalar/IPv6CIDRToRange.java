@@ -23,8 +23,8 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IPv6Type;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -49,9 +49,9 @@ public class IPv6CIDRToRange extends ScalarFunction
         structFields.add(new StructField("max", IPv6Type.INSTANCE, false, ""));
         StructType retType = new StructType(structFields.build());
         SIGNATURES = ImmutableList.of(
-                FunctionSignature.ret(retType).args(IPv6Type.INSTANCE, BigIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(VarcharType.SYSTEM_DEFAULT, BigIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(StringType.INSTANCE, BigIntType.INSTANCE));
+                FunctionSignature.ret(retType).args(IPv6Type.INSTANCE, SmallIntType.INSTANCE),
+                FunctionSignature.ret(retType).args(VarcharType.SYSTEM_DEFAULT, SmallIntType.INSTANCE),
+                FunctionSignature.ret(retType).args(StringType.INSTANCE, SmallIntType.INSTANCE));
     }
 
     public IPv6CIDRToRange(Expression arg0, Expression arg1) {

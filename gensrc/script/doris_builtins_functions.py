@@ -2020,8 +2020,8 @@ visible_functions = {
         [['is_ipv6_string'], 'BOOLEAN', ['STRING'], 'ALWAYS_NULLABLE'],
         [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv6_cidr_to_range'], 'ANY_STRUCT_TYPE', ['VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['ipv6_cidr_to_range'], 'ANY_STRUCT_TYPE', ['STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], 'ALWAYS_NULLABLE'],
     ],
 
     "NonNullalbe": [
