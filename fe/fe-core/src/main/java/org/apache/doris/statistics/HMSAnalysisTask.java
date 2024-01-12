@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.hive.util.HiveUtil;
@@ -50,6 +51,7 @@ public class HMSAnalysisTask extends CommonAnalysisTask {
 
     // For test
     protected void setTable(HMSExternalTable table) {
+        setTable((ExternalTable) table);
         this.hmsExternalTable = table;
     }
 
