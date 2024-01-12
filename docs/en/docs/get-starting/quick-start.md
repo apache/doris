@@ -219,8 +219,8 @@ storage_root_path=/path/your/data_dir
 
 >Notes.
 >
->1. The default directory is in the storage directory of the BE installation directory
->2. The storage directory for the BE configuration must be created first
+>1. The default directory is the storage directory of the BE installation directory
+>2. The storage directory specified in the BE configuration must first be created manually
 
 3. Set JAVA_HOME environment variable
 
