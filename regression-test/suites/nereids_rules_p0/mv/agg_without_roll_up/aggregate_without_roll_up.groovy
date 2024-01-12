@@ -172,8 +172,8 @@ suite("aggregate_without_roll_up") {
         }
     }
 
-//    // single table
-//    // with filter
+    // single table
+    // with filter
     def mv1_0 = "select o_shippriority, o_comment, " +
             "sum(o_totalprice) as sum_total, " +
             "max(o_totalprice) as max_total, " +
@@ -726,6 +726,52 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_1_after "${query19_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_1"""
 
+    // with duplicated group by column
+    def mv19_2 = """
+            select
+            o_orderdate as o_orderdate_1,
+            l_partkey as l_partkey_1,
+            l_suppkey as l_suppkey_1,
+            l_suppkey as l_suppkey_2,
+            l_partkey as l_partkey_2,
+            o_orderdate as o_orderdate_2,
+            sum(o_totalprice),
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey,
+            l_suppkey,
+            l_partkey,
+            o_orderdate;
+    """
+    def query19_2 = """
+            select
+            o_orderdate as o_orderdate_1,
+            l_partkey as l_partkey_1,
+            l_suppkey as l_suppkey_1,
+            l_suppkey as l_suppkey_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_suppkey,
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query19_2_before "${query19_2}"
+    check_rewrite(mv19_2, query19_2, "mv19_2")
+    order_qt_query19_2_after "${query19_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_2"""
+
     // without group, scalar aggregate
     def mv20_0 = "select count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
@@ -773,4 +819,61 @@ suite("aggregate_without_roll_up") {
     check_rewrite(mv20_0, query20_0, "mv20_0")
     order_qt_query20_0_after "${query20_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
+
+    // mv is not scalar aggregate bug query is, should not rewrite
+    def mv20_1 = """
+            select
+            l_shipmode,
+            l_shipinstruct,
+            sum(l_extendedprice),
+            count(*)
+            from lineitem
+            left join
+            orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            group by 
+            l_shipmode,
+            l_shipinstruct;
+    """
+    def query20_1 =
+            """
+            select
+            sum(l_extendedprice),
+            count(*)
+            from lineitem
+            left join
+            orders
+            on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+    """
+    order_qt_query20_1_before "${query20_1}"
+    check_not_match(mv20_1, query20_1, "mv20_1")
+    order_qt_query20_1_after "${query20_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
+
+    // mv is scalar aggregate bug query not, should not rewrite
+    def mv20_2 = """
+            select
+            sum(l_extendedprice),
+            count(*)
+            from lineitem
+            left join
+            orders
+            on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+    """
+    def query20_2 = """
+            select
+            l_shipmode,
+            l_shipinstruct,
+            sum(l_extendedprice),
+            count(*)
+            from lineitem
+            left join
+            orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            group by
+            l_shipmode,
+            l_shipinstruct;
+    """
+    order_qt_query20_2_before "${query20_2}"
+    check_not_match(mv20_2, query20_2, "mv20_2")
+    order_qt_query20_2_after "${query20_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_2"""
 }
