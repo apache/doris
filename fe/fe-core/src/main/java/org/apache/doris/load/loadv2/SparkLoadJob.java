@@ -98,7 +98,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,30 +119,45 @@ public class SparkLoadJob extends BulkLoadJob {
 
     // --- members below need persist ---
     // create from resourceDesc when job created
+    @SerializedName(value = "sparkResource")
     private SparkResource sparkResource;
     // members below updated when job state changed to etl
+    @SerializedName(value = "etlStartTimestamp")
     private long etlStartTimestamp = -1;
     // for spark yarn
+    @SerializedName(value = "appId")
     private String appId = "";
     // spark job outputPath
+    @SerializedName(value = "etlOutputPath")
     private String etlOutputPath = "";
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
+    @SerializedName(value = "tabletMetaToFileInfo")
     private Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     // --- members below not persist ---
+    @SerializedName(value = "resourceDesc")
     private ResourceDesc resourceDesc;
     // for spark standalone
+    @SerializedName(value = "sparkLoadAppHandle")
     private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
+    @SerializedName(value = "quorumFinishTimestamp")
     private long quorumFinishTimestamp = -1;
     // below for push task
+    @SerializedName(value = "tableToLoadPartitions")
     private Map<Long, Set<Long>> tableToLoadPartitions = Maps.newHashMap();
+    @SerializedName(value = "indexToPushBrokerReaderParams")
     private Map<Long, PushBrokerReaderParams> indexToPushBrokerReaderParams = Maps.newHashMap();
+    @SerializedName(value = "indexToSchemaHash")
     private Map<Long, Integer> indexToSchemaHash = Maps.newHashMap();
+    @SerializedName(value = "tabletToSentReplicaPushTask")
     private Map<Long, Map<Long, PushTask>> tabletToSentReplicaPushTask = Maps.newHashMap();
+    @SerializedName(value = "finishedReplicas")
     private Set<Long> finishedReplicas = Sets.newHashSet();
+    @SerializedName(value = "quorumTablets")
     private Set<Long> quorumTablets = Sets.newHashSet();
+    @SerializedName(value = "fullTablets")
     private Set<Long> fullTablets = Sets.newHashSet();
 
     // only for log replay
@@ -768,22 +782,8 @@ public class SparkLoadJob extends BulkLoadJob {
         }
     }
 
+    @Deprecated
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        sparkResource.write(out);
-        sparkLoadAppHandle.write(out);
-        out.writeLong(etlStartTimestamp);
-        Text.writeString(out, appId);
-        Text.writeString(out, etlOutputPath);
-        out.writeInt(tabletMetaToFileInfo.size());
-        for (Map.Entry<String, Pair<String, Long>> entry : tabletMetaToFileInfo.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue().first);
-            out.writeLong(entry.getValue().second);
-        }
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         sparkResource = (SparkResource) Resource.read(in);

@@ -17,14 +17,18 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TTxnCommitAttachment;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -58,32 +62,49 @@ public abstract class TxnCommitAttachment implements Writable {
     }
 
     public static TxnCommitAttachment read(DataInput in) throws IOException {
-        TxnCommitAttachment attachment = null;
-        LoadJobSourceType type = LoadJobSourceType.valueOf(Text.readString(in));
-        if (type == LoadJobSourceType.ROUTINE_LOAD_TASK) {
-            attachment = new RLTaskTxnCommitAttachment();
-        } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
-            attachment = new LoadJobFinalOperation();
-        } else if (type == LoadJobSourceType.BACKEND_STREAMING) {
-            attachment = new MiniLoadTxnCommitAttachment();
-        } else if (type == LoadJobSourceType.FRONTEND) {
-            // spark load
-            attachment = new LoadJobFinalOperation();
-        } else {
-            throw new IOException("Unknown load job source type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            TxnCommitAttachment attachment = null;
+            LoadJobSourceType type = LoadJobSourceType.valueOf(Text.readString(in));
+            if (type == LoadJobSourceType.ROUTINE_LOAD_TASK) {
+                attachment = new RLTaskTxnCommitAttachment();
+            } else if (type == LoadJobSourceType.BATCH_LOAD_JOB) {
+                attachment = new LoadJobFinalOperation();
+            } else if (type == LoadJobSourceType.BACKEND_STREAMING) {
+                attachment = new MiniLoadTxnCommitAttachment();
+            } else if (type == LoadJobSourceType.FRONTEND) {
+                // spark load
+                attachment = new LoadJobFinalOperation();
+            } else {
+                throw new IOException("Unknown load job source type: " + type.name());
+            }
 
-        attachment.setTypeRead(true);
-        attachment.readFields(in);
-        return attachment;
+            attachment.setTypeRead(true);
+            attachment.readFields(in);
+            return attachment;
+        }
+        String json = Text.readString(in);
+        JsonObject jsonObject = GsonUtils.GSON.fromJson(json, JsonObject.class);
+        LoadJobSourceType type = LoadJobSourceType.valueOf(jsonObject.get("sourceType").getAsString());
+        switch (type) {
+            case ROUTINE_LOAD_TASK:
+                return GsonUtils.GSON.fromJson(json, RLTaskTxnCommitAttachment.class);
+            case BATCH_LOAD_JOB:
+            case FRONTEND:
+                return GsonUtils.GSON.fromJson(json, LoadJobFinalOperation.class);
+            case BACKEND_STREAMING:
+                return GsonUtils.GSON.fromJson(json, MiniLoadTxnCommitAttachment.class);
+            default:
+                throw new IOException("Unknown load job source type: " + type.name());
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, sourceType.name());
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             sourceType = LoadJobSourceType.valueOf(Text.readString(in));

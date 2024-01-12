@@ -45,6 +45,11 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 
 public class LoadJobTest {
@@ -179,5 +184,38 @@ public class LoadJobTest {
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
         Assert.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
         Assert.assertEquals(0, loadJob.idToTasks.size());
+    }
+
+    @Test
+    public void testSerialization() throws IOException, AnalysisException, DdlException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("loadv2.loadJob", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, "1000");
+        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.1");
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, "1024");
+        jobProperties.put(LoadStmt.STRICT_MODE, "True");
+
+        LoadJob loadJob1 = new BrokerLoadJob();
+        loadJob1.setJobProperties(jobProperties);
+
+        loadJob1.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        LoadJob loadJob2 = LoadJob.read(in);
+
+        Assert.assertEquals(loadJob1.getTimeout(), loadJob2.getTimeout());
+        Assert.assertEquals(loadJob1.getMaxFilterRatio(), loadJob2.getMaxFilterRatio());
+        Assert.assertEquals(loadJob1.getExecMemLimit(), loadJob2.getExecMemLimit());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
     }
 }

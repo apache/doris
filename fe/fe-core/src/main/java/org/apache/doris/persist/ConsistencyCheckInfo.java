@@ -17,7 +17,13 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,18 +31,27 @@ import java.io.IOException;
 
 public class ConsistencyCheckInfo implements Writable {
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "indexId")
     private long indexId;
+    @SerializedName(value = "tabletId")
     private long tabletId;
 
+    @SerializedName(value = "lastCheckTime")
     private long lastCheckTime;
 
+    @SerializedName(value = "checkedVersion")
     private long checkedVersion;
     @Deprecated
+    @SerializedName(value = "checkedVersionHash")
     private long checkedVersionHash;
 
+    @SerializedName(value = "isConsistent")
     private boolean isConsistent;
 
     public ConsistencyCheckInfo() {
@@ -91,19 +106,11 @@ public class ConsistencyCheckInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-        out.writeLong(indexId);
-        out.writeLong(tabletId);
-
-        out.writeLong(lastCheckTime);
-        out.writeLong(checkedVersion);
-        out.writeLong(checkedVersionHash);
-
-        out.writeBoolean(isConsistent);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
@@ -119,8 +126,12 @@ public class ConsistencyCheckInfo implements Writable {
     }
 
     public static ConsistencyCheckInfo read(DataInput in) throws IOException {
-        ConsistencyCheckInfo info = new ConsistencyCheckInfo();
-        info.readFields(in);
-        return info;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            ConsistencyCheckInfo info = new ConsistencyCheckInfo();
+            info.readFields(in);
+            return info;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ConsistencyCheckInfo.class);
     }
 }

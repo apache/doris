@@ -19,15 +19,16 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,10 +47,15 @@ import java.util.Map;
  */
 public class ScalarFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(ScalarFunction.class);
+    @SerializedName(value = "functionType")
+    private final FunctionType functionType = FunctionType.SCALAR;
     // The name inside the binary at location_ that contains this particular
     // function. e.g. org.example.MyUdf.class.
+    @SerializedName(value = "symbolName")
     private String symbolName;
+    @SerializedName(value = "prepareFnSymbol")
     private String prepareFnSymbol;
+    @SerializedName(value = "closeFnSymbol")
     private String closeFnSymbol;
 
     // Only used for serialization
@@ -241,17 +247,13 @@ public class ScalarFunction extends Function {
     }
 
     @Override
-    public void write(DataOutput output) throws IOException {
-        // 1. type
-        FunctionType.SCALAR.write(output);
-        // 2. parent
-        super.writeFields(output);
-        // 3.symbols
-        Text.writeString(output, symbolName);
-        IOUtils.writeOptionString(output, prepareFnSymbol);
-        IOUtils.writeOptionString(output, closeFnSymbol);
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
+    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
         symbolName = Text.readString(input);

@@ -24,8 +24,9 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 /**
@@ -33,12 +34,19 @@ import java.io.IOException;
  * It is used to edit the job final state.
  */
 public class LoadJobFinalOperation extends TxnCommitAttachment implements Writable {
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "loadingStatus")
     private EtlStatus loadingStatus = new EtlStatus();
+    @SerializedName(value = "progress")
     private int progress;
+    @SerializedName(value = "loadStartTimestamp")
     private long loadStartTimestamp;
+    @SerializedName(value = "finishTimestamp")
     private long finishTimestamp;
+    @SerializedName(value = "jobState")
     private JobState jobState;
+    @SerializedName(value = "failMsg")
     // optional
     private FailMsg failMsg;
 
@@ -86,23 +94,8 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
         return failMsg;
     }
 
+    @Deprecated
     @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        out.writeLong(id);
-        loadingStatus.write(out);
-        out.writeInt(progress);
-        out.writeLong(loadStartTimestamp);
-        out.writeLong(finishTimestamp);
-        Text.writeString(out, jobState.name());
-        if (failMsg == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            failMsg.write(out);
-        }
-    }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         id = in.readLong();

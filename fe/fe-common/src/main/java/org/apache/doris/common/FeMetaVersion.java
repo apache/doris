@@ -72,9 +72,11 @@ public final class FeMetaVersion {
     public static final int VERSION_125 = 125;
     // For write/read function nullable mode info
     public static final int VERSION_126 = 126;
+    // change mate to json
+    public static final int VERSION_127 = 127;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_126;
+    public static final int VERSION_CURRENT = VERSION_127;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

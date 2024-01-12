@@ -17,7 +17,13 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -25,6 +31,7 @@ import java.io.IOException;
 
 // Write this class to bdb periodically
 public class Timestamp implements Writable {
+    @SerializedName(value = "timestamp")
     private long timestamp;
 
     public Timestamp() {
@@ -37,9 +44,21 @@ public class Timestamp implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(timestamp);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static Timestamp read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            Timestamp timestamp = new Timestamp();
+            timestamp.readFields(in);
+            return timestamp;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Timestamp.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         timestamp = in.readLong();
     }

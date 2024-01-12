@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -33,6 +34,12 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class SmallFileMgrTest {
 
@@ -145,4 +152,27 @@ public class SmallFileMgrTest {
         Assert.assertEquals(10001L, gotFile.id);
     }
 
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("smallFileMgr", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        SmallFile smallFile1 = new SmallFile(1L, "kafka", "file1", 10001L, "ABCD", 12, "12345", true);
+
+        smallFile1.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        SmallFile smallFile2 = SmallFile.read(in);
+
+        Assert.assertEquals(smallFile1.getContentBytes(), smallFile2.getContentBytes());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
 }

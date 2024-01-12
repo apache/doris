@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -46,6 +47,11 @@ import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -370,4 +376,30 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(expect, showCreateInfo);
     }
 
+    @Test
+    public void testSerialization() throws IOException, AnalysisException {
+        // 1. Write objects to file
+        final Path path = Files.createTempFile("routineLoadJob", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+
+        RoutineLoadJob routineLoadJob1 = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
+            11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+
+        routineLoadJob1.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+
+        RoutineLoadJob routineLoadJob2 = RoutineLoadJob.read(in);
+
+        Assert.assertEquals(routineLoadJob1.getDbId(), routineLoadJob2.getDbId());
+        Assert.assertEquals(routineLoadJob1.getName(), routineLoadJob2.getName());
+        Assert.assertEquals(routineLoadJob1.getTableId(), routineLoadJob2.getTableId());
+
+        // 3. delete files
+        in.close();
+        Files.delete(path);
+    }
 }

@@ -18,7 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -26,8 +31,11 @@ import java.io.IOException;
 
 // Used to search a function
 public class FunctionSearchDesc implements Writable {
+    @SerializedName(value = "name")
     private FunctionName name;
+    @SerializedName(value = "argTypes")
     private Type[] argTypes;
+    @SerializedName(value = "isVariadic")
     private boolean isVariadic;
 
     private FunctionSearchDesc() {}
@@ -93,15 +101,21 @@ public class FunctionSearchDesc implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        name.write(out);
-        // write args
-        out.writeShort(argTypes.length);
-        for (Type type : argTypes) {
-            ColumnType.write(out, type);
-        }
-        out.writeBoolean(isVariadic);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    public static FunctionSearchDesc read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            FunctionSearchDesc functionSearchDesc = new FunctionSearchDesc();
+            functionSearchDesc.readFields(in);
+            return functionSearchDesc;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, FunctionSearchDesc.class);
+    }
+
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         name = FunctionName.read(in);
         // read args
@@ -111,11 +125,5 @@ public class FunctionSearchDesc implements Writable {
         }
         // read variadic
         isVariadic = in.readBoolean();
-    }
-
-    public static FunctionSearchDesc read(DataInput input) throws IOException {
-        FunctionSearchDesc function = new FunctionSearchDesc();
-        function.readFields(input);
-        return function;
     }
 }

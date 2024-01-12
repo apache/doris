@@ -17,11 +17,15 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -30,7 +34,9 @@ import java.util.List;
 
 public class UserPropertyInfo implements Writable {
 
+    @SerializedName(value = "user")
     private String user;
+    @SerializedName(value = "properties")
     private List<Pair<String, String>> properties = Lists.newArrayList();
 
     private UserPropertyInfo() {
@@ -51,21 +57,22 @@ public class UserPropertyInfo implements Writable {
     }
 
     public static UserPropertyInfo read(DataInput in) throws IOException {
-        UserPropertyInfo info = new UserPropertyInfo();
-        info.readFields(in);
-        return info;
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_127) {
+            UserPropertyInfo info = new UserPropertyInfo();
+            info.readFields(in);
+            return info;
+        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserPropertyInfo.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, user);
-        out.writeInt(properties.size());
-        for (Pair<String, String> entry : properties) {
-            Text.writeString(out, entry.first);
-            Text.writeString(out, entry.second);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         user = Text.readString(in);
         int size = in.readInt();
