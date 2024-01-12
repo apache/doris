@@ -19,7 +19,9 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
-            String hdfs_port = context.config.otherConfigs.get("hdfs_port")
+            String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+            String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String catalog_name = "test_iceberg_rest_catalog"
             String db_name = "format_v2"
 
@@ -27,10 +29,10 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
             sql """CREATE CATALOG ${catalog_name} PROPERTIES (
                     'type'='iceberg',
                     'iceberg.catalog.type'='rest',
-                    'uri' = 'http://127.0.0.1:18181',
+                    'uri' = 'http://${externalEnvIp}:${rest_port}',
                     "s3.access_key" = "admin",
                     "s3.secret_key" = "password",
-                    "s3.endpoint" = "http://127.0.0.1:19001",
+                    "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
                     "s3.region" = "us-east-1"
                 );"""
 
