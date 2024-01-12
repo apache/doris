@@ -391,7 +391,9 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         }
 
         stream_options.handler = load_stream.get();
-        stream_options.idle_timeout_ms = config::load_stream_idle_timeout_ms;
+        stream_options.idle_timeout_ms = request->idle_timeout_ms();
+        DBUG_EXECUTE_IF("PInternalServiceImpl.open_load_stream.set_idle_timeout",
+                        { stream_options.idle_timeout_ms = 1; });
 
         StreamId streamid;
         if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
