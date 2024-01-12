@@ -41,7 +41,7 @@
     }
 
 // define some common debug actions
-// usage exmale: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
+// usage example: DBUG_EXECUTE_IF("xxx", DBUG_BLOCK);
 #define DBUG_BLOCK                                                  \
     LOG(INFO) << "start debug block " << DP_NAME;                   \
     while (DebugPoints::instance()->is_enable(DP_NAME)) {           \
