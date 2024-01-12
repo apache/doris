@@ -572,9 +572,11 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
             auto backends = _location->find_tablet(tablet_id)->node_ids;
             for (auto& backend_id : backends) {
-                auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
-                if (failed_tablets.contains(tablet_id)) {
-                    return failed_tablets[tablet_id];
+                for (const auto& stream : _streams_for_node[backend_id]->streams()) {
+                    const auto& failed_tablets = stream->failed_tablets();
+                    if (failed_tablets.contains(tablet_id)) {
+                        return failed_tablets.at(tablet_id);
+                    }
                 }
             }
             DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";
