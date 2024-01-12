@@ -58,8 +58,9 @@ public class ScheduleRule {
         LOG.debug("try to auto reschedule routine load {}, firstResumeTimestamp: {}, autoResumeCount: {}, "
                         + "pause reason: {}",
                 jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
-                jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
-        if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
+                jobRoutine.stateChangeReason == null ? "null" : jobRoutine.stateChangeReason.getCode().name());
+        if (jobRoutine.stateChangeReason != null
+                && jobRoutine.stateChangeReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
             int dead = deadBeCount();
             if (dead > Config.max_tolerable_backend_down_num) {
                 LOG.debug("dead backend num {} is larger than config {}, "

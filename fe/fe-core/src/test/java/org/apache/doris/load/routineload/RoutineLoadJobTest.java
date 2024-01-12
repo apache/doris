@@ -191,7 +191,7 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
         ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
                 TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
-        Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
+        Deencapsulation.setField(routineLoadJob, "stateChangeReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
         Deencapsulation.setField(routineLoadJob, "userIdentity", userIdentity);
 

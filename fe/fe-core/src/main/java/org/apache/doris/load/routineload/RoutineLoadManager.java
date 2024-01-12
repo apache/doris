@@ -697,7 +697,7 @@ public class RoutineLoadManager implements Writable {
                     iterator.remove();
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
-                            routineLoadJob.getState());
+                            routineLoadJob.getState(), routineLoadJob.getStateChangeReason());
                     Env.getCurrentEnv().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                             .add("end_timestamp", routineLoadJob.getEndTimestamp())
@@ -753,7 +753,7 @@ public class RoutineLoadManager implements Writable {
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
         RoutineLoadJob job = getJob(operation.getId());
         try {
-            job.updateState(operation.getJobState(), null, true /* is replay */);
+            job.updateState(operation.getJobState(), operation.getStateChangeReason(), true /* is replay */);
         } catch (UserException e) {
             LOG.error("should not happened", e);
         }

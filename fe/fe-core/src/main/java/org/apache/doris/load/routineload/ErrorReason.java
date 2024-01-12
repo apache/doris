@@ -18,8 +18,14 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 
-public class ErrorReason {
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class ErrorReason implements Writable {
     private InternalErrorCode code;
     private String msg;
 
@@ -47,5 +53,27 @@ public class ErrorReason {
     @Override
     public String toString() {
         return "ErrorReason{" + "code=" + code + ", msg='" + msg + '\'' + '}';
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        if (code != null) {
+            out.writeLong(code.getValue());
+        } else {
+            out.writeLong(InternalErrorCode.OK.getValue());
+        }
+        Text.writeString(out, msg);
+    }
+
+    public static ErrorReason read(DataInput in) throws IOException {
+        ErrorReason reason = new ErrorReason(InternalErrorCode.OK, "");
+        reason.readFields(in);
+        return reason;
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
+        code = InternalErrorCode.valueOf(in.readLong());
+        msg = Text.readString(in);
     }
 }

@@ -42,6 +42,19 @@ public enum InternalErrorCode {
         this.errCode = code;
     }
 
+    public long getValue() {
+        return errCode;
+    }
+
+    public static InternalErrorCode valueOf(long value) {
+        for (InternalErrorCode e : values()) {
+            if (e.getValue() == value) {
+                return e;
+            }
+        }
+        return InternalErrorCode.IMPOSSIBLE_ERROR_ERR;
+    }
+
     @Override
     public String toString() {
         return "errCode = " + errCode;
