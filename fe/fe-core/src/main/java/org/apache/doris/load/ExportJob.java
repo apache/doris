@@ -163,9 +163,7 @@ public class ExportJob implements Writable {
 
     private Integer parallelNum;
 
-    public Map<String, Long> getPartitionToVersion() {
-        return partitionToVersion;
-    }
+    private Collection<Partition> partitionList = new ArrayList<Partition>();
 
     private Map<String, Long> partitionToVersion = Maps.newHashMap();
 
@@ -314,7 +312,6 @@ public class ExportJob implements Writable {
         List<Long> tabletIdList = Lists.newArrayList();
         table.readLock();
         try {
-            Collection<Partition> partitions = new ArrayList<Partition>();
             // get partitions
             // user specifies partitions, already checked in ExportStmt
             if (this.partitionNames != null) {
@@ -323,19 +320,18 @@ public class ExportJob implements Writable {
                             + " of partitions allowed by a export job");
                 }
                 for (String partName : this.partitionNames) {
-                    partitions.add(table.getPartition(partName));
+                    partitionList.add(table.getPartition(partName));
                 }
             } else {
                 if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
                     throw new UserException("The partitions number of this export job is larger than the maximum number"
                             + " of partitions allowed by a export job");
                 }
-                partitions = table.getPartitions();
+                partitionList = table.getPartitions();
             }
 
             // get tablets
-            for (Partition partition : partitions) {
-                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+            for (Partition partition : partitionList) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     tabletIdList.addAll(index.getTabletIdsInOrder());
                 }
@@ -525,6 +521,15 @@ public class ExportJob implements Writable {
         this.outfileInfo = outfileInfo;
     }
 
+    public synchronized Map<String, Long> getPartitionToVersion() {
+        if (partitionToVersion.isEmpty()) {
+            // get version of partitions
+            for (Partition partition : partitionList) {
+                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+            }
+        }
+        return partitionToVersion;
+    }
 
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
@@ -582,7 +587,11 @@ public class ExportJob implements Writable {
         // maybe user cancel this job
         if (task != null && state == JobState.EXPORTING && stmtExecutorList != null) {
             for (int idx = 0; idx < stmtExecutorList.size(); ++idx) {
-                stmtExecutorList.get(idx).cancel();
+                // because a exporting task may be cancelled due to a load operation,
+                // then it's StmtExecutor is null
+                if (stmtExecutorList.get(idx) != null) {
+                    stmtExecutorList.get(idx).cancel();
+                }
             }
         }
 
