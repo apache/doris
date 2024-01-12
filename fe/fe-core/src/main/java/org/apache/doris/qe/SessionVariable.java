@@ -1307,12 +1307,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
 
-    /**
-     * determine should we enable unified load (use insert stmt as the backend for all load)
-     */
-    @VariableMgr.VarAttr(name = ENABLE_UNIFIED_LOAD, needForward = true)
-    public boolean enableUnifiedLoad = false;
-
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
             description = {"控制 parquet reader 是否启用延迟物化技术。默认为 true。",
@@ -3140,10 +3134,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return num;
-    }
-
-    public boolean isEnableUnifiedLoad() {
-        return enableUnifiedLoad;
     }
 
     public boolean getEnablePipelineEngine() {

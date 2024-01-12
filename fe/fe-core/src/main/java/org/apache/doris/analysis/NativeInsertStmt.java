@@ -186,6 +186,7 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
+    // Ctor of group commit in sql parser
     public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints);
