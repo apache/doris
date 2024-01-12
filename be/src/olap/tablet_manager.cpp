@@ -814,7 +814,6 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
                 "schema_hash={}, path={}, status={}",
                 tablet_id, schema_hash, data_dir->path(), status);
     }
-    tablet_meta->init_rs_metas_fs(data_dir->fs());
 
     // check if tablet meta is valid
     if (tablet_meta->tablet_id() != tablet_id || tablet_meta->schema_hash() != schema_hash) {
