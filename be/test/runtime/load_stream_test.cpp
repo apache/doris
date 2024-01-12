@@ -623,7 +623,7 @@ public:
     }
 
     void TearDown() override {
-        _server->Stop(1000);
+        _server->Stop(0);
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
         k_engine.reset();
