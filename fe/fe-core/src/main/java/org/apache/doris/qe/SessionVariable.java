@@ -880,7 +880,7 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeBloomFilterMaxSize = 16777216;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS, needForward = true)
-    private int runtimeFilterWaitTimeMs = 1000;
+    private int runtimeFilterWaitTimeMs = 10000;
 
     @VariableMgr.VarAttr(name = runtime_filter_wait_infinitely, needForward = true)
     private boolean runtimeFilterWaitInfinitely = false;
