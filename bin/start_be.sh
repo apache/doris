@@ -88,22 +88,6 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
     exit 1
 fi
 
-# add java libs
-# Must add hadoop libs, because we should load specified jars
-# instead of jars in hadoop libs, such as avro
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
-
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ -z "${DORIS_CLASSPATH}" ]]; then
-            export DORIS_CLASSPATH="${f}"
-        else
-            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        fi
-    done
-done
-
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
@@ -119,6 +103,20 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
+
+# add java libs
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
+done
 
 # add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
