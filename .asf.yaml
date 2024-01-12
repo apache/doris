@@ -60,7 +60,7 @@ github:
           - Build Broker
           - Build Documents
           - ShellCheck          
-          - clickbench-new (clickbench)
+          - performance (Performance New)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -96,7 +96,7 @@ github:
           - Build Broker
           - ShellCheck
           - Build Documents
-          - clickbench-new (clickbench)
+          - performance (Performance New)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
