@@ -48,7 +48,7 @@ Starting from version 2.1, Doris can support multiple SQL dialects, such as Pres
 3. Start the Doris cluster (version 2.1 or higher)
 4. Set the URL of the SQL Dialect Conversion Service with the following command in Doris:
 
-	`MySQL> set global sql_converter_service = "http://127.0.0.1:5001/api/v1/convert"`
+	`MySQL> set global sql_converter_service_url = "http://127.0.0.1:5001/api/v1/convert"`
 	
 	> 1. `127.0.0.1:5001` is the deployment node IP and port of the SQL dialect conversion service.
 	
@@ -68,6 +68,4 @@ Currently supported dialect types include:
 - `postgres`
 - `clickhouse`
 - `oracle`
-
-> Dialect compatibility is constantly being optimized.
 
