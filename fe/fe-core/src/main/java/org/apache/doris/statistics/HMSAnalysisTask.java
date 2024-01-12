@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -29,6 +30,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -58,7 +60,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
     @Override
     protected void getOrdinaryColumnStats() throws Exception {
-        if (!info.usingSqlForPartitionColumn && isPartitionColumn()) {
+        if (!info.usingSqlForPartitionColumn) {
             try {
                 if (isPartitionColumn()) {
                     getPartitionColumnStats();
@@ -66,8 +68,10 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
                     getHmsColumnStats();
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to collect stats for partition col {} using metadata, "
-                        + "fallback to normal collection", col.getName(), e);
+                LOG.warn("Failed to collect stats for {}col {} using metadata, "
+                        + "fallback to normal collection",
+                        isPartitionColumn() ? "partition " : "", col.getName(), e);
+                /* retry using sql way! */
                 super.getOrdinaryColumnStats();
             }
         } else {
@@ -125,8 +129,9 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
     // Collect the spark analyzed column stats through HMS metadata.
     private void getHmsColumnStats() throws Exception {
-        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        long count = tableStatsStatus == null ? table.estimatedRowCount() : tableStatsStatus.rowCount;
+        TableStatsMeta tableStatsStatus = Env.getCurrentEnv().getAnalysisManager()
+                .findTableStatsStatus(hmsExternalTable.getId());
+        long count = tableStatsStatus == null ? hmsExternalTable.estimatedRowCount() : tableStatsStatus.rowCount;
 
         Map<String, String> params = buildStatsParams("NULL");
         Map<StatsType, String> statsParams = new HashMap<>();
@@ -136,7 +141,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         statsParams.put(StatsType.MAX_VALUE, "max");
         statsParams.put(StatsType.AVG_SIZE, "avg_len");
 
-        if (table.fillColumnStatistics(info.colName, statsParams, params)) {
+        if (hmsExternalTable.fillColumnStatistics(info.colName, statsParams, params)) {
             throw new AnalysisException("some column stats not available");
         }
 
