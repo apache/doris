@@ -102,12 +102,16 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, int num_buckets) override {
+    Status init(ExchangeType type, const int num_buckets,
+                const bool is_shuffled_hash_join) override {
         _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
         _type = type;
         if (_type == ExchangeType::HASH_SHUFFLE) {
-            if (_shuffle_idx_to_instance_idx.contains(-1) ||
-                _shuffle_idx_to_instance_idx.size() != _num_partitions) {
+            // For shuffle join, if data distribution has been broken by previous operator, we
+            // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
+            // we should use map shuffle idx to instance idx because all instances will be
+            // distributed to all BEs. Otherwise, we should use shuffle idx directly.
+            if (!is_shuffled_hash_join) {
                 _shuffle_idx_to_instance_idx.clear();
                 for (int i = 0; i < _num_partitions; i++) {
                     _shuffle_idx_to_instance_idx.insert({i, i});
