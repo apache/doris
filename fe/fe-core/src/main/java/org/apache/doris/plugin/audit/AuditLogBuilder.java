@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.plugin.audit;
 
 import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DigitalVersion;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.AuditEvent.AuditField;
-import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.plugin.audit.AuditEvent.AuditField;
+import org.apache.doris.plugin.audit.AuditEvent.EventType;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
