@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -122,6 +123,23 @@ public class MaterializedViewUtils {
      */
     public static boolean containTableQueryOperator(Plan analyzedPlan) {
         return analyzedPlan.accept(TableQueryOperatorChecker.INSTANCE, null);
+    }
+
+    /**
+     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     */
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
+        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
+                .isEmpty()) {
+            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
+        } else {
+            // build struct info and add them to current group
+            List<StructInfo> structInfos = StructInfo.of(plan);
+            if (plan.getGroupExpression().isPresent()) {
+                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
+            }
+            return structInfos;
+        }
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {

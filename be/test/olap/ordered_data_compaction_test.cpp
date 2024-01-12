@@ -90,7 +90,7 @@ protected:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
+        _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);

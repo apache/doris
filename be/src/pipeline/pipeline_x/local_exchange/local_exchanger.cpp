@@ -118,14 +118,16 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes());
     new_block_wrapper->ref(_num_partitions);
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
+        auto map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
+                           ._shuffle_idx_to_instance_idx;
         for (size_t i = 0; i < _num_partitions; i++) {
             size_t start = local_state._partition_rows_histogram[i];
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
                 local_state._shared_state->add_mem_usage(
-                        i, new_block_wrapper->data_block.allocated_bytes(), false);
-                data_queue[i].enqueue({new_block_wrapper, {row_idx, start, size}});
-                local_state._shared_state->set_ready_to_read(i);
+                        map[i], new_block_wrapper->data_block.allocated_bytes(), false);
+                data_queue[map[i]].enqueue({new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->set_ready_to_read(map[i]);
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }

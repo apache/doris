@@ -30,6 +30,7 @@
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
+#include <cstring>
 #include <exception>
 #include <string>
 #include <string_view>
@@ -1588,11 +1589,24 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     //    so we only need to set date part
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
-    if (already_set_date_part && already_set_time_part) return true;
-    if (already_set_date_part)
+    if (already_set_date_part && already_set_time_part) {
+        return true;
+    }
+    // for two special date cases, complete default month/day
+    if (!time_part_used && year > 0) {
+        if (std::string_view {format, end} == "%Y") {
+            month = day = 1;
+        } else if (std::string_view {format, end} == "%Y-%m") {
+            day = 1;
+        }
+    }
+
+    if (already_set_date_part) {
         return check_range_and_set_time(_year, _month, _day, hour, minute, second, _type);
-    if (already_set_time_part)
+    }
+    if (already_set_time_part) {
         return check_range_and_set_time(year, month, day, _hour, _minute, _second, _type);
+    }
 
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
@@ -2578,6 +2592,16 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                                             date_v2_value_.day_, 0, 0, 0, 0);
         }
     }
+
+    // for two special date cases, complete default month/day
+    if (!time_part_used && year > 0) {
+        if (std::string_view {format, end} == "%Y") {
+            month = day = 1;
+        } else if (std::string_view {format, end} == "%Y-%m") {
+            day = 1;
+        }
+    }
+
     if (already_set_time_part) {
         if constexpr (is_datetime) {
             return check_range_and_set_time(year, month, day, date_v2_value_.hour_,

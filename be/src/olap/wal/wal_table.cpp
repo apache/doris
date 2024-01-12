@@ -234,6 +234,7 @@ Status WalTable::_construct_sql_str(const std::string& wal, const std::string& l
             auto it = column_info_map.find(column_id);
             if (it != column_info_map.end()) {
                 ss_name << "`" << it->second << "`,";
+                column_info_map.erase(column_id);
             }
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid format, {}", e.what());
