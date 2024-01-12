@@ -240,6 +240,14 @@ public class OlapTable extends Table {
         return getOrCreatTableProperty().isBeingSynced();
     }
 
+    public VariantConfig getVariantConfig() {
+        return getOrCreatTableProperty().getVariantConfig();
+    }
+
+    public void setVariantConfig(VariantConfig variantConfig) {
+        getOrCreatTableProperty().setVariantConfig(variantConfig);
+    }
+
     public void setTableProperty(TableProperty tableProperty) {
         this.tableProperty = tableProperty;
     }

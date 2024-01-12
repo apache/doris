@@ -789,6 +789,7 @@ public class EditLog {
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
+                case OperationType.OP_UPDATE_VARIANT_CONFIG:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog log = (ModifyTablePropertyOperationLog) journal.getData();
                     env.replayModifyTableProperty(opCode, log);
@@ -1754,6 +1755,10 @@ public class EditLog {
 
     public long logUpdateBinlogConfig(ModifyTablePropertyOperationLog info) {
         return logModifyTableProperty(OperationType.OP_UPDATE_BINLOG_CONFIG, info);
+    }
+
+    public long logUpdateVariantConfig(ModifyTablePropertyOperationLog info) {
+        return logModifyTableProperty(OperationType.OP_UPDATE_VARIANT_CONFIG, info);
     }
 
     public void logAlterLightSchemaChange(AlterLightSchemaChangeInfo info) {

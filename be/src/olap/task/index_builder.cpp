@@ -105,6 +105,7 @@ Status IndexBuilder::update_inverted_index_info() {
         context.tablet_schema = output_rs_tablet_schema;
         context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
         context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
+        context.tablet_id = _tablet->tablet_id();
         auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
         _pending_rs_guards.push_back(StorageEngine::instance()->add_pending_rowset(context));
 

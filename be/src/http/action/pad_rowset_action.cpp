@@ -105,6 +105,7 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = tablet->tablet_schema();
     ctx.newest_write_timestamp = UnixSeconds();
+    ctx.variant_config = tablet->variant_config();
     auto writer = DORIS_TRY(tablet->create_rowset_writer(ctx, false));
     RowsetSharedPtr rowset;
     RETURN_IF_ERROR(writer->build(rowset));
