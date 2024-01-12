@@ -50,6 +50,12 @@ public final class GlobalVariable {
     public static final long VALIDATE_PASSWORD_POLICY_DISABLED = 0;
     public static final long VALIDATE_PASSWORD_POLICY_STRONG = 2;
 
+    public static final String SQL_CONVERTER_SERVICE_URL = "sql_converter_service_url";
+    public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
+    public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
+    public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
+    public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
+
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Doris version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH;
@@ -104,7 +110,22 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = SHOW_FULL_DBNAME_IN_INFO_SCHEMA_DB, flag = VariableMgr.GLOBAL)
     public static boolean showFullDbNameInInfoSchemaDb = false;
 
-    // Don't allow to create instance.
+    @VariableMgr.VarAttr(name = SQL_CONVERTER_SERVICE_URL, flag = VariableMgr.GLOBAL)
+    public static String sqlConverterServiceUrl = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
+    public static boolean enableAuditLoader = false;
+
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
+    public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
+
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC, flag = VariableMgr.GLOBAL)
+    public static long auditPluginMaxBatchInternalSec = 60;
+
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
+    public static int auditPluginMaxSqlLength = 4096;
+
+    // Don't allow creating instance.
     private GlobalVariable() {
     }
 

@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.dialect.http;
+package org.apache.doris.plugin;
+
+import org.apache.doris.plugin.dialect.HttpDialectUtils;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -52,20 +54,20 @@ public class HttpDialectUtilsTest {
         String expectedSql = "select * from t1 where `k1` = 1";
 
         String targetURL = "http://127.0.0.1:" + port + "/api/v1/convert";
-        String res = HttpDialectUtils.convertSql(targetURL, originSql);
+        String res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
         Assert.assertEquals(originSql, res);
         // test presto
         server.setResponse("{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
         Assert.assertEquals(expectedSql, res);
         // test response version error
         server.setResponse("{\"version\": \"v2\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
         Assert.assertEquals(originSql, res);
         // 7. test response code error
         server.setResponse(
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
         Assert.assertEquals(originSql, res);
     }
 
