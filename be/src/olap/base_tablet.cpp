@@ -34,7 +34,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
-    TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
             MetricEntityType::kTablet);

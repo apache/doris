@@ -160,9 +160,8 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         new_tablet_meta_pb.set_partition_id(partition_id);
     }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
-    TabletSchemaSPtr tablet_schema;
-    tablet_schema =
-            TabletSchemaCache::instance()->insert(new_tablet_meta_pb.schema().SerializeAsString());
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(new_tablet_meta_pb.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
@@ -590,7 +589,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
             if (res.ok() && request.__isset.is_copy_tablet_task && request.is_copy_tablet_task) {
-                res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
+                res = new_tablet_meta->save_as_json(json_header_path);
             }
         } else {
             res = Status::Error<INVALID_SNAPSHOT_VERSION>(

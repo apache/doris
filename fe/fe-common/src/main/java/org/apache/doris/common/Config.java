@@ -2063,15 +2063,6 @@ public class Config extends ConfigBase {
     public static long lock_reporting_threshold_ms = 500L;
 
     /**
-     * If false, when select from tables in information_schema database,
-     * the result will not contain the information of the table in external catalog.
-     * This is to avoid query time when external catalog is not reachable.
-     * TODO: this is a temp solution, we should support external catalog in the future.
-     */
-    @ConfField(mutable = true)
-    public static boolean infodb_support_ext_catalog = false;
-
-    /**
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
@@ -2407,13 +2398,6 @@ public class Config extends ConfigBase {
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
-    // This config is deprecated and has not taken effect anymore,
-    // please use dialect plugin: fe_plugins/http-dialect-converter for instead
-    @Deprecated
-    @ConfField(description = {"用于SQL方言转换的服务地址。",
-            "The service address for SQL dialect conversion."})
-    public static String sql_convertor_service = "";
-
     @ConfField(mutable = true)
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
@@ -2441,6 +2425,44 @@ public class Config extends ConfigBase {
     public static boolean isCloudMode() {
         return !cloud_unique_id.isEmpty();
     }
+
+    /**
+     * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     */
+    @ConfField
+    public static String meta_service_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static boolean meta_service_connection_pooled = true;
+
+    @ConfField(mutable = true)
+    public static int meta_service_connection_pool_size = 20;
+
+    // A connection will expire after a random time during [base, 2*base), so that the FE
+    // has a chance to connect to a new RS. Set zero to disable it.
+    @ConfField(mutable = true)
+    public static int meta_service_connection_age_base_minutes = 5;
+
+    @ConfField(mutable = false)
+    public static boolean enable_sts_vpc = true;
+
+    @ConfField(mutable = true)
+    public static int sts_duration = 3600;
+
+    @ConfField
+    public static int cloud_meta_service_rpc_failed_retry_times = 200;
+
+    @ConfField
+    public static int default_get_version_from_ms_timeout_second = 3;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_multi_replica = false;
+
+    @ConfField(mutable = true)
+    public static int cloud_replica_num = 3;
+
+    @ConfField(mutable = true)
+    public static int cloud_cold_read_percent = 10; // 10%
 
     //==========================================================================
     //                      end of cloud config

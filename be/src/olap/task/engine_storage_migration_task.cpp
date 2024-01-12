@@ -88,7 +88,9 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
 
 bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
-    if (time_elapsed > config::migration_task_timeout_secs) {
+    int64_t timeout = std::max<int64_t>(config::migration_task_timeout_secs,
+                                        _tablet->tablet_local_size() >> 20);
+    if (time_elapsed > timeout) {
         LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
                      << ", tablet=" << _tablet->tablet_id();
         return true;
@@ -120,6 +122,10 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
         // to avoid invalid loops, the lock is guaranteed to be acquired here
         {
             std::unique_lock<std::shared_timed_mutex> wlock(_tablet->get_migration_lock());
+            if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                                       _tablet->tablet_id());
+            }
             res = _check_running_txns();
             if (res.ok()) {
                 // transfer the lock to the caller
@@ -154,6 +160,10 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
+    if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                               _tablet->tablet_id());
+    }
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();

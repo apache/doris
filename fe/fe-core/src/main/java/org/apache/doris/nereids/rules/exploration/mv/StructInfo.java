@@ -23,6 +23,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -40,8 +41,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -83,8 +86,11 @@ public class StructInfo {
     // split predicates is shuttled
     private SplitPredicate splitPredicate;
     private EquivalenceClass equivalenceClass;
-    // this is for LogicalCompatibilityContext later
+    // Key is the expression shuttled and the value is the origin expression
+    // this is for building LogicalCompatibilityContext later.
     private final Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new HashMap<>();
+    // Record the exprId and the corresponding expr map, this is used by expression shuttled
+    private final Map<ExprId, Expression> namedExprIdAndExprMapping = new HashMap<>();
 
     private StructInfo(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan, HyperGraph hyperGraph) {
         this.originalPlan = originalPlan;
@@ -117,12 +123,22 @@ public class StructInfo {
         // Collect expression from join condition in hyper graph
         this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
+            // shuttle expression in edge for the build of LogicalCompatibilityContext later.
+            // Record the exprId to expr map in the processing to strut info
+            // TODO get exprId to expr map when complex project is ready in join dege
             hashJoinConjuncts.forEach(conjunctExpr -> {
-                // shuttle expression in edge for LogicalCompatibilityContext later
-                shuttledHashConjunctsToConjunctsMap.put(
-                        ExpressionUtils.shuttleExpressionWithLineage(
-                                Lists.newArrayList(conjunctExpr), edge.getJoin()).get(0),
-                        conjunctExpr);
+                ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                        new ExpressionLineageReplacer.ExpressionReplaceContext(
+                                Lists.newArrayList(conjunctExpr),
+                                ImmutableSet.of(),
+                                ImmutableSet.of());
+                this.topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                // Replace expressions by expression map
+                List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+                shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), conjunctExpr);
+                // Record this, will be used in top level expression shuttle later, see the method
+                // ExpressionLineageReplacer#visitGroupPlan
+                this.namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
             });
             List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
             if (!otherJoinConjuncts.isEmpty()) {
@@ -265,6 +281,10 @@ public class StructInfo {
 
     public ObjectId getOriginalPlanId() {
         return originalPlanId;
+    }
+
+    public Map<ExprId, Expression> getNamedExprIdAndExprMapping() {
+        return namedExprIdAndExprMapping;
     }
 
     /**

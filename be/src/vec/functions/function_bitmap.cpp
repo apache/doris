@@ -361,7 +361,7 @@ public:
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
             const ColumnString::Offsets& offsets = str_column.get_offsets();
-            static_cast<void>(Impl::vector(data, offsets, res, null_map, input_rows_count));
+            RETURN_IF_ERROR(Impl::vector(data, offsets, res, null_map, input_rows_count));
         } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
@@ -375,19 +375,19 @@ public:
 
             WhichDataType which_type(argument_type);
             if (which_type.is_int8()) {
-                static_cast<void>(Impl::template vector<ColumnInt8>(
-                        offset_column_data, nested_column, nested_null_map, res, null_map));
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
+                                                                  nested_null_map, res, null_map));
             } else if (which_type.is_uint8()) {
-                static_cast<void>(Impl::template vector<ColumnUInt8>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int16()) {
-                static_cast<void>(Impl::template vector<ColumnInt16>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int32()) {
-                static_cast<void>(Impl::template vector<ColumnInt32>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else if (which_type.is_int64()) {
-                static_cast<void>(Impl::template vector<ColumnInt64>(
+                RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",

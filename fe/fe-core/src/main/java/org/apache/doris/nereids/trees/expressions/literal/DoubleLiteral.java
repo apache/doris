@@ -26,7 +26,7 @@ import org.apache.doris.nereids.types.DoubleType;
 /**
  * Double literal
  */
-public class DoubleLiteral extends Literal {
+public class DoubleLiteral extends FractionalLiteral {
 
     private final double value;
 

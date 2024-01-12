@@ -19,13 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
+
+import com.google.common.base.Strings;
 
 import java.util.Map;
 import java.util.TimeZone;
@@ -97,7 +98,7 @@ public class DynamicPartitionProperty {
             this.reservedHistoryPeriods = properties.getOrDefault(
                     RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             this.storagePolicy = properties.getOrDefault(STORAGE_POLICY, "");
-            this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, Config.default_storage_medium);
+            this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, "");
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -228,8 +229,10 @@ public class DynamicPartitionProperty {
                 + ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\""
                 + ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\""
                 + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\""
-                + ",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\""
-                + ",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"";
+                + ",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\"";
+        if (!Strings.isNullOrEmpty(storageMedium)) {
+            res += ",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"";
+        }
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {

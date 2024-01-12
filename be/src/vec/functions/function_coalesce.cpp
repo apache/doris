@@ -156,7 +156,7 @@ public:
         for (size_t i = 0; i < argument_size && remaining_rows; ++i) {
             temporary_block.get_by_position(0).column =
                     block.get_by_position(filtered_args[i]).column;
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count));
 
             auto res_column =

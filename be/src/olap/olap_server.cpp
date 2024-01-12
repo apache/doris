@@ -142,10 +142,7 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-    }
+    std::vector<DataDir*> data_dirs = get_stores();
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
@@ -557,11 +554,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     std::unordered_set<TTabletId> tablet_submitted_cumu;
     std::unordered_set<TTabletId> tablet_submitted_base;
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-        _tablet_submitted_cumu_compaction[tmp_store.second] = tablet_submitted_cumu;
-        _tablet_submitted_base_compaction[tmp_store.second] = tablet_submitted_base;
+    std::vector<DataDir*> data_dirs = get_stores();
+    for (auto& data_dir : data_dirs) {
+        _tablet_submitted_cumu_compaction[data_dir] = tablet_submitted_cumu;
+        _tablet_submitted_base_compaction[data_dir] = tablet_submitted_base;
     }
 
     int round = 0;

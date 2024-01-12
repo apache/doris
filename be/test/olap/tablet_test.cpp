@@ -86,12 +86,13 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        static_cast<void>(_data_dir->update_capacity());
 
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);
+
+        _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
+        static_cast<void>(_data_dir->update_capacity());
     }
 
     void TearDown() override {
