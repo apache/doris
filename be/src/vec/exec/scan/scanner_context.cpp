@@ -505,7 +505,7 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
             set_status_on_error(submit_status, false);
         }
     } else {
-        LOG(INFO) << "yyyy should be sched == false, not sched. " << debug_string();
+        //LOG(INFO) << "yyyy should be sched == false, not sched" << debug_string();
     }
 }
 
