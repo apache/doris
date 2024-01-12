@@ -125,6 +125,10 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
         // to avoid invalid loops, the lock is guaranteed to be acquired here
         {
             std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
+            if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                                       _tablet->tablet_id());
+            }
             res = _check_running_txns();
             if (res.ok()) {
                 // transfer the lock to the caller
@@ -160,6 +164,10 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
+    if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                               _tablet->tablet_id());
+    }
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
