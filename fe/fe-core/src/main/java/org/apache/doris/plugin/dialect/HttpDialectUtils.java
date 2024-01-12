@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.dialect.http;
+package org.apache.doris.plugin.dialect;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -38,8 +38,8 @@ import java.nio.charset.StandardCharsets;
 public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
-    public static String convertSql(String targetURL, String originStmt) {
-        ConvertRequest convertRequest = new ConvertRequest(originStmt, "presto");
+    public static String convertSql(String targetURL, String originStmt, String dialect) {
+        ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect);
 
         HttpURLConnection connection = null;
         try {

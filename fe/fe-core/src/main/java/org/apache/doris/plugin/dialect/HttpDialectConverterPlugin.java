@@ -15,32 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.dialect.http;
+package org.apache.doris.plugin.dialect;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.PluginInfo.PluginType;
+import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Properties;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -72,57 +67,29 @@ import javax.annotation.Nullable;
 public class HttpDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
 
     private volatile boolean isInit = false;
-    private volatile boolean isClosed = false;
-    private volatile String targetURL = null;
-    private volatile ImmutableSet<Dialect> acceptDialects = null;
+    private volatile ImmutableSet<Dialect> acceptDialects;
+    private final PluginInfo pluginInfo;
+
+    public HttpDialectConverterPlugin() {
+        pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "SqlDialectConverter", PluginType.DIALECT,
+                "builtin sql dialect converter", DigitalVersion.fromString("2.1.0"),
+                DigitalVersion.fromString("1.8.31"), HttpDialectConverterPlugin.class.getName(), null, null);
+        acceptDialects = ImmutableSet.copyOf(Arrays.asList(Dialect.PRESTO, Dialect.TRINO, Dialect.HIVE,
+                Dialect.SPARK, Dialect.POSTGRES, Dialect.CLICKHOUSE));
+    }
+
+    public PluginInfo getPluginInfo() {
+        return pluginInfo;
+    }
 
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
         super.init(info, ctx);
-
-        synchronized (this) {
-            if (isInit) {
-                return;
-            }
-            loadConfig(ctx, info.getProperties());
-            isInit = true;
-        }
-    }
-
-    private void loadConfig(PluginContext ctx, Map<String, String> pluginInfoProperties) throws PluginException {
-        Path pluginPath = FileSystems.getDefault().getPath(ctx.getPluginPath());
-        if (!Files.exists(pluginPath)) {
-            throw new PluginException("plugin path does not exist: " + pluginPath);
-        }
-
-        Path confFile = pluginPath.resolve("plugin.conf");
-        if (!Files.exists(confFile)) {
-            throw new PluginException("plugin conf file does not exist: " + confFile);
-        }
-
-        final Properties props = new Properties();
-        try (InputStream stream = Files.newInputStream(confFile)) {
-            props.load(stream);
-        } catch (IOException e) {
-            throw new PluginException(e.getMessage());
-        }
-
-        for (Map.Entry<String, String> entry : pluginInfoProperties.entrySet()) {
-            props.setProperty(entry.getKey(), entry.getValue());
-        }
-
-        final Map<String, String> properties = props.stringPropertyNames().stream()
-                .collect(Collectors.toMap(Function.identity(), props::getProperty));
-        targetURL = properties.get("target_url");
-        String acceptDialectsStr = Objects.requireNonNull(properties.get("accept_dialects"));
-        acceptDialects = ImmutableSet.copyOf(Arrays.stream(acceptDialectsStr.split(","))
-                    .map(Dialect::getByName).collect(Collectors.toSet()));
     }
 
     @Override
     public void close() throws IOException {
         super.close();
-        isClosed = true;
     }
 
     @Override
@@ -132,8 +99,11 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
 
     @Override
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
-        Preconditions.checkNotNull(targetURL);
-        return HttpDialectUtils.convertSql(targetURL, originSql);
+        String targetURL = GlobalVariable.sqlConverterServiceUrl;
+        if (Strings.isNullOrEmpty(targetURL)) {
+            return null;
+        }
+        return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect());
     }
 
     // no need to override parseSqlWithDialect, just return null
