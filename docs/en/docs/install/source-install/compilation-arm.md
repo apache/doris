@@ -57,7 +57,7 @@ Note that this is for reference only. Other errors may occur when compiling in d
 
 This method works for Doris versions after [commit 7f3564](https://github.com/apache/doris/commit/7f3564cca62de49c9f2ea67fcf735921dbebb4d1).
 
-Download [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh)
+Download [ldb\_toolchain\_gen.aarch64.sh](https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh)
 
 For detailed instructions, please refer to [Compile with ldb-toolchain](./compilation-with-ldb-toolchain.md)
 
@@ -149,7 +149,7 @@ Note that you need to download the corresponding aarch64 versions of jdk and nod
   ```shell
   cd /opt/tools
   # Download ldb-toolchain ARM version
-  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh && \
   sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
   ````
 
@@ -272,7 +272,7 @@ Note that you need to download the corresponding aarch64 versions of jdk and nod
   ```shell
   cd /opt/tools
   # Download ldb-toolchain ARM version
-  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
+  wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh && \
   sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
   ````
 

@@ -61,7 +61,7 @@ Mac: `brew install clang-format@16`
 LDB toolchain:
 
 If you are using [LDB toolchain](/docs/install/source-install/compilation-with-ldb-toolchain),
-the latest version (>= v0.18) of [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases) has already included clang-format with 16.0.0 version.
+the latest version (>= v0.19) of [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases) has already included clang-format with 17.0.5 version.
 
 ### clang-format plugin
 

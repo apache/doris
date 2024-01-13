@@ -42,7 +42,7 @@ RUN wget https://nodejs.org/dist/v16.3.0/node-v16.3.0-linux-arm64.tar.xz \
     && rm /tmp/node-v16.3.0-linux-arm64.tar.xz && rm -rf node-v16.3.0-linux-arm64
 
 # install ldb-toolchain
-RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh \
+RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.19/ldb_toolchain_gen.aarch64.sh \
     -q -O /tmp/ldb_toolchain_gen.aarch64.sh \
     && sh /tmp/ldb_toolchain_gen.aarch64.sh /var/local/ldb-toolchain/ \
     && rm /tmp/ldb_toolchain_gen.aarch64.sh

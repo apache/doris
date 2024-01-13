@@ -293,7 +293,7 @@ heap dump文件所在目录默认为 `${DORIS_HOME}/log`, 文件名前缀是 `JE
 
 1. 运行 jeprof 后出现很多错误: `addr2line: Dwarf Error: found dwarf version xxx, this reader only handles version xxx`.
 
-GCC 11 之后默认使用 DWARF-v5 ，这要求Binutils 2.35.2 及以上，Doris Ldb_toolchain 用了 GCC 11。see: https://gcc.gnu.org/gcc-11/changes.html。
+GCC 11 之后默认使用 DWARF-v5 ，这要求Binutils 2.35.2 及以上。see: https://gcc.gnu.org/gcc-11/changes.html。
 
 替换 addr2line 到 2.35.2，参考：
 ```
