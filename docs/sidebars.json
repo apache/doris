@@ -812,6 +812,7 @@
                                 "sql-manual/sql-functions/ip-functions/inet6-aton",
                                 "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
                                 "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-compat",
                                 "sql-manual/sql-functions/ip-functions/is-ipv4-mapped"
                             ]
                         },

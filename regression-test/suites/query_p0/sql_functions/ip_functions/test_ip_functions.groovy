@@ -68,6 +68,14 @@ suite("test_ip_functions", "arrow_flight_sql") {
     qt_sql "SELECT hex(inet6_aton('192.168.0.1'));"
     qt_sql "SELECT hex(inet6_aton('2a02:6b8::11'));"
 
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::10.0.5.9'));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::ffff:10.0.5.9'));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton(NULL));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::'));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::c0a8:0001'));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::0.0.0.0'));"
+    qt_sql "SELECT is_ipv4_compat(inet6_aton('::255.255.255.255'));"
+
     qt_sql "SELECT is_ipv4_mapped(inet6_aton('::10.0.5.9'));"
     qt_sql "SELECT is_ipv4_mapped(inet6_aton('::ffff:10.0.5.9'));"
     qt_sql "SELECT is_ipv4_mapped(inet6_aton(NULL));"

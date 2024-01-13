@@ -164,17 +164,38 @@ true
 -- !ip55 --
 false
 
--- !sql --
-false
-
--- !sql --
+-- !ip56 --
 true
 
--- !sql --
-\N
-
--- !sql --
+-- !ip57 --
 false
 
--- !sql --
+-- !ip58 --
+\N
+
+-- !ip59 --
+false
+
+-- !ip60 --
+true
+
+-- !ip61 --
+false
+
+-- !ip62 --
+true
+
+-- !ip63 --
+false
+
+-- !ip64 --
+true
+
+-- !ip65 --
+\N
+
+-- !ip66 --
+false
+
+-- !ip67 --
 true
