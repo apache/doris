@@ -159,6 +159,9 @@ public:
     virtual void reschedule_scanner_ctx();
     void stop_scanners(RuntimeState* state);
 
+    int32_t get_max_thread_num() const { return _max_thread_num; }
+    void set_max_thread_num(int32_t num) { _max_thread_num = num; }
+
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;

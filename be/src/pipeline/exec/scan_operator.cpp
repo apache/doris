@@ -1222,6 +1222,19 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency);
+    if constexpr (std::is_same_v<OlapScanLocalState, Derived>) {
+        /**
+         * If `use_topn_opt` is true,
+         * we let 1/4 scanners run first to update the value of runtime predicate,
+         * and the other 3/4 scanners could then read fewer rows.
+         */
+        if (static_cast<OlapScanLocalState*>(this)->olap_scan_node().use_topn_opt) {
+            int32_t max_thread_num = std::max<int32_t>(4, scanners.size() / 4);
+            if (max_thread_num < _scanner_ctx->get_max_thread_num()) {
+                _scanner_ctx->set_max_thread_num(max_thread_num);
+            }
+        }
+    }
     return Status::OK();
 }
 
