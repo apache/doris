@@ -160,13 +160,13 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 
   示例2如下：
 
-  **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+  **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
 
   `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
 
   **说明**
 
-    - /home/disk1/doris,medium:hdd，表示存储介质是HHD;
+    - /home/disk1/doris,medium:hdd，表示存储介质是HDD;
     - /home/disk2/doris,medium:ssd，表示存储介质是SSD;
 
 
