@@ -161,7 +161,7 @@ under the License.
 - 修复 group by 语句中包括重复表达式导致 BE crash 的问题
   - https://github.com/apache/doris/pull/27523
 
-- 禁止视图创建时 group by 子句中使用 float/doubld 类型
+- 禁止视图创建时 group by 子句中使用 float/double 类型
   - https://github.com/apache/doris/pull/25823
 
 - 增强支持了 select 查询命中物化视图的功能
