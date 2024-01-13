@@ -557,9 +557,6 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
 
-    // Free resource after threads are stopped.
-    // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
 
@@ -580,6 +577,10 @@ void ExecEnv::destroy() {
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_DELETE(_storage_engine);
+
+    // Free resource after threads are stopped.
+    // Some threads are still running, like threads created by _new_load_stream_mgr ...
+    SAFE_DELETE(_tablet_schema_cache);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
