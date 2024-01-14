@@ -131,7 +131,7 @@ std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
             print_id(_query_id));
 }
 
-void QueryContext::register_mem_tracker_statistics() {
+void QueryContext::register_memory_statistics() {
     if (query_mem_tracker) {
         std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
         std::string query_id = print_id(_query_id);

@@ -678,7 +678,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
-        query_ctx->register_mem_tracker_statistics();
+        query_ctx->register_memory_statistics();
         query_ctx->register_cpu_statistics();
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {

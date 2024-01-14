@@ -212,7 +212,7 @@ public:
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
 
-    void register_mem_tracker_statistics();
+    void register_memory_statistics();
 
     void register_cpu_statistics();
 
