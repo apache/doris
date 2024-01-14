@@ -103,13 +103,18 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
 
     DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
+            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id);
             return Status::InternalError("debug prepare txn random failed");
         }
     });
     DBUG_EXECUTE_IF("TxnManager.prepare_txn.wait", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.prepare_txn.wait").tag("wait ms", wait);
+            LOG_WARNING("TxnManager.prepare_txn.wait")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
@@ -274,13 +279,18 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 
     DBUG_EXECUTE_IF("TxnManager.commit_txn.random_failed", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("TxnManager.commit_txn.random_failed");
+            LOG_WARNING("TxnManager.commit_txn.random_failed")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id);
             return Status::InternalError("debug commit txn random failed");
         }
     });
     DBUG_EXECUTE_IF("TxnManager.commit_txn.wait", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.commit_txn.wait").tag("wait ms", wait);
+            LOG_WARNING("TxnManager.commit_txn.wait")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
@@ -347,7 +357,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                                         rowset_ptr->rowset_meta()->get_rowset_pb(), false);
         DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
             if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-                LOG_WARNING("TxnManager.RowsetMetaManager.save_wait").tag("wait ms", wait);
+                LOG_WARNING("TxnManager.RowsetMetaManager.save_wait")
+                        .tag("txn_id", transaction_id)
+                        .tag("tablet_id", tablet_id)
+                        .tag("wait ms", wait);
                 std::this_thread::sleep_for(std::chrono::milliseconds(wait));
             }
         });
@@ -426,13 +439,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("TxnManager.publish_txn.random_failed_before_save_rs_meta");
+            LOG_WARNING("TxnManager.publish_txn.random_failed_before_save_rs_meta")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id);
             return Status::InternalError("debug publish txn before save rs meta random failed");
         }
     });
     DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_before_save_rs_meta", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta").tag("wait ms", wait);
+            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
@@ -446,13 +464,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
 
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("TxnManager.publish_txn.random_failed_after_save_rs_meta");
+            LOG_WARNING("TxnManager.publish_txn.random_failed_after_save_rs_meta")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id);
             return Status::InternalError("debug publish txn after save rs meta random failed");
         }
     });
     DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_after_save_rs_meta", {
         if (auto wait = dp->param<int>("duration", 0); wait > 0) {
-            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta").tag("wait ms", wait);
+            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta")
+                    .tag("txn_id", transaction_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("wait ms", wait);
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
