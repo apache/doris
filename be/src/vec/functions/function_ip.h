@@ -899,7 +899,7 @@ private:
     static bool is_ipv4_mapped(const UInt8* address) {
         return (unaligned_load_little_endian<UInt64>(address) == 0) &&
                ((unaligned_load_little_endian<UInt64>(address + 8) & 0x00000000FFFFFFFFULL) ==
-                0x00000000FFFFFFFFULL);
+                0x00000000FFFF0000ULL);
     }
 };
 
