@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.collect.ImmutableList;
@@ -62,10 +64,16 @@ public interface NormalizeToSlot {
             Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
 
             Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
+            // existsAlias maybe nullable(sum(column)) as alias_name, so should extract first aggregate function
+            // because the expression in sourceExpressions are all aggregate function
             for (Alias existsAlias : existsAliases) {
-                existsAliasMap.put(existsAlias.child(), existsAlias);
+                List<Object> aggregateFunctions = existsAlias.collectFirst(AggregateFunction.class::isInstance);
+                if (!aggregateFunctions.isEmpty()) {
+                    existsAliasMap.put((Expression) aggregateFunctions.get(0), existsAlias);
+                } else {
+                    existsAliasMap.put(existsAlias.child(), existsAlias);
+                }
             }
-
             for (Expression expression : sourceExpressions) {
                 if (normalizeToSlotMap.containsKey(expression)) {
                     continue;

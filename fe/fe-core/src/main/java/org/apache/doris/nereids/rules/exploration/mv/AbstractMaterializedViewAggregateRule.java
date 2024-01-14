@@ -23,7 +23,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
-import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -45,7 +44,6 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -95,7 +93,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMapping,
+            SlotMapping viewToQuerySlotMapping,
             Plan tempRewritedPlan,
             MaterializationContext materializationContext) {
         // get view and query aggregate and top plan correspondingly
@@ -115,12 +113,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
-        SlotMapping viewToQurySlotMapping = queryToViewSlotMapping.inverse();
-        if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQurySlotMapping)) {
+        if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQuerySlotMapping)) {
             List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getExpressions(),
                     queryTopPlan,
                     materializationContext.getMvExprToMvScanExprMapping(),
-                    queryToViewSlotMapping,
+                    viewToQuerySlotMapping,
                     true);
             if (!rewrittenQueryExpressions.isEmpty()) {
                 return new LogicalProject<>(
@@ -133,15 +130,17 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                     Pair.of("Can not rewrite expression when no roll up",
                             String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
-                                            + "queryToViewSlotMapping = %s",
+                                            + "viewToQuerySlotMapping = %s",
                                     queryTopPlan.getExpressions(),
                                     materializationContext.getMvExprToMvScanExprMapping(),
-                                    queryToViewSlotMapping)));
+                                    viewToQuerySlotMapping)));
         }
         // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
         // Should not rewrite
-        if (queryTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()
-                || viewTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()) {
+        List<Expression> queryGroupByExpressions = queryTopPlanAndAggPair.value().getGroupByExpressions();
+        List<Expression> viewGroupByExpressions = viewTopPlanAndAggPair.value().getGroupByExpressions();
+        if ((queryGroupByExpressions.isEmpty() && !viewGroupByExpressions.isEmpty())
+                || (!queryGroupByExpressions.isEmpty() && viewGroupByExpressions.isEmpty())) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                     Pair.of("only one the of query or view is scalar aggregate and "
                                     + "can not rewrite expression meanwhile",
@@ -154,53 +153,42 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
         Pair<Set<? extends Expression>, Set<? extends Expression>> queryGroupAndFunctionPair
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair);
-        // this map will be used to rewrite expression
-        Multimap<Expression, Expression> needRollupExprMap = HashMultimap.create();
-        Multimap<Expression, Expression> groupRewrittenExprMap = HashMultimap.create();
-        // permute the mv expr mapping to query based
-        Map<Expression, Expression> mvExprToMvScanExprQueryBased =
-                materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQurySlotMapping)
-                        .flattenMap().get(0);
         Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalAggregateExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
-        for (Expression topExpression : queryTopPlan.getExpressions()) {
+        List<? extends Expression> queryExpressions = queryTopPlan.getExpressions();
+        // permute the mv expr mapping to query based
+        Map<Expression, Expression> mvExprToMvScanExprQueryBased =
+                materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQuerySlotMapping)
+                        .flattenMap().get(0);
+        for (Expression topExpression : queryExpressions) {
             // if agg function, try to roll up and rewrite
             if (queryTopPlanFunctionSet.contains(topExpression)) {
                 Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                         topExpression,
                         queryTopPlan);
                 // try to roll up
-                AggregateFunction queryFunction = (AggregateFunction) queryFunctionShuttled.firstMatch(
-                        expr -> expr instanceof AggregateFunction);
-                Function rollupAggregateFunction = rollup(queryFunction, queryFunctionShuttled,
-                        mvExprToMvScanExprQueryBased);
+                List<Object> queryFunctions =
+                        queryFunctionShuttled.collectFirst(expr -> expr instanceof AggregateFunction);
+                if (queryFunctions.isEmpty()) {
+                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                            Pair.of("Can not found query function",
+                                    String.format("queryFunctionShuttled = %s", queryFunctionShuttled)));
+                }
+                Function rollupAggregateFunction = rollup((AggregateFunction) queryFunctions.get(0),
+                        queryFunctionShuttled, mvExprToMvScanExprQueryBased);
                 if (rollupAggregateFunction == null) {
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Query function roll up fail",
                                     String.format("queryFunction = %s,\n queryFunctionShuttled = %s,\n"
                                                     + "mvExprToMvScanExprQueryBased = %s",
-                                            queryFunction, queryFunctionShuttled, mvExprToMvScanExprQueryBased)));
+                                            queryFunctions.get(0), queryFunctionShuttled,
+                                            mvExprToMvScanExprQueryBased)));
                     return null;
                 }
-                // key is query need roll up expr, value is mv scan based roll up expr
-                needRollupExprMap.put(queryFunctionShuttled, rollupAggregateFunction);
-                // rewrite query function expression by mv expression
-                ExpressionMapping needRollupExprMapping = new ExpressionMapping(needRollupExprMap);
-                Expression rewrittenFunctionExpression = rewriteExpression(topExpression,
-                        queryTopPlan,
-                        needRollupExprMapping,
-                        queryToViewSlotMapping,
-                        false);
-                if (rewrittenFunctionExpression == null) {
-                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                            Pair.of("Roll up expression can not rewrite by view", String.format(
-                                    "topExpression = %s,\n needRollupExprMapping = %s,\n queryToViewSlotMapping = %s",
-                                    topExpression, needRollupExprMapping, queryToViewSlotMapping)));
-                    return null;
-                }
-                finalAggregateExpressions.add((NamedExpression) rewrittenFunctionExpression);
+                finalAggregateExpressions.add(
+                        (NamedExpression) normalizeExpressionToSource(topExpression, rollupAggregateFunction));
             } else {
                 // if group by expression, try to rewrite group by expression
                 Expression queryGroupShuttledExpr =
@@ -213,24 +201,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                             mvExprToMvScanExprQueryBased, queryGroupShuttledExpr)));
                     return null;
                 }
-                groupRewrittenExprMap.put(queryGroupShuttledExpr,
-                        mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr));
-                // rewrite query group expression by mv expression
-                ExpressionMapping groupRewrittenExprMapping = new ExpressionMapping(groupRewrittenExprMap);
-                Expression rewrittenGroupExpression = rewriteExpression(
-                        topExpression,
-                        queryTopPlan,
-                        groupRewrittenExprMapping,
-                        queryToViewSlotMapping,
-                        true);
-                if (rewrittenGroupExpression == null) {
-                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                            Pair.of("Query dimensions can not be rewritten by view",
-                                    String.format("topExpression is %s,\n groupRewrittenExprMapping is %s,\n"
-                                                    + "queryToViewSlotMapping = %s",
-                                            topExpression, groupRewrittenExprMapping, queryToViewSlotMapping)));
-                    return null;
-                }
+                Expression rewrittenGroupExpression = normalizeExpressionToSource(
+                        topExpression, mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr));
                 finalAggregateExpressions.add((NamedExpression) rewrittenGroupExpression);
                 finalGroupExpressions.add(rewrittenGroupExpression);
             }
@@ -271,7 +243,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     private boolean isGroupByEquals(Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair,
             Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair,
-            SlotMapping viewToQurySlotMapping) {
+            SlotMapping viewToQuerySlotMapping) {
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
@@ -282,7 +254,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Set<? extends Expression> viewGroupShuttledExpressionQueryBased = ExpressionUtils.shuttleExpressionWithLineage(
                         viewAggregate.getGroupByExpressions(), viewTopPlan)
                 .stream()
-                .map(expr -> ExpressionUtils.replace(expr, viewToQurySlotMapping.toSlotReferenceMap()))
+                .map(expr -> ExpressionUtils.replace(expr, viewToQuerySlotMapping.toSlotReferenceMap()))
                 .collect(Collectors.toSet());
         return queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }

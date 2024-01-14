@@ -47,7 +47,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMapping,
+            SlotMapping targetToSourceMapping,
             Plan tempRewritedPlan,
             MaterializationContext materializationContext) {
         // Rewrite top projects, represent the query projects by view
@@ -55,7 +55,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getOriginalPlan(),
                 materializationContext.getMvExprToMvScanExprMapping(),
-                queryToViewSlotMapping,
+                targetToSourceMapping,
                 true
         );
         // Can not rewrite, bail out
@@ -64,10 +64,10 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                     Pair.of("Rewrite expressions by view in join fail",
                             String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
-                                            + "queryToViewSlotMapping = %s",
+                                            + "targetToSourceMapping = %s",
                                     queryStructInfo.getExpressions(),
                                     materializationContext.getMvExprToMvScanExprMapping(),
-                                    queryToViewSlotMapping)));
+                                    targetToSourceMapping)));
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in
