@@ -27,11 +27,11 @@ under the License.
 
 # Quick Start
 
-Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. This brief guide will show you how to download the latest stable version of Doris, install and run it on a single node, including creating databases, data tables, importing data and queries, etc.
+Apache Doris is a high-performance, real-time analytic database based on the MPP architecture and is known for its extreme speed and ease of use. It takes only sub-second response times to return query results under massive amounts of data, and can support not only highly concurrent point query scenarios, but also high-throughput complex analytic scenarios. This brief guide will show you how to download the latest stable version of Doris, install and run it on a single node, including creating databases, data tables, importing data and queries.
 
 ## Download Doris
 
-Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the JDK version required is 8). To check the version of Java you have installed, run the following command.
+Doris runs on a Linux environment, CentOS 7.x or Ubuntu 16.04 or higher is recommended, and you need to have a Java runtime environment installed (the exact JDK version required is 8). You can run the following command to verify the installed version of Java.
 
 ```
 java -version
@@ -55,7 +55,7 @@ cd apache-doris-x.x.x/fe
 
 Modify the FE configuration file `conf/fe.conf`, here we mainly modify two parameters: `priority_networks` and `meta_dir`, if you need more optimized configuration, please refer to [FE parameter configuration](../admin-manual/config/fe-config.md) for instructions on how to adjust them.
 
-1. add priority_networks parameter
+1. add the `priority_networks` parameter
 
 ```
 priority_networks=172.23.16.0/24
@@ -87,7 +87,7 @@ Execute the following command in the FE installation directory to complete the F
 
 #### View FE operational status
 
-You can check if Doris started successfully with the following command
+Check if Doris started successfully with the following command.
 
 ```
 curl http://127.0.0.1:8030/api/bootstrap
@@ -114,7 +114,7 @@ You can see the following screen, which indicates that the FE has started succes
 
 We will connect to Doris FE via MySQL client below, download the installation-free [MySQL client](https://doris-build-hk.oss-cn-hongkong.aliyuncs.com/mysql-client/mysql-5.7.22-linux-glibc2.12-x86_64.tar.gz)
 
-Unzip the MySQL client you just downloaded and you can find the `mysql` command line tool in the `bin/` directory. Then execute the following command to connect to Doris.
+Unzip the MySQL client you just downloaded. You can find the `mysql` command line tool in the `bin/` directory. Execute the following command to connect to Doris.
 
 ```
 mysql -uroot -P9030 -h127.0.0.1
@@ -126,7 +126,7 @@ mysql -uroot -P9030 -h127.0.0.1
 >2. -P: Here is our query port to connect to Doris, the default port is 9030, which corresponds to `query_port` in fe.conf
 >3. -h: Here is the IP address of the FE we are connecting to, if your client and FE are installed on the same node you can use 127.0.0.1
 
-Execute the following command to view the FE running status
+Execute the following command to view the FE running status.
 
 ```sql
 show frontends\G;
@@ -158,7 +158,7 @@ ReplayedJournalId: 49292
 1 row in set (0.03 sec)
 ```
 
-1. If the IsMaster, Join and Alive columns are true, the node is normal.
+1. If the `IsMaster`, `Join` and `Alive` columns are `true`, the node is running normally.
 
 #### Communicate with the server over an encrypted connection
 
@@ -184,7 +184,7 @@ Doris needs a key certificate file to verify the SSL encrypted connection. The d
 
 #### Stop FE
 
-The stopping of Doris FE can be done with the following command
+The Doris FE can be stopped with the following command
 
 ```
 ./bin/stop_fe.sh
@@ -200,7 +200,7 @@ cd apache-doris-x.x.x/be
 
 Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config.md) instructions to make adjustments.
 
-1. Add priority_networks parameter
+1. Add the `priority_networks` parameter
 
 ```
 priority_networks=172.23.16.0/24
@@ -219,8 +219,8 @@ storage_root_path=/path/your/data_dir
 
 >Notes.
 >
->1. The default directory is in the storage directory of the BE installation directory.
->2. The storage directory for BE configuration must be created first
+>1. The default directory is the storage directory of the BE installation directory
+>2. The storage directory specified in the BE configuration must first be created manually
 
 3. Set JAVA_HOME environment variable
 
@@ -259,7 +259,7 @@ You can check the running status of BE by executing the following command at the
 SHOW BACKENDS\G；
 ```
 
-Example:
+Example output:
 
 ```sql
 mysql> SHOW BACKENDS\G;
@@ -289,11 +289,11 @@ ClusterDecommissioned: false
 1 row in set (0.01 sec)
 ```
 
-1. Alive : true means the node is running normally
+1. If `Alive` is set to `true` the node is running normally.
 
 #### Stop BE
 
-The stopping of Doris BE can be done with the following command
+The Doris BE can be stopped with the following command
 
 ```
 ./bin/stop_be.sh
@@ -384,7 +384,7 @@ After successful execution we can see the following return message
 
 2. `NumberTotalRows` indicates the total amount of data to be imported
 
-3. `Status` :Success means the import was successful
+3. `Status` value `Success` means the import was successful
 
 Here we have finished importing the data, and we can now query and analyze the data according to our own needs.
 
@@ -427,6 +427,6 @@ mysql> select city, sum(cost) as total_cost from example_tbl group by city;
 4 rows in set (0.00 sec)
 ```
 
+## Conclusion
 
-
-This is the end of our entire quick start. We have experienced the complete Doris operation process from Doris installation and deployment, start/stop, creation of library tables, data import and query, let's start our Doris usage journey.
+This is the end of the quick start. We have experienced the complete Doris operation process from Doris installation and deployment, start/stop, creation of library tables, data import and query. Let us start our Doris usage journey.
