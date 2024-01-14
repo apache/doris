@@ -46,6 +46,10 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
+import io.github.kawamuray.wasmtime.Engine;
+import io.github.kawamuray.wasmtime.Module;
+import io.github.kawamuray.wasmtime.Store;
+import io.github.kawamuray.wasmtime.WasmtimeException;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
@@ -349,6 +353,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 throw new AnalysisException("No 'symbol' in properties of java-udaf");
             }
             analyzeJavaUdaf(symbol);
+        } else if (binaryType == TFunctionBinaryType.WASM_UDF) {
+            throw new AnalysisException("No Support asam-udaf");
         }
         function = builder.initFnSymbol(initFnSymbol).updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
                 .serializeFnSymbol(serializeFnSymbol).finalizeFnSymbol(finalizeFnSymbol)
@@ -377,6 +383,8 @@ public class CreateFunctionStmt extends DdlStmt {
             checkRPCUdf(symbol);
         } else if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             analyzeJavaUdf(symbol);
+        } else if (binaryType == TFunctionBinaryType.WASM_UDF) {
+            analyzeWasmUdf();
         }
         URI location = URI.create(userFile);
         function = ScalarFunction.createUdf(binaryType,
@@ -484,6 +492,24 @@ public class CreateFunctionStmt extends DdlStmt {
                         "Class [" + clazz + "] or inner class [State] not found in file :" + userFile);
             } catch (IOException e) {
                 throw new AnalysisException("Failed to load file: " + userFile);
+            }
+        } catch (MalformedURLException e) {
+            throw new AnalysisException("Failed to load file: " + userFile);
+        }
+    }
+
+    private void analyzeWasmUdf() throws AnalysisException {
+        try {
+            URL url = new URL(userFile);
+            try (Store<Void> store = Store.withoutData()) {
+                try (Engine engine = store.engine();
+                        Module module = Module.fromFile(engine, url.getFile())) {
+                    return;
+                } catch (WasmtimeException e) {
+                    throw new AnalysisException("Failed to compile file: " + userFile, e);
+                }
+            } catch (WasmtimeException e) {
+                throw new AnalysisException("Failed to create engine: " + userFile, e);
             }
         } catch (MalformedURLException e) {
             throw new AnalysisException("Failed to load file: " + userFile);
