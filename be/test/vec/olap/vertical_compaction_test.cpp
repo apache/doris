@@ -258,6 +258,7 @@ protected:
                 }
                 num_rows++;
             }
+            block.set_columns(std::move(columns));
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();

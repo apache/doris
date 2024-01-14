@@ -369,6 +369,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
 
+        block.set_columns(std::move(columns));
         st = delta_writer->write(&block, {0});
         ASSERT_EQ(Status::OK(), st);
     }

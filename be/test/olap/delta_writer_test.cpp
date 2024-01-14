@@ -463,6 +463,7 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
 
     int32_t c5 = seq;
     columns[4]->insert_data((const char*)&c5, sizeof(c2));
+    block.set_columns(std::move(columns));
 }
 
 class TestDeltaWriter : public ::testing::Test {
@@ -636,6 +637,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         date_v2_int = date_v2.to_date_int_val();
         columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
+        block.set_columns(std::move(columns));
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }

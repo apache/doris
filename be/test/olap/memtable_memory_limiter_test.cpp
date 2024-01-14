@@ -166,6 +166,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         int32_t k3 = -2147483647;
         columns[2]->insert_data((const char*)&k3, sizeof(k3));
 
+        block.set_columns(std::move(columns));
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
