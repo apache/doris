@@ -97,8 +97,7 @@ public:
     // but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
     Status load_data_dirs(const std::vector<DataDir*>& stores);
 
-    template <bool include_unused = false>
-    std::vector<DataDir*> get_stores();
+    std::vector<DataDir*> get_stores(bool include_unused = false);
 
     // get all info of root_path
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
@@ -228,9 +227,6 @@ private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
     Status _open();
-
-    // Clear status(tables, ...)
-    void _clear();
 
     Status _init_store_map();
 
@@ -365,7 +361,7 @@ private:
     EngineOptions _options;
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
-    std::map<std::string, DataDir*> _store_map;
+    std::map<std::string, std::unique_ptr<DataDir>> _store_map;
     std::set<std::string> _broken_paths;
     std::mutex _broken_paths_mutex;
 
@@ -492,8 +488,6 @@ private:
     bool _clear_segment_cache = false;
 
     std::atomic<bool> _need_clean_trash {false};
-
-    DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
 } // namespace doris

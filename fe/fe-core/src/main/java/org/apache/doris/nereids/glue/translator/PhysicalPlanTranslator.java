@@ -43,7 +43,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -743,7 +742,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, PlanTranslatorContext context) {
-        Table table = schemaScan.getTable();
+        TableIf table = schemaScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(schemaScan.getOutput());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
 

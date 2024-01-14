@@ -226,6 +226,9 @@ DECLARE_Int32(download_worker_count);
 DECLARE_Int32(make_snapshot_worker_count);
 // the count of thread to release snapshot
 DECLARE_Int32(release_snapshot_worker_count);
+// report random wait a little time to avoid FE receiving multiple be reports at the same time.
+// do not set it to false for production environment
+DECLARE_mBool(report_random_wait);
 // the interval time(seconds) for agent report tasks signature to FE
 DECLARE_mInt32(report_task_interval_seconds);
 // the interval time(seconds) for refresh storage policy from FE
@@ -240,8 +243,6 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
-// sleep time for one second
-DECLARE_Int32(sleep_one_second);
 
 // log dir
 DECLARE_String(sys_log_dir);
@@ -496,7 +497,7 @@ DECLARE_mInt32(finished_migration_tasks_size);
 // If size less than this, the remaining rowsets will be force to complete
 DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
-// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
+// timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
 
 // Port to start debug webserver on
@@ -829,8 +830,6 @@ DECLARE_Int64(open_load_stream_timeout_ms);
 // timeout for load stream close wait in ms
 DECLARE_Int64(close_load_stream_timeout_ms);
 
-// idle timeout for load stream in ms
-DECLARE_Int64(load_stream_idle_timeout_ms);
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
 // brpc streaming messages_in_batch
@@ -1101,6 +1100,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
+DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
+
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 // Apply delete pred in cumu compaction
@@ -1111,10 +1112,10 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
-// the max expiration time of kerberos ticket.
-// If a hdfs filesytem with kerberos authentication live longer
-// than this time, it will be expired.
-DECLARE_mInt64(kerberos_expiration_time_seconds);
+// Allow to specify kerberos credentials cache path.
+DECLARE_mString(kerberos_ccache_path);
+// set krb5.conf path, use "/etc/krb5.conf" by default
+DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1197,6 +1198,8 @@ DECLARE_Bool(group_commit_wait_replay_wal_finish);
 DECLARE_Int32(scan_thread_nice_value);
 // Used to modify the recycle interval of tablet schema cache
 DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+// Granularity is at the column level
+DECLARE_mInt32(tablet_schema_cache_capacity);
 
 // Use `LOG(FATAL)` to replace `throw` when true
 DECLARE_mBool(exit_on_exception);
@@ -1238,6 +1241,7 @@ DECLARE_mBool(enable_column_type_check);
 DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 DECLARE_mInt32(report_query_statistics_interval_ms);
+DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
 #ifdef BE_TEST
 // test s3

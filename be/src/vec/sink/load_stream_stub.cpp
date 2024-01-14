@@ -151,7 +151,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            bool enable_profile) {
+                            int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return Status::OK();
@@ -160,7 +160,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
     opt.max_buf_size = config::load_stream_max_buf_size;
-    opt.idle_timeout_ms = config::load_stream_idle_timeout_ms;
+    opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, self);
     brpc::Controller cntl;
@@ -174,6 +174,7 @@ Status LoadStreamStub::open(std::shared_ptr<LoadStreamStub> self,
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
     request.set_total_streams(total_streams);
+    request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
     for (auto& tablet : tablets_for_schema) {
         *request.add_tablets() = tablet;
@@ -315,14 +316,13 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     }
     DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
-    if (_is_closed.load()) {
-        return Status::OK();
-    }
-    int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-    if (ret != 0) {
-        return Status::InternalError(
-                "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
-                print_id(_load_id), _dst_id, _stream_id);
+    if (!_is_closed.load()) {
+        int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
+        if (ret != 0) {
+            return Status::InternalError(
+                    "stream close_wait timeout, error={}, load_id={}, dst_id={}, stream_id={}", ret,
+                    print_id(_load_id), _dst_id, _stream_id);
+        }
     }
     if (!_is_eos.load()) {
         return Status::InternalError(

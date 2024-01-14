@@ -168,6 +168,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMicroseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMillisecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
@@ -574,6 +575,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromBase64.class, "from_base64"),
             scalar(FromDays.class, "from_days"),
             scalar(FromUnixtime.class, "from_unixtime"),
+            scalar(G.class, "g"),
             scalar(GetJsonBigInt.class, "get_json_bigint"),
             scalar(GetJsonDouble.class, "get_json_double"),
             scalar(GetJsonInt.class, "get_json_int"),

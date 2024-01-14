@@ -654,7 +654,7 @@ void BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset
 
 RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
-    *rowset_meta_ = *_rowset_meta;
+    rowset_meta_->init(_rowset_meta.get());
     _build_rowset_meta(rowset_meta_);
 
     RowsetSharedPtr rowset;

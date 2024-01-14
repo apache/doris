@@ -53,8 +53,8 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         Status ret2 = _exec_env->task_group_manager()->upsert_cg_task_scheduler(&task_group_info,
                                                                                 _exec_env);
         if (!ret2.ok()) {
-            LOG(WARNING) << "upsert task sche failed, tg_id=" << task_group_info.id
-                         << ", reason=" << ret2.to_string();
+            LOG(INFO) << "upsert task sche failed, tg_id=" << task_group_info.id
+                      << ", reason=" << ret2.to_string();
         }
 
         LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()

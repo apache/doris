@@ -81,7 +81,7 @@ public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
-        if (!request.isSetMetadaTableParams()) {
+        if (!request.isSetMetadaTableParams() || !request.getMetadaTableParams().isSetMetadataType()) {
             return errorResult("Metadata table params is not set. ");
         }
         TFetchSchemaTableDataResult result;

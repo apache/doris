@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "parquet_column_convert.h"
 #include "runtime/define_primitive_type.h"
 #include "schema_desc.h"
 #include "util/runtime_profile.h"
@@ -575,13 +574,12 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
     } while (false);
 
     if (need_convert) {
-        std::unique_ptr<ParquetConvert::ColumnConvert> converter;
-        ParquetConvert::ConvertParams convert_params;
-        convert_params.init(_field_schema, _ctz);
-        RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, type,
-                                                      &converter, &convert_params));
+        if (_converter == nullptr) {
+            RETURN_IF_ERROR(ParquetConvert::get_converter(parquet_physical_type, show_type, type,
+                                                          &_converter, _field_schema, _ctz));
+        }
         auto x = doris_column->assume_mutable();
-        RETURN_IF_ERROR(converter->convert(src_column, x));
+        RETURN_IF_ERROR(_converter->convert(src_column, x));
     }
 
     return Status::OK();
