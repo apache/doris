@@ -72,7 +72,6 @@ public class StructInfoNode extends AbstractNode {
                     .build();
         }
         return ImmutableList.<Set<Expression>>builder()
-                .add(ImmutableSet.copyOf(plan.getExpressions()))
                 .addAll(childExpressions)
                 .build();
     }

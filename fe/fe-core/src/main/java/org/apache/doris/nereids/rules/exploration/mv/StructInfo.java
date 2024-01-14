@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -171,12 +172,32 @@ public class StructInfo {
         // Collect relations from hyper graph which in the bottom plan
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
+            StructInfoNode structInfoNode = (StructInfoNode) node;
+            // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
             List<CatalogRelation> nodeRelations = new ArrayList<>();
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
             relationBuilder.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
             relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
+
+            // record expressions in node
+            if (structInfoNode.getExpressions() != null) {
+                structInfoNode.getExpressions().forEach(expression -> {
+                    ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                            new ExpressionLineageReplacer.ExpressionReplaceContext(
+                                    Lists.newArrayList(expression),
+                                    ImmutableSet.of(),
+                                    ImmutableSet.of());
+                    topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                    // Replace expressions by expression map
+                    List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+                    shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), expression);
+                    // Record this, will be used in top level expression shuttle later, see the method
+                    // ExpressionLineageReplacer#visitGroupPlan
+                    namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
+                });
+            }
         });
         // Collect expression from where in hyper graph
         hyperGraph.getFilterEdges().forEach(filterEdge -> {
@@ -436,7 +457,8 @@ public class StructInfo {
             if (!(plan instanceof Filter)
                     && !(plan instanceof Project)
                     && !(plan instanceof CatalogRelation)
-                    && !(plan instanceof Join)) {
+                    && !(plan instanceof Join)
+                    && !(plan instanceof Aggregate)) {
                 return false;
             }
             if (plan instanceof Join) {
