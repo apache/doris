@@ -104,6 +104,10 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 ctx.statementContext, shouldOutputMarkJoinSlot);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
+                        // boolean isMarkSlotNotNull =
+                        //         ExpressionUtils.canInferNotNullForMarkSlot(
+                        //                 TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
+                        //                         .rewrite(conjunct, null));
 
                         applyPlan = subqueryToApply(subqueryExprs.stream()
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
@@ -120,8 +124,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         return new LogicalProject<>(applyPlan.getOutput().stream()
                                 .filter(s -> !(s instanceof MarkJoinSlotReference))
                                 .collect(ImmutableList.toImmutableList()), newFilter);
+                    } else {
+                        return newFilter;
                     }
-                    return new LogicalFilter<>(conjuncts, applyPlan);
                 })
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -59,6 +61,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
@@ -467,6 +470,55 @@ public class ExpressionUtils {
 
     public static boolean isAllNullLiteral(List<Expression> children) {
         return children.stream().allMatch(c -> c instanceof NullLiteral);
+    }
+
+    /**
+     * canFilterNull
+     */
+    public static boolean canFilterNull(Set<Expression> predicates) {
+        // the idea is replacing mark join slot to null literal and run FoldConstant rule
+        // if the return value is false or null, we can safely change the mark conjunct to hash conjunct
+        NullLiteral nullLiteral = new NullLiteral(BooleanType.INSTANCE);
+        for (Expression predicate : predicates) {
+            Map<Expression, Expression> replaceMap = Maps.newHashMap();
+            predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
+            Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(ExpressionUtils.replace(predicate, replaceMap),
+                    new ExpressionRewriteContext(null));
+            if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * canInferNotNullForMarkSlot
+     */
+    public static boolean canInferNotNullForMarkSlot(Expression predicate) {
+        // the idea is replacing mark join slot to null literal and run FoldConstant rule
+        // if the return value is false or null, we can safely change the mark conjunct to hash conjunct
+        NullLiteral nullLiteral = new NullLiteral(BooleanType.INSTANCE);
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+
+        if (predicate.getInputSlots().size() == 1
+                && predicate.getInputSlots().iterator().next() instanceof MarkJoinSlotReference) {
+            predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
+        } else {
+            return false;
+        }
+
+        Expression evalExprNull = FoldConstantRule.INSTANCE.rewrite(
+                ExpressionUtils.replace(predicate, replaceMap), new ExpressionRewriteContext(null));
+
+        replaceMap.clear();
+        predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, BooleanLiteral.FALSE));
+        Expression evalExprFalse = FoldConstantRule.INSTANCE.rewrite(
+                ExpressionUtils.replace(predicate, replaceMap), new ExpressionRewriteContext(null));
+
+        if (evalExprNull.equals(evalExprFalse)) {
+            return true;
+        }
+        return false;
     }
 
     /**

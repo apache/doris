@@ -100,32 +100,44 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             // TODO: trick here, because when deep copy logical plan the apply right child
             //  is not same with query plan in subquery expr, since the scan node copy twice
             Expression right = inSubquery.getSubqueryOutput((LogicalPlan) apply.right());
-            if (apply.isCorrelated()) {
-                if (inSubquery.isNot()) {
-                    predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
-                            new IsNull(left), new IsNull(right)),
-                            apply.getCorrelationFilter().get());
-                } else {
-                    predicate = ExpressionUtils.and(new EqualTo(left, right),
-                            apply.getCorrelationFilter().get());
-                }
-            } else {
-                predicate = new EqualTo(left, right);
-            }
-
-            List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-            if (inSubquery.isNot()) {
+            if (apply.isMarkJoin()) {
+                List<Expression> joinConjuncts = apply.getCorrelationFilter().isPresent()
+                        ? ExpressionUtils.extractConjunction(apply.getCorrelationFilter().get())
+                        : ExpressionUtils.EMPTY_CONDITION;
+                List<Expression> markConjuncts = Lists.newArrayList(new EqualTo(left, right));
                 return new LogicalJoin<>(
-                        predicate.nullable() && !apply.isCorrelated()
-                                ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
-                                : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
-                        apply.getMarkJoinSlotReference(), apply.children());
-            } else {
-                return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
-                        conjuncts,
+                        inSubquery.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
+                        Lists.newArrayList(), joinConjuncts, markConjuncts,
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children());
+            } else {
+                if (apply.isCorrelated()) {
+                    if (inSubquery.isNot()) {
+                        predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
+                                        new IsNull(left), new IsNull(right)),
+                                apply.getCorrelationFilter().get());
+                    } else {
+                        predicate = ExpressionUtils.and(new EqualTo(left, right),
+                                apply.getCorrelationFilter().get());
+                    }
+                } else {
+                    predicate = new EqualTo(left, right);
+                }
+
+                List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
+                if (inSubquery.isNot()) {
+                    return new LogicalJoin<>(
+                            predicate.nullable() && !apply.isCorrelated()
+                                    ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+                                    : JoinType.LEFT_ANTI_JOIN,
+                            Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
+                            apply.getMarkJoinSlotReference(), apply.children());
+                } else {
+                    return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
+                            conjuncts,
+                            new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
+                            apply.children());
+                }
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }

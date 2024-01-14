@@ -336,7 +336,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                 .map(c -> ExpressionDeepCopier.INSTANCE.deepCopy(c, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts,
+        List<Expression> markJoinConjuncts = join.getMarkJoinConjuncts().stream()
+                .map(c -> ExpressionDeepCopier.INSTANCE.deepCopy(c, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 join.getDistributeHint(), join.getMarkJoinSlotReference(), children);
     }
 
