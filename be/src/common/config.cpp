@@ -839,6 +839,13 @@ DEFINE_Int32(routine_load_consumer_pool_size, "10");
 // if the size of batch is more than this threshold, we will request plans for all related tables.
 DEFINE_Int32(multi_table_batch_plan_threshold, "200");
 
+// Used in single-stream-multi-table load. When receiving a batch of messages from Kafka,
+// if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.
+// The param is aimed to avoid requesting and executing too many plans at once.
+// Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC
+// and improve the real-time processing of data.
+DEFINE_Int32(multi_table_max_wait_tables, "5");
+
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
