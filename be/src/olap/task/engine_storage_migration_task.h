@@ -53,7 +53,8 @@ private:
     Status _check_running_txns();
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration lock is transferred to the caller if check succ
-    Status _check_running_txns_until_timeout(std::unique_lock<std::shared_mutex>* migration_wlock);
+    Status _check_running_txns_until_timeout(
+            std::unique_lock<std::shared_timed_mutex>* migration_wlock);
 
     // if the size less than threshold, return true
     bool _is_rowsets_size_less_than_threshold(
