@@ -226,6 +226,9 @@ DECLARE_Int32(download_worker_count);
 DECLARE_Int32(make_snapshot_worker_count);
 // the count of thread to release snapshot
 DECLARE_Int32(release_snapshot_worker_count);
+// report random wait a little time to avoid FE receiving multiple be reports at the same time.
+// do not set it to false for production environment
+DECLARE_mBool(report_random_wait);
 // the interval time(seconds) for agent report tasks signature to FE
 DECLARE_mInt32(report_task_interval_seconds);
 // the interval time(seconds) for refresh storage policy from FE
@@ -240,8 +243,6 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
-// sleep time for one second
-DECLARE_Int32(sleep_one_second);
 
 // log dir
 DECLARE_String(sys_log_dir);

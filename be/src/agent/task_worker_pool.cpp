@@ -856,7 +856,9 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
 
 void report_task_callback(const TMasterInfo& master_info) {
     TReportRequest request;
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
     request.__isset.tasks = true;
     {
         std::lock_guard lock(s_task_signatures_mtx);
@@ -880,7 +882,9 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     // Random sleep 1~5 seconds before doing report.
     // In order to avoid the problem that the FE receives many report requests at the same time
     // and can not be processed.
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
 
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
@@ -914,7 +918,9 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
 }
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
 
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
