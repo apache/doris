@@ -21,6 +21,7 @@
 #pragma once
 
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <type_traits>
 
@@ -42,10 +43,9 @@ void unaligned_store(void* address, const typename std::enable_if<true, T>::type
 }
 
 inline void reverse_memcpy(void* dst, const void* src, size_t size) {
-    auto* uint_dst = reinterpret_cast<uint8_t*>(dst);
-    const auto* uint_src = reinterpret_cast<const uint8_t*>(src);
+    uint8_t* uint_dst = reinterpret_cast<uint8_t*>(dst) + size; // Perform addition here
+    const uint8_t* uint_src = reinterpret_cast<const uint8_t*>(src);
 
-    uint_dst += size;
     while (size) {
         --uint_dst;
         *uint_dst = *uint_src;
