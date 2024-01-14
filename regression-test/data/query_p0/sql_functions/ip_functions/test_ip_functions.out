@@ -140,37 +140,37 @@ AAAAAAAAFFFFFFFFFFFFFFFFAAAAAAAA
 2A0206B8000000000000000000000011
 
 -- !sql --
-1
+true
 
 -- !sql --
-0
-
--- !sql --
-\N
-
--- !sql --
-0
-
--- !sql --
-1
-
--- !sql --
-0
-
--- !sql --
-1
-
--- !sql --
-0
-
--- !sql --
-1
+false
 
 -- !sql --
 \N
 
 -- !sql --
-0
+false
 
 -- !sql --
-1
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+\N
+
+-- !sql --
+false
+
+-- !sql --
+true
