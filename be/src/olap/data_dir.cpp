@@ -80,9 +80,10 @@ Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) 
         size_t fsize = reader->size();
         if (fsize > 0) {
             std::string content;
-            content.reserve(fsize);
+            content.resize(fsize, '\0');
             size_t bytes_read = 0;
             RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
+            DCHECK_EQ(fsize, bytes_read);
             *cluster_id = std::stoi(content);
         }
     }
