@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -83,14 +85,13 @@ public class MaterializedViewUtils {
         // check sql pattern
         IncrementCheckerContext context = new IncrementCheckerContext(columnSlot);
         materializedViewPlan.accept(MaterializedViewIncrementChecker.INSTANCE, context);
-        if (context.getRelatedTable() == null
-                || context.getRelatedTableColumn() == null
-                || !context.isPctPossible()) {
+        if (context.getTableColumnList().isEmpty() || !context.isPctPossible()) {
             return Optional.empty();
         }
-        return Optional.of(new RelatedTableInfo(new BaseTableInfo(context.getRelatedTable()),
+        // TODO support to return only one related table info, support multi later
+        return Optional.of(new RelatedTableInfo(new BaseTableInfo(context.getTableColumnList().get(0).key()),
                 context.isPctPossible(),
-                context.getRelatedTableColumn().getName()));
+                context.getTableColumnList().get(0).value().getName()));
     }
 
     /**
@@ -122,6 +123,23 @@ public class MaterializedViewUtils {
      */
     public static boolean containTableQueryOperator(Plan analyzedPlan) {
         return analyzedPlan.accept(TableQueryOperatorChecker.INSTANCE, null);
+    }
+
+    /**
+     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     */
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
+        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
+                .isEmpty()) {
+            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
+        } else {
+            // build struct info and add them to current group
+            List<StructInfo> structInfos = StructInfo.of(plan);
+            if (plan.getGroupExpression().isPresent()) {
+                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
+            }
+            return structInfos;
+        }
     }
 
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
@@ -204,24 +222,24 @@ public class MaterializedViewUtils {
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
-            if (!(relation instanceof LogicalCatalogRelation) || context.getRelatedTable() != null) {
+            if (!(relation instanceof LogicalCatalogRelation) || !context.getTableColumnList().isEmpty()) {
                 return visit(relation, context);
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
-            if (!(table instanceof OlapTable)) {
+            if (!(table instanceof MTMVRelatedTableIf)) {
                 return visit(relation, context);
             }
-            OlapTable olapTable = (OlapTable) table;
-            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            Set<Column> partitionColumnSet = new HashSet<>(partitionInfo.getPartitionColumns());
-            if (PartitionType.UNPARTITIONED.equals(partitionInfo.getType())) {
+            MTMVRelatedTableIf relatedTable = (MTMVRelatedTableIf) table;
+            PartitionType type = relatedTable.getPartitionType();
+
+            if (PartitionType.UNPARTITIONED.equals(type)) {
                 return visit(relation, context);
             }
+            Set<Column> partitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns());
             Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
             if (partitionColumnSet.contains(mvReferenceColumn)) {
-                context.setRelatedTable(table);
-                context.setRelatedTableColumn(mvReferenceColumn);
+                context.addTableColumn(table, mvReferenceColumn);
                 context.setPctPossible(!mvReferenceColumn.isAllowNull());
             }
             return visit(relation, context);
@@ -295,8 +313,7 @@ public class MaterializedViewUtils {
     private static final class IncrementCheckerContext {
         private final SlotReference mvPartitionColumn;
         private boolean pctPossible = true;
-        private TableIf relatedTable;
-        private Column relatedTableColumn;
+        private final List<Pair<TableIf, Column>> tableColumnList = new ArrayList<>();
         private boolean joinNullGenerateSide;
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn) {
@@ -315,20 +332,12 @@ public class MaterializedViewUtils {
             this.pctPossible = pctPossible;
         }
 
-        public TableIf getRelatedTable() {
-            return relatedTable;
+        public void addTableColumn(TableIf relatedTable, Column partitionColumn) {
+            tableColumnList.add(Pair.of(relatedTable, partitionColumn));
         }
 
-        public void setRelatedTable(TableIf relatedTable) {
-            this.relatedTable = relatedTable;
-        }
-
-        public Column getRelatedTableColumn() {
-            return relatedTableColumn;
-        }
-
-        public void setRelatedTableColumn(Column relatedTableColumn) {
-            this.relatedTableColumn = relatedTableColumn;
+        public List<Pair<TableIf, Column>> getTableColumnList() {
+            return tableColumnList;
         }
 
         public boolean isJoinNullGenerateSide() {

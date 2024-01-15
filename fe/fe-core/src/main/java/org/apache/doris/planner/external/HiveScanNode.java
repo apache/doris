@@ -178,7 +178,7 @@ public class HiveScanNode extends FileQueryScanNode {
             // so that we can unify the interface.
             HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null);
+                    hmsTable.getRemoteTable().getSd().getLocation(), null, null);
             this.totalPartitionNum = 1;
             this.readPartitionNum = 1;
             resPartitions.add(dummyPartition);

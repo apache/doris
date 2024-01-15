@@ -23,18 +23,22 @@ import com.google.common.base.Preconditions;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class HivePartition {
+    public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
+
     private String dbName;
     private String tblName;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
     private boolean isDummyPartition;
+    private Map<String, String> parameters;
 
     public HivePartition(String dbName, String tblName, boolean isDummyPartition,
-                         String inputFormat, String path, List<String> partitionValues) {
+            String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
         this.dbName = dbName;
         this.tblName = tblName;
         this.isDummyPartition = isDummyPartition;
@@ -44,6 +48,7 @@ public class HivePartition {
         this.path = path;
         // eg: cn, beijing
         this.partitionValues = partitionValues;
+        this.parameters = parameters;
     }
 
     // return partition name like: nation=cn/city=beijing
@@ -61,6 +66,13 @@ public class HivePartition {
 
     public boolean isDummyPartition() {
         return this.isDummyPartition;
+    }
+
+    public long getLastModifiedTime() {
+        if (parameters == null || !parameters.containsKey(LAST_MODIFY_TIME_KEY)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY));
     }
 
     @Override

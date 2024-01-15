@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -151,7 +151,7 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            Map<OlapTable, String> tableWithPartKey = getIncrementalTableMap();
+            Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitionIds.size() / refreshPartitionNum) + ((needRefreshPartitionIds.size()
@@ -172,7 +172,8 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    private void exec(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
+    private void exec(ConnectContext ctx, Set<Long> refreshPartitionIds,
+            Map<TableIf, String> tableWithPartKey)
             throws Exception {
         TUniqueId queryId = generateQueryId();
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
@@ -219,8 +220,7 @@ public class MTMVTask extends AbstractTask {
         try {
             mtmv = getMTMV();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-                OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-                MTMVUtil.alignMvPartition(mtmv, relatedTable);
+                MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
             }
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
@@ -324,15 +324,14 @@ public class MTMVTask extends AbstractTask {
         executor = null;
     }
 
-    private Map<OlapTable, String> getIncrementalTableMap() throws AnalysisException {
-        Map<OlapTable, String> tableWithPartKey = Maps.newHashMap();
+    private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
+        Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-            OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-            tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
+            tableWithPartKey
+                    .put(mtmv.getMvPartitionInfo().getRelatedTable(), mtmv.getMvPartitionInfo().getRelatedCol());
         }
         return tableWithPartKey;
     }
-
 
     private MTMVTaskRefreshMode generateRefreshMode(List<Long> needRefreshPartitionIds) {
         if (CollectionUtils.isEmpty(needRefreshPartitionIds)) {

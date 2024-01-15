@@ -712,7 +712,7 @@ public class StatisticsUtil {
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
-                    table.getRemoteTable().getSd().getLocation(), null));
+                    table.getRemoteTable().getSd().getLocation(), null, null));
         }
         // Get files for all partitions.
         String bindBrokerName = table.getCatalog().bindBrokerName();

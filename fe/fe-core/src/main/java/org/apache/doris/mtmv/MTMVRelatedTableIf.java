@@ -15,25 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
-import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-public abstract class PartitionItem implements Comparable<PartitionItem>, Writable {
-    public static final Comparator<Map.Entry<Long, PartitionItem>> ITEM_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
+public interface MTMVRelatedTableIf extends TableIf {
 
-    public abstract <T> T getItems();
+    Map<Long, PartitionItem> getPartitionItems();
 
-    public abstract PartitionItem getIntersect(PartitionItem newItem);
+    long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException;
 
-    public boolean isDefaultPartition() {
-        return false;
-    }
+    PartitionType getPartitionType();
 
-    public abstract PartitionKeyDesc toPartitionKeyDesc();
+    Set<String> getPartitionColumnNames() throws DdlException;
+
+    long getLastModifyTime() throws AnalysisException;
+
+    List<Column> getPartitionColumns();
 }

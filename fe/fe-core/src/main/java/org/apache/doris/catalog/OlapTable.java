@@ -47,6 +47,7 @@ import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
@@ -100,7 +101,7 @@ import java.util.stream.Collectors;
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
  * Note: when you add a new olap table property, you should modify TableProperty class
  */
-public class OlapTable extends Table {
+public class OlapTable extends Table implements MTMVRelatedTableIf {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
     public enum OlapTableState {
@@ -764,6 +765,7 @@ public class OlapTable extends Table {
         return partitionInfo;
     }
 
+    @Override
     public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
@@ -2503,5 +2505,38 @@ public class OlapTable extends Table {
             }
         }
         return tablets;
+    }
+
+    @Override
+    public PartitionType getPartitionType() {
+        return partitionInfo.getType();
+    }
+
+    @Override
+    public Map<Long, PartitionItem> getPartitionItems() {
+        return getPartitionInfo().getIdToItem(false);
+    }
+
+    @Override
+    public long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException {
+        return getPartitionOrAnalysisException(partitionId).getVisibleVersionTimeIgnoreInit();
+    }
+
+    @Override
+    public long getLastModifyTime() {
+        long result = 0L;
+        long visibleVersionTime;
+        for (Partition partition : getAllPartitions()) {
+            visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
+            if (visibleVersionTime > result) {
+                result = visibleVersionTime;
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public List<Column> getPartitionColumns() {
+        return getPartitionInfo().getPartitionColumns();
     }
 }

@@ -254,7 +254,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         // check mv related table partition is valid or not
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
-        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTable();
+        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
         if (relatedPartitionTable == null) {
             return ImmutableSet.of();
         }

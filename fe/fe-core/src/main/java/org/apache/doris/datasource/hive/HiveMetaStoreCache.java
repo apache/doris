@@ -315,7 +315,8 @@ public class HiveMetaStoreCache {
                     sd.getInputFormat(), sd.getLocation(), key, catalog.getName());
         }
         // TODO: more info?
-        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
+        return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values,
+                partition.getParameters());
     }
 
     private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
@@ -348,7 +349,7 @@ public class HiveMetaStoreCache {
             StorageDescriptor sd = partition.getSd();
             ret.put(new PartitionCacheKey(dbName, tblName, partition.getValues()),
                     new HivePartition(dbName, tblName, false,
-                        sd.getInputFormat(), sd.getLocation(), partition.getValues()));
+                            sd.getInputFormat(), sd.getLocation(), partition.getValues(), partition.getParameters()));
         }
         return ret;
     }

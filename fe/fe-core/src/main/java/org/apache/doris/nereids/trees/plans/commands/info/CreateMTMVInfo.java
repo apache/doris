@@ -26,7 +26,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -40,6 +39,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -269,18 +269,19 @@ public class CreateMTMVInfo {
                 if (!relatedTableInfo.isPresent() || !relatedTableInfo.get().isPctPossible()) {
                     throw new AnalysisException("Unable to find a suitable base table for partitioning");
                 }
-                TableIf followTable = null;
+                TableIf relatedTable = null;
                 try {
-                    followTable = MTMVUtil.getTable(relatedTableInfo.get().getTableInfo());
+                    relatedTable = MTMVUtil.getTable(relatedTableInfo.get().getTableInfo());
                 } catch (org.apache.doris.common.AnalysisException e) {
                     throw new AnalysisException(e.getMessage(), e);
                 }
-                if (!(followTable instanceof OlapTable)) {
-                    throw new AnalysisException("base table for partitioning only can be OlapTable.");
+                if (!(relatedTable instanceof MTMVRelatedTableIf)) {
+                    throw new AnalysisException("base table for partitioning only can be OlapTable or HMSTable");
                 }
+                MTMVRelatedTableIf mtmvBaseRealtedTable = (MTMVRelatedTableIf) relatedTable;
                 Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
                 try {
-                    partitionColumnNames.addAll(((OlapTable) followTable).getPartitionColumnNames());
+                    partitionColumnNames.addAll(mtmvBaseRealtedTable.getPartitionColumnNames());
                 } catch (DdlException e) {
                     throw new AnalysisException(e.getMessage(), e);
                 }
@@ -293,7 +294,7 @@ public class CreateMTMVInfo {
                 }
                 mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
                 mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
-                partitionDesc = generatePartitionDesc((OlapTable) followTable);
+                partitionDesc = generatePartitionDesc(mtmvBaseRealtedTable);
             } finally {
                 // after operate, roll back the disable rules
                 sessionVariable.setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -302,9 +303,9 @@ public class CreateMTMVInfo {
         }
     }
 
-    private PartitionDesc generatePartitionDesc(OlapTable relatedTable) {
-        PartitionType type = relatedTable.getPartitionInfo().getType();
+    private PartitionDesc generatePartitionDesc(MTMVRelatedTableIf relatedTable) {
         try {
+            PartitionType type = relatedTable.getPartitionType();
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
                         Lists.newArrayList());

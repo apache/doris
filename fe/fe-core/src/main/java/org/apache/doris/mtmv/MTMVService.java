@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -86,8 +85,7 @@ public class MTMVService {
     public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
         Objects.requireNonNull(mtmv);
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-            OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-            MTMVUtil.alignMvPartition(mtmv, relatedTable);
+            MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
         }
         LOG.info("createMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {

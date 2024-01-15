@@ -194,7 +194,7 @@ public class HudiScanNode extends HiveScanNode {
                     return filteredPartitionIds.stream().map(id -> {
                         String path = basePath + "/" + partitionIdToNameMap.get(id);
                         return new HivePartition(
-                                dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id));
+                                dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id), null);
                     }).collect(Collectors.toList());
                 } finally {
                     partitionValues.readLock().unlock();
@@ -205,7 +205,7 @@ public class HudiScanNode extends HiveScanNode {
         // so that we can unify the interface.
         HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
-                hmsTable.getRemoteTable().getSd().getLocation(), null);
+                hmsTable.getRemoteTable().getSd().getLocation(), null, null);
         this.totalPartitionNum = 1;
         this.readPartitionNum = 1;
         return Lists.newArrayList(dummyPartition);
