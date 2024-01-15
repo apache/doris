@@ -54,7 +54,8 @@ namespace ErrorCode {
     TStatusError(DATA_QUALITY_ERROR, false);             \
     TStatusError(LABEL_ALREADY_EXISTS, true);            \
     TStatusError(NOT_AUTHORIZED, true);                  \
-    TStatusError(HTTP_ERROR, true);
+    TStatusError(HTTP_ERROR, true);                      \
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
