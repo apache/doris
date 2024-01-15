@@ -116,26 +116,26 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         return Status::OK();
     }
     local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes());
-    new_block_wrapper->ref(_num_partitions);
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
         auto map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                            ._shuffle_idx_to_instance_idx;
-        for (size_t i = 0; i < _num_partitions; i++) {
-            DCHECK(map.contains(i)) << " i: " << i << " _num_partitions: " << _num_partitions
-                                    << " map.size(): " << map.size();
-            DCHECK(map[i] >= 0 && map[i] < _num_partitions) << map[i] << " " << _num_partitions;
-            size_t start = local_state._partition_rows_histogram[i];
-            size_t size = local_state._partition_rows_histogram[i + 1] - start;
+        new_block_wrapper->ref(map.size());
+        for (const auto& it : map) {
+            DCHECK(it.second >= 0 && it.second < _num_partitions)
+                    << it.first << " : " << it.second << " " << _num_partitions;
+            size_t start = local_state._partition_rows_histogram[it.first];
+            size_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
                 local_state._shared_state->add_mem_usage(
-                        map[i], new_block_wrapper->data_block.allocated_bytes(), false);
-                data_queue[map[i]].enqueue({new_block_wrapper, {row_idx, start, size}});
-                local_state._shared_state->set_ready_to_read(map[i]);
+                        map[it.first], new_block_wrapper->data_block.allocated_bytes(), false);
+                data_queue[map[it.first]].enqueue({new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->set_ready_to_read(map[it.first]);
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
         }
     } else if (_num_senders != _num_sources || _ignore_source_data_distribution) {
+        new_block_wrapper->ref(_num_partitions);
         for (size_t i = 0; i < _num_partitions; i++) {
             size_t start = local_state._partition_rows_histogram[i];
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
@@ -149,6 +149,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             }
         }
     } else {
+        new_block_wrapper->ref(_num_partitions);
         auto map =
                 local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
         for (size_t i = 0; i < _num_partitions; i++) {
