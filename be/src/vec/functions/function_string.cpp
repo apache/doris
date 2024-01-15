@@ -23,6 +23,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
 #include "vec/columns/column_string.h"
@@ -492,13 +493,13 @@ struct Trim1Impl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
             StringRef rhs(blank, 1);
-            static_cast<void>(TrimUtil<is_ltrim, is_rtrim>::vector(
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
                     col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                    col_res->get_offsets()));
+                    col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -530,9 +531,9 @@ struct Trim2Impl {
                 const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
                 ColumnString::Offset rhs_size = col_right->get_offsets()[0];
                 StringRef rhs(raw_rhs, rhs_size);
-                static_cast<void>(TrimUtil<is_ltrim, is_rtrim>::vector(
+                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
                         col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                        col_res->get_offsets()));
+                        col_res->get_offsets())));
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -582,6 +583,7 @@ public:
     }
 };
 
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
 struct UnHexImpl {
     static constexpr auto name = "unhex";
     using ReturnType = DataTypeString;
@@ -654,8 +656,16 @@ struct UnHexImpl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen / 2;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
             int outlen = hex_decode(source, srclen, dst);
 
             if (outlen < 0) {
@@ -725,8 +735,16 @@ struct ToBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
             int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             if (outlen < 0) {
@@ -765,8 +783,15 @@ struct FromBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
             int outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {

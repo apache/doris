@@ -17,7 +17,10 @@
 
 suite("push_down_limit_distinct_through_join") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET disable_join_reorder=true"
 
     sql """
         DROP TABLE IF EXISTS t;

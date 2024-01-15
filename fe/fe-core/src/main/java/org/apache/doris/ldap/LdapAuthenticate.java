@@ -48,8 +48,7 @@ public class LdapAuthenticate {
     public static boolean authenticate(ConnectContext context, String password, String qualifiedUser) {
         String usePasswd = (Strings.isNullOrEmpty(password)) ? "NO" : "YES";
         String userName = ClusterNamespace.getNameFromFullName(qualifiedUser);
-        String clusterName = ClusterNamespace.getClusterNameFromFullName(qualifiedUser);
-        LOG.debug("user:{}, cluster:{}", userName, clusterName);
+        LOG.debug("user:{}", userName);
 
         // check user password by ldap server.
         try {

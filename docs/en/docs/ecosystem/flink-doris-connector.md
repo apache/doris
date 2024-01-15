@@ -385,9 +385,32 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## Flink write Metrics
+Where the metrics value of type Counter is the cumulative value of the imported task from the beginning to the current time, you can observe each metric in each table in the Flink Webui metrics.
+
+| Name                      | Metric Type | Description                                                  |
+| ------------------------- | ----------- | ------------------------------------------------------------ |
+| totalFlushLoadBytes       | Counter     | Number of bytes imported.                                    |
+| flushTotalNumberRows      | Counter     | Number of rows imported for total processing                 |
+| totalFlushLoadedRows      | Counter     | Number of rows successfully imported.                        |
+| totalFlushTimeMs          | Counter     | Number of Import completion time. Unit milliseconds          |
+| totalFlushSucceededNumber | Counter     | Number of times that the data-batch been successfully imported. |
+| totalFlushFailedNumber    | Counter     | Number of times that the data-batch been failed.             |
+| totalFlushFilteredRows    | Counter     | Number of rows that do not qualify for data quality flushed  |
+| totalFlushUnselectedRows  | Counter     | Number of rows filtered by where condition flushed           |
+| beginTxnTimeMs            | Histogram   | The time cost for RPC to Fe to begin a transaction, Unit milliseconds. |
+| putDataTimeMs             | Histogram   | The time cost for RPC to Fe to get a stream load plan, Unit milliseconds. |
+| readDataTimeMs            | Histogram   | Read data time, Unit milliseconds.                           |
+| writeDataTimeMs           | Histogram   | Write data time, Unit milliseconds.                          |
+| commitAndPublishTimeMs    | Histogram   | The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds. |
+| loadTimeMs                | Histogram   | Import completion time                                       |
+
+
 
 ## An example of using Flink CDC to access Doris 
 ```sql
@@ -758,6 +781,6 @@ You can search for the log `abort transaction response` in TaskManager and deter
 
 This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute.
 
-15. **Failed to connect to backend: http://host:webserver_port, and Be is still alive**
+15. **Failed to connect to backend: http://host:webserver_port, and BE is still alive**
 
-The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。
+The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`.

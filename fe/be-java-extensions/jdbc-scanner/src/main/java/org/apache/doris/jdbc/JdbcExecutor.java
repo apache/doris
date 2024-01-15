@@ -93,12 +93,8 @@ public class JdbcExecutor {
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
     private byte[] druidDataSourceLock = new byte[0];
-    private int minPoolSize;
-    private int maxPoolSize;
-    private int minIdleSize;
-    private int maxIdleTime;
-    private int maxWaitTime;
     private TOdbcTableType tableType;
+    private JdbcDataSourceConfig config;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -109,18 +105,22 @@ public class JdbcExecutor {
             throw new InternalException(e.getMessage());
         }
         tableType = request.table_type;
-        minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
-        maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
-        maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
-        maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
-        minIdleSize = minPoolSize > 0 ? 1 : 0;
-        LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
-                + ", maxPoolSize = " + maxPoolSize
-                + ", maxIdleTime = " + maxIdleTime
-                + ", maxWaitTime = " + maxWaitTime
-                + ", minIdleSize = " + minIdleSize);
-        init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
-                request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
+        this.config = new JdbcDataSourceConfig()
+                .setJdbcUser(request.jdbc_user)
+                .setJdbcPassword(request.jdbc_password)
+                .setJdbcUrl(request.jdbc_url)
+                .setJdbcDriverUrl(request.driver_path)
+                .setJdbcDriverClass(request.jdbc_driver_class)
+                .setBatchSize(request.batch_size)
+                .setOp(request.op)
+                .setTableType(request.table_type)
+                .setMinPoolSize(request.min_pool_size)
+                .setMaxPoolSize(request.max_pool_size)
+                .setMaxIdleTime(request.max_idle_time)
+                .setMaxWaitTime(request.max_wait_time)
+                .setMinIdleSize(request.min_pool_size > 0 ? 1 : 0)
+                .setKeepAlive(request.keep_alive);
+        init(config, request.statement);
     }
 
     public void close() throws Exception {
@@ -133,7 +133,7 @@ public class JdbcExecutor {
         if (conn != null) {
             conn.close();
         }
-        if (minIdleSize == 0) {
+        if (config.getMinIdleSize() == 0) {
             // it can be immediately closed if there is no need to maintain the cache of datasource
             druidDataSource.close();
             JdbcDataSource.getDataSource().getSourcesMap().clear();
@@ -201,14 +201,15 @@ public class JdbcExecutor {
 
             for (int i = 0; i < columnCount; ++i) {
                 Object[] columnData = block.get(i);
-                Class<?> clz = findNonNullClass(columnData);
+                ColumnType type = outputTable.getColumnType(i);
+                Class<?> clz = findNonNullClass(columnData, type);
                 Object[] newColumn = (Object[]) Array.newInstance(clz, curBlockRows);
                 System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
                 boolean isNullable = Boolean.parseBoolean(nullableList[i]);
                 outputTable.appendData(
                         i,
                         newColumn,
-                        getOutputConverter(outputTable.getColumnType(i), clz, replaceStringList[i]),
+                        getOutputConverter(type, clz, replaceStringList[i]),
                         isNullable);
             }
         } catch (Exception e) {
@@ -278,45 +279,51 @@ public class JdbcExecutor {
         }
     }
 
-    private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
-            String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
+    private void init(JdbcDataSourceConfig config, String sql) throws UdfRuntimeException {
+        String druidDataSourceKey = config.createCacheKey();
         try {
             if (isNebula()) {
-                batchSizeNum = batchSize;
-                Class.forName(driverClass);
-                conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
+                batchSizeNum = config.getBatchSize();
+                Class.forName(config.getJdbcDriverClass());
+                conn = DriverManager.getConnection(config.getJdbcDriverClass(), config.getJdbcUser(),
+                        config.getJdbcPassword());
                 stmt = conn.prepareStatement(sql);
             } else {
                 ClassLoader parent = getClass().getClassLoader();
-                ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-                druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                ClassLoader classLoader = UdfUtils.getClassLoader(config.getJdbcDriverUrl(), parent);
+                druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                 if (druidDataSource == null) {
                     synchronized (druidDataSourceLock) {
-                        druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                        druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                         if (druidDataSource == null) {
                             long start = System.currentTimeMillis();
                             DruidDataSource ds = new DruidDataSource();
                             ds.setDriverClassLoader(classLoader);
-                            ds.setDriverClassName(driverClass);
-                            ds.setUrl(jdbcUrl);
-                            ds.setUsername(jdbcUser);
-                            ds.setPassword(jdbcPassword);
-                            ds.setMinIdle(minIdleSize);
-                            ds.setInitialSize(minPoolSize);
-                            ds.setMaxActive(maxPoolSize);
-                            ds.setMaxWait(maxWaitTime);
+                            ds.setDriverClassName(config.getJdbcDriverClass());
+                            ds.setUrl(config.getJdbcUrl());
+                            ds.setUsername(config.getJdbcUser());
+                            ds.setPassword(config.getJdbcPassword());
+                            ds.setMinIdle(config.getMinIdleSize());
+                            ds.setInitialSize(config.getMinPoolSize());
+                            ds.setMaxActive(config.getMaxPoolSize());
+                            ds.setMaxWait(config.getMaxWaitTime());
                             ds.setTestWhileIdle(true);
                             ds.setTestOnBorrow(false);
-                            setValidationQuery(ds, tableType);
-                            ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
-                            ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            setValidationQuery(ds, config.getTableType());
+                            ds.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() / 5);
+                            ds.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
+                            ds.setKeepAlive(config.isKeepAlive());
                             druidDataSource = ds;
-                            // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
-                            // jdbcPassword) as key.
                             // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
                             // time greater than 10 minutes. then connection will be retrieved.
-                            JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
-                            LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
+                            JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
+                            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
+                                    + ", maxPoolSize = " + config.getMaxPoolSize()
+                                    + ", maxIdleTime = " + config.getMaxIdleTime()
+                                    + ", maxWaitTime = " + config.getMaxWaitTime()
+                                    + ", minIdleSize = " + config.getMinIdleSize()
+                                    + ", keepAlive = " + config.isKeepAlive());
+                            LOG.info("init datasource [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
                                     System.currentTimeMillis() - start) + " ms");
                         }
                     }
@@ -324,25 +331,26 @@ public class JdbcExecutor {
 
                 long start = System.currentTimeMillis();
                 conn = druidDataSource.getConnection();
-                LOG.info("get connection [" + (jdbcUrl + jdbcUser) + "] cost: " + (System.currentTimeMillis() - start)
+                LOG.info("get connection [" + (config.getJdbcUrl() + config.getJdbcUser()) + "] cost: " + (
+                        System.currentTimeMillis() - start)
                         + " ms");
-                if (op == TJdbcOperation.READ) {
+                if (config.getOp() == TJdbcOperation.READ) {
                     conn.setAutoCommit(false);
                     Preconditions.checkArgument(sql != null);
                     stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     if (tableType == TOdbcTableType.MYSQL) {
                         stmt.setFetchSize(Integer.MIN_VALUE);
                     } else {
-                        stmt.setFetchSize(batchSize);
+                        stmt.setFetchSize(config.getBatchSize());
                     }
-                    batchSizeNum = batchSize;
+                    batchSizeNum = config.getBatchSize();
                 } else {
                     LOG.info("insert sql: " + sql);
                     preparedStatement = conn.prepareStatement(sql);
                 }
             }
         } catch (MalformedURLException e) {
-            throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
+            throw new UdfRuntimeException("MalformedURLException to load class about " + config.getJdbcDriverUrl(), e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
         } catch (FileNotFoundException e) {
@@ -366,13 +374,50 @@ public class JdbcExecutor {
         return tableType == TOdbcTableType.NEBULA;
     }
 
-    private Class<?> findNonNullClass(Object[] columnData) {
+    private Class<?> findNonNullClass(Object[] columnData, ColumnType type) {
         for (Object data : columnData) {
             if (data != null) {
                 return data.getClass();
             }
         }
-        return Object.class;
+        switch (type.getType()) {
+            case BOOLEAN:
+                return Boolean.class;
+            case TINYINT:
+                return Byte.class;
+            case SMALLINT:
+                return Short.class;
+            case INT:
+                return Integer.class;
+            case BIGINT:
+                return Long.class;
+            case LARGEINT:
+                return BigInteger.class;
+            case FLOAT:
+                return Float.class;
+            case DOUBLE:
+                return Double.class;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return BigDecimal.class;
+            case DATE:
+            case DATEV2:
+                return LocalDate.class;
+            case DATETIME:
+            case DATETIMEV2:
+                return LocalDateTime.class;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                return String.class;
+            case ARRAY:
+                return List.class;
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported column type: " + type.getType());
+        }
     }
 
     public Object getColumnValue(TOdbcTableType tableType, int columnIndex, boolean isBitmapOrHll)

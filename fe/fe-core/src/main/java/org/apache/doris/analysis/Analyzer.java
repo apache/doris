@@ -49,6 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
@@ -150,9 +151,11 @@ public class Analyzer {
     // map from tuple id to the current output column index
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
     // used for Information Schema Table Scan
-    private String schemaDb;
+    // This 3 fields is used for optimize the data fetching from FE,
+    // for stmt such as `show columns like`, `show databases like`, `show tables like`
+    // if can pre-filter the data in FrontendServiceImpl to reduce the data fetching from FE.
     private String schemaCatalog;
-    private String schemaWild;
+    private String schemaDb;
     private String schemaTable; // table used in DESCRIBE Table
 
     // Current depth of nested analyze() calls. Used for enforcing a
@@ -454,6 +457,7 @@ public class Analyzer {
             rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
+            rules.add(ElementAtToSlotRefRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -1335,6 +1339,14 @@ public class Analyzer {
     public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
         for (Expr conjunct : e.getConjuncts()) {
             registerConjunct(conjunct);
+            if (!conjunct.isConstant()) {
+                ArrayList<TupleId> tupleIds = Lists.newArrayList();
+                ArrayList<SlotId> slotIds = Lists.newArrayList();
+                conjunct.getIds(tupleIds, slotIds);
+                if (tupleIds.isEmpty() && slotIds.isEmpty()) {
+                    conjunct.setBoundTupleIds(ids);
+                }
+            }
             if (ids != null) {
                 for (TupleId id : ids) {
                     registerConstantConjunct(id, conjunct);
@@ -2314,10 +2326,6 @@ public class Analyzer {
         return globalState.context.getDatabase();
     }
 
-    public String getClusterName() {
-        return globalState.context.getClusterName();
-    }
-
     public String getQualifiedUser() {
         return globalState.context.getQualifiedUser();
     }
@@ -2348,19 +2356,14 @@ public class Analyzer {
         return globalState.context;
     }
 
-    public String getSchemaWild() {
-        return schemaWild;
-    }
-
     public TQueryGlobals getQueryGlobals() {
         return new TQueryGlobals();
     }
 
     // for Schema Table Schema like SHOW TABLES LIKE "abc%"
-    public void setSchemaInfo(String db, String table, String wild, String catalog) {
+    public void setSchemaInfo(String db, String table, String catalog) {
         schemaDb = db;
         schemaTable = table;
-        schemaWild = wild;
         schemaCatalog = catalog;
     }
 

@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableFunctionOperator final : public StatefulOperator<TableFunctionOperatorBuilder> {
+class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
 public:
     TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -56,7 +56,7 @@ public:
     ~TableFunctionLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status process_next_child_row();
+    void process_next_child_row();
     Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block,
                               SourceState& source_state);
 
@@ -106,7 +106,7 @@ public:
         for (auto* fn : local_state._fns) {
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
-        RETURN_IF_ERROR(local_state.process_next_child_row());
+        local_state.process_next_child_row();
         return Status::OK();
     }
 

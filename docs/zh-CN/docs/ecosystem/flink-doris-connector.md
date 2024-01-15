@@ -388,9 +388,30 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## Flink 写入指标
+其中Counter类型的指标值为导入任务从开始到当前的累加值，可以在Flink Webui metrics中观察各表的各项指标。
+
+| Name                      | Metric Type | Description                                |
+| ------------------------- | ----------- | ------------------------------------------ |
+| totalFlushLoadBytes       | Counter     | 已经刷新导入的总字节数                     |
+| flushTotalNumberRows      | Counter     | 已经导入处理的总行数                       |
+| totalFlushLoadedRows      | Counter     | 已经成功导入的总行数                       |
+| totalFlushTimeMs          | Counter     | 已经成功导入完成的总时间                   |
+| totalFlushSucceededNumber | Counter     | 已经成功导入的次数                         |
+| totalFlushFailedNumber    | Counter     | 失败导入 的次数                            |
+| totalFlushFilteredRows    | Counter     | 数据质量不合格的总行数                     |
+| totalFlushUnselectedRows  | Counter     | 被 where 条件过滤的总行数                  |
+| beginTxnTimeMs            | Histogram   | 向Fe请求开始一个事务所花费的时间，单位毫秒 |
+| putDataTimeMs             | Histogram   | 向Fe请求获取导入数据执行计划所花费的时间   |
+| readDataTimeMs            | Histogram   | 读取数据所花费的时间                       |
+| writeDataTimeMs           | Histogram   | 执行写入数据操作所花费的时间               |
+| commitAndPublishTimeMs    | Histogram   | 向Fe请求提交并且发布事务所花费的时间       |
+| loadTimeMs                | Histogram   | 导入完成的时间                             |
 
 ## 使用FlinkSQL通过CDC接入Doris示例
 ```sql

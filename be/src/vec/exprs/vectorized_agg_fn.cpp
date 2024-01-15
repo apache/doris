@@ -66,11 +66,7 @@ AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
 AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
-          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)),
-          _intermediate_slot_desc(nullptr),
-          _output_slot_desc(nullptr),
-          _merge_timer(nullptr),
-          _expr_timer(nullptr) {
+          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)) {
     bool nullable = true;
     if (desc.__isset.is_nullable) {
         nullable = desc.is_nullable;
@@ -78,10 +74,10 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
     _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
 
     if (desc.agg_expr.__isset.param_types) {
-        auto& param_types = desc.agg_expr.param_types;
-        for (int i = 0; i < param_types.size(); i++) {
+        const auto& param_types = desc.agg_expr.param_types;
+        for (const auto& param_type : param_types) {
             _argument_types_with_sort.push_back(
-                    DataTypeFactory::instance().create_data_type(param_types[i]));
+                    DataTypeFactory::instance().create_data_type(param_type));
         }
     }
 }
@@ -134,10 +130,10 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     std::vector<std::string_view> child_expr_name;
 
     // prepare for argument
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        auto data_type = _input_exprs_ctxs[i]->root()->data_type();
+    for (auto& _input_exprs_ctx : _input_exprs_ctxs) {
+        auto data_type = _input_exprs_ctx->root()->data_type();
         tmp_argument_types.emplace_back(data_type);
-        child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
+        child_expr_name.emplace_back(_input_exprs_ctx->root()->expr_name());
     }
 
     const DataTypes& argument_types =
@@ -219,8 +215,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
 Status AggFnEvaluator::open(RuntimeState* state) {
     return VExpr::open(_input_exprs_ctxs, state);
 }
-
-void AggFnEvaluator::close(RuntimeState* state) {}
 
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);
@@ -334,15 +328,14 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
         DataTypes tmp_argument_types;
         tmp_argument_types.reserve(evaluator._input_exprs_ctxs.size());
         // prepare for argument
-        for (int i = 0; i < evaluator._input_exprs_ctxs.size(); ++i) {
-            auto data_type = evaluator._input_exprs_ctxs[i]->root()->data_type();
+        for (auto& _input_exprs_ctx : evaluator._input_exprs_ctxs) {
+            auto data_type = _input_exprs_ctx->root()->data_type();
             tmp_argument_types.emplace_back(data_type);
         }
         const DataTypes& argument_types =
                 _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
         _function = AggregateJavaUdaf::create(evaluator._fn, argument_types, evaluator._data_type);
-        static_cast<void>(
-                static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
+        THROW_IF_ERROR(static_cast<AggregateJavaUdaf*>(_function.get())->check_udaf(evaluator._fn));
     }
     DCHECK(_function != nullptr);
 

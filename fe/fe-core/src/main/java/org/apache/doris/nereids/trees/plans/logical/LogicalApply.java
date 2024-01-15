@@ -164,7 +164,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalApply that = (LogicalApply) o;
+        LogicalApply<?, ?> that = (LogicalApply<?, ?>) o;
         return Objects.equals(correlationSlot, that.getCorrelationSlot())
                 && Objects.equals(subqueryExpr, that.getSubqueryExpr())
                 && Objects.equals(correlationFilter, that.getCorrelationFilter())
@@ -192,14 +192,20 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                     .addAll(correlationSlot)
                     .add(correlationFilter.get())
                     .build();
+        } else {
+            return new ImmutableList.Builder<Expression>()
+                    .addAll(correlationSlot)
+                    .build();
         }
-        return new ImmutableList.Builder<Expression>()
-                .addAll(correlationSlot)
-                .build();
+    }
+
+    public LogicalApply<Plan, Plan> withSubqueryExprAndChildren(SubqueryExpr subqueryExpr, List<Plan> children) {
+        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, children.get(0), children.get(1));
     }
 
     @Override
-    public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
+    public LogicalApply<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
                 markJoinSlotReference, needAddSubOutputToProjects, inProject,

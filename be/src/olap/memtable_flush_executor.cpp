@@ -28,6 +28,7 @@
 #include "common/signal_handler.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
@@ -79,6 +80,9 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
+        DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
+            _flush_status = Status::IOError<false>("dbug_be_memtable_submit_flush_error");
+        });
         if (!_flush_status.ok()) {
             return _flush_status;
         }
@@ -116,9 +120,9 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     signal::set_signal_task_id(_rowset_writer->load_id());
-    std::unique_ptr<vectorized::Block> block = memtable->to_block();
     {
         SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
+        std::unique_ptr<vectorized::Block> block = memtable->to_block();
         SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
                 _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
     }
@@ -157,7 +161,8 @@ void FlushToken::_flush_memtable(MemTable* mem_table, int32_t segment_id,
     }
     if (!s.ok()) {
         std::lock_guard wrlk(_flush_status_lock);
-        LOG(WARNING) << "Flush memtable failed with res = " << s;
+        LOG(WARNING) << "Flush memtable failed with res = " << s
+                     << ", load_id: " << print_id(_rowset_writer->load_id());
         _flush_status = s;
         return;
     }

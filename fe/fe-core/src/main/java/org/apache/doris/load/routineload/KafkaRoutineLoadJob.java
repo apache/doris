@@ -107,19 +107,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super(-1, LoadDataSourceType.KAFKA);
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+    public KafkaRoutineLoadJob(Long id, String name,
                                long dbId, long tableId, String brokerList, String topic,
                                UserIdentity userIdentity) {
-        super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA, userIdentity);
+        super(id, name, dbId, tableId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+    public KafkaRoutineLoadJob(Long id, String name,
                                long dbId, String brokerList, String topic,
                                UserIdentity userIdentity, boolean isMultiTable) {
-        super(id, name, clusterName, dbId, LoadDataSourceType.KAFKA, userIdentity);
+        super(id, name, dbId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
@@ -226,7 +226,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         taskKafkaProgress.put(kafkaPartition,
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
                             maxBatchIntervalS * 2 * 1000, taskKafkaProgress, isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
@@ -412,7 +412,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaRoutineLoadJob kafkaRoutineLoadJob;
         if (kafkaProperties.isMultiTable()) {
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getClusterName(), db.getId(),
+                    db.getId(),
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
@@ -420,7 +420,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             long tableId = olapTable.getId();
             // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getClusterName(), db.getId(), tableId,
+                    db.getId(), tableId,
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
         }
         kafkaRoutineLoadJob.setOptional(stmt);

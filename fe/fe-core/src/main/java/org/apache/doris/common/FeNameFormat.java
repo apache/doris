@@ -134,6 +134,10 @@ public class FeNameFormat {
         checkCommonName("workload group", workloadGroupName);
     }
 
+    public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("workload schedule policy", policyName);
+    }
+
     public static void checkCommonName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(getCommonNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);

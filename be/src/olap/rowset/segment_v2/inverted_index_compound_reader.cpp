@@ -124,7 +124,7 @@ CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone
 void CSIndexInput::close() {}
 
 DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char* name,
-                                         int32_t read_buffer_size)
+                                         int32_t read_buffer_size, bool open_idx_file_cache)
         : readBufferSize(read_buffer_size),
           dir(d),
           ram_dir(new lucene::store::RAMDirectory()),
@@ -140,6 +140,7 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
                               .c_str());
         }
         stream = dir->openInput(name, readBufferSize);
+        stream->setIdxFileCache(open_idx_file_cache);
 
         int32_t count = stream->readVInt();
         ReaderFileEntry* entry = nullptr;
@@ -329,6 +330,10 @@ lucene::store::IndexOutput* DorisCompoundReader::createOutput(const char* /*name
 std::string DorisCompoundReader::toString() const {
     return std::string("DorisCompoundReader@") + this->directory + std::string("; file_name: ") +
            std::string(file_name);
+}
+
+CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
+    return stream;
 }
 
 } // namespace segment_v2

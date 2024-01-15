@@ -19,9 +19,19 @@ package org.apache.doris.catalog.constraint;
 
 public abstract class Constraint {
     public enum ConstraintType {
-        FOREIGN_KEY,
-        PRIMARY_KEY,
-        UNIQUE
+        FOREIGN_KEY("FOREIGN KEY"),
+        PRIMARY_KEY("PRIMARY KEY"),
+        UNIQUE("UNIQUE");
+
+        private final String name;
+
+        private ConstraintType(String stringValue) {
+            this.name = stringValue;
+        }
+
+        public String getName() {
+            return name;
+        }
     }
 
     private final String name;
@@ -35,5 +45,9 @@ public abstract class Constraint {
 
     public String getName() {
         return name;
+    }
+
+    public ConstraintType getType() {
+        return type;
     }
 }

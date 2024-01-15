@@ -47,14 +47,6 @@ public:
 
     Status close() override;
 
-    Status abort() override {
-        return Status::NotSupported("StreamSinkFileWriter::abort() is not supported");
-    }
-
-    Status write_at(size_t offset, const Slice& data) override {
-        return Status::NotSupported("StreamSinkFileWriter::write_at() is not supported");
-    }
-
 private:
     template <bool eos>
     Status _flush();

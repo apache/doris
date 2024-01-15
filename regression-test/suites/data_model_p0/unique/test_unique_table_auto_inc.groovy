@@ -304,7 +304,7 @@ suite("test_unique_table_auto_inc") {
     sql """
         CREATE TABLE IF NOT EXISTS `${table8}` (
           `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
-          `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+          `name` varchar(65533) NOT NULL COMMENT "用户姓名"
         ) ENGINE=OLAP
         UNIQUE KEY(`id`)
         COMMENT "OLAP"

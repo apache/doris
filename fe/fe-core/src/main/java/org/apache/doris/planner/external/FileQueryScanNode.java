@@ -34,16 +34,12 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.hudi.HudiScanNode;
-import org.apache.doris.planner.external.hudi.HudiSplit;
-import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
-import org.apache.doris.planner.external.paimon.PaimonScanNode;
-import org.apache.doris.planner.external.paimon.PaimonSplit;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -260,6 +256,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
+    // Set some parameters of scan to support different types of file data sources
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+    }
+
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
@@ -275,6 +275,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return;
         }
         TFileFormatType fileFormatType = getFileFormatType();
+        if (fileFormatType == TFileFormatType.FORMAT_ORC) {
+            genSlotToSchemaIdMapForOrc();
+        }
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
@@ -311,12 +314,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
-        boolean enableSqlCache = ConnectContext.get().getSessionVariable().enableFileCache;
         boolean enableShortCircuitRead = HdfsResource.enableShortCircuitRead(locationProperties);
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
-            TFileType locationType = getLocationType(fileSplit.getPath().toString());
+            TFileType locationType;
+            if (fileSplit instanceof IcebergSplit
+                    && ((IcebergSplit) fileSplit).getConfig().containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+                locationType = TFileType.FILE_BROKER;
+            } else {
+                locationType = getLocationType(fileSplit.getPath().toString());
+            }
 
             TScanRangeLocations curLocations = newLocations();
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -354,29 +362,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
 
-            // external data lake table
-            if (fileSplit instanceof IcebergSplit) {
-                // TODO: extract all data lake split to factory
-                IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
-            } else if (fileSplit instanceof PaimonSplit) {
-                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
-            } else if (fileSplit instanceof HudiSplit) {
-                HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
-            } else if (fileSplit instanceof MaxComputeSplit) {
-                MaxComputeScanNode.setScanParams(rangeDesc, (MaxComputeSplit) fileSplit);
-            }
+            setScanParams(rangeDesc, fileSplit);
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();
             Backend selectedBackend;
-            if (enableSqlCache) {
+            if (enableShortCircuitRead) {
+                // Try to find a local BE if enable hdfs short circuit read
+                selectedBackend = backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()), curLocations);
+            } else {
                 // Use consistent hash to assign the same scan range into the same backend among different queries
                 selectedBackend = backendPolicy.getNextConsistentBe(curLocations);
-            } else if (enableShortCircuitRead) {
-                // Try to find a local BE if enable hdfs short circuit read
-                selectedBackend = backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()));
-            } else {
-                selectedBackend = backendPolicy.getNextBe();
             }
             setLocationPropertiesIfNecessary(selectedBackend, locationType, locationProperties);
             location.setBackendId(selectedBackend.getId());
@@ -470,11 +466,31 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return rangeDesc;
     }
 
+    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
+    // We need to save mapping from slot name to schema position
+    protected void genSlotToSchemaIdMapForOrc() {
+        Preconditions.checkNotNull(params);
+        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int idx = 0;
+            for (Column col : baseSchema) {
+                if (col.getName().equals(slot.getColumn().getName())) {
+                    columnNameToPosition.put(col.getName(), idx);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+        params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
     protected abstract TFileType getLocationType() throws UserException;
 
     protected abstract TFileType getLocationType(String location) throws UserException;
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
+
 
     protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
         return Util.inferFileCompressTypeByPath(fileSplit.getPath().toString());

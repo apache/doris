@@ -180,7 +180,7 @@ public class ColumnPrivTest extends TestWithFeService {
         // test1.db2
         //      tbl21:  c11(bigint), c12(string), c13(float)
 
-        UserIdentity user1 = UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:user1", "%");
+        UserIdentity user1 = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
 
         // 1. query inner table
@@ -191,7 +191,7 @@ public class ColumnPrivTest extends TestWithFeService {
         testSql(user1Ctx, "select a12 from test1.db1.tbl11", "TABLE: tbl11");
         // change to test1.db1
         user1Ctx.changeDefaultCatalog("test1");
-        user1Ctx.setDatabase("default_cluster:db1");
+        user1Ctx.setDatabase("db1");
         testSql(user1Ctx, "select a12 from tbl11 where a11 > 0;", "Access deny to column a11");
         testSql(user1Ctx, "select sum(a13) from db1.tbl11 group by a11;", "Access deny to column a11");
         testSql(user1Ctx, "select sum(a13) x from test1.db1.tbl11 group by a11 having x > 0;",
@@ -202,7 +202,7 @@ public class ColumnPrivTest extends TestWithFeService {
 
         // change to internal.innerdb1
         user1Ctx.changeDefaultCatalog("internal");
-        user1Ctx.setDatabase("default_cluster:innerdb1");
+        user1Ctx.setDatabase("innerdb1");
         testSql(user1Ctx, "select sum(a13) x from test1.db1.tbl11 group by a11 having x > 0;",
                 "Access deny to column a11");
         testSql(user1Ctx, "with cte1 as (select a11 from test1.db1.tbl11) select * from cte1;",
@@ -223,7 +223,7 @@ public class ColumnPrivTest extends TestWithFeService {
                 "grant select_priv on test2.*.* to show_table_status;", root);
         auth.grant(grant);
 
-        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:show_table_status", "%");
+        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("show_table_status", "%");
         ConnectContext userCtx = createCtx(user, "127.0.0.1");
 
         ShowTableStatusStmt stmt = (ShowTableStatusStmt) parseAndAnalyzeStmt(
@@ -288,7 +288,7 @@ public class ColumnPrivTest extends TestWithFeService {
                     PrivPredicate wanted) throws AuthorizationException {
                 if (currentUser.getQualifiedUser().contains("user1")) {
                     if (ctl.equals("test1")) {
-                        if (db.equals("default_cluster:db1")) {
+                        if (db.equals("db1")) {
                             if (tbl.equals("tbl11")) {
                                 if (cols.contains("a11")) {
                                     throw new AuthorizationException("Access deny to column a11");

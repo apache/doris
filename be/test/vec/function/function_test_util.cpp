@@ -130,9 +130,9 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         desc.type = doris::PrimitiveType::TYPE_DOUBLE;
         type = std::make_shared<DataTypeFloat64>();
         return 1;
-    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal128V2:
         desc.type = doris::PrimitiveType::TYPE_DECIMALV2;
-        type = std::make_shared<DataTypeDecimal<Decimal128>>();
+        type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
         return 1;
     case TypeIndex::DateTime:
         desc.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -266,7 +266,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
     } else if (type.is_float64()) {
         auto value = any_cast<ut_type::DOUBLE>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal128()) {
+    } else if (type.is_decimal128v2()) {
         auto value = any_cast<Decimal<Int128>>(cell);
         column->insert_data(reinterpret_cast<char*>(&value), 0);
     } else if (type.is_date_time()) {
@@ -356,10 +356,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
     // process table function for all rows
     for (size_t row = 0; row < input_block->rows(); ++row) {
-        if (fn->process_row(row) != Status::OK()) {
-            LOG(WARNING) << "TableFunction process_row failed";
-            return nullptr;
-        }
+        fn->process_row(row);
 
         // consider outer
         if (!fn->is_outer() && fn->current_empty()) {
@@ -368,7 +365,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
         do {
             fn->get_value(column);
-            static_cast<void>(fn->forward());
+            fn->forward();
         } while (!fn->eos());
     }
 

@@ -139,9 +139,9 @@ suite("test_alter_table_modify_column") {
             `citycode` SMALLINT DEFAULT '10',
             `siteid` INT DEFAULT '10',
             `username` VARCHAR(32) DEFAULT 'test',
-            `pv` BIGINT SUM DEFAULT '0'
+            `pv` BIGINT DEFAULT '0'
         )
-        DUPLICATE KEY(`siteid`, `citycode`, `username`)
+        DUPLICATE KEY(`citycode`, `siteid`, `username`)
         DISTRIBUTED BY HASH(siteid) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"

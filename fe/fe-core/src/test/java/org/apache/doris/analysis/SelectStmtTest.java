@@ -533,13 +533,13 @@ public class SelectStmtTest {
         String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: `db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: `db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
         String sql3 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1";
         Assert.assertTrue(dorisAssert.query(sql3).explainQuery()
-                .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: `db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql4 = " SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 table2";
         Assert.assertTrue(dorisAssert.query(sql4).explainQuery()
                 .contains("PREDICATES: `table2`.`__DORIS_DELETE_SIGN__` = 0"));
@@ -805,7 +805,7 @@ public class SelectStmtTest {
         SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         stmt1.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
         Assert.assertEquals("SELECT `t`.`k1` AS `k1` FROM (WITH v1 AS (SELECT `t1`.`k1` "
-                + "FROM `default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` FROM `default_cluster:db1`.`tbl1` t2) "
+                + "FROM `db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` FROM `db1`.`tbl1` t2) "
                 + "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t", stmt1.toSql());
 
         String sql2 =
@@ -821,8 +821,8 @@ public class SelectStmtTest {
                 + ") t";
         SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
         stmt2.rewriteExprs(new Analyzer(ctx.getEnv(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` FROM `default_cluster:db1`.`tbl1` t1),"
-                + "v2 AS (SELECT `t2`.`k1` FROM `default_cluster:db1`.`tbl1` t2)"));
+        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` FROM `db1`.`tbl1` t1),"
+                + "v2 AS (SELECT `t2`.`k1` FROM `db1`.`tbl1` t2)"));
     }
 
     @Test
@@ -860,7 +860,7 @@ public class SelectStmtTest {
     @Test
     public void testSelectSampleHashBucketTable() throws Exception {
         FeConstants.runningUnitTest = true;
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table1");
         long tabletId = 10031L;
         for (Partition partition : tbl.getPartitions()) {
@@ -961,13 +961,18 @@ public class SelectStmtTest {
         OriginalPlanner planner16 = (OriginalPlanner) dorisAssert.query(sql16).internalExecuteOneAndGetPlan();
         Set<Long> sampleTabletIds16 = ((OlapScanNode) planner16.getScanNodes().get(0)).getSampleTabletIds();
         Assert.assertEquals(1, sampleTabletIds16.size());
+
+        String sql17 = "SELECT * FROM db1.table1 TABLESAMPLE(15 PERCENT) where siteid != 0";
+        OriginalPlanner planner17 = (OriginalPlanner) dorisAssert.query(sql17).internalExecuteOneAndGetPlan();
+        Set<Long> sampleTabletIds17 = ((OlapScanNode) planner17.getScanNodes().get(0)).getSampleTabletIds();
+        Assert.assertEquals(2, sampleTabletIds17.size());
         FeConstants.runningUnitTest = false;
     }
 
     @Test
     public void testSelectSampleRandomBucketTable() throws Exception {
         FeConstants.runningUnitTest = true;
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db1");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("table3");
         long tabletId = 10031L;
         for (Partition partition : tbl.getPartitions()) {

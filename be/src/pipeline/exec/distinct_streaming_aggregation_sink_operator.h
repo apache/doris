@@ -54,7 +54,7 @@ private:
 };
 
 class DistinctStreamingAggSinkOperator final
-        : public StreamingOperator<DistinctStreamingAggSinkOperatorBuilder> {
+        : public StreamingOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                                      std::shared_ptr<DataQueue>);
@@ -110,6 +110,10 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
+    DataDistribution required_data_distribution() const override {
+        return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
+    }
 };
 
 } // namespace pipeline

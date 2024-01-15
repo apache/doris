@@ -162,8 +162,11 @@ public class VariableMgr {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
                 SessionVariable.class.getDeclaredMethod(attr.checker(), String.class).invoke(obj, value);
+            } catch (InvocationTargetException e) {
+                // Exception thrown from reflect method will always be InvocationTargetException
+                ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         }
         // If the session variable has specified the setter, then not use reflect
@@ -174,7 +177,7 @@ public class VariableMgr {
             } catch (InvocationTargetException e) {
                 ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         } else  {
             try {
@@ -467,7 +470,12 @@ public class VariableMgr {
                     LOG.error("failed to get global variable {} when replaying", (String) varName);
                     continue;
                 }
-                setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
+                try {
+                    setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
+                } catch (Exception exception) {
+                    LOG.warn("Exception during replay global variabl {} oplog, {}, THIS EXCEPTION WILL BE IGNORED.",
+                            (String) varName, exception.getMessage());
+                }
             }
         } finally {
             wlock.unlock();
@@ -683,7 +691,8 @@ public class VariableMgr {
 
     // Dump all fields. Used for `show variables`
     public static List<List<String>> dump(SetType type, SessionVariable sessionVar, PatternMatcher matcher) {
-        List<List<String>> rows = Lists.newArrayList();
+        List<List<String>> changedRows = Lists.newArrayList();
+        List<List<String>> defaultRows = Lists.newArrayList();
         // Hold the read lock when session dump, because this option need to access global variable.
         rlock.lock();
         try {
@@ -724,23 +733,35 @@ public class VariableMgr {
                 } else {
                     row.add(varContext.defaultValue);
                 }
-                row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
-
-                rows.add(row);
+                if (row.get(1).equals(row.get(2))) {
+                    row.add("0");
+                    defaultRows.add(row);
+                } else {
+                    row.add("1");
+                    changedRows.add(row);
+                }
             }
         } finally {
             rlock.unlock();
         }
 
         // Sort all variables by variable name.
-        Collections.sort(rows, new Comparator<List<String>>() {
+        Collections.sort(changedRows, new Comparator<List<String>>() {
             @Override
             public int compare(List<String> o1, List<String> o2) {
                 return o1.get(0).compareTo(o2.get(0));
             }
         });
 
-        return rows;
+        Collections.sort(defaultRows, new Comparator<List<String>>() {
+            @Override
+            public int compare(List<String> o1, List<String> o2) {
+                return o1.get(0).compareTo(o2.get(0));
+            }
+        });
+
+        changedRows.addAll(defaultRows);
+        return changedRows;
     }
 
     @Retention(RetentionPolicy.RUNTIME)

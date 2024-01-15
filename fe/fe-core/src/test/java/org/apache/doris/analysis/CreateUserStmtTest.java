@@ -50,8 +50,6 @@ public class CreateUserStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "testCluster";
                 accessManager.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, Auth.PrivLevel.GLOBAL, Auth
                         .PrivLevel.DATABASE);
                 result = true;
@@ -82,12 +80,6 @@ public class CreateUserStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testEmptyUser(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        new Expectations() {
-            {
-                analyzer.getClusterName();
-                result = "testCluster";
-            }
-        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", true));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
@@ -95,12 +87,6 @@ public class CreateUserStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testBadPass(@Injectable Analyzer analyzer) throws UserException, AnalysisException {
-        new Expectations() {
-            {
-                analyzer.getClusterName();
-                result = "testCluster";
-            }
-        };
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", false));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");

@@ -101,6 +101,9 @@ enum TStatusCode {
     TABLET_MISSING = 72,
 
     NOT_MASTER = 73,
+
+    // used for cloud
+    DELETE_BITMAP_LOCK_ERROR = 100,
 }
 
 struct TStatus {

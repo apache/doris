@@ -46,11 +46,22 @@ PathInData::PathInData(const PathInData& other) : path(other.path) {
     build_parts(other.get_parts());
 }
 
+PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
+    PathInDataBuilder path_builder;
+    path_builder.append(root, false);
+    for (const std::string& path : paths) {
+        path_builder.append(path, false);
+    }
+    build_path(path_builder.get_parts());
+    build_parts(path_builder.get_parts());
+}
+
 PathInData::PathInData(const std::vector<std::string>& paths) {
     PathInDataBuilder path_builder;
     for (size_t i = 0; i < paths.size(); ++i) {
         path_builder.append(paths[i], false);
     }
+    build_path(path_builder.get_parts());
     build_parts(path_builder.get_parts());
 }
 

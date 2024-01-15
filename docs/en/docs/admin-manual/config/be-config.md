@@ -266,7 +266,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_connect_timeout_seconds`
 
 * Description: The default thrift client connection timeout time
-* Default value: 3 (m)
+* Default value: 3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -482,9 +482,9 @@ There are two ways to configure BE configuration items:
 * Default value: 10485760
 
 #### `max_base_compaction_threads`
-
+git 
 * Type: int32
-* Description: The maximum of thread number in base compaction thread pool.
+* Description: The maximum of thread number in base compaction thread pool, -1 means one thread per disk.
 * Default value: 4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -625,14 +625,14 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in cumulative compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in cumulative compaction thread pool, -1 means one thread per disk.
+* Default value: -1
 
 #### `enable_segcompaction`
 
 * Type: bool
 * Description: Enable to use segment compaction during loading to avoid -238 error
-* Default value: true
+* Default value: false
 
 #### `segcompaction_batch_size`
 
@@ -686,8 +686,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * Type: int32
-* Description: The maximum of thread number in single replica compaction thread pool.
-* Default value: 10
+* Description: The maximum of thread number in single replica compaction thread pool. -1 means one thread per disk.
+* Default value: -1
 
 #### `update_replica_infos_interval_seconds`
 
@@ -727,6 +727,11 @@ BaseCompaction:546859:
 
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
+
+#### `load_error_log_limit_bytes`
+
+* Description: The loading error logs larger than this value will be truncated
+* Default value: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -974,12 +979,6 @@ BaseCompaction:546859:
 
 * Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
-
-#### `download_cache_buffer_size`
-
-* Type: int64
-* Description: The size of the buffer used to receive data when downloading the cache.
-* Default value: 10485760
 
 #### `zone_map_row_num_threshold`
 
@@ -1342,16 +1341,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: enable to use Snappy compression algorithm for data compression when serializing RowBatch
 * Default value: true
 
-<version since="1.2">
-
-#### `jvm_max_heap_size`
-
-* Type: string
-* Description: The maximum size of JVM heap memory used by BE, which is the `-Xmx` parameter of JVM
-* Default value: 1024M
-
-</version>
-
 ### Log
 
 #### `sys_log_dir`
@@ -1505,3 +1494,16 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `group_commit_wal_path`
+
+* The `WAL` directory of group commit.
+* Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* Default: 10000

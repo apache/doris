@@ -156,6 +156,8 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
             } while (running)
         }
 
+        def replicaNum = get_table_replica_num(tableName)
+        logger.info("get table replica num: " + replicaNum)
         int rowCount = 0
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
@@ -169,7 +171,7 @@ suite("test_compaction_uniq_cluster_keys_with_delete") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount < 8)
+        assert (rowCount < 8 * replicaNum)
         qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -63,9 +63,6 @@ public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
             }
         }
         List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
-        if (remoteSchema == null || remoteSchema.isEmpty()) {
-            throw new AnalysisException("fetch remote tablet schema failed");
-        }
         this.schema.addAll(remoteSchema);
         return IndexSchemaProcNode.createResult(this.schema, this.bfColumns);
     }

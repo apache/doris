@@ -69,12 +69,12 @@ public class StatsId {
 
     public String toSQL() {
         StringJoiner sj = new StringJoiner(",");
-        sj.add(StatisticsUtil.quote(id));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(id)));
         sj.add(String.valueOf(catalogId));
         sj.add(String.valueOf(dbId));
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
-        sj.add(StatisticsUtil.quote(colId));
+        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(colId)));
         sj.add(partId);
         return sj.toString();
     }

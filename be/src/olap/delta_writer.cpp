@@ -73,6 +73,7 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, WriteRequest* req, RuntimeProfil
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+    _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -125,6 +126,13 @@ Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<
     _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
+    }
+    {
+        SCOPED_TIMER(_wait_flush_limit_timer);
+        while (_memtable_writer->flush_running_count() >=
+               config::memtable_flush_running_count_limit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
     return _memtable_writer->write(block, row_idxs, is_append);
 }
@@ -241,7 +249,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     }
 
     auto request = std::make_shared<PTabletWriteSlaveRequest>();
-    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
+    auto request_mutable_rs_meta = request->mutable_rowset_meta();
+    *request_mutable_rs_meta = cur_rowset->rowset_meta()->get_rowset_pb();
+    if (request_mutable_rs_meta != nullptr && request_mutable_rs_meta->has_partition_id() &&
+        request_mutable_rs_meta->partition_id() == 0) {
+        // TODO(dx): remove log after fix partition id eq 0 bug
+        request_mutable_rs_meta->set_partition_id(_req.partition_id);
+        LOG(WARNING) << "cant get partition id from local rs pb, get from _req, partition_id="
+                     << _req.partition_id;
+    }
     request->set_host(BackendOptions::get_localhost());
     request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder->tablet()->tablet_path();

@@ -48,10 +48,8 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
-    if (pk_index_cache_capacity > 0) {
-        _pk_index_page_cache =
-                std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
-    }
+
+    _pk_index_page_cache = std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
 }
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,

@@ -306,6 +306,8 @@ public:
                 condition.__set_condition_op("match_phrase");
             } else if (value.first == MatchType::MATCH_PHRASE_PREFIX) {
                 condition.__set_condition_op("match_phrase_prefix");
+            } else if (value.first == MatchType::MATCH_REGEXP) {
+                condition.__set_condition_op("match_regexp");
             } else if (value.first == MatchType::MATCH_ELEMENT_EQ) {
                 condition.__set_condition_op("match_element_eq");
             } else if (value.first == MatchType::MATCH_ELEMENT_LT) {

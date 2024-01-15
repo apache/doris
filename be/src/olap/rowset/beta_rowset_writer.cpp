@@ -105,7 +105,7 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
           _total_index_size(0) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
-        : _engine(engine), _segcompaction_worker(std::make_unique<SegcompactionWorker>(this)) {}
+        : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
@@ -182,33 +182,6 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     {
         std::shared_lock meta_rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
-        DBUG_EXECUTE_IF("BetaRowsetWriter::_generate_delete_bitmap.clear_specified_rowsets",
-                        { specified_rowsets.clear(); });
-        if (specified_rowsets.size() != _context.mow_context->rowset_ids.size()) {
-            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
-            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
-            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_context.mow_context->rowset_ids`
-            // to the latest value and re-request the correspoding rowsets.
-            LOG(INFO) << fmt::format(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
-                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
-                    "transaction_id: {}",
-                    specified_rowsets.size(), _context.mow_context->rowset_ids.size(),
-                    _context.tablet->tablet_id(), _context.mow_context->max_version,
-                    _context.mow_context->txn_id);
-            Status st {Status::OK()};
-            _context.mow_context->update_rowset_ids_with_lock([&]() {
-                _context.mow_context->rowset_ids.clear();
-                st = tablet->all_rs_id(_context.mow_context->max_version,
-                                       &_context.mow_context->rowset_ids);
-            });
-            if (!st.ok()) {
-                return st;
-            }
-            specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
-            DCHECK(specified_rowsets.size() == _context.mow_context->rowset_ids.size());
-        }
     }
     OlapStopWatch watch;
     RETURN_IF_ERROR(tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
@@ -408,14 +381,9 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     return Status::OK();
 }
 
+// return true if there isn't any flying segcompaction, otherwise return false
 bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
-    std::lock_guard<std::mutex> l(_is_doing_segcompaction_lock);
-    if (!_is_doing_segcompaction) {
-        _is_doing_segcompaction = true;
-        return true;
-    } else {
-        return false;
-    }
+    return !_is_doing_segcompaction.exchange(true);
 }
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
@@ -437,7 +405,7 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
             LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
                       << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
                       << ", segcompacted_point:" << _segcompacted_point;
-            status = _engine.submit_seg_compaction_task(_segcompaction_worker.get(), segments);
+            status = _engine.submit_seg_compaction_task(_segcompaction_worker, segments);
             if (status.ok()) {
                 return status;
             }
@@ -573,9 +541,14 @@ Status BetaRowsetWriter::_close_file_writers() {
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
-        _segcompaction_worker->cancel();
-        RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
-                                       "segcompaction failed when build new rowset");
+        if (_segcompaction_worker->cancel()) {
+            std::lock_guard lk(_is_doing_segcompaction_lock);
+            _is_doing_segcompaction = false;
+            _segcompacting_cond.notify_all();
+        } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(_wait_flying_segcompaction(),
+                                           "segcompaction failed when build new rowset");
+        }
         RETURN_NOT_OK_STATUS_WITH_WARN(_segcompaction_rename_last_segments(),
                                        "rename last segments failed when build new rowset");
         if (_segcompaction_worker->get_file_writer()) {
@@ -681,7 +654,7 @@ void BaseBetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset
 
 RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
-    *rowset_meta_ = *_rowset_meta;
+    rowset_meta_->init(_rowset_meta.get());
     _build_rowset_meta(rowset_meta_);
 
     RowsetSharedPtr rowset;

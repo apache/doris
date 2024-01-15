@@ -435,7 +435,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                         infoService, colocateIndex, groupId, tag);
                 // get all available backends for this group
                 Set<Long> beIdsInOtherTag = colocateIndex.getBackendIdsExceptForTag(groupId, tag);
-                List<Long> availableBeIds = getAvailableBeIds(SystemInfoService.DEFAULT_CLUSTER, tag, beIdsInOtherTag,
+                List<Long> availableBeIds = getAvailableBeIds(tag, beIdsInOtherTag,
                         infoService);
                 // try relocate or balance this group for specified tag
                 List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
@@ -1146,7 +1146,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         return unavailableBeIds;
     }
 
-    private List<Long> getAvailableBeIds(String cluster, Tag tag, Set<Long> excludedBeIds,
+    private List<Long> getAvailableBeIds(Tag tag, Set<Long> excludedBeIds,
             SystemInfoService infoService) {
         // get all backends to allBackendIds, and check be availability using checkBackendAvailable
         // backend stopped for a short period of time is still considered available

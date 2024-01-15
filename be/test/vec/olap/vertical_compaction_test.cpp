@@ -84,18 +84,20 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = new DataDir(absolute_dir, 100000000);
-        static_cast<void>(_data_dir->init());
-
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);
+
+        _data_dir = new DataDir(*k_engine, absolute_dir, 100000000);
+        static_cast<void>(_data_dir->init());
     }
     void TearDown() override {
         SAFE_DELETE(_data_dir);
@@ -273,6 +275,7 @@ protected:
         std::string json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
+            "partition_id": 10000,
             "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
             "rowset_state": "VISIBLE",
@@ -329,7 +332,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir));
+        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir));
         static_cast<void>(tablet->init());
         bool exists = false;
         auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);

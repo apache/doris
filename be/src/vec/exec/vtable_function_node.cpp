@@ -106,7 +106,7 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
-    for (auto fn : _fns) {
+    for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
     RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, _row_descriptor));
@@ -182,7 +182,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
             if (idx == 0 || skip_child_row) {
                 _copy_output_slots(columns);
                 // all table functions' results are exhausted, process next child row.
-                RETURN_IF_ERROR(_process_next_child_row());
+                _process_next_child_row();
                 if (_cur_child_offset == -1) {
                     break;
                 }
@@ -207,7 +207,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
                     _fns[i]->get_value(columns[i + _child_slots.size()]);
                 }
                 _current_row_insert_times++;
-                static_cast<void>(_fns[_fn_num - 1]->forward());
+                _fns[_fn_num - 1]->forward();
             }
         }
     }
@@ -218,7 +218,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     for (auto index : _useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
-
+    output_block->set_columns(std::move(columns));
     // 3. eval conjuncts
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
 
@@ -226,25 +226,23 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     return Status::OK();
 }
 
-Status VTableFunctionNode::_process_next_child_row() {
+void VTableFunctionNode::_process_next_child_row() {
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {
         // release block use count.
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_close());
+            fn->process_close();
         }
 
         release_block_memory(*_child_block);
         _cur_child_offset = -1;
-        return Status::OK();
+        return;
     }
 
     for (TableFunction* fn : _fns) {
-        RETURN_IF_ERROR(fn->process_row(_cur_child_offset));
+        fn->process_row(_cur_child_offset);
     }
-
-    return Status::OK();
 }
 
 // Returns the index of fn of the last eos counted from back to front
@@ -287,7 +285,7 @@ int VTableFunctionNode::_find_last_fn_eos_idx() {
 bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
     int i = last_eos_idx - 1;
     for (; i >= 0; --i) {
-        static_cast<void>(_fns[i]->forward());
+        _fns[i]->forward();
         if (!_fns[i]->eos()) {
             break;
         }
@@ -299,7 +297,7 @@ bool VTableFunctionNode::_roll_table_functions(int last_eos_idx) {
     }
 
     for (int j = i + 1; j < _fn_num; ++j) {
-        static_cast<void>(_fns[j]->reset());
+        _fns[j]->reset();
     }
 
     return true;

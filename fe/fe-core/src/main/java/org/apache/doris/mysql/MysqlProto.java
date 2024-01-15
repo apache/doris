@@ -19,7 +19,6 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -30,7 +29,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -75,8 +73,6 @@ public class MysqlProto {
             ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "anonym@" + context.getRemoteIP(), usePasswd);
             return null;
         }
-
-        context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
         // check workload group level. user name may contains workload group level.
         // eg:
@@ -318,7 +314,7 @@ public class MysqlProto {
                 context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
                 return false;
             }
-            String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), dbName);
+            String dbFullName = dbName;
 
             // check catalog and db exists
             if (catalogName != null) {

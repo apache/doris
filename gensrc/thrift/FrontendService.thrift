@@ -406,6 +406,11 @@ struct TQueryStatistics {
     5: optional i64 max_peak_memory_bytes
 }
 
+struct TReportWorkloadRuntimeStatusParams {
+    1: optional i64 backend_id
+    2: map<string, TQueryStatistics> query_statistics_map
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -470,11 +475,17 @@ struct TReportExecStatusParams {
   23: optional list<TDetailedReportParams> detailed_report
 
   24: optional TQueryStatistics query_statistics
+
+  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
+
+    // For cloud
+    1000: optional string cloud_cluster
+    1001: optional bool noAuth
 }
 
 struct TMasterOpRequest {
@@ -530,6 +541,8 @@ struct TMasterOpResult {
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
     5: optional string status;
+    6: optional i32 statusCode;
+    7: optional string errMessage;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -552,6 +565,8 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
+    13: optional string auth_code_uuid
+    14: optional i64 table_id
 }
 
 struct TLoadTxnBeginResult {
@@ -652,8 +667,12 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool group_commit
+    54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
+    56: optional string group_commit_mode
+
+    // For cloud
+    1000: optional string cloud_cluster
 }
 
 struct TStreamLoadPutResult {
@@ -667,6 +686,7 @@ struct TStreamLoadPutResult {
     6: optional i64 table_id
     7: optional bool wait_internal_group_commit_finish = false
     8: optional i64 group_commit_interval_ms
+    9: optional i64 group_commit_data_bytes
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -683,16 +703,6 @@ struct TStreamLoadWithLoadStatusResult {
     4: optional i64 loaded_rows
     5: optional i64 filtered_rows
     6: optional i64 unselected_rows
-}
-
-struct TCheckWalRequest {
-    1: optional i64 wal_id
-    2: optional i64 db_id
-}
-
-struct TCheckWalResult {
-    1: optional Status.TStatus status
-    2: optional bool need_recovery
 }
 
 struct TKafkaRLTaskProgress {
@@ -736,6 +746,7 @@ struct TLoadTxnCommitRequest {
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
+    17: optional string auth_code_uuid
 }
 
 struct TLoadTxnCommitResult {
@@ -813,6 +824,7 @@ struct TLoadTxnRollbackRequest {
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
+    14: optional string auth_code_uuid
 }
 
 struct TLoadTxnRollbackResult {
@@ -1299,6 +1311,11 @@ struct TGetBackendMetaResult {
     3: optional Types.TNetworkAddress master_address
 }
 
+struct TColumnInfo {
+  1: optional string column_name
+  2: optional i64 column_id
+}
+
 struct TGetColumnInfoRequest {
     1: optional i64 db_id
     2: optional i64 table_id
@@ -1306,7 +1323,7 @@ struct TGetColumnInfoRequest {
 
 struct TGetColumnInfoResult {
     1: optional Status.TStatus status
-    2: optional string column_info
+    2: optional list<TColumnInfo> columns
 }
 
 service FrontendService {

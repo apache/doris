@@ -18,11 +18,18 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
@@ -36,16 +43,16 @@ public class MTMVService {
     private static final Logger LOG = LogManager.getLogger(MTMVService.class);
 
     private Map<String, MTMVHookService> hooks = Maps.newConcurrentMap();
-    private MTMVCacheManager cacheManager = new MTMVCacheManager();
+    private MTMVRelationManager relationManager = new MTMVRelationManager();
     private MTMVJobManager jobManager = new MTMVJobManager();
 
     public MTMVService() {
         registerHook("MTMVJobManager", jobManager);
-        registerHook("MTMVCacheManager", cacheManager);
+        registerHook("MTMVRelationManager", relationManager);
     }
 
-    public MTMVCacheManager getCacheManager() {
-        return cacheManager;
+    public MTMVRelationManager getRelationManager() {
+        return relationManager;
     }
 
     public void registerHook(String name, MTMVHookService mtmvHookService) {
@@ -76,8 +83,12 @@ public class MTMVService {
         }
     }
 
-    public void createMTMV(MTMV mtmv) throws DdlException {
+    public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
         Objects.requireNonNull(mtmv);
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+            MTMVUtil.alignMvPartition(mtmv, relatedTable);
+        }
         LOG.info("createMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.createMTMV(mtmv);
@@ -101,7 +112,7 @@ public class MTMVService {
         }
     }
 
-    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException {
+    public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         Objects.requireNonNull(info);
         LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
@@ -131,6 +142,30 @@ public class MTMVService {
         LOG.info("refreshComplete: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshComplete(mtmv, cache, task);
+        }
+    }
+
+    public void pauseMTMV(PauseMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("pauseMTMV, PauseMTMVInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.pauseMTMV(info);
+        }
+    }
+
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("resumeMTMV, ResumeMTMVInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.resumeMTMV(info);
+        }
+    }
+
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) throws MetaNotFoundException, DdlException, JobException {
+        Objects.requireNonNull(info);
+        LOG.info("cancelMTMVTask, CancelMTMVTaskInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.cancelMTMVTask(info);
         }
     }
 }

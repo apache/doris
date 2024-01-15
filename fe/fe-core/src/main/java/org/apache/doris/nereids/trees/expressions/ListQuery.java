@@ -68,4 +68,9 @@ public class ListQuery extends SubqueryExpr {
                     ? Optional.of(queryPlan.getOutput().get(0))
                     : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
     }
+
+    @Override
+    public ListQuery withSubquery(LogicalPlan subquery) {
+        return new ListQuery(subquery, correlateSlots, typeCoercionExpr);
+    }
 }

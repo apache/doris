@@ -60,7 +60,6 @@ public abstract class JdbcClient {
     protected DruidDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
     protected boolean isLowerCaseTableNames;
-    protected String oceanbaseMode = "";
 
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
@@ -74,8 +73,9 @@ public abstract class JdbcClient {
             lowerColumnToRealColumn = new ConcurrentHashMap<>();
 
     private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
-    private final AtomicBoolean tableNamesLoaded = new AtomicBoolean(false);
-    private final AtomicBoolean columnNamesLoaded = new AtomicBoolean(false);
+    private final ConcurrentHashMap<String, AtomicBoolean> tableNamesLoadedMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, AtomicBoolean>> columnNamesLoadedMap
+            = new ConcurrentHashMap<>();
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -113,17 +113,16 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
-        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
+        initializeDataSource(jdbcClientConfig);
     }
 
     // Initialize DruidDataSource
-    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private void initializeDataSource(JdbcClientConfig config) {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
+            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
@@ -132,29 +131,36 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(classLoader);
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
-            dataSource.setDriverClassName(driverClass);
-            dataSource.setUrl(jdbcUrl);
-            dataSource.setUsername(jdbcUser);
-            dataSource.setPassword(password);
-            dataSource.setMinIdle(1);
-            dataSource.setInitialSize(1);
-            dataSource.setMaxActive(100);
-            dataSource.setTimeBetweenEvictionRunsMillis(600000);
-            dataSource.setMinEvictableIdleTimeMillis(300000);
+            dataSource.setDriverClassName(config.getDriverClass());
+            dataSource.setUrl(config.getJdbcUrl());
+            dataSource.setUsername(config.getUser());
+            dataSource.setPassword(config.getPassword());
+            dataSource.setMinIdle(config.getMinIdleSize());
+            dataSource.setInitialSize(config.getMinPoolSize());
+            dataSource.setMaxActive(config.getMaxPoolSize());
+            dataSource.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() * 2L);
+            dataSource.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(5000);
+            dataSource.setMaxWait(config.getMaxWaitTime());
+            dataSource.setKeepAlive(config.isKeepAlive());
+            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
+                    + ", maxPoolSize = " + config.getMaxPoolSize()
+                    + ", maxIdleTime = " + config.getMaxIdleTime()
+                    + ", maxWaitTime = " + config.getMaxWaitTime()
+                    + ", minIdleSize = " + config.getMinIdleSize()
+                    + ", keepAlive = " + config.isKeepAlive());
         } catch (MalformedURLException e) {
-            throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+            throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    private static String parseDbType(String jdbcUrl) {
+    public static String parseDbType(String jdbcUrl) {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -404,13 +410,18 @@ public abstract class JdbcClient {
     }
 
     private void loadTableNamesIfNeeded(String dbName) {
-        if (tableNamesLoaded.compareAndSet(false, true)) {
+        AtomicBoolean isLoaded = tableNamesLoadedMap.computeIfAbsent(dbName, k -> new AtomicBoolean(false));
+        if (isLoaded.compareAndSet(false, true)) {
             getTablesNameList(dbName);
         }
     }
 
     private void loadColumnNamesIfNeeded(String dbName, String tableName) {
-        if (columnNamesLoaded.compareAndSet(false, true)) {
+        ConcurrentHashMap<String, AtomicBoolean> tableMap = columnNamesLoadedMap.computeIfAbsent(dbName,
+                k -> new ConcurrentHashMap<>());
+        AtomicBoolean isLoaded = tableMap.computeIfAbsent(tableName, k -> new AtomicBoolean(false));
+
+        if (isLoaded.compareAndSet(false, true)) {
             getJdbcColumnsInfo(dbName, tableName);
         }
     }
@@ -469,6 +480,7 @@ public abstract class JdbcClient {
 
     /**
      * Execute stmt direct via jdbc
+     *
      * @param origStmt, the raw stmt string
      */
     public void executeStmt(String origStmt) {
@@ -513,7 +525,7 @@ public abstract class JdbcClient {
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
 
     protected Type createDecimalOrStringType(int precision, int scale) {
-        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();

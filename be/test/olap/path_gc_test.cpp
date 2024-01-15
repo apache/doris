@@ -46,7 +46,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
 
     StorageEngine engine({});
     ExecEnv::GetInstance()->set_storage_engine(&engine);
-    DataDir data_dir(dir_path, -1, TStorageMedium::HDD, engine.tablet_manager());
+    DataDir data_dir(engine, dir_path, -1, TStorageMedium::HDD);
     st = data_dir._init_meta();
     ASSERT_TRUE(st.ok()) << st;
 
@@ -54,10 +54,11 @@ TEST(PathGcTest, GcTabletAndRowset) {
     auto create_tablet = [&](int64_t tablet_id) {
         auto tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = tablet_id;
+        (void)tablet_meta->set_partition_id(10000);
         tablet_meta->set_tablet_uid({tablet_id, 0});
         tablet_meta->set_shard_id(tablet_id % 4);
         tablet_meta->_schema_hash = tablet_id;
-        auto tablet = std::make_shared<Tablet>(std::move(tablet_meta), &data_dir);
+        auto tablet = std::make_shared<Tablet>(engine, std::move(tablet_meta), &data_dir);
         auto& tablet_map = engine.tablet_manager()->_get_tablet_map(tablet_id);
         tablet_map[tablet_id] = tablet;
         return tablet;
@@ -175,7 +176,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         st = create_rowset_files(*rs, false);
         ASSERT_TRUE(st.ok()) << st;
         st = RowsetMetaManager::save(data_dir.get_meta(), rs->rowset_meta()->tablet_uid(),
-                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb());
+                                     rs->rowset_id(), rs->rowset_meta()->get_rowset_pb(), false);
         ASSERT_TRUE(st.ok()) << st;
     }
     // Prepare garbage rowset files

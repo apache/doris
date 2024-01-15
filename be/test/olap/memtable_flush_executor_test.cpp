@@ -47,9 +47,11 @@ void set_up() {
     char buffer[1024];
     getcwd(buffer, 1024);
     config::storage_root_path = std::string(buffer) + "/flush_test";
-    EXPECT_TRUE(io::global_local_filesystem()
-                        ->delete_and_create_directory(config::storage_root_path)
-                        .ok());
+    auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+    st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+    ASSERT_TRUE(st.ok()) << st;
+
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 

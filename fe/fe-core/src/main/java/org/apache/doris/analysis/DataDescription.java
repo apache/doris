@@ -1051,7 +1051,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            this.dbName = dbName;
             return this.dbName;
         } else {
             this.dbName = labelDbName;

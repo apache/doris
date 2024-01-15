@@ -19,8 +19,17 @@
 
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 
 namespace doris {
+
+class DelayReleaseToken : public Runnable {
+public:
+    DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
+    ~DelayReleaseToken() override = default;
+    void run() override {}
+    std::unique_ptr<ThreadPoolToken> token_;
+};
 
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options)
@@ -28,12 +37,14 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _query_options(query_options) {
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    _execution_dependency.reset(new pipeline::Dependency(-1, -1, "ExecutionDependency", this));
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
+    _runtime_filter_mgr.reset(
+            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
 }
 
 QueryContext::~QueryContext() {
@@ -55,13 +66,24 @@ QueryContext::~QueryContext() {
     }
 
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+    // Not release the the thread token in query context's dector method, because the query
+    // conext may be dectored in the thread token it self. It is very dangerous and may core.
+    // And also thread token need shutdown, it may take some time, may cause the thread that
+    // release the token hang, the thread maybe a pipeline task scheduler thread.
+    if (_thread_token) {
+        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    }
+    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
     _execution_dependency->set_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        _is_cancelled = is_cancelled;
+        if (!_is_cancelled) {
+            _is_cancelled = is_cancelled;
+        }
         _ready_to_execute = true;
     }
     if (query_mem_tracker && is_cancelled) {
@@ -98,4 +120,36 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
     }
     return true;
 }
+
+void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
+    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(_query_id), qs,
+                                                                         coord_addr);
+}
+
+std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
+    return _exec_env->runtime_query_statistics_mgr()->get_runtime_query_statistics(
+            print_id(_query_id));
+}
+
+void QueryContext::register_memory_statistics() {
+    if (query_mem_tracker) {
+        std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
+        std::string query_id = print_id(_query_id);
+        if (qs) {
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
+                                                                                 coord_addr);
+        } else {
+            LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
+        }
+    }
+}
+
+void QueryContext::register_cpu_statistics() {
+    if (!_cpu_statistics) {
+        _cpu_statistics = std::make_shared<QueryStatistics>();
+        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                print_id(_query_id), _cpu_statistics, coord_addr);
+    }
+}
+
 } // namespace doris

@@ -17,8 +17,6 @@
 
 package org.apache.doris.avro;
 
-import org.apache.doris.avro.AvroFileCache.AvroFileMeta;
-
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -31,7 +29,6 @@ import org.apache.avro.mapred.AvroJob;
 import org.apache.avro.mapred.AvroRecordReader;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.NullWritable;
@@ -53,7 +50,7 @@ public abstract class AvroReader {
     protected Path path;
     protected FileSystem fileSystem;
 
-    public abstract void open(AvroFileMeta avroFileMeta, boolean tableSchema) throws IOException;
+    public abstract void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException;
 
     public abstract Schema getSchema();
 
@@ -69,31 +66,38 @@ public abstract class AvroReader {
         LOG.debug("success open avro schema reader.");
     }
 
-    protected void openDataReader(AvroFileMeta avroFileMeta) throws IOException {
+    protected void openDataReader(AvroFileContext avroFileContext) throws IOException {
         JobConf job = new JobConf();
-        projectionSchema(job, avroFileMeta);
-        FileStatus fileStatus = fileSystem.getFileStatus(path);
-        // TODO split file
-        FileSplit fileSplit = new FileSplit(path, 0, fileStatus.getLen(), job);
+        projectionSchema(job, avroFileContext);
+        FileSplit fileSplit =
+                new FileSplit(path, avroFileContext.getSplitStartOffset(), avroFileContext.getSplitSize(), job);
         dataReader = new AvroRecordReader<>(job, fileSplit);
         LOG.debug("success open avro data reader.");
     }
 
-    protected void projectionSchema(JobConf job, AvroFileMeta avroFileMeta) {
-        Set<String> filedNames = avroFileMeta.getRequiredFields();
-        JsonObject schemaJson = new Gson().fromJson(avroFileMeta.getSchema(), JsonObject.class);
-        JsonObject copySchemaJson = schemaJson.deepCopy();
-        JsonArray schemaFields = schemaJson.get("fields").getAsJsonArray();
-        JsonArray copySchemaFields = copySchemaJson.get("fields").getAsJsonArray();
-        for (int i = 0; i < schemaFields.size(); i++) {
-            JsonObject object = schemaFields.get(i).getAsJsonObject();
-            String name = object.get("name").getAsString();
-            if (filedNames.contains(name)) {
-                continue;
+    protected void projectionSchema(JobConf job, AvroFileContext avroFileContext) {
+        Schema projectionSchema;
+        Set<String> filedNames = avroFileContext.getRequiredFields();
+        Schema avroSchema = avroFileContext.getSchema();
+        // The number of fields that need to be queried is the same as that of the avro file,
+        // so no projection is required.
+        if (filedNames.size() != avroSchema.getFields().size()) {
+            JsonObject schemaJson = new Gson().fromJson(avroSchema.toString(), JsonObject.class);
+            JsonArray schemaFields = schemaJson.get("fields").getAsJsonArray();
+            JsonObject copySchemaJson = schemaJson.deepCopy();
+            JsonArray copySchemaFields = copySchemaJson.get("fields").getAsJsonArray();
+            for (int i = 0; i < schemaFields.size(); i++) {
+                JsonObject object = schemaFields.get(i).getAsJsonObject();
+                String name = object.get("name").getAsString();
+                if (filedNames.contains(name)) {
+                    continue;
+                }
+                copySchemaFields.remove(schemaFields.get(i));
             }
-            copySchemaFields.remove(schemaFields.get(i));
+            projectionSchema = new Parser().parse(copySchemaJson.toString());
+        } else {
+            projectionSchema = avroSchema;
         }
-        Schema projectionSchema = new Parser().parse(copySchemaJson.toString());
         AvroJob.setInputSchema(job, projectionSchema);
         LOG.debug("projection avro schema is:" + projectionSchema.toString());
     }

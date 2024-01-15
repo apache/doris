@@ -86,13 +86,14 @@ l_tax, l_returnflag,l_linestatus, l_shipdate,l_commitdate,l_receiptdate,l_shipin
     def process = {
         int total = 0;
         for (int k = 0; k < 3; k++) {
+            logger.info("round:" + k)
             for (int i = 1; i <= 10; i++) {
                 streamLoad {
                     table stream_load_table
 
                     set 'column_separator', '|'
                     set 'columns', columns + ",lo_dummy"
-                    set 'group_commit', 'true'
+                    set 'group_commit', 'async_mode'
                     unset 'label'
                     file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
 

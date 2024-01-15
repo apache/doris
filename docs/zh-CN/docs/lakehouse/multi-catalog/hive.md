@@ -168,6 +168,8 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive With Glue
 
+> 连接Glue时，如果是在非EC2环境，需要将EC2环境里的 `~/.aws` 目录拷贝到当前环境里。也可以下载[AWS Cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)工具进行配置，这种方式也会在当前用户目录下创建`.aws`目录。
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",
@@ -371,6 +373,12 @@ CREATE CATALOG hive PROPERTIES (
 "broker.name" = "test_broker"
 ```
 
+Doris 基于 Iceberg `FileIO` 接口实现了 Broker 查询 HMS Catalog Iceberg 的支持。如有需求，可以在创建 HMS Catalog 时增加如下配置。
+
+```sql
+"io-impl" = "org.apache.doris.datasource.iceberg.broker.IcebergBrokerIO"
+```
+
 ## 使用 Ranger 进行权限校验
 
 Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以及全方位数据安全访问管理的安全框架。
@@ -526,3 +534,15 @@ CREATE CATALOG hive_krb_ha PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+## Hive Transactional 表
+Hive transactional 表是 Hive 中支持 ACID 语义的表。详情可见：https://cwiki.apache.org/confluence/display/Hive/Hive+Transactions
+
+### Hive Transactional 表支持情况：
+|表类型|在 Hive 中支持的操作|Hive 表属性|支持的Hive 版本|
+|---|---|---|---|
+|Full-ACID Transactional Table |支持 Insert, Update, Delete 操作|'transactional'='true', 'transactional_properties'='insert_only'|3.x，2.x，其中 2.x 需要在 Hive 中执行完 major compaction 才可以加载|
+|Insert-Only Transactional Table|只支持 Insert 操作|'transactional'='true'|3.x，2.x|
+
+### 当前限制：
+目前不支持 Original Files 的场景。
+当一个表转换成 Transactional 表之后，后续新写的数据文件会使用 Hive Transactional 表的 schema，但是已经存在的数据文件是不会转化成 Transactional 表的 schema，这样的文件称为 Original Files。

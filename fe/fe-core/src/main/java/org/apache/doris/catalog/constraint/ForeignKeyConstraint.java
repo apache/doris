@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class ForeignKeyConstraint extends Constraint {
@@ -61,6 +62,18 @@ public class ForeignKeyConstraint extends Constraint {
         return foreignToReference.get(column);
     }
 
+    public ImmutableMap<String, String> getForeignToReference() {
+        return foreignToReference;
+    }
+
+    public Map<Column, Column> getForeignToPrimary(TableIf curTable) {
+        ImmutableMap.Builder<Column, Column> columnBuilder = new ImmutableMap.Builder<>();
+        TableIf refTable = referencedTable.toTableIf();
+        foreignToReference.forEach((k, v) ->
+                columnBuilder.put(curTable.getColumn(k), refTable.getColumn(v)));
+        return columnBuilder.build();
+    }
+
     public Column getReferencedColumn(String column) {
         return getReferencedTable().getColumn(getReferencedColumnName(column));
     }
@@ -90,5 +103,16 @@ public class ForeignKeyConstraint extends Constraint {
         ForeignKeyConstraint other = (ForeignKeyConstraint) obj;
         return Objects.equals(foreignToReference, other.foreignToReference)
                 && Objects.equals(referencedTable, other.referencedTable);
+    }
+
+    @Override
+    public String toString() {
+        String foreignKeys = "(" + String.join(", ", foreignToReference.keySet()) + ")";
+        String primaryKeys = "(" + String.join(", ", foreignToReference.values()) + ")";
+        return String.format("FOREIGN KEY %s REFERENCES %s %s", foreignKeys, referencedTable, primaryKeys);
+    }
+
+    public String getTypeName() {
+        return "FOREIGN KEY";
     }
 }

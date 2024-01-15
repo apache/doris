@@ -50,7 +50,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<DataQueue>);
@@ -120,7 +120,9 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override { return ExchangeType::PASSTHROUGH; }
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
+    }
 };
 
 } // namespace pipeline

@@ -57,7 +57,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -152,13 +151,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    private void checkWorkloadGroupEnabled() throws DdlException {
-        if (!Config.enable_workload_group) {
-            throw new DdlException(
-                    "WorkloadGroup is disabled, you can set config enable_workload_group = true to enable it");
-        }
     }
 
     public void init() {
@@ -266,8 +258,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         WorkloadGroup workloadGroup = WorkloadGroup.create(stmt.getWorkloadGroupName(), stmt.getProperties());
         String workloadGroupName = workloadGroup.getName();
         writeLock();
@@ -277,6 +267,10 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                     return;
                 }
                 throw new DdlException("workload group " + workloadGroupName + " already exist");
+            }
+            if (idToWorkloadGroup.size() >= Config.workload_group_max_num) {
+                throw new DdlException(
+                        "workload group number can not be exceed " + Config.workload_group_max_num);
             }
             checkGlobalUnlock(workloadGroup, null);
             nameToWorkloadGroup.put(workloadGroupName, workloadGroup);
@@ -324,8 +318,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         Map<String, String> properties = stmt.getProperties();
         WorkloadGroup newWorkloadGroup;
@@ -347,8 +339,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public void dropWorkloadGroup(DropWorkloadGroupStmt stmt) throws DdlException {
-        checkWorkloadGroupEnabled();
-
         String workloadGroupName = stmt.getWorkloadGroupName();
         if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
@@ -431,6 +421,32 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
         return procNode.fetchResult(currentUserIdentity).getRows();
+    }
+
+    public Long getWorkloadGroupIdByName(String name) {
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(name);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getId();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getWorkloadGroupNameById(Long id) {
+        readLock();
+        try {
+            WorkloadGroup wg = idToWorkloadGroup.get(id);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getName();
+        } finally {
+            readUnlock();
+        }
     }
 
     // for ut

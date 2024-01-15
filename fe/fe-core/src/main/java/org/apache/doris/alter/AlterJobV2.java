@@ -241,7 +241,7 @@ public abstract class AlterJobV2 implements Writable {
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
-                    Env.getCurrentEnv().getTabletScheduler(), db.getClusterName());
+                    Env.getCurrentEnv().getTabletScheduler());
 
             if (!isStable) {
                 errMsg = "table is unstable";

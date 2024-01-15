@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_show_create_table_and_views", "show") {
-    def ret = sql "ADMIN SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
+    def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
         logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
@@ -36,7 +36,7 @@ suite("test_show_create_table_and_views", "show") {
         CREATE TABLE ${dbName}.${tableName} (
             `user_id` LARGEINT NOT NULL,
             `good_id` LARGEINT NOT NULL,
-            `cost` BIGINT SUM DEFAULT "0",
+            `cost` BIGINT SUM DEFAULT "0"
         )
         AGGREGATE KEY(`user_id`, `good_id`)
         PARTITION BY RANGE(`good_id`)

@@ -55,8 +55,10 @@ class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        EXPECT_TRUE(
-                io::global_local_filesystem()->delete_and_create_directory(_engine_data_path).ok());
+        auto st = io::global_local_filesystem()->delete_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(
                 io::global_local_filesystem()->create_directory(_engine_data_path + "/meta").ok());
 
@@ -68,7 +70,7 @@ public:
         options.backend_uid = UniqueId::gen_uid();
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);
-        _data_dir = new DataDir(_engine_data_path, 1000000000);
+        _data_dir = new DataDir(*k_engine, _engine_data_path, 1000000000);
         static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
     }

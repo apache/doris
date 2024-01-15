@@ -229,6 +229,8 @@ message PExecPlanFragmentResult {
 message PCancelPlanFragmentRequest {
     required PUniqueId finst_id = 1;
     optional PPlanFragmentCancelReason cancel_reason = 2;
+    optional PUniqueId query_id = 3;
+    optional int32 fragment_id = 4;
 };
 
 message PCancelPlanFragmentResult {
@@ -752,6 +754,7 @@ message POpenLoadStreamRequest {
     repeated PTabletID tablets = 5;
     optional bool enable_profile = 6 [default = false];
     optional int64 total_streams = 7;
+    optional int64 idle_timeout_ms = 8;
 }
 
 message PTabletSchemaWithIndex {
@@ -765,12 +768,18 @@ message POpenLoadStreamResponse {
     repeated PTabletSchemaWithIndex tablet_schemas = 2;
 }
 
-message PWriteStreamSinkResponse {
+message PFailedTablet {
+    optional int64 id = 1;
+    optional PStatus status = 2;
+}
+
+message PLoadStreamResponse {
     optional PStatus status = 1;
     repeated int64 success_tablet_ids = 2;
-    repeated int64 failed_tablet_ids = 3;
+    repeated PFailedTablet failed_tablets = 3;
     optional bytes load_stream_profile = 4;
     repeated PTabletSchemaWithIndex tablet_schemas = 5;
+    optional bool eos = 6;
 }
 
 message PStreamHeader {
@@ -796,7 +805,6 @@ message PStreamHeader {
 
 message PGetWalQueueSizeRequest{
     optional int64 table_id = 1;
-    optional int64 txn_id = 2;
 }
 
 message PGetWalQueueSizeResponse{
