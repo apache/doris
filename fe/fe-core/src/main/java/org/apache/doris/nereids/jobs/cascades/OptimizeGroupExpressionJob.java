@@ -86,11 +86,7 @@ public class OptimizeGroupExpressionJob extends Job {
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
-            if (isOtherJoinReorder) {
-                return getRuleSet().getDPHypReorderRules();
-            } else {
-                return Collections.emptyList();
-            }
+            return getRuleSet().getDPHypReorderRules();
         } else if (isLeftZigZagTree) {
             return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
