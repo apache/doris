@@ -354,12 +354,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：后续查询请求动态创建线程，最大创建512个线程。
 * 默认值：2048
 
-#### `doris_max_pushdown_conjuncts_return_rate`
-
-* 类型：int32
-* 描述：BE在进行HashJoin时，会采取动态分区裁剪的方式将join条件下推到OlapScanner上。当OlapScanner扫描的数据大于32768行时，BE会进行过滤条件检查，如果该过滤条件的过滤率低于该配置，则Doris会停止使用动态分区裁剪的条件进行数据过滤。
-* 默认值：90
-
 #### `doris_max_scan_key_num`
 
 * 类型：int
@@ -407,18 +401,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int32
 * 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
 * 默认值：512
-
-#### `enable_prefetch`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行 HashBucket 的预取，推荐设置为true。
-* 默认值：true
-
-#### `enable_quadratic_probing`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable时发生Hash冲突时，是否采用平方探测法来解决Hash冲突。该值为false的话，则选用线性探测发来解决Hash冲突。关于平方探测法可参考：[quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
-* 默认值：true
 
 #### `exchg_node_buffer_size_bytes`
 

@@ -265,8 +265,6 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
-// return_row / total_row
-DEFINE_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 
@@ -542,10 +540,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
 
-// The probing algorithm of partitioned hash table.
-// Enable quadratic probing hash table
-DEFINE_Bool(enable_quadratic_probing, "false");
-
 // for pprof
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
@@ -557,8 +551,6 @@ DEFINE_mBool(enable_token_check, "true");
 
 // to open/close system metrics
 DEFINE_Bool(enable_system_metrics, "true");
-
-DEFINE_mBool(enable_prefetch, "true");
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".

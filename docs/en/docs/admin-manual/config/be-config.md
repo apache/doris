@@ -343,12 +343,6 @@ There are two ways to configure BE configuration items:
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
 * Default value: 2048
 
-#### `doris_max_pushdown_conjuncts_return_rate`
-
-* Type: int32
-* Description:  When BE performs HashJoin, it will adopt a dynamic partitioning method to push the join condition to OlapScanner. When the data scanned by OlapScanner is larger than 32768 rows, BE will check the filter condition. If the filter rate of the filter condition is lower than this configuration, Doris will stop using the dynamic partition clipping condition for data filtering.
-* Default value: 90
-
 #### `doris_max_scan_key_num`
 
 * Type: int
@@ -396,18 +390,6 @@ There are two ways to configure BE configuration items:
 * Type: int32
 * Description: Max thread number of Remote scanner thread pool. Remote scanner thread pool is used for scan task of all external data sources.
 * Default: 512
-
-#### `enable_prefetch`
-
-* Type: bool
-* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBucket prefetch. Recommended to be set to true
-* Default value: true
-
-#### `enable_quadratic_probing`
-
-* Type: bool
-* Description: When a Hash conflict occurs when using PartitionedHashTable, enable to use the square detection method to resolve the Hash conflict. If the value is false, linear detection is used to resolve the Hash conflict. For the square detection method, please refer to: [quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
-* Default value: true
 
 #### `exchg_node_buffer_size_bytes`
 
