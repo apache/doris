@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -376,6 +377,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     public void unsetObjectCreated() {
         this.objectCreated = false;
+    }
+
+    // TODO need implementation to get partition info
+    public PartitionInfo getPartitionInfo() {
+        return null;
     }
 
     @Override
