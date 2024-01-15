@@ -65,6 +65,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -707,6 +708,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                         query_ctx->use_task_group_for_cpu_limit.store(true);
                     }
                     LOG(INFO) << ss.str();
+                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
+                            print_id(query_id), tg_id);
                 } else {
                     VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
                                << " no task group found, does not use task group.";

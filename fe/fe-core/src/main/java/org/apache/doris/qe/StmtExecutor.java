@@ -1447,15 +1447,6 @@ public class StmtExecutor {
 
         Queriable queryStmt = (Queriable) parsedStmt;
 
-        QueryDetail queryDetail = new QueryDetail(context.getStartTime(),
-                DebugUtil.printId(context.queryId()),
-                context.getStartTime(), -1, -1,
-                QueryDetail.QueryMemState.RUNNING,
-                context.getDatabase(),
-                originStmt.originStmt);
-        context.setQueryDetail(queryDetail);
-        QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
-
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);

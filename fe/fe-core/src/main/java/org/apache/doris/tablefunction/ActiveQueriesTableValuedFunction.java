@@ -31,19 +31,24 @@ import com.google.common.collect.ImmutableMap;
 import java.util.List;
 import java.util.Map;
 
-public class QueriesTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "queries";
+public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunction {
+    public static final String NAME = "active_queries";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-        new Column("QueryId", ScalarType.createStringType()),
-        new Column("StartTime", PrimitiveType.BIGINT),
-        new Column("EndTime", PrimitiveType.BIGINT),
-        new Column("EventTime", PrimitiveType.BIGINT),
-        new Column("Latency", PrimitiveType.BIGINT),
-        new Column("State", ScalarType.createStringType()),
-        new Column("Database", ScalarType.createStringType()),
-        new Column("Sql", ScalarType.createStringType()),
-        new Column("FrontendInstance", ScalarType.createStringType()));
+            new Column("BeHost", ScalarType.createStringType()),
+            new Column("BePort", PrimitiveType.BIGINT),
+            new Column("QueryId", ScalarType.createStringType()),
+            new Column("StartTime", ScalarType.createStringType()),
+            new Column("QueryTimeMs", PrimitiveType.BIGINT),
+            new Column("WorkloadGroupId", PrimitiveType.BIGINT),
+            new Column("QueryCpuTimeMs", PrimitiveType.BIGINT),
+            new Column("ScanRows", PrimitiveType.BIGINT),
+            new Column("ScanBytes", PrimitiveType.BIGINT),
+            new Column("BePeakMemoryBytes", PrimitiveType.BIGINT),
+            new Column("CurrentUsedMemoryBytes", PrimitiveType.BIGINT),
+            new Column("Database", ScalarType.createStringType()),
+            new Column("FrontendInstance", ScalarType.createStringType()),
+            new Column("Sql", ScalarType.createStringType()));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -59,7 +64,7 @@ public class QueriesTableValuedFunction extends MetadataTableValuedFunction {
         return COLUMN_TO_INDEX.get(columnName.toLowerCase());
     }
 
-    public QueriesTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public ActiveQueriesTableValuedFunction(Map<String, String> params) throws AnalysisException {
         if (params.size() != 0) {
             throw new AnalysisException("Queries table-valued-function does not support any params");
         }

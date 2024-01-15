@@ -22,7 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.QueriesTableValuedFunction;
+import org.apache.doris.tablefunction.ActiveQueriesTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
@@ -30,10 +30,10 @@ import java.util.Map;
 /**
  * queries tvf
  */
-public class Queries extends TableValuedFunction {
+public class ActiveQueries extends TableValuedFunction {
 
-    public Queries(Properties properties) {
-        super("queries", properties);
+    public ActiveQueries(Properties properties) {
+        super("active_queries", properties);
     }
 
     @Override
@@ -45,7 +45,7 @@ public class Queries extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new QueriesTableValuedFunction(arguments);
+            return new ActiveQueriesTableValuedFunction(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build FrontendsTableValuedFunction by "
                     + this + ": " + t.getMessage(), t);

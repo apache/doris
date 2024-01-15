@@ -28,6 +28,7 @@ class QueryStatisticsCtx {
 public:
     QueryStatisticsCtx(TNetworkAddress fe_addr) : _fe_addr(fe_addr) {
         this->_is_query_finished = false;
+        this->_wg_id = -1;
     }
     ~QueryStatisticsCtx() = default;
 
@@ -38,6 +39,7 @@ public:
     bool _is_query_finished;
     TNetworkAddress _fe_addr;
     int64_t _query_finish_time;
+    int64_t _wg_id;
 };
 
 class RuntimeQueryStatiticsMgr {
@@ -53,6 +55,8 @@ public:
     void set_query_finished(std::string query_id);
 
     std::shared_ptr<QueryStatistics> get_runtime_query_statistics(std::string query_id);
+
+    void set_workload_group_id(std::string query_id, int64_t wg_id);
 
 private:
     std::shared_mutex _qs_ctx_map_lock;
