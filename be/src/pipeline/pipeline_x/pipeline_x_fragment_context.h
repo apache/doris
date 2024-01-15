@@ -244,6 +244,7 @@ private:
 
     std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 
+    // Total instance num running on all BEs
     int _total_instances = -1;
 };
 
