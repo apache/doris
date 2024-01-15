@@ -116,6 +116,8 @@ public:
                 for (int i = 0; i < _num_partitions; i++) {
                     _shuffle_idx_to_instance_idx.insert({i, i});
                 }
+            } else if (_shuffle_idx_to_instance_idx.contains(-1)) {
+                return Status::InternalError("Illegal shuffle id -1");
             }
             _partitioner.reset(
                     new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
