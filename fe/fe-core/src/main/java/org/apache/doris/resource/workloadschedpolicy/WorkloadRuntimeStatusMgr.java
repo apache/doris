@@ -69,6 +69,7 @@ public class WorkloadRuntimeStatusMgr {
                     auditEvent.scanRows = queryStats.scan_rows;
                     auditEvent.scanBytes = queryStats.scan_bytes;
                     auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
             }

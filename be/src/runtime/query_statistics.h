@@ -60,7 +60,11 @@ private:
 class QueryStatistics {
 public:
     QueryStatistics()
-            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
+            : scan_rows(0),
+              scan_bytes(0),
+              cpu_nanos(0),
+              returned_rows(0),
+              max_peak_memory_bytes(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -69,7 +73,9 @@ public:
 
     void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
 
-    void add_cpu_ms(int64_t cpu_ms) { this->cpu_ms += cpu_ms; }
+    void add_cpu_nanos(int64_t delta_cpu_time) {
+        this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
+    }
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
         NodeStatistics* nodeStatistics = nullptr;
@@ -86,7 +92,7 @@ public:
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
-        this->max_peak_memory_bytes = max_peak_memory_bytes;
+        this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
     }
 
     void merge(QueryStatisticsRecvr* recvr);
@@ -98,12 +104,12 @@ public:
     void clearNodeStatistics();
 
     void clear() {
-        scan_rows.store(0);
-        scan_bytes.store(0);
+        scan_rows.store(0, std::memory_order_relaxed);
+        scan_bytes.store(0, std::memory_order_relaxed);
 
-        cpu_ms = 0;
+        cpu_nanos.store(0, std::memory_order_relaxed);
         returned_rows = 0;
-        max_peak_memory_bytes = 0;
+        max_peak_memory_bytes.store(0, std::memory_order_relaxed);
         clearNodeStatistics();
         //clear() is used before collection, so calling "clear" is equivalent to being collected.
         set_collected();
@@ -122,13 +128,13 @@ private:
     friend class QueryStatisticsRecvr;
     std::atomic<int64_t> scan_rows;
     std::atomic<int64_t> scan_bytes;
-    int64_t cpu_ms;
+    std::atomic<int64_t> cpu_nanos;
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
-    int64_t max_peak_memory_bytes;
+    std::atomic<int64_t> max_peak_memory_bytes;
     // The statistics of the query on each backend.
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
