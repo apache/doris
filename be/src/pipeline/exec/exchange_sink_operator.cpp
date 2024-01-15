@@ -65,7 +65,7 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<vectorized::VDataStreamSender>>(
-            id, _dest_node_id, _sink->_sender_id, _state->be_number(), state->get_query_ctx());
+            id, _dest_node_id, _sink->_sender_id, _state->be_number(), state);
 
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
     _sink->register_pipeline_channels(_sink_buffer.get());
@@ -168,7 +168,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
     _sink_buffer = std::make_unique<ExchangeSinkBuffer<ExchangeSinkLocalState>>(
-            id, p._dest_node_id, _sender_id, _state->be_number(), state->get_query_ctx());
+            id, p._dest_node_id, _sender_id, _state->be_number(), state);
 
     register_channels(_sink_buffer.get());
     auto* _exchange_sink_dependency = _dependency;
@@ -414,7 +414,21 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         // 1. calculate range
         // 2. dispatch rows to channel
     }
-    return Status::OK();
+
+    Status final_st = Status::OK();
+    if (source_state == SourceState::FINISHED) {
+        auto& local_state = get_local_state(state);
+        local_state._serializer.reset_block();
+        for (int i = 0; i < local_state.channels.size(); ++i) {
+            Status st = local_state.channels[i]->close(state, Status::OK());
+            if (!st.ok() && final_st.ok()) {
+                final_st = st;
+            }
+        }
+        local_state._sink_buffer->set_should_stop();
+        return final_st;
+    }
+    return final_st;
 }
 
 Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vectorized::Block* src,
@@ -486,21 +500,6 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     }
 
     return Status::OK();
-}
-
-Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status) {
-    auto& local_state = get_local_state(state);
-    local_state._serializer.reset_block();
-    Status final_st = Status::OK();
-    Status final_status = exec_status;
-    for (int i = 0; i < local_state.channels.size(); ++i) {
-        Status st = local_state.channels[i]->close(state, exec_status);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
-        }
-    }
-    local_state._sink_buffer->set_should_stop();
-    return final_st;
 }
 
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {

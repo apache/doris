@@ -312,16 +312,6 @@ void PipelineXTask::finalize() {
     _le_state_map.clear();
 }
 
-Status PipelineXTask::try_close(Status exec_status) {
-    if (_try_close_flag) {
-        return Status::OK();
-    }
-    _try_close_flag = true;
-    Status status1 = _sink->try_close(_state, exec_status);
-    Status status2 = _source->try_close(_state);
-    return status1.ok() ? status2 : status1;
-}
-
 Status PipelineXTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {

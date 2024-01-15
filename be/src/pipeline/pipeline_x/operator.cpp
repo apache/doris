@@ -541,18 +541,21 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        RETURN_IF_ERROR(_writer->get_writer_status());
+        Status st = _writer->get_writer_status();
+        if (exec_status.ok()) {
+            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                       : Status::Cancelled("Close Cancelled"));
+        } else {
+            _writer->force_close(exec_status);
+        }
+        // If there is an error in process_block thread, then we should get the writer
+        // status before call force_close. For example, the thread may failed in commit
+        // transaction.
+        if (!st.ok()) {
+            return st;
+        }
     }
     return Base::close(state, exec_status);
-}
-
-template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
-    if (state->is_cancelled() || !exec_status.ok()) {
-        _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
-    }
-    return Status::OK();
 }
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;

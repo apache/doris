@@ -87,8 +87,20 @@ std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
 }
 
 void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
+    // Should set to false here, to
+    _writer_thread_closed = false;
+    // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
+    // not constructed before the thread exit.
+    auto task_ctx = state->get_task_execution_context();
     static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, profile]() { this->process_block(state, profile); }));
+            [this, state, profile, task_ctx]() {
+                auto task_lock = task_ctx.lock();
+                if (task_lock == nullptr) {
+                    _writer_thread_closed = true;
+                    return;
+                }
+                this->process_block(state, profile);
+            }));
 }
 
 void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
@@ -135,12 +147,11 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         _writer_status = finish(state);
     }
 
+    Status close_st = close(_writer_status);
+    // If it is already failed before, then not update the write status so that we could get
+    // the real reason.
     if (_writer_status.ok()) {
-        _writer_status = close(_writer_status);
-    } else {
-        // If it is already failed before, then not update the write status so that we could get
-        // the real reason.
-        static_cast<void>(close(_writer_status));
+        _writer_status = close_st;
     }
     _writer_thread_closed = true;
     if (_finish_dependency) {

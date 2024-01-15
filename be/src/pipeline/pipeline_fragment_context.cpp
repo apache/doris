@@ -161,13 +161,12 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // make result receiver on fe be stocked on rpc forever until timeout...
     // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _is_report_on_cancel = false;
+        } else {
             LOG(WARNING) << "PipelineFragmentContext "
                          << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
                          << " is canceled, cancel message: " << msg;
-
-        } else {
-            _set_is_report_on_cancel(false); // TODO bug llj fix this not projected by lock
         }
 
         _runtime_state->set_process_status(_query_ctx->exec_status());

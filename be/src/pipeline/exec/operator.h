@@ -243,8 +243,6 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
-    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
-
     bool is_closed() const { return _is_closed; }
 
     const OperatorBuilderBase* operator_builder() const { return _operator_builder; }
@@ -291,10 +289,6 @@ public:
             return _sink->sink(state, in_block, source_state == SourceState::FINISHED);
         }
         return Status::OK();
-    }
-
-    Status try_close(RuntimeState* state) override {
-        return _sink->try_close(state, state->query_status());
     }
 
     [[nodiscard]] bool is_pending_finish() const override { return _sink->is_pending_finish(); }

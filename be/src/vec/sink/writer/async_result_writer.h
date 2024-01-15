@@ -104,7 +104,9 @@ private:
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _writer_thread_closed = false;
+    // The writer is not started at the beginning. If prepare failed but not open, the the writer
+    // is not started, so should not pending finish on it.
+    bool _writer_thread_closed = true;
 
     // Used by pipelineX
     pipeline::AsyncWriterDependency* _dependency;
