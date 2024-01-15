@@ -527,8 +527,6 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status try_close(RuntimeState* state, Status exec_status);
-
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
@@ -561,6 +559,8 @@ private:
     void _cancel_all_channel(Status status);
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
+
+    void _try_close(RuntimeState* state, Status exec_status);
 
     TDataSink _t_sink;
 
