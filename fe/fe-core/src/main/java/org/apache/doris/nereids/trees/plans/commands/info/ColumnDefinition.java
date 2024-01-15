@@ -392,21 +392,11 @@ public class ColumnDefinition {
                 Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
                 if (itemType instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) itemType);
-                } else if (Config.disable_nested_complex_type
-                        && !(itemType instanceof org.apache.doris.catalog.ArrayType)) {
-                    // now we can array nesting array
-                    throw new AnalysisException(
-                            "Unsupported data type: ARRAY<" + itemType.toSql() + ">");
                 }
             }
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                if (Config.disable_nested_complex_type && (!(mt.getKeyType() instanceof ScalarType)
-                        || !(mt.getValueType() instanceof ScalarType))) {
-                    throw new AnalysisException("Unsupported data type: MAP<"
-                            + mt.getKeyType().toSql() + "," + mt.getValueType().toSql() + ">");
-                }
                 if (mt.getKeyType() instanceof ScalarType) {
                     validateNestedType(catalogType, (ScalarType) mt.getKeyType());
                 }
@@ -426,9 +416,6 @@ public class ColumnDefinition {
                             throw new AnalysisException("Duplicate field name " + field.getName()
                                     + " in struct " + catalogType.toSql());
                         }
-                    } else if (Config.disable_nested_complex_type) {
-                        throw new AnalysisException(
-                                "Unsupported field type: " + fieldType.toSql() + " for STRUCT");
                     }
                 }
             }
