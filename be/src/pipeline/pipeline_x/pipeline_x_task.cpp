@@ -218,13 +218,21 @@ Status PipelineXTask::_open() {
 
 Status PipelineXTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable

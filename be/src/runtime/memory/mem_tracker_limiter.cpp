@@ -78,6 +78,12 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
     } else {
         _group_num = random() % 999 + 1;
     }
+
+    // currently only select/load need runtime query statistics
+    if (_type == Type::LOAD || _type == Type::QUERY) {
+        _query_statistics = std::make_shared<QueryStatistics>();
+    }
+
     {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[_group_num].group_lock);
         _tracker_limiter_group_it = mem_tracker_limiter_pool[_group_num].trackers.insert(
