@@ -640,29 +640,33 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
-        ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
+        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
+        WhichDataType addr_type(addr_column_with_type_and_name.type);
+        WhichDataType cidr_type(cidr_column_with_type_and_name.type);
+        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
+        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
         const ColumnString* str_addr_column = nullptr;
         const ColumnString* str_cidr_column = nullptr;
-        const NullMap* nullmap_addr = nullptr;
-        const NullMap* nullmap_cidr = nullptr;
+        const NullMap* null_map_addr = nullptr;
+        const NullMap* null_map_cidr = nullptr;
 
-        if (addr_column->is_nullable()) {
+        if (addr_type.is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
             str_addr_column =
                     check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
-            nullmap_addr = &addr_column_nullable->get_null_map_data();
+            null_map_addr = &addr_column_nullable->get_null_map_data();
         } else {
             str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
         }
 
-        if (cidr_column->is_nullable()) {
+        if (cidr_type.is_nullable()) {
             const auto* cidr_column_nullable =
                     assert_cast<const ColumnNullable*>(cidr_column.get());
             str_cidr_column =
                     check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
-            nullmap_cidr = &cidr_column_nullable->get_null_map_data();
+            null_map_addr = &cidr_column_nullable->get_null_map_data();
         } else {
             str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
         }
@@ -683,12 +687,12 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (nullmap_addr && (*nullmap_addr)[i]) {
+            if (null_map_addr && (*null_map_addr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            if (nullmap_cidr && (*nullmap_cidr)[i]) {
+            if (null_map_cidr && (*null_map_cidr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
