@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
@@ -114,7 +115,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private void initInternalCatalog() {
-        internalCatalog = new InternalCatalog();
+        internalCatalog = EnvFactory.createInternalCatalog();
         addCatalog(internalCatalog);
     }
 
