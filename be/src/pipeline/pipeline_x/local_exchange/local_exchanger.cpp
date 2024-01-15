@@ -117,19 +117,19 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     }
     local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes());
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
-        auto map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
-                           ._shuffle_idx_to_instance_idx;
+        const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
+                                  ._shuffle_idx_to_instance_idx;
         new_block_wrapper->ref(map.size());
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
                     << it.first << " : " << it.second << " " << _num_partitions;
-            size_t start = local_state._partition_rows_histogram[it.first];
-            size_t size = local_state._partition_rows_histogram[it.first + 1] - start;
+            size_t start = local_state._partition_rows_histogram[it.second];
+            size_t size = local_state._partition_rows_histogram[it.second + 1] - start;
             if (size > 0) {
                 local_state._shared_state->add_mem_usage(
-                        map[it.first], new_block_wrapper->data_block.allocated_bytes(), false);
-                data_queue[map[it.first]].enqueue({new_block_wrapper, {row_idx, start, size}});
-                local_state._shared_state->set_ready_to_read(map[it.first]);
+                        it.second, new_block_wrapper->data_block.allocated_bytes(), false);
+                data_queue[it.second].enqueue({new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->set_ready_to_read(it.second);
             } else {
                 new_block_wrapper->unref(local_state._shared_state);
             }
