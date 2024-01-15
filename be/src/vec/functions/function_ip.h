@@ -916,11 +916,13 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnPtr addr_column = block.get_by_position(arguments[0]).column;
+        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
+        WhichDataType addr_type(addr_column_with_type_and_name.type);
+        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
         const ColumnString* str_addr_column = nullptr;
         const NullMap* addr_null_map = nullptr;
 
-        if (addr_column->is_nullable()) {
+        if (addr_type.is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
             str_addr_column =
