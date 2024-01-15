@@ -85,10 +85,7 @@ table_properties;
 **Query Syntax**
 
 ``` sql
--- Query Method 1, slight difference in query syntax, use `:` after v, access sub-columns with `.`
-SELECT v:`properties`.`title` from ${table_name}
-
--- Query Method 2, use v['a']['b'] format for example
+-- use v['a']['b'] format for example
 SELECT v["properties"]["title"] from ${table_name}
 
 ```
@@ -217,6 +214,19 @@ mysql> select * from github_events limit 1;
 Running desc command to view schema information, sub-columns will automatically expand at the storage layer and undergo type inference.
 
 ``` sql
+mysql> desc github_events;
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| Field                                                      | Type       | Null | Key   | Default | Extra |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| id                                                         | BIGINT     | No   | true  | NULL    |       |
+| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
+| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
+| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
+| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+6 rows in set (0.07 sec)
+
 mysql> set describe_extend_variant_column = true;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -241,21 +251,6 @@ mysql> desc github_events;
 ....
 +------------------------------------------------------------+------------+------+-------+---------+-------+
 406 rows in set (0.07 sec)
-
-mysql> set describe_extend_variant_column = false;
-Query OK, 0 rows affected (0.01 sec)
-
-mysql> desc github_events;
-+------------------------------------------------------------+------------+------+-------+---------+-------+
-| Field                                                      | Type       | Null | Key   | Default | Extra |
-+------------------------------------------------------------+------------+------+-------+---------+-------+
-| id                                                         | BIGINT     | No   | true  | NULL    |       |
-| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
-| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
-| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
-| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
-+------------------------------------------------------------+------------+------+-------+---------+-------+
 ```
 DESC can be used to specify partition and view the schema of a particular partition. The syntax is as follows:
 
@@ -342,10 +337,12 @@ Dynamic columns of VARIANT are nearly as efficient as predefined static columns.
 
 Ensure consistency in types whenever possible. Doris automatically performs compatible type conversions. When a field cannot undergo compatible type conversion, it is uniformly converted to JSONB type. The performance of JSONB columns may degrade compared to columns like int or text.
 
-1. tinyint->smallint->int->bigint
-2. float->double
-3. text
-4. JSON
+1. tinyint -> smallint -> int -> bigint, integer types can be promoted following the direction of the arrows.
+2. float -> double, floating-point numbers can be promoted following the direction of the arrow.
+3. text, string type.
+4. JSON, binary JSON type.
+
+When the above types cannot be compatible, they will be transformed into JSON type to prevent loss of type information. If you need to set a strict schema in VARIANT, the VARIANT MAPPING mechanism will be introduced soon.
 
 **Other limitations include:**
 

@@ -89,9 +89,7 @@ table_properties;
 **查询语法**
 
 ``` sql
--- 1. 查询方式1， 查询语法稍有不同，v 后使用:分割，.访问子列，例如
-SELECT v:`properties`.`title` from ${table_name}
--- 2. 查询方式2， 使用 v['a']['b'] 形式例如
+-- 使用 v['a']['b'] 形式例如
 SELECT v["properties"]["title"] from ${table_name}
 ```
 
@@ -221,6 +219,19 @@ mysql> select * from github_events limit 1;
 desc 查看 schema 信息，子列会在存储层自动扩展、并进行类型推导
 
 ``` sql
+mysql> desc github_events;
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| Field                                                      | Type       | Null | Key   | Default | Extra |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| id                                                         | BIGINT     | No   | true  | NULL    |       |
+| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
+| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
+| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
+| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+6 rows in set (0.07 sec)
+
 mysql> set describe_extend_variant_column = true;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -245,22 +256,6 @@ mysql> desc github_events;
 ....
 +------------------------------------------------------------+------------+------+-------+---------+-------+
 406 rows in set (0.07 sec)
-
-mysql> set describe_extend_variant_column = false;
-Query OK, 0 rows affected (0.01 sec)
-
-mysql> desc github_events;
-+------------------------------------------------------------+------------+------+-------+---------+-------+
-| Field                                                      | Type       | Null | Key   | Default | Extra |
-+------------------------------------------------------------+------------+------+-------+---------+-------+
-| id                                                         | BIGINT     | No   | true  | NULL    |       |
-| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
-| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
-| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
-| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
-| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
-+------------------------------------------------------------+------------+------+-------+---------+-------+
-6 rows in set (0.07 sec)
 ```
 
 desc 可以指定 partition 查看某个 partition 的 schema， 语法如下
@@ -350,17 +345,19 @@ VARIANT 动态列与预定义静态列几乎一样高效。处理诸如日志之
 
 尽可能保证类型一致， Doris 会自动进行如下兼容类型转换，当字段无法进行兼容类型转换时会统一转换成 JSONB 类型。JSONB 列的性能与 int、text 等列性能会有所退化。
 
-1. tinyint->smallint->int->bigint
-2. float->double
-3. text
-4. JSON
+1. tinyint->smallint->int->bigint， 整形可以按照箭头做类型提升
+2. float->double，浮点数按照箭头做类型提升
+3. text，字符串类型
+4. JSON， 二进制JSON类型
+
+上诉类型无法兼容时， 会变成JSON类型防止类型信息丢失， 如果您需要在 VARIANT 中设置严格的schema，即将推出 VARIANT MAPPING机制
 
 其它限制如下：
 
 - 目前不支持 Aggregate 模型
 - VARIANT 列只能创建倒排索引
 - **推荐使用 RANDOM 模式， 写入性能更高效**
-- 日期、decimal 等非标准 JSON 类型会被默认推断成字符串类型，所以尽可能用静态类型，性能更好
+- 日期、decimal 等非标准 JSON 类型会被默认推断成字符串类型，所以尽可能从 VARIANT 中提取出来，用静态类型，性能更好
 - 2 维及其以上的数组列存化会被存成 JSONB 编码，性能不如原生数组
 - 不支持作为主键或者排序键
 - 查询过滤、聚合需要带 cast， 存储层会根据存储类型和 cast 目标类型来消除 cast 操作，加速查询。
