@@ -84,6 +84,7 @@ static void help(const char*);
 
 extern "C" {
 void __lsan_do_leak_check();
+int __llvm_profile_write_file();
 }
 
 namespace doris {
@@ -564,6 +565,10 @@ int main(int argc, char** argv) {
         sleep(3);
     }
     LOG(INFO) << "Doris main exiting.";
+#if defined(LLVM_PROFILE)
+    __llvm_profile_write_file();
+    LOG(INFO) << "Flush profile file.";
+#endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
     daemon.stop();

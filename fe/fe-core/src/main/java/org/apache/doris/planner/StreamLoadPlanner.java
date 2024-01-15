@@ -259,9 +259,10 @@ public class StreamLoadPlanner {
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
-        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load);
+                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    taskInfo.getMaxFilterRatio());
         } else {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
@@ -318,8 +319,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
-
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
@@ -479,9 +482,10 @@ public class StreamLoadPlanner {
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink;
-        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).isGroupCommit()) {
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
             olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
-                    Config.enable_single_replica_load);
+                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    taskInfo.getMaxFilterRatio());
         } else {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
         }
@@ -540,7 +544,10 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
+        boolean isEnableMemtableOnSinkNode =
+                destTable.getTableProperty().getUseSchemaLightChange()
+                ? taskInfo.isMemtableOnSinkNode() : false;
+        queryOptions.setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();

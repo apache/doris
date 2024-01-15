@@ -40,7 +40,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class NestLoopJoinProbeOperator final : public StatefulOperator<NestLoopJoinProbeOperatorBuilder> {
+class NestLoopJoinProbeOperator final : public StatefulOperator<vectorized::VNestedLoopJoinNode> {
 public:
     NestLoopJoinProbeOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -82,11 +82,11 @@ private:
     friend class NestedLoopJoinProbeOperatorX;
     void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(vectorized::MutableBlock& mutable_block, size_t batch_size);
+    void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
     void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
     void _reset_with_next_probe_row();
-    void _append_left_data_with_null(vectorized::MutableBlock& mutable_block) const;
-    void _process_left_child_block(vectorized::MutableBlock& mutable_block,
+    void _append_left_data_with_null(vectorized::Block& block) const;
+    void _process_left_child_block(vectorized::Block& block,
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block, int column_to_keep,
@@ -225,6 +225,13 @@ public:
                 SourceState& source_state) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
+    }
+
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        }
+        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
     }
 
     const RowDescriptor& row_desc() override {

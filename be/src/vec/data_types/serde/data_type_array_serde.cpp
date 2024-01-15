@@ -105,6 +105,7 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     int nested_level = 0;
     bool has_quote = false;
     std::vector<Slice> slices;
+    slices.reserve(10);
     slice.trim_prefix();
     slices.emplace_back(slice);
     size_t slice_size = slice.size;
@@ -126,9 +127,10 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
             --nested_level;
         } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
             // if meet collection_delimiter and not in quote, we can make it as an item.
-            slices.back().remove_suffix(slice_size - idx);
+            auto& last_slice = slices.back();
+            last_slice.remove_suffix(slice_size - idx);
             // we do not handle item in array is empty,just return error
-            if (slices.back().empty()) {
+            if (last_slice.empty()) {
                 return Status::InvalidArgument("here has item in Array({}) is empty!",
                                                slice.to_string());
             }
@@ -361,24 +363,18 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
-    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
-    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
     const IColumn& nested_column = array_col.get_data();
-    auto& offsets = array_col.get_offsets();
-
-    cur_batch->elements->resize(nested_column.size());
+    const auto& offsets = array_col.get_offsets();
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
-
-        if (cur_batch->notNull[row_id] == 1) {
-            static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
-                                                                cur_batch->elements.get(), offset,
-                                                                next_offset, buffer_list));
-        }
-
+        RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
+                                                          cur_batch->elements.get(), offset,
+                                                          next_offset, buffer_list));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();

@@ -123,10 +123,15 @@ private:
         jmethodID executor_close_id;
         jobject executor = nullptr;
         bool is_closed = false;
+        bool open_successes = false;
 
         JniContext() = default;
 
         void close() {
+            if (!open_successes) {
+                LOG_WARNING("maybe open failed, need check the reason");
+                return; //maybe open failed, so can't call some jni
+            }
             if (is_closed) {
                 return;
             }

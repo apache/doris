@@ -32,7 +32,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -86,7 +85,6 @@ public class BaseController {
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
                     currentUser, Thread.currentThread().getId());
@@ -104,7 +102,11 @@ public class BaseController {
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
-        cookie.setSecure(false);
+        if (Config.enable_https) {
+            cookie.setSecure(true);
+        } else {
+            cookie.setSecure(false);
+        }
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
@@ -140,7 +142,6 @@ public class BaseController {
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setThreadLocalInfo();
         LOG.debug("check cookie success for user: {}, thread: {}",
                 sessionValue.currentUser, Thread.currentThread().getId());
@@ -148,7 +149,6 @@ public class BaseController {
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
         authInfo.password = sessionValue.password;
-        authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
         return authInfo;
     }
 
@@ -172,6 +172,12 @@ public class BaseController {
             if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
+                cookie.setHttpOnly(true);
+                if (Config.enable_https) {
+                    cookie.setSecure(true);
+                } else {
+                    cookie.setSecure(false);
+                }
                 response.addCookie(cookie);
             }
         }
@@ -267,10 +273,8 @@ public class BaseController {
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
                 authInfo.fullUserName = ClusterNamespace.getNameFromFullName(authInfo.fullUserName);
-                authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
                 authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[0]);
-                authInfo.cluster = elements[1];
             }
             authInfo.password = authString.substring(index + 1);
             authInfo.remoteIp = request.getRemoteAddr();

@@ -282,6 +282,7 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 }
 
 Status VFileScanner::open(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -309,6 +310,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     do {
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(_get_next_reader());
         }
@@ -718,7 +720,7 @@ Status VFileScanner::_get_next_reader() {
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size()) {
+        if (_next_range >= _ranges.size() || _should_stop) {
             _scanner_eof = true;
             _state->update_num_finished_scan_range(1);
             return Status::OK();
@@ -736,11 +738,22 @@ Status VFileScanner::_get_next_reader() {
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
-        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
-            range.table_format_params.table_format_type == "hudi") {
-            if (range.table_format_params.hudi_params.delta_logs.empty()) {
+        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
+            if (range.table_format_params.table_format_type == "hudi" &&
+                range.table_format_params.hudi_params.delta_logs.empty()) {
                 // fall back to native reader if there is no log file
                 format_type = TFileFormatType::FORMAT_PARQUET;
+            } else if (range.table_format_params.table_format_type == "paimon" &&
+                       !range.table_format_params.paimon_params.__isset.paimon_split) {
+                // use native reader
+                auto format = range.table_format_params.paimon_params.file_format;
+                if (format == "orc") {
+                    format_type = TFileFormatType::FORMAT_ORC;
+                } else if (format == "parquet") {
+                    format_type = TFileFormatType::FORMAT_PARQUET;
+                } else {
+                    return Status::InternalError("Not supported paimon file format: {}", format);
+                }
             }
         }
         bool need_to_get_parsed_schema = false;
@@ -871,7 +884,7 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
-            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
@@ -900,7 +913,7 @@ Status VFileScanner::_get_next_reader() {
 
         _name_to_col_type.clear();
         _missing_cols.clear();
-        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
@@ -1108,6 +1121,13 @@ Status VFileScanner::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::try_stop() {
+    VScanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 } // namespace doris::vectorized

@@ -64,7 +64,8 @@ class Block;
 class DeltaWriterV2 {
 public:
     static std::unique_ptr<DeltaWriterV2> open(
-            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
+            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
+            RuntimeState* state);
 
     ~DeltaWriterV2();
 
@@ -86,25 +87,17 @@ public:
     Status cancel();
     Status cancel_with_status(const Status& st);
 
-    int64_t partition_id() const;
-
-    int64_t mem_consumption(MemType mem);
-
-    int64_t tablet_id() { return _req.tablet_id; }
-
-    int32_t schema_hash() { return _req.schema_hash; }
-
-    int64_t total_received_rows() const { return _total_received_rows; }
-
 private:
     DeltaWriterV2(WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                  StorageEngine* storage_engine);
+                  StorageEngine* storage_engine, RuntimeState* state);
 
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
 
     void _update_profile(RuntimeProfile* profile);
+
+    RuntimeState* _state = nullptr;
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -115,10 +108,8 @@ private:
 
     std::mutex _lock;
 
-    // total rows num written by DeltaWriterV2
-    int64_t _total_received_rows = 0;
-
     int64_t _write_memtable_time = 0;
+    int64_t _wait_flush_limit_time = 0;
     int64_t _close_wait_time = 0;
 
     std::shared_ptr<MemTableWriter> _memtable_writer;

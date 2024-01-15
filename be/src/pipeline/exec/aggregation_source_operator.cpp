@@ -50,7 +50,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._is_streaming) {
-        _shared_state->data_queue->set_source_dependency(_dependency);
+        _shared_state->data_queue->set_source_dependency(info.dependency);
     }
     if (p._without_key) {
         if (p._needs_finalize) {
@@ -506,8 +506,9 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
                 if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
                     !remove_nullable(column_type)->equals(*data_types[i])) {
                     return Status::InternalError(
-                            "column_type not match data_types, column_type={}, data_types={}",
-                            column_type->get_name(), data_types[i]->get_name());
+                            "node id = {}, column_type not match data_types, column_type={}, "
+                            "data_types={}",
+                            _parent->node_id(), column_type->get_name(), data_types[i]->get_name());
                 }
             }
 

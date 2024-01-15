@@ -48,8 +48,8 @@ public class DropDbStmtTest {
         DropDbStmt stmt = new DropDbStmt(false, "test", true);
 
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:test", stmt.getDbName());
-        Assert.assertEquals("DROP DATABASE `testCluster:test`", stmt.toString());
+        Assert.assertEquals("test", stmt.getDbName());
+        Assert.assertEquals("DROP DATABASE `test`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

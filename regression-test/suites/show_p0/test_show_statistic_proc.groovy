@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_statistic_proc", "show") {
+suite("test_show_statistic_proc", "nonConcurrent") {
 
     sql """drop user if exists test_show_statistic_proc_user1"""
 
@@ -29,13 +29,13 @@ suite("test_show_statistic_proc", "show") {
         sql """ show proc '/statistic' """
     }
     def result2 = connect(user = 'test_show_statistic_proc_user1', password = '12345', url = context.config.jdbcUrl) {
-            sql """ show databases """
-        }
+        sql """ show databases """
+    }
     assertEquals(result1.size(), result2.size())
     assertEquals(result1[result1.size() - 1][1].toInteger(), result2.size() - 1)
     def containsTargetDb = false
     result1.each {  row ->
-        if (row[1] == 'default_cluster:test_statistic_proc_db') {
+        if (row[1] == 'test_statistic_proc_db') {
              containsTargetDb = true
              return
         }

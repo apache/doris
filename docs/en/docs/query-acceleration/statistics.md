@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -52,7 +52,7 @@ Doris allows users to manually trigger the collection and update of statistics b
 Syntax:
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name > 
+ANALYZE < TABLE table_name | DATABASE db_name >
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
@@ -146,7 +146,7 @@ mysql> show analyze 245073\G;
             col_name: [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct]
             job_type: MANUAL
        analysis_type: FUNDAMENTALS
-             message: 
+             message:
 last_exec_time_in_ms: 2023-11-07 11:00:52
                state: FINISHED
             progress: 16 Finished  |  0 Failed  |  0 In Progress  |  16 Total
@@ -295,8 +295,8 @@ mysql> KILL ANALYZE 52357;
 |auto_analyze_end_time|End time for automatic statistics collection|23:59:59|
 |enable_auto_analyze|Enable automatic collection functionality|true|
 |huge_table_default_sample_rows|Sampling rows for large tables|4194304|
-|huge_table_lower_bound_size_in_bytes|Tables with size greater than this value will be automatically sampled during collection of statistics|5368709120|
-|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Tables with sizes greater than `huge_table_lower_bound_size_in_bytes * 5` will be ANALYZEed only once within this time interval.|43200000|
+|huge_table_lower_bound_size_in_bytes|Tables with size greater than this value will be automatically sampled during collection of statistics|0|
+|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Tables with sizes greater than `huge_table_lower_bound_size_in_bytes * 5` will be ANALYZEed only once within this time interval.|0|
 |table_stats_health_threshold|Ranges from 0 to 100. If data updates since the last statistics collection exceed `(100 - table_stats_health_threshold)%`, the table's statistics are considered outdated.|60|
 |analyze_timeout|Controls the timeout for synchronous ANALYZE in seconds|43200|
 |auto_analyze_table_width_threshold|Controls the maximum width of table that will be auto analyzed. Table with more columns than this value will not be auto analyzed.|70|
@@ -322,8 +322,8 @@ The following FE configuration options are typically not a major concern:
 
 When ANALYZE is executed, statistics data is written to the internal table `__internal_schema.column_statistics`. FE checks the tablet status of this table before executing ANALYZE. If there are unavailable tablets, the task is rejected. Please check the BE cluster status if this error occurs.
 
-Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE status is normal, you can use the command `ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]` to check the tablet status within this database, ensuring that the tablet status is also normal.
+Users can use `SHOW BACKENDS\G` to verify the BE (Backend) status. If the BE status is normal, you can use the command `SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]` to check the tablet status within this database, ensuring that the tablet status is also normal.
 
 ### 4.2 Failure of ANALYZE on Large Tables
 
-Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`. 
+Due to resource limitations, ANALYZE on some large tables may timeout or exceed BE memory limits. In such cases, it is recommended to use `ANALYZE ... WITH SAMPLE...`.

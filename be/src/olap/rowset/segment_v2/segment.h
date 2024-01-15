@@ -39,11 +39,14 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -123,6 +126,10 @@ public:
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
+    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
+                                  vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
+                                  std::unique_ptr<ColumnIterator>& iterator_hint);
+
     Status load_index();
 
     Status load_pk_index_and_bf();
@@ -146,7 +153,8 @@ public:
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInData path,
+                                                                  bool is_nullable,
                                                                   bool ignore_children) const;
 
     // Check is schema read type equals storage column type
@@ -157,8 +165,8 @@ public:
     bool can_apply_predicate_safely(int cid, Predicate* pred, const Schema& schema,
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
-        vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(*col, read_type != ReaderType::READER_QUERY);
+        vectorized::DataTypePtr storage_column_type = get_data_type_of(
+                col->path(), col->is_nullable(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {
             // Default column iterator
             return true;

@@ -22,17 +22,18 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,6 +43,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -95,7 +97,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     /**
      * add LogicalOlapTableSink node, public for test.
      */
-    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) throws AnalysisException {
+    @VisibleForTesting
+    public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         checkTable(ctx);
 
         Map<String, Expression> colNameToExpression = Maps.newHashMap();
@@ -114,13 +117,13 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 Expression expr = colNameToExpression.get(column.getName());
                 selectItems.add(expr instanceof UnboundSlot
                         ? ((NamedExpression) expr)
-                        : new Alias(expr));
+                        : new UnboundAlias(expr));
             } else {
                 if (column.hasOnUpdateDefaultValue()) {
                     Expression defualtValueExpression =
                             new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
                                     .toSqlWithoutTbl());
-                    selectItems.add(new Alias(defualtValueExpression, column.getName()));
+                    selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
                 } else {
                     selectItems.add(new UnboundSlot(tableName, column.getName()));
                 }
@@ -137,10 +140,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), isPartialUpdate, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 
-    private void checkTable(ConnectContext ctx) throws AnalysisException {
+    private void checkTable(ConnectContext ctx) {
         if (ctx.getSessionVariable().isInDebugMode()) {
             throw new AnalysisException("Update is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
@@ -159,7 +162,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     }
 
     @Override
-    public Plan getExplainPlan(ConnectContext ctx) throws AnalysisException {
+    public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 

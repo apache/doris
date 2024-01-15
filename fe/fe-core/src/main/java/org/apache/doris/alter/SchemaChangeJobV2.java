@@ -76,7 +76,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -283,6 +282,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                     tbl.getTimeSeriesCompactionFileCountThreshold(),
                                     tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                    tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.storeRowColumn(),
                                     binlogConfig);
 
@@ -537,9 +537,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        long maxWalId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
-        waitWalFinished(maxWalId);
+        waitWalFinished();
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -602,19 +600,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
     }
 
-    private void waitWalFinished(long maxWalId) {
+    private void waitWalFinished() {
         // wait wal done here
         Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
         LOG.info("block table {}", tableId);
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
-        boolean walFinished = false;
-        while (System.currentTimeMillis() < expireTime) {
-            LOG.info("wai for wal queue size to be empty");
-            walFinished = Env.getCurrentEnv().getGroupCommitManager()
-                    .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
+        while (true) {
+            LOG.info("wait for wal queue size to be empty");
+            boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, aliveBeIds);
             if (walFinished) {
                 LOG.info("all wal is finished");
+                break;
+            } else if (System.currentTimeMillis() > expireTime) {
+                LOG.warn("waitWalFinished time out");
                 break;
             } else {
                 try {
@@ -623,9 +623,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
                 }
             }
-        }
-        if (!walFinished) {
-            LOG.warn("waitWalFinished time out");
         }
         Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
         LOG.info("release table {}", tableId);

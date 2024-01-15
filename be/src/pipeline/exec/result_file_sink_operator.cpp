@@ -59,13 +59,11 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescr
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
-        bool send_query_statistics_with_every_batch, const std::vector<TExpr>& t_output_expr,
-        DescriptorTbl& descs)
+        const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
         : DataSinkOperatorX(operator_id, 0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),
-          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
           _is_top_sink(false) {
     CHECK_EQ(destinations.size(), 1);
@@ -134,10 +132,9 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
 
         std::map<int64_t, int64_t> fragment_id_to_channel_index;
         for (int i = 0; i < p._dests.size(); ++i) {
-            _channels.push_back(new vectorized::Channel(
-                    this, p._row_desc, p._dests[i].brpc_server, state->fragment_instance_id(),
-                    info.tsink.result_file_sink.dest_node_id, false,
-                    p._send_query_statistics_with_every_batch));
+            _channels.push_back(new vectorized::Channel(this, p._row_desc, p._dests[i].brpc_server,
+                                                        state->fragment_instance_id(),
+                                                        info.tsink.result_file_sink.dest_node_id));
         }
         std::random_device rd;
         std::mt19937 g(rd());
@@ -187,7 +184,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     if (p._is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            _sender->update_return_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
             static_cast<void>(_sender->close(final_status));
         }
         static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
@@ -240,8 +237,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                                     status = channel->send_local_block(&cur_block);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                                    status = channel->send_broadcast_block(_block_holder.get(),
-                                                                           true);
+                                    status = channel->send_broadcast_block(_block_holder, true);
                                 }
                                 HANDLE_CHANNEL_STATUS(state, channel, status);
                             }

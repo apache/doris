@@ -1536,6 +1536,14 @@ public class DateLiteral extends LiteralExpr {
             getDateFromDaynr(days);
         }
 
+        if (!timePartUsed && year > 0) {
+            if (format.equals("%Y")) {
+                month = day = 1;
+            } else if (format.equals("%Y-%m")) {
+                day = 1;
+            }
+        }
+
         // Compute timestamp type
         // TODO(Gabriel): we still use old version datetime/date and change this to new version when
         //  we think it's stable enough

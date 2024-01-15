@@ -174,14 +174,6 @@ public:
 
     virtual bool is_source() const;
 
-    virtual Status collect_query_statistics(QueryStatistics* statistics) { return Status::OK(); };
-
-    virtual Status collect_query_statistics(QueryStatistics* statistics, int sender_id) {
-        return Status::OK();
-    };
-
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics>) {};
-
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     // Prepare for running. (e.g. resource allocation, etc.)
@@ -275,18 +267,17 @@ protected:
 };
 
 /**
- * All operators inherited from DataSinkOperator will hold a SinkNode inside. Namely, it is a one-to-one relation between DataSinkOperator and DataSink.
+ * All operators inherited from DataSinkOperator will hold a SinkNode inside.
+ * Namely, it is a one-to-one relation between DataSinkOperator and DataSink.
  *
- * It should be mentioned that, not all SinkOperators are inherited from this (e.g. SortSinkOperator which holds a sort node inside instead of a DataSink).
+ * It should be mentioned that, not all SinkOperators are inherited from this
+ * (e.g. SortSinkOperator which holds a sort node inside instead of a DataSink).
  */
-template <typename OperatorBuilderType>
+template <typename DataSinkType>
 class DataSinkOperator : public OperatorBase {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
-            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {}
+            : OperatorBase(builder), _sink(reinterpret_cast<DataSinkType*>(sink)) {}
 
     ~DataSinkOperator() override = default;
 
@@ -318,25 +309,19 @@ public:
     }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
-        _sink->set_query_statistics(statistics);
-    }
 
 protected:
-    NodeType* _sink = nullptr;
+    DataSinkType* _sink = nullptr;
 };
 
 /**
  * All operators inherited from Operator will hold a ExecNode inside.
  */
-template <typename OperatorBuilderType>
+template <typename StreamingNodeType>
 class StreamingOperator : public OperatorBase {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     StreamingOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
+            : OperatorBase(builder), _node(reinterpret_cast<StreamingNodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
 
@@ -389,35 +374,22 @@ public:
         return _node->runtime_profile();
     }
 
-    Status collect_query_statistics(QueryStatistics* statistics) override {
-        RETURN_IF_ERROR(_node->collect_query_statistics(statistics));
-        return Status::OK();
-    }
-
-    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override {
-        RETURN_IF_ERROR(_node->collect_query_statistics(statistics, sender_id));
-        return Status::OK();
-    }
-
 protected:
-    NodeType* _node = nullptr;
+    StreamingNodeType* _node = nullptr;
     bool _use_projection;
 };
 
-template <typename OperatorBuilderType>
-class SourceOperator : public StreamingOperator<OperatorBuilderType> {
+template <typename SourceNodeType>
+class SourceOperator : public StreamingOperator<SourceNodeType> {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     SourceOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node) {}
+            : StreamingOperator<SourceNodeType>(builder, node) {}
 
     ~SourceOperator() override = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        auto& node = StreamingOperator<OperatorBuilderType>::_node;
+        auto& node = StreamingOperator<SourceNodeType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
                 state, block, &eos,
@@ -436,23 +408,20 @@ public:
  * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
  * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
  */
-template <typename OperatorBuilderType>
-class StatefulOperator : public StreamingOperator<OperatorBuilderType> {
+template <typename StatefulNodeType>
+class StatefulOperator : public StreamingOperator<StatefulNodeType> {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(vectorized::Block::create_unique()),
+            : StreamingOperator<StatefulNodeType>(builder, node),
+              _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        auto& node = StreamingOperator<OperatorBuilderType>::_node;
-        auto& child = StreamingOperator<OperatorBuilderType>::_child;
+        auto& node = StreamingOperator<StatefulNodeType>::_node;
+        auto& child = StreamingOperator<StatefulNodeType>::_child;
 
         if (node->need_more_input_data()) {
             _child_block->clear_column_data();
@@ -484,7 +453,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 

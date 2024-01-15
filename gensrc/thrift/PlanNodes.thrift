@@ -279,6 +279,8 @@ struct TFileAttributes {
     10: optional bool trim_double_quotes;
     // csv skip line num, only used when csv header_type is not set.
     11: optional i32 skip_lines;
+    // for cloud copy into
+    1001: optional bool ignore_csv_redundant_col;
 }
 
 struct TIcebergDeleteFileDesc {
@@ -311,6 +313,7 @@ struct TPaimonFileDesc {
     8: optional i64 db_id
     9: optional i64 tbl_id
     10: optional i64 last_update_time
+    11: optional string file_format
 }
 
 struct TMaxComputeFileDesc {
@@ -890,6 +893,9 @@ struct TSortNode {
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
+  8: optional bool merge_by_exchange
+  9: optional bool is_analytic_sort
+  10: optional bool is_colocate
 }
 
 enum TopNAlgorithm {
@@ -999,6 +1005,8 @@ struct TAnalyticNode {
   // should be evaluated over a row that is composed of the child tuple and the buffered
   // tuple
   9: optional Exprs.TExpr order_by_eq
+
+  10: optional bool is_colocate
 }
 
 struct TMergeNode {
@@ -1033,6 +1041,7 @@ struct TIntersectNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 struct TExceptNode {
@@ -1045,6 +1054,7 @@ struct TExceptNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 
@@ -1245,6 +1255,8 @@ struct TPlanNode {
   48: optional TPushAggOp push_down_agg_type_opt
 
   49: optional i64 push_down_count
+
+  50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

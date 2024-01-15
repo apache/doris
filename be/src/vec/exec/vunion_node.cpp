@@ -205,6 +205,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
             ++_child_idx;
         }
     }
+    block->set_columns(std::move(mblock.mutable_columns()));
 
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
@@ -228,11 +229,18 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
+        VLOG_ROW << "query id: " << print_id(state->query_id())
+                 << ", instance id: " << print_id(state->fragment_instance_id())
+                 << ", tmp_block rows: " << tmp_block.rows();
         if (tmp_block.rows() > 0) {
             RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();
         }
     }
+    block->set_columns(std::move(mblock.mutable_columns()));
+    VLOG_ROW << "query id: " << print_id(state->query_id())
+             << ", instance id: " << print_id(state->fragment_instance_id())
+             << ", block rows: " << block->rows();
 
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
@@ -256,6 +264,8 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
+
+        output_block->set_columns(std::move(mblock.mutable_columns()));
     }
     return Status::OK();
 }

@@ -19,7 +19,6 @@ package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -27,6 +26,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +64,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
+        }
+    }
+
+    @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
         }
     }
 
@@ -127,12 +135,32 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     public String getLowerCaseTableNames() {
         // Forced to true if Config.lower_case_table_names has a value of 1 or 2
-        if (Config.lower_case_table_names == 1 || Config.lower_case_table_names == 2) {
+        if (GlobalVariable.lowerCaseTableNames == 1 || GlobalVariable.lowerCaseTableNames == 2) {
             return "true";
         }
 
         // Otherwise, it defaults to false
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
+    }
+
+    public int getMinPoolSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MIN_POOL_SIZE, "1"));
+    }
+
+    public int getMaxPoolSize() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_POOL_SIZE, "100"));
+    }
+
+    public int getMaxIdleTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_IDLE_TIME, "300000"));
+    }
+
+    public int getMaxWaitTime() {
+        return Integer.parseInt(catalogProperty.getOrDefault(JdbcResource.MAX_WAIT_TIME, "5000"));
+    }
+
+    public boolean getKeepAlive() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(JdbcResource.KEEP_ALIVE, "false"));
     }
 
     @Override
@@ -147,7 +175,13 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIsLowerCaseTableNames(getLowerCaseTableNames())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
-                .setExcludeDatabaseMap(getExcludeDatabaseMap());
+                .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                .setMinPoolSize(getMinPoolSize())
+                .setMaxPoolSize(getMaxPoolSize())
+                .setMinIdleSize(getMinPoolSize() > 0 ? 1 : 0)
+                .setMaxIdleTime(getMaxIdleTime())
+                .setMaxWaitTime(getMaxWaitTime())
+                .setKeepAlive(getKeepAlive());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }
@@ -202,5 +236,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                         + "only_specified_database is false");
             }
         }
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     * @param stmt, the raw stmt string
+     */
+    public void executeStmt(String stmt) {
+        makeSureInitialized();
+        jdbcClient.executeStmt(stmt);
     }
 }

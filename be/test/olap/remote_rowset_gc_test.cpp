@@ -94,9 +94,10 @@ public:
         config::storage_root_path = std::string(buffer) + "/" + kTestDir;
         config::min_file_descriptor_number = 1000;
 
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->delete_and_create_directory(config::storage_root_path)
-                            .ok());
+        auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(config::storage_root_path);
+        ASSERT_TRUE(st.ok()) << st;
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -112,6 +113,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
                                                     TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 30003;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;

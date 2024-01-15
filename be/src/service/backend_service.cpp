@@ -405,7 +405,7 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    start_plan_fragment_execution(params).set_t_status(&return_val);
+    return_val.__set_status(start_plan_fragment_execution(params).to_thrift());
 }
 
 Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params) {
@@ -885,4 +885,30 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
         break;
     }
 }
+
+void BackendService::pre_cache_async(TPreCacheAsyncResponse& response,
+                                     const TPreCacheAsyncRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::check_pre_cache(TCheckPreCacheResponse& response,
+                                     const TCheckPreCacheRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                                           const TSyncLoadForTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                              const TGetTopNHotPartitionsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
+                                     const TWarmUpTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
 } // namespace doris

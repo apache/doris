@@ -120,8 +120,11 @@ public:
 
     friend class MultiCastDataStreamerSourceOperatorX;
 
+    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
+
 private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

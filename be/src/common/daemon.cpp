@@ -45,9 +45,12 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/block_spill_manager.h"
+#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/task_group/task_group_manager.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
@@ -352,6 +355,28 @@ void Daemon::block_spill_gc_thread() {
     }
 }
 
+void Daemon::report_runtime_query_statistics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::report_query_statistics_interval_ms))) {
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->report_runtime_query_statistics();
+    }
+}
+
+void Daemon::je_purge_dirty_pages_thread() const {
+    do {
+        std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+        while (_stop_background_threads_latch.count() != 0 &&
+               !doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::seconds(1));
+        }
+        if (_stop_background_threads_latch.count() == 0) {
+            break;
+        }
+        doris::MemInfo::je_purge_all_arena_dirty_pages();
+        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    } while (true);
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -381,6 +406,12 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
             &_threads.emplace_back());
+    st = Thread::create(
+            "Daemon", "je_purge_dirty_pages_thread",
+            [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
+    st = Thread::create(
+            "Daemon", "query_runtime_statistics_thread",
+            [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

@@ -69,13 +69,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem);
         FromClause fromClause = new FromClause();
         SelectStmt selectStmt = new SelectStmt(selectList, fromClause, null, null, null, null, LimitElement.NO_LIMIT);
-
-        new Expectations() {
-            {
-                analyzer.getClusterName();
-                result = "default";
-            }
-        };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
@@ -107,8 +100,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -161,8 +152,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem);
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -190,8 +179,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem);
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getTableRefs();
                 result = Lists.newArrayList(tableRef1, tableRef2);
@@ -221,8 +208,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem);
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -255,8 +240,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -284,8 +267,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -321,8 +302,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -352,8 +331,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -392,8 +369,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -434,8 +409,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
@@ -485,8 +458,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = aggregateInfo;
                 selectStmt.getSelectList();
@@ -574,8 +545,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getSelectList();
@@ -676,8 +645,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getSelectList();
@@ -776,8 +743,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getSelectList();
@@ -864,14 +829,14 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
+                selectStmt.getAggInfo();
+                minTimes = 0;
+                result = null;
                 selectStmt.getSelectList();
                 result = selectList;
                 selectStmt.analyze(analyzer);
             }
         };
-
 
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
@@ -896,8 +861,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getSelectList();
@@ -970,8 +933,6 @@ public class CreateMaterializedViewStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = aggregateInfo;
                 selectStmt.getSelectList();
@@ -1039,8 +1000,6 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         new Expectations() {
             {
-                analyzer.getClusterName();
-                result = "default";
                 selectStmt.getAggInfo();
                 result = aggregateInfo;
                 selectStmt.getSelectList();

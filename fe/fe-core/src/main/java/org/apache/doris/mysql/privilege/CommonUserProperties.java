@@ -25,6 +25,8 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,12 +37,16 @@ import java.util.Set;
  * Used in
  */
 public class CommonUserProperties implements Writable {
+    private static final Logger LOG = LogManager.getLogger(CommonUserProperties.class);
+
     // The max connections allowed for a user on one FE
     @SerializedName("maxConn")
     private long maxConn = 100;
     // The maximum total number of query instances that the user is allowed to send from this FE
     @SerializedName("maxQueryInstances")
     private long maxQueryInstances = -1;
+    @SerializedName("parallelFragmentExecInstanceNum")
+    private int parallelFragmentExecInstanceNum = -1;
     @SerializedName("sqlBlockRules")
     private String sqlBlockRules = "";
     @SerializedName("cpuResourceLimit")
@@ -71,6 +77,10 @@ public class CommonUserProperties implements Writable {
         return maxQueryInstances;
     }
 
+    int getParallelFragmentExecInstanceNum() {
+        return parallelFragmentExecInstanceNum;
+    }
+
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
@@ -85,6 +95,10 @@ public class CommonUserProperties implements Writable {
 
     void setMaxQueryInstances(long maxQueryInstances) {
         this.maxQueryInstances = maxQueryInstances;
+    }
+
+    void setParallelFragmentExecInstanceNum(int parallelFragmentExecInstanceNum) {
+        this.parallelFragmentExecInstanceNum = parallelFragmentExecInstanceNum;
     }
 
     void setSqlBlockRules(String sqlBlockRules) {
@@ -126,6 +140,9 @@ public class CommonUserProperties implements Writable {
     }
 
     public void setQueryTimeout(int timeout) {
+        if (timeout <= 0) {
+            LOG.warn("Setting 0 query timeout", new RuntimeException(""));
+        }
         this.queryTimeout = timeout;
     }
 

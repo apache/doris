@@ -34,7 +34,6 @@ public class FeConstants {
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
 
-    public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
 
     // dpp version

@@ -44,6 +44,7 @@ TEST(TaskWorkerPoolTest, TaskWorkerPool) {
     workers.submit_task(task);
     workers.submit_task(task); // Pending and ignored when stop
 
+    std::this_thread::sleep_for(200ms);
     workers.stop();
 
     workers.submit_task(task); // Ignore
@@ -89,18 +90,15 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     EXPECT_EQ(normal_count.load(), 2);
     EXPECT_EQ(high_prior_count.load(), 3);
 
-    workers.submit_task(task);
-    workers.submit_task(task);
-    workers.submit_task(task); // Pending and ignored when stop
     workers.stop();
 
     EXPECT_EQ(normal_count.load(), 2);
-    EXPECT_EQ(high_prior_count.load(), 5);
+    EXPECT_EQ(high_prior_count.load(), 3);
 
     workers.submit_task(task); // Ignore
 
     EXPECT_EQ(normal_count.load(), 2);
-    EXPECT_EQ(high_prior_count.load(), 5);
+    EXPECT_EQ(high_prior_count.load(), 3);
 }
 
 TEST(TaskWorkerPoolTest, ReportWorkerPool) {

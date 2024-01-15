@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <set>
@@ -47,8 +48,6 @@
 namespace doris {
 
 using std::stringstream;
-
-const int CHECK_TXNS_MAX_WAIT_TIME_SECS = 60;
 
 EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& tablet,
                                                        DataDir* dest_store)
@@ -89,7 +88,9 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
 
 bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
-    if (time_elapsed > config::migration_task_timeout_secs) {
+    int64_t timeout = std::max<int64_t>(config::migration_task_timeout_secs,
+                                        _tablet->tablet_local_size() >> 20);
+    if (time_elapsed > timeout) {
         LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
                      << ", tablet=" << _tablet->tablet_id();
         return true;
@@ -112,16 +113,19 @@ Status EngineStorageMigrationTask::_check_running_txns() {
 }
 
 Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
-        std::unique_lock<std::shared_mutex>* migration_wlock) {
+        std::unique_lock<std::shared_timed_mutex>* migration_wlock) {
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration_wlock is transferred to the caller if check succ
     DCHECK_NE(migration_wlock, nullptr);
     Status res = Status::OK();
-    int try_times = 1;
     do {
         // to avoid invalid loops, the lock is guaranteed to be acquired here
         {
-            std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
+            std::unique_lock<std::shared_timed_mutex> wlock(_tablet->get_migration_lock());
+            if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                                       _tablet->tablet_id());
+            }
             res = _check_running_txns();
             if (res.ok()) {
                 // transfer the lock to the caller
@@ -129,8 +133,7 @@ Status EngineStorageMigrationTask::_check_running_txns_until_timeout(
                 return res;
             }
         }
-        sleep(std::min(config::sleep_one_second * try_times, CHECK_TXNS_MAX_WAIT_TIME_SECS));
-        ++try_times;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     } while (!_is_timeout());
     return res;
 }
@@ -157,6 +160,10 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
+    if (_tablet->tablet_state() == TABLET_SHUTDOWN) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("tablet {} has deleted",
+                                                               _tablet->tablet_id());
+    }
     // need hold migration lock and push lock outside
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
@@ -195,13 +202,26 @@ Status EngineStorageMigrationTask::_migrate() {
     int32_t end_version = 0;
     std::vector<RowsetSharedPtr> consistent_rowsets;
 
+    // During migration, if the rowsets being migrated undergoes a compaction operation,
+    // that will result in incorrect delete bitmaps after migration for mow table. Therefore,
+    // compaction will be prohibited for the mow table when migration. Moreover, it is useless
+    // to perform a compaction operation on the migration data, as the migration still migrates
+    // the data of rowsets before the compaction operation.
+    std::unique_lock base_compaction_lock(_tablet->get_base_compaction_lock(), std::defer_lock);
+    std::unique_lock cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(),
+                                          std::defer_lock);
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        base_compaction_lock.lock();
+        cumu_compaction_lock.lock();
+    }
+
     // try hold migration lock first
     Status res;
     uint64_t shard = 0;
     std::string full_path;
     {
-        std::unique_lock<std::shared_mutex> migration_wlock(_tablet->get_migration_lock(),
-                                                            std::try_to_lock);
+        std::unique_lock<std::shared_timed_mutex> migration_wlock(_tablet->get_migration_lock(),
+                                                                  std::chrono::seconds(1));
         if (!migration_wlock.owns_lock()) {
             return Status::InternalError("could not own migration_wlock");
         }
@@ -236,7 +256,7 @@ Status EngineStorageMigrationTask::_migrate() {
         if (!res.ok()) {
             break;
         }
-        std::unique_lock<std::shared_mutex> migration_wlock;
+        std::unique_lock<std::shared_timed_mutex> migration_wlock;
         res = _check_running_txns_until_timeout(&migration_wlock);
         if (!res.ok()) {
             break;

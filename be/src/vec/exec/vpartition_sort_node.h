@@ -58,6 +58,7 @@ public:
         for (int i = 0; i < mutable_columns.size(); ++i) {
             columns[i]->append_data_by_selector(mutable_columns[i], selector);
         }
+        blocks.back()->set_columns(std::move(mutable_columns));
         init_rows = init_rows - selector.size();
         total_rows = total_rows + selector.size();
         selector.clear();

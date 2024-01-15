@@ -65,10 +65,10 @@ public:
         if (!instance() || schema_key.empty()) {
             return {};
         }
-        auto lru_handle = _cache->lookup(schema_key);
+        auto lru_handle = cache()->lookup(schema_key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
             value->last_visit_time = UnixMillis();
             VLOG_DEBUG << "use cache schema";
             if constexpr (std::is_same_v<SchemaType, TabletSchemaSPtr>) {
@@ -100,9 +100,9 @@ public:
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
         };
-        auto lru_handle = _cache->insert(key, value, sizeof(CacheValue), deleter,
-                                         CachePriority::NORMAL, schema->mem_size());
-        _cache->release(lru_handle);
+        auto lru_handle =
+                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
+        cache()->release(lru_handle);
     }
 
     // Try to prune the cache if expired.

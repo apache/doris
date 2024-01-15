@@ -57,7 +57,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 .when(join -> !justNonInner || !join.getJoinType().isInnerJoin())
                 .when(join -> checkReorder(join))
                 .when(join -> check(swapType, join))
-                .whenNot(LogicalJoin::hasJoinHint)
+                .whenNot(LogicalJoin::hasDistributeHint)
                 .whenNot(join -> joinOrderMatchBitmapRuntimeFilterOrder(join))
                 .whenNot(LogicalJoin::isMarkJoin)
                 .then(join -> {
@@ -93,7 +93,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
         if (swapType == SwapType.LEFT_ZIG_ZAG) {
             double leftRows = join.left().getGroup().getStatistics().getRowCount();
             double rightRows = join.right().getGroup().getStatistics().getRowCount();
-            return leftRows < rightRows && isZigZagJoin(join);
+            return leftRows <= rightRows && isZigZagJoin(join);
         }
 
         return true;
@@ -114,9 +114,13 @@ public class JoinCommute extends OneExplorationRuleFactory {
     }
 
     private static boolean containJoin(GroupPlan groupPlan) {
-        // TODO: tmp way to judge containJoin
-        List<Slot> output = groupPlan.getOutput();
-        return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        if (groupPlan.getGroup().getStatistics() != null) {
+            return groupPlan.getGroup().getStatistics().getWidthInJoinCluster() > 1;
+        } else {
+            // tmp way to judge containJoin, just used for test case where stats is null
+            List<Slot> output = groupPlan.getOutput();
+            return !output.stream().map(Slot::getQualifier).allMatch(output.get(0).getQualifier()::equals);
+        }
     }
 
     /**

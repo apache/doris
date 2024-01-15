@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -36,7 +37,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ResultSinkOperator final : public DataSinkOperator<ResultSinkOperatorBuilder> {
+class ResultSinkOperator final : public DataSinkOperator<vectorized::VResultSink> {
 public:
     ResultSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink);
 
@@ -45,23 +46,24 @@ public:
 
 class ResultSinkDependency final : public Dependency {
 public:
+    using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
     ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
     ~ResultSinkDependency() override = default;
 };
 
-class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<ResultSinkDependency> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
+    using Base = PipelineXSinkLocalState<ResultSinkDependency>;
 
 public:
     ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<>(parent, state) {}
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Dependency* dependency() override { return _result_sink_dependency.get(); }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
     RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
@@ -72,7 +74,6 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };

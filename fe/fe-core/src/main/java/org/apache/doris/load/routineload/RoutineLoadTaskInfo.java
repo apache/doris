@@ -57,7 +57,6 @@ public abstract class RoutineLoadTaskInfo {
     protected static final long INIT_TXN_ID = -1L;
     protected long txnId = INIT_TXN_ID;
     protected long jobId;
-    protected String clusterName;
 
     private long createTimeMs;
     private long executeStartTimeMs = -1L;
@@ -77,18 +76,17 @@ public abstract class RoutineLoadTaskInfo {
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, boolean isMultiTable) {
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, boolean isMultiTable) {
         this.id = id;
         this.jobId = jobId;
-        this.clusterName = clusterName;
         this.createTimeMs = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
         this.isMultiTable = isMultiTable;
     }
 
-    public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, long previousBeId,
+    public RoutineLoadTaskInfo(UUID id, long jobId, long timeoutMs, long previousBeId,
                                boolean isMultiTable) {
-        this(id, jobId, clusterName, timeoutMs, isMultiTable);
+        this(id, jobId, timeoutMs, isMultiTable);
         this.previousBeId = previousBeId;
     }
 
@@ -98,10 +96,6 @@ public abstract class RoutineLoadTaskInfo {
 
     public long getJobId() {
         return jobId;
-    }
-
-    public String getClusterName() {
-        return clusterName;
     }
 
     public void setExecuteStartTimeMs(long executeStartTimeMs) {

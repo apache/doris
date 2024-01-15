@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -98,6 +99,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -318,6 +320,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
+        odbcScan.getExpressions();
+        return computeCatalogRelation(odbcScan);
+    }
+
+    @Override
     public Statistics visitLogicalEsScan(LogicalEsScan esScan, Void context) {
         esScan.getExpressions();
         return computeCatalogRelation(esScan);
@@ -350,8 +358,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        return JoinEstimation.estimate(groupExpression.childStatistics(0),
+        Statistics joinStats = JoinEstimation.estimate(groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
+        joinStats = new StatisticsBuilder(joinStats).setWidthInJoinCluster(
+                groupExpression.childStatistics(0).getWidthInJoinCluster()
+                        + groupExpression.childStatistics(1).getWidthInJoinCluster()).build();
+        return joinStats;
     }
 
     @Override
@@ -461,6 +473,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, Void context) {
+        return computeCatalogRelation(odbcScan);
+    }
+
+    @Override
     public Statistics visitPhysicalEsScan(PhysicalEsScan esScan, Void context) {
         return computeCatalogRelation(esScan);
     }
@@ -542,6 +559,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private Statistics computeAssertNumRows(long desiredNumOfRows) {
         Statistics statistics = groupExpression.childStatistics(0);
         statistics.withRowCountAndEnforceValid(Math.min(1, statistics.getRowCount()));
+        statistics = new StatisticsBuilder(statistics).setWidthInJoinCluster(1).build();
         return statistics;
     }
 
@@ -751,7 +769,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(rowCount, slotToColumnStats);
+        return new Statistics(rowCount, 1, slotToColumnStats);
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
     }
 
@@ -769,8 +787,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             .setNumNulls(stats.numNulls < 0 ? stats.numNulls : stats.numNulls * groupingSetNum)
                             .setDataSize(stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum);
                     return Pair.of(kv.getKey(), columnStatisticBuilder.build());
-                }).collect(Collectors.toMap(Pair::key, Pair::value));
-        return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, columnStatisticMap);
+                }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
+        return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, 1, columnStatisticMap);
     }
 
     private Statistics computeProject(Project project) {
@@ -780,7 +798,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatistic columnStatistic = ExpressionEstimation.estimate(projection, childStats);
             return new SimpleEntry<>(projection.toSlot(), columnStatistic);
         }).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1));
-        return new Statistics(childStats.getRowCount(), columnsStats);
+        return new Statistics(childStats.getRowCount(), childStats.getWidthInJoinCluster(), columnsStats);
     }
 
     private Statistics computeOneRowRelation(List<NamedExpression> projects) {
@@ -790,9 +808,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot(), statistic);
                 })
-                .collect(Collectors.toMap(Pair::key, Pair::value));
+                .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 1;
-        return new Statistics(rowCount, columnStatsMap);
+        return new Statistics(rowCount, 1, columnStatsMap);
     }
 
     private Statistics computeEmptyRelation(EmptyRelation emptyRelation) {
@@ -805,9 +823,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             .setAvgSizeByte(0);
                     return Pair.of(project.toSlot(), columnStat.build());
                 })
-                .collect(Collectors.toMap(Pair::key, Pair::value));
+                .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 0;
-        return new Statistics(rowCount, columnStatsMap);
+        return new Statistics(rowCount, 1, columnStatsMap);
     }
 
     private Statistics computeUnion(Union union) {
@@ -850,7 +868,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             statisticsBuilder.setRowCount(leftRowCount);
             statisticsBuilder.putColumnStatistics(unionOutput.get(i), headStats.findColumnStatistics(headSlot));
         }
-        return statisticsBuilder.build();
+        return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
     private Statistics computeExcept(SetOperation setOperation) {
@@ -863,7 +881,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             statisticsBuilder.putColumnStatistics(operatorOutput.get(i), columnStatistic);
         }
         statisticsBuilder.setRowCount(leftStats.getRowCount());
-        return statisticsBuilder.build();
+        return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
     private Statistics computeIntersect(SetOperation setOperation) {
@@ -890,7 +908,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             leftChildStats.addColumnStats(outputs.get(i),
                     leftChildStats.findColumnStatistics(leftChildOutputs.get(i)));
         }
-        return leftChildStats.withRowCountAndEnforceValid(rowCount);
+        return new StatisticsBuilder(leftChildStats.withRowCountAndEnforceValid(rowCount))
+                .setWidthInJoinCluster(1).build();
     }
 
     private Statistics computeGenerate(Generate generate) {
@@ -912,7 +931,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     .build();
             columnStatsMap.put(output, columnStatistic);
         }
-        return new Statistics(count, columnStatsMap);
+        return new Statistics(count, 1, columnStatsMap);
     }
 
     private Statistics computeWindow(Window windowOperator) {
@@ -979,9 +998,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         }
                     }
                     return Pair.of(expr.toSlot(), colStatsBuilder.build());
-                }).collect(Collectors.toMap(Pair::key, Pair::value));
+                }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         columnStatisticMap.putAll(childColumnStats);
-        return new Statistics(childStats.getRowCount(), columnStatisticMap);
+        return new Statistics(childStats.getRowCount(), 1, columnStatisticMap);
     }
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
@@ -1020,7 +1039,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, Void context) {
-        Statistics statistics = groupExpression.childStatistics(0);
+        StatisticsBuilder builder = new StatisticsBuilder(groupExpression.childStatistics(0));
+        Statistics statistics = builder.setWidthInJoinCluster(1).build();
         cteIdToStats.put(cteProducer.getCteId(), statistics);
         return statistics;
     }
@@ -1032,7 +1052,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 cteConsumer.getProducerToConsumerOutputMap());
         Statistics prodStats = cteIdToStats.get(cteId);
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
-        Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
             Slot prodSlot = cteConsumer.getProducerSlot(slot);
             ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);
@@ -1052,7 +1072,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalCTEProducer(PhysicalCTEProducer<? extends Plan> cteProducer,
             Void context) {
-        Statistics statistics = groupExpression.childStatistics(0);
+        Statistics statistics = new StatisticsBuilder(groupExpression.childStatistics(0))
+                .setWidthInJoinCluster(1).build();
         cteIdToStats.put(cteProducer.getCteId(), statistics);
         cascadesContext.updateConsumerStats(cteProducer.getCteId(), statistics);
         return statistics;
@@ -1068,7 +1089,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             prodStats = groupExpression.getOwnerGroup().getStatistics();
         }
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
-        Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
+        Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
             Slot prodSlot = cteConsumer.getProducerSlot(slot);
             ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);

@@ -18,9 +18,11 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
-public class JdbcClientConfig {
+public class JdbcClientConfig implements Cloneable {
     private String catalog;
     private String user;
     private String password;
@@ -29,8 +31,30 @@ public class JdbcClientConfig {
     private String driverClass;
     private String onlySpecifiedDatabase;
     private String isLowerCaseTableNames;
-    private Map<String, Boolean> includeDatabaseMap;
-    private Map<String, Boolean> excludeDatabaseMap;
+    private int minPoolSize;
+    private int maxPoolSize;
+    private int minIdleSize;
+    private int maxIdleTime;
+    private int maxWaitTime;
+    private boolean keepAlive;
+
+    private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
+    private Map<String, String> customizedProperties = Maps.newHashMap();
+
+    @Override
+    public JdbcClientConfig clone() {
+        try {
+            JdbcClientConfig cloned = (JdbcClientConfig) super.clone();
+
+            cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
+            cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
+            cloned.customizedProperties = Maps.newHashMap(customizedProperties);
+            return cloned;
+        } catch (CloneNotSupportedException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public String getCatalog() {
         return catalog;
@@ -104,6 +128,60 @@ public class JdbcClientConfig {
         return this;
     }
 
+    public int getMinPoolSize() {
+        return minPoolSize;
+    }
+
+    public JdbcClientConfig setMinPoolSize(int minPoolSize) {
+        this.minPoolSize = minPoolSize;
+        return this;
+    }
+
+    public int getMaxPoolSize() {
+        return maxPoolSize;
+    }
+
+    public JdbcClientConfig setMaxPoolSize(int maxPoolSize) {
+        this.maxPoolSize = maxPoolSize;
+        return this;
+    }
+
+    public int getMinIdleSize() {
+        return minIdleSize;
+    }
+
+    public JdbcClientConfig setMinIdleSize(int minIdleSize) {
+        this.minIdleSize = minIdleSize;
+        return this;
+    }
+
+    public int getMaxIdleTime() {
+        return maxIdleTime;
+    }
+
+    public JdbcClientConfig setMaxIdleTime(int maxIdleTime) {
+        this.maxIdleTime = maxIdleTime;
+        return this;
+    }
+
+    public int getMaxWaitTime() {
+        return maxWaitTime;
+    }
+
+    public JdbcClientConfig setMaxWaitTime(int maxWaitTime) {
+        this.maxWaitTime = maxWaitTime;
+        return this;
+    }
+
+    public boolean isKeepAlive() {
+        return keepAlive;
+    }
+
+    public JdbcClientConfig setKeepAlive(boolean keepAlive) {
+        this.keepAlive = keepAlive;
+        return this;
+    }
+
     public Map<String, Boolean> getIncludeDatabaseMap() {
         return includeDatabaseMap;
     }
@@ -120,5 +198,13 @@ public class JdbcClientConfig {
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
         return this;
+    }
+
+    public void setCustomizedProperties(Map<String, String> customizedProperties) {
+        this.customizedProperties = customizedProperties;
+    }
+
+    public Map<String, String> getCustomizedProperties() {
+        return customizedProperties;
     }
 }

@@ -169,8 +169,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
-                Util.getRootCauseMessage(e));
+            throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
+                    e, dbName, tableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }

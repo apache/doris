@@ -60,6 +60,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
@@ -83,58 +84,28 @@ using IndexToEnableMoW =
                                       std::allocator<phmap::Pair<const int64_t, bool>>, 4,
                                       std::mutex>;
 
-class LoadStreamStub {
+class LoadStreamReplyHandler : public brpc::StreamInputHandler {
+public:
+    LoadStreamReplyHandler(PUniqueId load_id, int64_t dst_id, std::weak_ptr<LoadStreamStub> stub)
+            : _load_id(load_id), _dst_id(dst_id), _stub(stub) {}
+
+    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
+                             size_t size) override;
+
+    void on_idle_timeout(brpc::StreamId id) override {}
+
+    void on_closed(brpc::StreamId id) override;
+
+    friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler);
+
 private:
-    class LoadStreamReplyHandler : public brpc::StreamInputHandler {
-    public:
-        LoadStreamReplyHandler(LoadStreamStub* stub) : _stub(stub) {}
+    PUniqueId _load_id;   // for logging
+    int64_t _dst_id = -1; // for logging
+    std::weak_ptr<LoadStreamStub> _stub;
+};
 
-        int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
-                                 size_t size) override;
-
-        void on_idle_timeout(brpc::StreamId id) override {}
-
-        void on_closed(brpc::StreamId id) override;
-
-        bool is_closed() { return _is_closed.load(); }
-
-        Status close_wait(int64_t timeout_ms) {
-            DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
-            std::unique_lock<bthread::Mutex> lock(_mutex);
-            if (_is_closed) {
-                return Status::OK();
-            }
-            int ret = _close_cv.wait_for(lock, timeout_ms * 1000);
-            return ret == 0 ? Status::OK() : Status::Error<true>(ret, "stream close_wait timeout");
-        };
-
-        std::vector<int64_t> success_tablets() {
-            std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
-            return _success_tablets;
-        }
-
-        std::vector<int64_t> failed_tablets() {
-            std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
-            return _failed_tablets;
-        }
-
-        void set_dst_id(int64_t dst_id) { _dst_id = dst_id; }
-        void set_load_id(PUniqueId load_id) { _load_id = UniqueId(load_id); }
-
-    private:
-        UniqueId _load_id;    // for logging
-        int64_t _dst_id = -1; // for logging
-        std::atomic<bool> _is_closed;
-        bthread::Mutex _mutex;
-        bthread::ConditionVariable _close_cv;
-
-        bthread::Mutex _success_tablets_mutex;
-        bthread::Mutex _failed_tablets_mutex;
-        std::vector<int64_t> _success_tablets;
-        std::vector<int64_t> _failed_tablets;
-
-        LoadStreamStub* _stub = nullptr;
-    };
+class LoadStreamStub {
+    friend class LoadStreamReplyHandler;
 
 public:
     // construct new stub
@@ -150,10 +121,11 @@ public:
             ~LoadStreamStub();
 
     // open_load_stream
-    Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
+    Status open(std::shared_ptr<LoadStreamStub> self,
+                BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -162,7 +134,8 @@ public:
             // APPEND_DATA
             Status
             append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                        int64_t segment_id, std::span<const Slice> data, bool segment_eos = false);
+                        int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                        bool segment_eos = false);
 
     // ADD_SEGMENT
     Status add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
@@ -175,27 +148,16 @@ public:
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
 
-    // close stream, usually close is initiated by the remote.
-    // in case of remote failure, we should be able to close stream locally.
-    Status close_stream();
-
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
-    Status close_wait(int64_t timeout_ms = 0) {
-        if (!_is_init.load() || _handler.is_closed()) {
-            return Status::OK();
-        }
-        if (timeout_ms <= 0) {
-            timeout_ms = config::close_load_stream_timeout_ms;
-        }
-        return _handler.close_wait(timeout_ms);
-    }
+    // if timeout_ms <= 0, will fallback to config::close_load_stream_timeout_ms
+    Status close_wait(int64_t timeout_ms = 0);
 
     Status wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                            int64_t timeout_ms = 60000);
 
     Status wait_for_new_schema(int64_t timeout_ms) {
-        std::unique_lock<bthread::Mutex> lock(_mutex);
+        std::unique_lock<bthread::Mutex> lock(_schema_mutex);
         if (timeout_ms > 0) {
             int ret = _schema_cv.wait_for(lock, timeout_ms * 1000);
             return ret == 0 ? Status::OK() : Status::Error<true>(ret, "wait schema update timeout");
@@ -203,8 +165,6 @@ public:
         _schema_cv.wait(lock);
         return Status::OK();
     };
-
-    void add_schema(const std::vector<PTabletSchemaWithIndex>& schemas);
 
     std::shared_ptr<TabletSchema> tablet_schema(int64_t index_id) const {
         return (*_tablet_schema_for_index)[index_id];
@@ -214,15 +174,23 @@ public:
         return _enable_unique_mow_for_index->at(index_id);
     }
 
-    std::vector<int64_t> success_tablets() { return _handler.success_tablets(); }
+    std::vector<int64_t> success_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
+        return _success_tablets;
+    }
 
-    std::vector<int64_t> failed_tablets() { return _handler.failed_tablets(); }
+    std::unordered_map<int64_t, Status> failed_tablets() {
+        std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
+        return _failed_tablets;
+    }
 
     brpc::StreamId stream_id() const { return _stream_id; }
 
     int64_t src_id() const { return _src_id; }
 
     int64_t dst_id() const { return _dst_id; }
+
+    friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
@@ -231,9 +199,18 @@ private:
 
 protected:
     std::atomic<bool> _is_init;
-    bthread::Mutex _mutex;
-
+    std::atomic<bool> _is_closed;
+    std::atomic<bool> _is_eos;
     std::atomic<int> _use_cnt;
+
+    PUniqueId _load_id;
+    brpc::StreamId _stream_id;
+    int64_t _src_id = -1; // source backend_id
+    int64_t _dst_id = -1; // destination backend_id
+
+    bthread::Mutex _open_mutex;
+    bthread::Mutex _close_mutex;
+    bthread::ConditionVariable _close_cv;
 
     std::mutex _tablets_to_commit_mutex;
     std::vector<PTabletID> _tablets_to_commit;
@@ -242,15 +219,15 @@ protected:
     std::mutex _send_mutex;
     butil::IOBuf _buffer;
 
-    PUniqueId _load_id;
-    brpc::StreamId _stream_id;
-    int64_t _src_id = -1; // source backend_id
-    int64_t _dst_id = -1; // destination backend_id
-    LoadStreamReplyHandler _handler {this};
-
+    bthread::Mutex _schema_mutex;
     bthread::ConditionVariable _schema_cv;
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
+
+    bthread::Mutex _success_tablets_mutex;
+    bthread::Mutex _failed_tablets_mutex;
+    std::vector<int64_t> _success_tablets;
+    std::unordered_map<int64_t, Status> _failed_tablets;
 };
 
 } // namespace doris

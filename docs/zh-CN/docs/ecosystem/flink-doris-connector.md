@@ -388,9 +388,30 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
+
+## Flink 写入指标
+其中Counter类型的指标值为导入任务从开始到当前的累加值，可以在Flink Webui metrics中观察各表的各项指标。
+
+| Name                      | Metric Type | Description                                |
+| ------------------------- | ----------- | ------------------------------------------ |
+| totalFlushLoadBytes       | Counter     | 已经刷新导入的总字节数                     |
+| flushTotalNumberRows      | Counter     | 已经导入处理的总行数                       |
+| totalFlushLoadedRows      | Counter     | 已经成功导入的总行数                       |
+| totalFlushTimeMs          | Counter     | 已经成功导入完成的总时间                   |
+| totalFlushSucceededNumber | Counter     | 已经成功导入的次数                         |
+| totalFlushFailedNumber    | Counter     | 失败导入 的次数                            |
+| totalFlushFilteredRows    | Counter     | 数据质量不合格的总行数                     |
+| totalFlushUnselectedRows  | Counter     | 被 where 条件过滤的总行数                  |
+| beginTxnTimeMs            | Histogram   | 向Fe请求开始一个事务所花费的时间，单位毫秒 |
+| putDataTimeMs             | Histogram   | 向Fe请求获取导入数据执行计划所花费的时间   |
+| readDataTimeMs            | Histogram   | 读取数据所花费的时间                       |
+| writeDataTimeMs           | Histogram   | 执行写入数据操作所花费的时间               |
+| commitAndPublishTimeMs    | Histogram   | 向Fe请求提交并且发布事务所花费的时间       |
+| loadTimeMs                | Histogram   | 导入完成的时间                             |
 
 ## 使用FlinkSQL通过CDC接入Doris示例
 ```sql
@@ -759,3 +780,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
 
 出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
+
+15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
+
+可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`,那么flink通过fe获取的be地址就为`127.0.0.1:webserver_port`, 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`,整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。

@@ -93,6 +93,8 @@ public:
         return false;
     }
 
+    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
+
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
                 is_serial ? ThreadPool::ExecutionMode::SERIAL
@@ -172,6 +174,11 @@ public:
                _query_options.enable_pipeline_engine;
     }
 
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
+
     int be_exec_version() const {
         if (!_query_options.__isset.be_exec_version) {
             return 0;
@@ -179,7 +186,9 @@ public:
         return _query_options.be_exec_version;
     }
 
-    [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
+    [[nodiscard]] int64_t get_fe_process_uuid() const {
+        return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
+    }
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
@@ -198,6 +207,16 @@ public:
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
+    void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
+
+    std::shared_ptr<QueryStatistics> get_query_statistics();
+
+    void register_memory_statistics();
+
+    void register_cpu_statistics();
+
+    std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
 
 public:
     DescriptorTbl* desc_tbl = nullptr;
@@ -265,6 +284,8 @@ private:
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
+
+    std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;
 };
 
 } // namespace doris

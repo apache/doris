@@ -59,8 +59,7 @@ github:
           - BE UT (Doris BE UT)
           - Build Broker
           - Build Documents
-          - ShellCheck
-          - clickbench-new (clickbench)
+          - ShellCheck          
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -94,9 +93,8 @@ github:
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
-          - Build Documents
           - ShellCheck
-          - clickbench-new (clickbench)
+          - Build Documents
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -109,14 +107,13 @@ github:
     - LemonLiTree
     - Yukang-Lian
     - TangSiyang2001
-    - platoneko
     - Lchangliang
     - freemandealer
-    - nanfeng1999
-    - gitccl
     - shuke987
     - wm1581066
     - KassieZ
+    - yujun777
+    - gavinchou
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

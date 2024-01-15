@@ -604,6 +604,10 @@ public final class RuntimeFilter {
         isBroadcastJoin = isBroadcast;
     }
 
+    public boolean isBroadcast() {
+        return isBroadcastJoin;
+    }
+
     public void computeNdvEstimate() {
         if (ndvEstimate < 0) {
             ndvEstimate = builderNode.getChild(1).getCardinalityAfterFilter();

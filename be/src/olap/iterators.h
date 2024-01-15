@@ -24,6 +24,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
@@ -115,6 +116,7 @@ public:
     int32_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    RowRanges row_ranges;
 };
 
 class RowwiseIterator;

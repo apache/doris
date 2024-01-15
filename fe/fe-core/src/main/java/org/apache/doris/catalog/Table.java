@@ -18,10 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -115,8 +115,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // table(view)'s comment
     @SerializedName(value = "comment")
     protected String comment = "";
-    // sql for creating this table, default is "";
-    protected String ddlSql = "";
 
     @SerializedName(value = "constraints")
     private HashMap<String, Constraint> constraintsMap = new HashMap<>();
@@ -257,19 +255,23 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void writeLockOrDdlException() throws DdlException {
-        writeLockOrException(new DdlException("unknown table, tableName=" + name));
+        writeLockOrException(new DdlException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public void writeLockOrMetaException() throws MetaNotFoundException {
-        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
+        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public void writeLockOrAlterCancelException() throws AlterCancelException {
-        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name,
+                                            ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
-        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
+        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name,
+                                                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
@@ -336,7 +338,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public Map<String, Constraint> getConstraintsMap() {
+    public Map<String, Constraint> getConstraintsMapUnsafe() {
         return constraintsMap;
     }
 
@@ -346,10 +348,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public List<Column> getFullSchema() {
         return fullSchema;
-    }
-
-    public String getDdlSql() {
-        return ddlSql;
     }
 
     // should override in subclass if necessary
@@ -496,8 +494,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     // return if this table is partitioned.
+    // For OlapTable, return true only if its partition type is RANGE or HASH
+    public boolean isPartitionedTable() {
+        return false;
+    }
+
+    // return if this table is partitioned, for planner.
     // For OlapTable ture when is partitioned, or distributed by hash when no partition
-    public boolean isPartitioned() {
+    public boolean isPartitionDistributed() {
         return false;
     }
 
@@ -537,10 +541,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     public void setId(long id) {
         this.id = id;
-    }
-
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new NotImplementedException("toCreateTableStmt not implemented");
     }
 
     @Override

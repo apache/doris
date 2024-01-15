@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 
 #include "bvar/bvar.h"
+#include "olap/storage_engine.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 
@@ -46,9 +47,14 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 
 LoadChannel::~LoadChannel() {
     g_loadchannel_cnt << -1;
+    std::stringstream rows_str;
+    for (const auto& entry : _tablets_channels_rows) {
+        rows_str << ", index id: " << entry.first << ", total_received_rows: " << entry.second.first
+                 << ", num_rows_filtered: " << entry.second.second;
+    }
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
-              << ", sender_ip=" << _sender_ip;
+              << ", sender_ip=" << _sender_ip << rows_str.str();
 }
 
 void LoadChannel::_init_profile() {
@@ -68,7 +74,7 @@ void LoadChannel::_init_profile() {
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     int64_t index_id = params.index_id();
-    std::shared_ptr<TabletsChannel> channel;
+    std::shared_ptr<BaseTabletsChannel> channel;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _tablets_channels.find(index_id);
@@ -77,8 +83,9 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel = std::make_shared<TabletsChannel>(key, _load_id, _is_high_priority,
-                                                       _self_profile);
+            // TODO(plat1ko): CloudTabletsChannel
+            channel = std::make_shared<TabletsChannel>(*StorageEngine::instance(), key, _load_id,
+                                                       _is_high_priority, _self_profile);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
@@ -98,7 +105,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
+Status LoadChannel::_get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& channel,
                                          bool& is_finished, const int64_t index_id) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _tablets_channels.find(index_id);
@@ -124,7 +131,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     COUNTER_UPDATE(_add_batch_times, 1);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
-    std::shared_ptr<TabletsChannel> channel;
+    std::shared_ptr<BaseTabletsChannel> channel;
     bool is_finished = false;
     Status st = _get_tablets_channel(channel, is_finished, index_id);
     if (!st.ok() || is_finished) {
@@ -139,7 +146,7 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 
     // 3. handle eos
     if (request.has_eos() && request.eos()) {
-        st = _handle_eos(channel, request, response);
+        st = _handle_eos(channel.get(), request, response);
         _report_profile(response);
         if (!st.ok()) {
             return st;
@@ -149,6 +156,28 @@ Status LoadChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     }
     _last_updated_time.store(time(nullptr));
     return st;
+}
+
+Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
+                                const PTabletWriterAddBlockRequest& request,
+                                PTabletWriterAddBlockResult* response) {
+    _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
+    bool finished = false;
+    auto index_id = request.index_id();
+
+    RETURN_IF_ERROR(channel->close(this, request, response, &finished));
+    if (finished) {
+        std::lock_guard<std::mutex> l(_lock);
+        {
+            std::lock_guard<SpinLock> l(_tablets_channels_lock);
+            _tablets_channels_rows.insert(std::make_pair(
+                    index_id,
+                    std::make_pair(channel->total_received_rows(), channel->num_rows_filtered())));
+            _tablets_channels.erase(index_id);
+        }
+        _finished_channel_ids.emplace(index_id);
+    }
+    return Status::OK();
 }
 
 void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {

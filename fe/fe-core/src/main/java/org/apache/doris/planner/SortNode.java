@@ -64,9 +64,14 @@ public class SortNode extends PlanNode {
     private boolean useTopnOpt;
     private boolean useTwoPhaseReadOpt;
 
-    private boolean  isDefaultLimit;
+    // If mergeByexchange is set to true, the sort information is pushed to the
+    // exchange node, and the sort node is used for the ORDER BY .
+    private boolean mergeByexchange = false;
+
+    private boolean isDefaultLimit;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
+    private boolean isColocate = false;
     private DataPartition inputPartition;
 
     private boolean isUnusedExprRemoved = false;
@@ -132,6 +137,10 @@ public class SortNode extends PlanNode {
 
     public SortInfo getSortInfo() {
         return info;
+    }
+
+    public void setMergeByExchange() {
+        this.mergeByexchange = true;
     }
 
     public boolean getUseTopnOpt() {
@@ -309,6 +318,9 @@ public class SortNode extends PlanNode {
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
+        msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setIsAnalyticSort(isAnalyticSort);
+        msg.sort_node.setIsColocate(isColocate);
     }
 
     @Override
@@ -329,5 +341,9 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 }

@@ -484,7 +484,8 @@ build_glog() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DWITH_UNWIND=OFF \
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWITH_TLS=OFF
 
         cmake --build build --target install
     fi
@@ -1066,13 +1067,15 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc.a"
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc.a
+    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
+
+    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
 # abseil
@@ -1501,11 +1504,24 @@ build_jemalloc() {
     cd "${BUILD_DIR}"
 
     cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
+    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
+    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
+    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
+    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
+    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        WITH_LG_PAGE='--with-lg-page=16'
+    else
+        WITH_LG_PAGE=''
+    fi
+
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
     make -j "${PARALLEL}"
     make install
-    mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
+    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
 }
 
 # libunwind
@@ -1661,11 +1677,11 @@ build_hadoop_libs() {
 
     mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
     rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 # dragonbox
@@ -1695,6 +1711,20 @@ build_avx2neon() {
 build_libdeflate() {
     check_if_source_exist "${LIBDEFLATE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBDEFLATE_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# streamvbyte
+build_streamvbyte() {
+    check_if_source_exist "${STREAMVBYTE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${STREAMVBYTE_SOURCE}"
 
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
@@ -1769,6 +1799,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         dragonbox
         avx2neon
         libdeflate
+        streamvbyte
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

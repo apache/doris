@@ -48,12 +48,13 @@
 
 namespace doris::pipeline {
 
-BlockedTaskScheduler::BlockedTaskScheduler() : _started(false), _shutdown(false) {}
+BlockedTaskScheduler::BlockedTaskScheduler(std::string name)
+        : _name(name), _started(false), _shutdown(false) {}
 
-Status BlockedTaskScheduler::start(std::string sche_name) {
+Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
-            "BlockedTaskScheduler", sche_name, [this]() { this->_schedule(); }, &_thread));
+            "BlockedTaskScheduler", _name, [this]() { this->_schedule(); }, &_thread));
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -118,6 +119,7 @@ void BlockedTaskScheduler::_schedule() {
         while (iter != local_blocked_tasks.end()) {
             auto* task = *iter;
             auto state = task->get_state();
+            task->log_detail_if_need();
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
@@ -235,6 +237,7 @@ void TaskScheduler::_do_work(size_t index) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
         }
+        task->log_detail_if_need();
         task->set_running(true);
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
@@ -246,7 +249,7 @@ void TaskScheduler::_do_work(size_t index) {
         if (state == PipelineTaskState::PENDING_FINISH) {
             DCHECK(task->is_pipelineX() || !task->is_pending_finish())
                     << "must not pending close " << task->debug_string();
-            Status exec_status = fragment_ctx->get_query_context()->exec_status();
+            Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
             _try_close_task(task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                             exec_status);
@@ -263,7 +266,7 @@ void TaskScheduler::_do_work(size_t index) {
             // If pipeline is canceled, it will report after pipeline closed, and will propagate
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
-            Status cancel_status = fragment_ctx->get_query_context()->exec_status();
+            Status cancel_status = fragment_ctx->get_query_ctx()->exec_status();
             _try_close_task(task, PipelineTaskState::CANCELED, cancel_status);
             continue;
         }
@@ -317,11 +320,6 @@ void TaskScheduler::_do_work(size_t index) {
                             fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
                                                         : PipelineTaskState::FINISHED,
                             status);
-            VLOG_DEBUG << fmt::format(
-                    "Task {} is eos, status {}.",
-                    PrintInstanceStandardInfo(task->query_context()->query_id(),
-                                              task->fragment_context()->get_fragment_instance_id()),
-                    get_state_name(task->get_state()));
             continue;
         }
 
@@ -349,8 +347,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                     Status exec_status) {
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
-    std::shared_ptr<PipelineFragmentContext> lock_for_context =
-            task->fragment_context()->shared_from_this();
+    auto lock_for_context = task->fragment_context()->shared_from_this();
     auto status = task->try_close(exec_status);
     auto cancel = [&]() {
         task->query_context()->cancel(true, status.to_string(),

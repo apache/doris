@@ -30,8 +30,6 @@
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
-#include "olap/wal_writer.h"
-#include "vwal_writer.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <atomic>
 #include <chrono> // IWYU pragma: keep
@@ -58,7 +56,6 @@
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
-#include "olap/wal_writer.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -395,6 +392,9 @@ protected:
     bool _is_closed = false;
 
     RuntimeState* _state = nullptr;
+    // A context lock for callbacks, the callback has to lock the ctx, to avoid
+    // the object is deleted during callback is running.
+    std::weak_ptr<TaskExecutionContext> _task_exec_ctx;
     // rows number received per tablet, tablet_id -> rows_num
     std::vector<std::pair<int64_t, int64_t>> _tablets_received_rows;
     // rows number filtered per tablet, tablet_id -> filtered_rows_num
@@ -519,9 +519,9 @@ class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     Status close(Status) override;
 
@@ -660,11 +660,9 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
-    std::shared_ptr<VWalWriter> _v_wal_writer;
 };
 } // namespace doris::vectorized

@@ -151,7 +151,11 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
         //so all data from child have sink completed
-        ((PartitionSortSourceDependency*)local_state._shared_state->source_dep)->set_always_ready();
+        {
+            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            local_state._shared_state->sink_eos = true;
+            local_state._dependency->set_ready_to_read();
+        }
     }
 
     return Status::OK();

@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -39,7 +38,6 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
-import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -55,7 +53,6 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import lombok.Setter;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -78,6 +75,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
+    public static final String PROP_SEPERATOR_CHAR = "seperatorChar";
+    public static final String PROP_QUOTA_CHAR = "quoteChar";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -115,9 +114,6 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
-            genSlotToSchemaIdMap();
-        }
 
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
@@ -364,7 +360,16 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        textParams.setColumnSeparator(delimiter.getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
+        if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
+        } else if (delimiter.containsKey(PROP_SEPERATOR_CHAR)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_SEPERATOR_CHAR));
+        } else {
+            textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
+        }
+        if (delimiter.containsKey(PROP_QUOTA_CHAR)) {
+            textParams.setEnclose(delimiter.get(PROP_QUOTA_CHAR).getBytes()[0]);
+        }
         textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
         textParams.setMapkvDelimiter(delimiter.getOrDefault(PROP_MAP_KV_DELIMITER, DEFAULT_MAP_KV_DELIMITER));
 
@@ -379,24 +384,10 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
-        return fileAttributes;
-    }
-
-    // To Support Hive 1.x orc internal column name like (_col0, _col1, _col2...)
-    private void genSlotToSchemaIdMap() {
-        List<Column> baseSchema = desc.getTable().getBaseSchema();
-        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            int idx = 0;
-            for (Column col : baseSchema) {
-                if (col.getName().equals(slot.getColumn().getName())) {
-                    columnNameToPosition.put(col.getName(), idx);
-                    break;
-                }
-                idx += 1;
-            }
+        if (textParams.isSet(TFileTextScanRangeParams._Fields.ENCLOSE)) {
+            fileAttributes.setTrimDoubleQuotes(true);
         }
-        params.setSlotNameToSchemaPos(columnNameToPosition);
+        return fileAttributes;
     }
 
     @Override

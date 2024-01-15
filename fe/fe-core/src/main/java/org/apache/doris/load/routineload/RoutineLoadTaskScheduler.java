@@ -290,7 +290,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // throw exception if unrecoverable errors happen.
     private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getJobId(),
-                routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
+                routineLoadTaskInfo.getPreviousBeId());
         if (beId == -1L) {
             return false;
         }

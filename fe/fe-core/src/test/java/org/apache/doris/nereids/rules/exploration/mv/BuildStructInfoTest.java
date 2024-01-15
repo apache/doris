@@ -66,4 +66,34 @@ class BuildStructInfoTest extends SqlTestBase {
                         }));
 
     }
+
+    @Test
+    void testFilter() {
+        String sql = "select * from T1 left outer join "
+                + " (select id from T2 where id = 1) T2 "
+                + "on T1.id = T2.id ";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin()
+                        .when(j -> {
+                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
+                            Assertions.assertEquals(0, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
+                            Assertions.assertEquals(1, structInfo.getFilterEdge(0).getRightRejectEdge().size());
+                            return true;
+                        }));
+
+        sql = "select * from (select id from T1 where id = 0) T1 left outer join T2 "
+                + "on T1.id = T2.id ";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin()
+                        .when(j -> {
+                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
+                            return true;
+                        }));
+    }
 }

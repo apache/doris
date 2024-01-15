@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
@@ -108,11 +109,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public static CatalogMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
+        LOG.debug("debug: read json: {}", json);
         return GsonUtils.GSON.fromJson(json, CatalogMgr.class);
     }
 
     private void initInternalCatalog() {
-        internalCatalog = new InternalCatalog();
+        internalCatalog = EnvFactory.createInternalCatalog();
         addCatalog(internalCatalog);
     }
 
@@ -150,7 +152,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             String catalogName = catalog.getName();
             if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                ((ExternalCatalog) catalog).setUninitialized(invalidCache);
+                ((ExternalCatalog) catalog).onRefresh(invalidCache);
             }
         }
     }

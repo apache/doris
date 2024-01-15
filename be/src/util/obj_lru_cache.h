@@ -18,14 +18,14 @@
 #pragma once
 
 #include "olap/lru_cache.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
 // A common object cache depends on an Sharded LRU Cache.
 // It has a certain capacity, which determin how many objects it can cache.
 // Caller must hold a CacheHandle instance when visiting the cached object.
-// TODO shouble add gc prune
-class ObjLRUCache {
+class ObjLRUCache : public LRUCachePolicy {
 public:
     struct ObjKey {
         ObjKey(const std::string& key_) : key(key_) {}
@@ -67,7 +67,7 @@ public:
         DISALLOW_COPY_AND_ASSIGN(CacheHandle);
     };
 
-    ObjLRUCache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
+    ObjLRUCache(int64_t capacity, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS);
 
     bool lookup(const ObjKey& key, CacheHandle* handle);
 
@@ -85,9 +85,9 @@ public:
                 void (*deleter)(const CacheKey& key, void* value)) {
         if (_enabled) {
             const std::string& encoded_key = key.key;
-            auto handle = _cache->insert(encoded_key, (void*)value, sizeof(T), deleter,
-                                         CachePriority::NORMAL, 1);
-            *cache_handle = CacheHandle {_cache.get(), handle};
+            auto handle = cache()->insert(encoded_key, (void*)value, 1, deleter,
+                                          CachePriority::NORMAL, sizeof(T));
+            *cache_handle = CacheHandle {cache(), handle};
         } else {
             cache_handle = nullptr;
         }
@@ -96,8 +96,6 @@ public:
     void erase(const ObjKey& key);
 
 private:
-    static constexpr uint32_t kDefaultNumShards = 16;
-    std::unique_ptr<Cache> _cache;
     bool _enabled;
 };
 

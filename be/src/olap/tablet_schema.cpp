@@ -554,6 +554,20 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
+TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
+                                                              const std::vector<std::string>& paths,
+                                                              int32_t parent_unique_id) {
+    TabletColumn subcol;
+    subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    subcol.set_is_nullable(true);
+    subcol.set_unique_id(-1);
+    subcol.set_parent_unique_id(parent_unique_id);
+    vectorized::PathInData path(root, paths);
+    subcol.set_path_info(path);
+    subcol.set_name(path.get_path());
+    return subcol;
+}
+
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
@@ -842,7 +856,6 @@ void TabletSchema::clear_columns() {
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
-    SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_variant_columns = 0;
@@ -1029,6 +1042,33 @@ bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
             << " and name = " << col.name();
     return _field_name_to_index.find(col.name()) == _field_name_to_index.end() ||
            column(col.name()).unique_id() != col.unique_id();
+}
+
+void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
+    std::unordered_set<int32_t> variant_columns;
+    for (const auto& col : columns()) {
+        if (col.is_variant_type()) {
+            variant_columns.insert(col.unique_id());
+        }
+    }
+    for (const TabletColumn& col : src_schema.columns()) {
+        if (col.is_extracted_column() && variant_columns.contains(col.parent_unique_id())) {
+            ColumnPB col_pb;
+            col.to_schema_pb(&col_pb);
+            TabletColumn new_col(col_pb);
+            append_column(new_col, ColumnType::VARIANT);
+        }
+    }
+}
+
+void TabletSchema::reserve_extracted_columns() {
+    for (auto it = _cols.begin(); it != _cols.end();) {
+        if (!it->is_extracted_column()) {
+            it = _cols.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
