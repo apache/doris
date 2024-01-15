@@ -353,29 +353,6 @@ public:
     }
 };
 
-static_assert(sizeof(HashTableGrowerWithPrecalculation<>) == 64);
-
-/** When used as a Grower, it turns a hash table into something like a lookup table.
-  * It remains non-optimal - the cells store the keys.
-  * Also, the compiler can not completely remove the code of passing through the collision resolution chain, although it is not needed.
-  * TODO Make a proper lookup table.
-  */
-template <size_t key_bits>
-struct HashTableFixedGrower {
-    size_t buf_size() const { return 1ULL << key_bits; }
-    size_t place(size_t x) const { return x; }
-    /// You could write __builtin_unreachable(), but the compiler does not optimize everything, and it turns out less efficiently.
-    size_t next(size_t pos) const { return pos + 1; }
-    bool overflow(size_t /*elems*/) const { return false; }
-
-    void increase_size() {
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-    void set(size_t /*num_elems*/) {}
-    void set_buf_size(size_t /*buf_size_*/) {}
-};
-
 /** If you want to store the zero key separately - a place to store it. */
 template <bool need_zero_value_storage, typename Cell>
 struct ZeroValueStorage;

@@ -24,6 +24,7 @@
 #include <variant>
 
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/memcpy_small.h"
 
 using StringKey2 = doris::vectorized::UInt16;
@@ -42,7 +43,7 @@ template <typename StringKey>
 StringKey to_string_key(const doris::StringRef& key) {
     DCHECK_LE(key.size, sizeof(StringKey));
     StringKey string_key {};
-    memcpy_small((char*)&string_key, key.data, key.size);
+    memcpy_small<sizeof(StringKey)>((char*)&string_key, key.data, key.size);
     return string_key;
 }
 
@@ -77,7 +78,9 @@ struct StringHashTableHash {
     }
 #endif
     size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
-        if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
+        if (key.size == 0) {
+            return 0;
+        } else if (key.size <= sizeof(StringHashMapSubKeys::T1)) {
             return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T1>(key));
         } else if (key.size <= sizeof(StringHashMapSubKeys::T2)) {
             return StringHashTableHash()(to_string_key<StringHashMapSubKeys::T2>(key));

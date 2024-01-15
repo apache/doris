@@ -90,7 +90,7 @@ struct StringHashMapSubMaps {
     using T0 = StringHashTableEmpty<StringHashMapCell<doris::StringRef, TMapped>>;
     using T1 = HashMapTable<StringHashMapSubKeys::T1,
                             StringHashMapCell<StringHashMapSubKeys::T1, TMapped>,
-                            StringHashTableHash, StringHashTableGrower<>, Allocator>;
+                            StringHashTableHash, StringHashTableGrower<4>, Allocator>;
     using T2 = HashMapTable<StringHashMapSubKeys::T2,
                             StringHashMapCell<StringHashMapSubKeys::T2, TMapped>,
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;

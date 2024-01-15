@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <string.h>
 
 #include <cstdint>
@@ -94,17 +95,31 @@ void memcpy_fixed(char* lhs, const char* rhs) {
     }
 }
 
+template <int max_size>
 inline void memcpy_small(char* lhs, const char* rhs, size_t n) {
-    while (n >= 4) {
-        memcpy_fixed<uint32_t>(lhs, rhs);
-        lhs += 4;
-        rhs += 4;
-        n -= 4;
+    DCHECK_NE(n, 0);
+    if constexpr (max_size >= 4) {
+        if (n >= 4) {
+            memcpy_fixed<uint32_t>(lhs, rhs);
+            lhs += 4;
+            rhs += 4;
+            n -= 4;
+        }
     }
     while (n >= 1) {
         memcpy_fixed<uint8_t>(lhs, rhs);
         lhs++;
         rhs++;
         n--;
+    }
+}
+
+template <>
+inline void memcpy_small<2>(char* lhs, const char* rhs, size_t n) {
+    DCHECK_NE(n, 0);
+    if (n == 2) {
+        memcpy_fixed<uint16_t>(lhs, rhs);
+    } else {
+        memcpy_fixed<uint8_t>(lhs, rhs);
     }
 }
