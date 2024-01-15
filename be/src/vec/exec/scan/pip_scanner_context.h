@@ -310,6 +310,9 @@ public:
 
             _blocks_queue_buffered = std::move(_blocks_queue);
         }
+
+        // `get_block_from_queue` should not be called concurrently from multiple threads,
+        // so here no need to lock.
         *block = std::move(_blocks_queue_buffered.front());
         _blocks_queue_buffered.pop_front();
 
