@@ -360,6 +360,25 @@ public class StmtRewriter {
         return false;
     }
 
+    /**
+     * Returns true if Expr tree rooted at 'root' has a node equals to expr
+     * that participates in a disjunction.
+     */
+    private static boolean hasExprInDisjunction(Expr root, Expr expr) {
+        if (!(root instanceof CompoundPredicate)) {
+            return false;
+        }
+        if (Expr.IS_OR_PREDICATE.apply(root)) {
+            return root.contains(expr);
+        }
+        for (Expr child : root.getChildren()) {
+            if (hasExprInDisjunction(child, expr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void extractExprWithSubquery(boolean inDisjunct, Expr expr,
             List<Expr> subqueryExprInConjunct, List<Expr> subqueryExprInDisjunct) {
         if (!(expr instanceof CompoundPredicate)) {
@@ -835,12 +854,23 @@ public class StmtRewriter {
                 if (markTuple != null) {
                     // replace
                     ExprSubstitutionMap markSmap = new ExprSubstitutionMap();
-                    markSmap.put(new SlotRef(markTuple.getSlots().get(0)), onClausePredicate);
+                    Expr slotRef = new SlotRef(markTuple.getSlots().get(0));
+                    // BitmapFilterPredicate participates in a disjunction , should not push to runtime filters
+                    // replace by BITMAP_CONTAINS function
+                    if (onClausePredicate instanceof BitmapFilterPredicate
+                            && hasExprInDisjunction(stmt.whereClause, slotRef)
+                    ) {
+                        LOG.debug("hasExprInDisjunction {} ", stmt.whereClause.toSql());
+                        markSmap.put(slotRef,
+                                createBitmapFunctionConjunct((BitmapFilterPredicate) onClausePredicate, analyzer));
+                    } else {
+                        markSmap.put(slotRef, onClausePredicate);
+                    }
                     stmt.whereClause.substitute(markSmap);
                     markTuple = null;
                 } else {
                     stmt.whereClause =
-                            CompoundPredicate.createConjunction(onClausePredicate, stmt.whereClause);
+                        CompoundPredicate.createConjunction(onClausePredicate, stmt.whereClause);
                 }
             }
 
@@ -1214,6 +1244,24 @@ public class StmtRewriter {
                 ((InPredicate) exprWithSubquery).isNotIn()) : new FunctionCallExpr(new FunctionName(BITMAP_CONTAINS),
                 Lists.newArrayList(bitmapSlotRef, exprWithSubquery.getChild(0)));
         pred.analyze(analyzer);
+        return pred;
+    }
+
+    /**
+     * create FunctionCallExpr from BitmapFilterPredicate
+     *
+     * @param bitmapFilterPredicate
+     * @return
+     */
+    private static Expr createBitmapFunctionConjunct(BitmapFilterPredicate bitmapFilterPredicate, Analyzer analyzer)
+            throws AnalysisException {
+        Expr pred = new FunctionCallExpr(new FunctionName(BITMAP_CONTAINS),
+                Lists.newArrayList(bitmapFilterPredicate.getChild(1), bitmapFilterPredicate.getChild(0)));
+        pred.analyze(analyzer);
+        if (bitmapFilterPredicate.isNotIn()) {
+            pred = pred.negate();
+            pred.analyze(analyzer);
+        }
         return pred;
     }
 
