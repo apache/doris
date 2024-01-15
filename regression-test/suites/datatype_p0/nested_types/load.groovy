@@ -17,7 +17,7 @@
 
 suite("load") {
     // ddl begin
-    sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
+
     sql """set enable_nereids_planner=false"""
     def dataFile = """test_scalar_types_100.csv"""
 

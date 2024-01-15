@@ -137,7 +137,7 @@ suite("test_nested_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_m}"
         sql "DROP TABLE IF EXISTS ${testTable_a}"
         sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'true')"
+
 
         // map
         test {
@@ -193,7 +193,7 @@ suite("test_nested_complex_switch", "query") {
         sql "DROP TABLE IF EXISTS ${testTable_m}"
         sql "DROP TABLE IF EXISTS ${testTable_a}"
         sql "DROP TABLE IF EXISTS ${testTable_s}"
-        sql "ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"
+
 
 
         // map
