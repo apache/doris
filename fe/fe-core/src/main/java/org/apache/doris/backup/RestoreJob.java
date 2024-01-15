@@ -361,7 +361,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     @Override
-    public void run() {
+    public synchronized void run() {
         if (state == RestoreJobState.FINISHED || state == RestoreJobState.CANCELLED) {
             return;
         }
