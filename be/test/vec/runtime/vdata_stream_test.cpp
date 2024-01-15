@@ -171,9 +171,8 @@ TEST_F(VDataStreamTest, BasicTest) {
     int num_senders = 1;
     RuntimeProfile profile("profile");
     bool is_merge = false;
-    std::shared_ptr<QueryStatisticsRecvr> statistics = std::make_shared<QueryStatisticsRecvr>();
     auto recv = _instance.create_recvr(&runtime_stat, row_desc, uid, nid, num_senders, &profile,
-                                       is_merge, statistics);
+                                       is_merge);
 
     // Test Sender
     int sender_id = 1;
@@ -194,10 +193,8 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, send_query_statistics_with_every_batch);
-    sender.set_query_statistics(std::make_shared<QueryStatistics>());
+                             dests);
     static_cast<void>(sender.init(tsink));
     static_cast<void>(sender.prepare(&runtime_stat));
     static_cast<void>(sender.open(&runtime_stat));

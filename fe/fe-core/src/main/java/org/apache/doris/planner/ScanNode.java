@@ -721,7 +721,7 @@ public abstract class ScanNode extends PlanNode {
     }
 
     public boolean ignoreStorageDataDistribution(ConnectContext context) {
-        return !isKeySearch() && context != null
+        return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.isHasNullAwareLeftAntiJoin()

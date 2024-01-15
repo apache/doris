@@ -203,8 +203,7 @@ class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalSt
 public:
     ExchangeSinkOperatorX(RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
                           const TDataStreamSink& sink,
-                          const std::vector<TPlanFragmentDestination>& destinations,
-                          bool send_query_statistics_with_every_batch);
+                          const std::vector<TPlanFragmentDestination>& destinations);
     Status init(const TDataSink& tsink) override;
 
     RuntimeState* state() { return _state; }
@@ -244,7 +243,6 @@ private:
     PBlock _pb_block2;
 
     const std::vector<TPlanFragmentDestination> _dests;
-    const bool _send_query_statistics_with_every_batch;
 
     std::unique_ptr<MemTracker> _mem_tracker;
     // Identifier of the destination plan node.

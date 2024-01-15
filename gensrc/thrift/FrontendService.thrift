@@ -406,6 +406,11 @@ struct TQueryStatistics {
     5: optional i64 max_peak_memory_bytes
 }
 
+struct TReportWorkloadRuntimeStatusParams {
+    1: optional i64 backend_id
+    2: map<string, TQueryStatistics> query_statistics_map
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -470,11 +475,17 @@ struct TReportExecStatusParams {
   23: optional list<TDetailedReportParams> detailed_report
 
   24: optional TQueryStatistics query_statistics
+
+  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
+
+    // For cloud
+    1000: optional string cloud_cluster
+    1001: optional bool noAuth
 }
 
 struct TMasterOpRequest {
@@ -554,6 +565,8 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
+    13: optional string auth_code_uuid
+    14: optional i64 table_id
 }
 
 struct TLoadTxnBeginResult {
@@ -657,6 +670,9 @@ struct TStreamLoadPutRequest {
     54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
+
+    // For cloud
+    1000: optional string cloud_cluster
 }
 
 struct TStreamLoadPutResult {
@@ -730,6 +746,7 @@ struct TLoadTxnCommitRequest {
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
+    17: optional string auth_code_uuid
 }
 
 struct TLoadTxnCommitResult {
@@ -807,6 +824,7 @@ struct TLoadTxnRollbackRequest {
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
+    14: optional string auth_code_uuid
 }
 
 struct TLoadTxnRollbackResult {

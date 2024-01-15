@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -54,7 +54,7 @@ Doris支持用户通过提交ANALYZE语句来手动触发统计信息的收集�
 语法：
 
 ```SQL
-ANALYZE < TABLE | DATABASE table_name | db_name > 
+ANALYZE < TABLE table_name | DATABASE db_name >
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
 ```
@@ -147,7 +147,7 @@ mysql> show analyze 245073\G;
             col_name: [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct]
             job_type: MANUAL
        analysis_type: FUNDAMENTALS
-             message: 
+             message:
 last_exec_time_in_ms: 2023-11-07 11:00:52
                state: FINISHED
             progress: 16 Finished  |  0 Failed  |  0 In Progress  |  16 Total
@@ -316,7 +316,7 @@ mysql> KILL ANALYZE 52357;
 |analyze_record_limit|控制统计信息作业执行记录的持久化行数|20000|
 |stats_cache_size| FE侧统计信息缓存条数 | 500000                        |
 | statistics_simultaneously_running_task_num |可同时执行的异步作业数量|3|
-| statistics_sql_mem_limit_in_bytes| 控制每个统计信息SQL可占用的BE内存| 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_sql_mem_limit_in_bytes| 控制每个统计信息SQL可占用的BE内存| `2L * 1024 * 1024 * 1024` (2GiB) |
 
 <br/>
 
@@ -328,7 +328,7 @@ mysql> KILL ANALYZE 52357;
 
 执行ANALYZE时统计数据会被写入到内部表`__internal_schema.column_statistics`中，FE会在执行ANALYZE前检查该表tablet状态，如果存在不可用的tablet则拒绝执行作业。出现该报错请检查BE集群状态。
 
-用户可通过`SHOW BACKENDS\G`，确定BE状态是否正常。如果BE状态正常，可使用命令`ADMIN SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]`，检查该库下tablet状态，确保tablet状态正常。
+用户可通过`SHOW BACKENDS\G`，确定BE状态是否正常。如果BE状态正常，可使用命令`SHOW REPLICA STATUS FROM __internal_schema.[tbl_in_this_db]`，检查该库下tablet状态，确保tablet状态正常。
 
 <br/>
 

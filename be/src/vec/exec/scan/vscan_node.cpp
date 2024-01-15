@@ -1332,6 +1332,9 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     if (scanners.empty()) {
         _eos = true;
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         _start_scanners(_scanners, query_parallel_instance_num);
     }

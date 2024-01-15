@@ -222,7 +222,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
+                Plan viewPlan = parseAndAnalyzeView(((View) table).getInlineViewDef(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
                 if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {

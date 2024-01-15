@@ -123,13 +123,12 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _segment_meta_mem_tracker(std::make_shared<MemTracker>(
                   "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
-          _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
-          _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
+          _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
+          _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
-          _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
@@ -141,7 +140,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     stop();
-    _clear();
 }
 
 Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -180,7 +178,7 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    auto dirs = get_stores<false>();
+    auto dirs = get_stores();
     RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
@@ -195,15 +193,13 @@ Status StorageEngine::_open() {
 }
 
 Status StorageEngine::_init_store_map() {
-    std::vector<DataDir*> tmp_stores;
     std::vector<std::thread> threads;
     SpinLock error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
-        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
-        tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
+        auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
+                                               path.storage_medium);
+        threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -214,28 +210,18 @@ Status StorageEngine::_init_store_map() {
                              << ", path=" << store->path();
             }
         });
+        _store_map.emplace(store->path(), std::move(store));
     }
     for (auto& thread : threads) {
         thread.join();
     }
 
+    // All store paths MUST init successfully
     if (!error_msg.empty()) {
-        for (auto store : tmp_stores) {
-            delete store;
-        }
         return Status::InternalError("init path failed, error={}", error_msg);
     }
 
-    for (auto store : tmp_stores) {
-        _store_map.emplace(store->path(), store);
-    }
-
-    std::string stream_load_record_path;
-    if (!tmp_stores.empty()) {
-        stream_load_record_path = tmp_stores[0]->path();
-    }
-
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(_options.store_paths[0].path),
                                    "init StreamLoadRecorder failed");
 
     return Status::OK();
@@ -295,28 +281,24 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     return Status::OK();
 }
 
-template <bool include_unused>
-std::vector<DataDir*> StorageEngine::get_stores() {
+std::vector<DataDir*> StorageEngine::get_stores(bool include_unused) {
     std::vector<DataDir*> stores;
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
-    if constexpr (include_unused) {
-        for (auto& it : _store_map) {
-            stores.push_back(it.second);
+    if (include_unused) {
+        for (auto&& [_, store] : _store_map) {
+            stores.push_back(store.get());
         }
     } else {
-        for (auto& it : _store_map) {
-            if (it.second->is_used()) {
-                stores.push_back(it.second);
+        for (auto&& [_, store] : _store_map) {
+            if (store->is_used()) {
+                stores.push_back(store.get());
             }
         }
     }
     return stores;
 }
-
-template std::vector<DataDir*> StorageEngine::get_stores<false>();
-template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
 Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                             bool need_update) {
@@ -453,12 +435,12 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+        for (auto&& [_, store] : _store_map) {
+            if (store->is_used()) {
                 if ((_available_storage_medium_type_count == 1 ||
-                     it.second->storage_medium() == storage_medium) &&
-                    !it.second->reach_capacity_limit(0)) {
-                    stores.push_back(it.second);
+                     store->storage_medium() == storage_medium) &&
+                    !store->reach_capacity_limit(0)) {
+                    stores.push_back(store.get());
                 }
             }
         }
@@ -496,7 +478,7 @@ DataDir* StorageEngine::get_store(const std::string& path) {
     if (it == _store_map.end()) {
         return nullptr;
     }
-    return it->second;
+    return it->second.get();
 }
 
 static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
@@ -602,15 +584,6 @@ void StorageEngine::stop() {
 
     _stopped = true;
     LOG(INFO) << "Storage engine is stopped.";
-}
-
-void StorageEngine::_clear() {
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& store_pair : _store_map) {
-        delete store_pair.second;
-        store_pair.second = nullptr;
-    }
-    _store_map.clear();
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {

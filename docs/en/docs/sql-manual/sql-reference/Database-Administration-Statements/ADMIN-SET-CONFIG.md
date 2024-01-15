@@ -33,7 +33,7 @@ ADMIN SET CONFIG
 ### Description
 
 This statement is used to set the configuration items of the cluster (currently only the configuration items of FE are supported).
-The settable configuration items can be viewed through the ADMIN SHOW FRONTEND CONFIG; command.
+The settable configuration items can be viewed through the SHOW FRONTEND CONFIG; command.
 
 grammar:
 

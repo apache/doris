@@ -125,6 +125,20 @@ suite("load_stream_fault_injection", "nonConcurrent") {
         }
     }
 
+    def load_with_injection2 = { injection1, injection2, error_msg->
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(injection1)
+            GetDebugPoint().enableDebugPointForAllBEs(injection2)
+            sql "insert into test select * from baseall where k1 <= 3"
+        } catch(Exception e) {
+            logger.info(e.getMessage())
+            assertTrue(e.getMessage().contains(error_msg))
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(injection1)
+            GetDebugPoint().disableDebugPointForAllBEs(injection2)
+        }
+    }
+
     // LoadStreamWriter create file failed
     load_with_injection("LocalFileSystem.create_file_impl.open_file_failed", "")
     // LoadStreamWriter append_data meet null file writer error
@@ -161,14 +175,10 @@ suite("load_stream_fault_injection", "nonConcurrent") {
     load_with_injection("LoadStream._dispatch.unknown_srcid", "")
 
     // LoadStream meets StreamRPC idle timeout
-    get_be_param("load_stream_idle_timeout_ms")
-    set_be_param("load_stream_idle_timeout_ms", 500)
     try {
-        load_with_injection("LoadStreamStub._send_with_retry.delay_before_send", "")
+        load_with_injection2("LoadStreamStub._send_with_retry.delay_before_send", "PInternalServiceImpl.open_load_stream.set_idle_timeout", "")
     } catch(Exception e) {
         logger.info(e.getMessage())
-    } finally {
-        reset_be_param("load_stream_idle_timeout_ms")
     }
 }
 

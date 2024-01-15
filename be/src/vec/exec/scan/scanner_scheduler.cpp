@@ -145,8 +145,6 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
         LOG(INFO) << "yyyy ctx is done, not submit" << ctx->debug_string();
         return Status::EndOfFile("ScannerContext is done");
     }
-    //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
-    //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
         LOG(INFO) << "yyyy put to queue failed, not submit" << ctx->debug_string();
@@ -218,6 +216,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -225,7 +225,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 this->_scanner_scan(this, ctx, scanner_ref);
             });
             if (s.ok()) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(s);
                 break;
@@ -235,6 +235,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -264,7 +266,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 ret = _remote_scan_thread_pool->offer(task);
             }
             if (ret) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(
                         Status::InternalError("failed to submit scanner to scanner pool"));

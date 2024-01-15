@@ -90,7 +90,7 @@ protected:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
+        _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
@@ -347,7 +347,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir.get()));
+        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir.get()));
         static_cast<void>(tablet->init());
         if (has_delete_handler) {
             // delete data with key < 1000

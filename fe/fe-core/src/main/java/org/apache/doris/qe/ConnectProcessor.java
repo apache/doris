@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -181,12 +180,6 @@ public abstract class ConnectProcessor {
         String convertedStmt = convertOriginStmt(originStmt);
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
-        ctx.getAuditEventBuilder().reset();
-        ctx.getAuditEventBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
-                .setSqlHash(ctx.getSqlHash());
 
         List<StatementBase> stmts = null;
         Exception nereidsParseException = null;
@@ -271,7 +264,8 @@ public abstract class ConnectProcessor {
                         break;
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
+                        true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
@@ -290,7 +284,7 @@ public abstract class ConnectProcessor {
     private String convertOriginStmt(String originStmt) {
         String convertedStmt = originStmt;
         @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
-        if (sqlDialect != null) {
+        if (sqlDialect != null && sqlDialect != Dialect.DORIS) {
             PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
             List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
             for (DialectConverterPlugin plugin : plugins) {

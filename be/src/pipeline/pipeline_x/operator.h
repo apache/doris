@@ -107,6 +107,8 @@ public:
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
+    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+
 protected:
     friend class OperatorXBase;
 
@@ -118,6 +120,8 @@ protected:
     // Record this node memory size. it is expected that artificial guarantees are accurate,
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -201,6 +205,8 @@ public:
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
+
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -401,7 +407,6 @@ public:
     RuntimeState* state() { return _state; }
     RuntimeProfile* profile() { return _profile; }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    QueryStatistics* query_statistics() { return _query_statistics.get(); }
     [[nodiscard]] RuntimeProfile* faker_runtime_profile() const {
         return _faker_runtime_profile.get();
     }
@@ -418,8 +423,6 @@ protected:
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker;
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
@@ -466,14 +469,16 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(ExchangeType type, int num_buckets) {
+    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+                                      const bool is_shuffled_hash_join) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+    [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
+                                                   LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -491,11 +496,13 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution required_data_distribution() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
+
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");

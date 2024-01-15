@@ -377,12 +377,14 @@ struct MethodKeysFixed : public MethodBase<TData> {
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     for (size_t i = 0; i < row_numbers; ++i) {
                         // make sure null cell is filled by 0x0
-                        memcpy_fixed<Fixed>((char*)(&result[i]) + offset,
-                                            nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
+                        memcpy_fixed<Fixed, true>(
+                                (char*)(&result[i]) + offset,
+                                nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
                     }
                 } else {
                     for (size_t i = 0; i < row_numbers; ++i) {
-                        memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * sizeof(Fixed));
+                        memcpy_fixed<Fixed, true>((char*)(&result[i]) + offset,
+                                                  data + i * sizeof(Fixed));
                     }
                 }
             };
@@ -474,7 +476,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), size);
                 for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<Fixed>(data + j * sizeof(Fixed), (char*)(&input_keys[j]) + pos);
+                    memcpy_fixed<Fixed, true>(data + j * sizeof(Fixed),
+                                              (char*)(&input_keys[j]) + pos);
                 }
             };
 

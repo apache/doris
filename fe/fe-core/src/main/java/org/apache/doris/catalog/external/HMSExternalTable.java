@@ -39,6 +39,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
+import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
@@ -46,6 +47,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -87,13 +89,22 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
     private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
-
+    private static final Map<StatsType, String> MAP_SPARK_STATS_TO_DORIS;
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
 
     private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private static final String NUM_ROWS = "numRows";
+
+    private static final String SPARK_COL_STATS = "spark.sql.statistics.colStats.";
+    private static final String SPARK_STATS_MAX = ".max";
+    private static final String SPARK_STATS_MIN = ".min";
+    private static final String SPARK_STATS_NDV = ".distinctCount";
+    private static final String SPARK_STATS_NULLS = ".nullCount";
+    private static final String SPARK_STATS_AVG_LEN = ".avgLen";
+    private static final String SPARK_STATS_MAX_LEN = ".avgLen";
+    private static final String SPARK_STATS_HISTOGRAM = ".histogram";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -113,6 +124,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.HoodieInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat");
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
+    }
+
+    static {
+        MAP_SPARK_STATS_TO_DORIS = Maps.newHashMap();
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.NDV, SPARK_STATS_NDV);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.AVG_SIZE, SPARK_STATS_AVG_LEN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MAX_SIZE, SPARK_STATS_MAX_LEN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.NUM_NULLS, SPARK_STATS_NULLS);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MIN_VALUE, SPARK_STATS_MIN);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.MAX_VALUE, SPARK_STATS_MAX);
+        MAP_SPARK_STATS_TO_DORIS.put(StatsType.HISTOGRAM, SPARK_STATS_HISTOGRAM);
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
@@ -268,11 +290,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public boolean isView() {
         makeSureInitialized();
         return remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText();
-    }
-
-    @Override
-    public String getMysqlType() {
-        return type.name();
     }
 
     @Override
@@ -546,6 +563,31 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             }
         }
         LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
+    }
+
+    public boolean hasColumnStatistics(String colName) {
+        Map<String, String> parameters = remoteTable.getParameters();
+        return parameters.keySet().stream()
+            .filter(k -> k.startsWith(SPARK_COL_STATS + colName + ".")).findAny().isPresent();
+    }
+
+    public boolean fillColumnStatistics(String colName, Map<StatsType, String> statsTypes, Map<String, String> stats) {
+        makeSureInitialized();
+        if (!hasColumnStatistics(colName)) {
+            return false;
+        }
+
+        Map<String, String> parameters = remoteTable.getParameters();
+        for (StatsType type : statsTypes.keySet()) {
+            String key = SPARK_COL_STATS + colName + MAP_SPARK_STATS_TO_DORIS.getOrDefault(type, "-");
+            if (parameters.containsKey(key)) {
+                stats.put(statsTypes.get(type), parameters.get(key));
+            } else {
+                // should not happen, spark would have all type (except histogram)
+                stats.put(statsTypes.get(type), "NULL");
+            }
+        }
+        return true;
     }
 
     @Override

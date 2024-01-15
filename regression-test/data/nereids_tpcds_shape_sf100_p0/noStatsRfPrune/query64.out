@@ -5,7 +5,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----PhysicalProject
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF19 cs_item_sk->[ss_item_sk]
+----------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = cs_ui.cs_item_sk)) otherCondition=() build RFs:RF19 cs_item_sk->[ss_item_sk,i_item_sk,sr_item_sk]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=()
 ----------------PhysicalProject
@@ -64,10 +64,10 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------filter((item.i_current_price <= 33.00) and (item.i_current_price >= 24.00) and i_color IN ('blanched', 'brown', 'burlywood', 'chocolate', 'drab', 'medium'))
---------------------------------------------------------PhysicalOlapScan[item]
+--------------------------------------------------------PhysicalOlapScan[item] apply RFs: RF9 RF19
 ------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[store_returns]
+----------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF19
 --------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[store]

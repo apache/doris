@@ -277,4 +277,16 @@ public class Utils {
         }
         return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
     }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

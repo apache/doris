@@ -191,9 +191,4 @@ public class AlterColumnStatsStmt extends DdlStmt {
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
     }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
-    }
 }

@@ -223,7 +223,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (req.query_statistics) {
         // use to report 'insert into select'
         TQueryStatistics queryStatistics;
-        DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
         params.__set_query_statistics(queryStatistics);
     }
@@ -678,6 +677,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             params.query_options.is_report_success) {
             query_ctx->query_mem_tracker->enable_print_log_usage();
         }
+
+        query_ctx->register_memory_statistics();
+        query_ctx->register_cpu_statistics();
 
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {

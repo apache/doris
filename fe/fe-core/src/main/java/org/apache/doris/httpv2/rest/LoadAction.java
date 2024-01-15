@@ -26,6 +26,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
@@ -104,21 +105,21 @@ public class LoadAction extends RestBaseController {
             return redirectToHttps(request);
         }
 
-        try {
-            executeCheckPassword(request, response);
-        } catch (UnauthorizedException unauthorizedException) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Check password failed, going to check auth token, request: {}", request.toString());
+        String authToken = request.getHeader("token");
+        // if auth token is not null, check it first
+        if (!Strings.isNullOrEmpty(authToken)) {
+            if (!checkClusterToken(authToken)) {
+                throw new UnauthorizedException("Invalid token: " + authToken);
             }
-
-            if (!checkClusterToken(request)) {
-                throw unauthorizedException;
-            } else {
-                return executeWithClusterToken(request, db, table, true);
+            return executeWithClusterToken(request, db, table, true);
+        } else {
+            try {
+                executeCheckPassword(request, response);
+                return executeWithoutPassword(request, response, db, table, true, groupCommit);
+            } finally {
+                ConnectContext.remove();
             }
         }
-
-        return executeWithoutPassword(request, response, db, table, true, groupCommit);
     }
 
     @RequestMapping(path = "/api/_http_stream",
@@ -333,7 +334,12 @@ public class LoadAction extends RestBaseController {
                 .setEnableRoundRobin(true)
                 .needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
-        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> backendIds;
+        if (groupCommit) {
+            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        } else {
+            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        }
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
@@ -358,18 +364,8 @@ public class LoadAction extends RestBaseController {
     // AuditlogPlugin should be re-disigned carefully, and blow method focuses on
     // temporarily addressing the users' needs for audit logs.
     // So this function is not widely tested under general scenario
-    private boolean checkClusterToken(HttpServletRequest request) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Checking cluser token, request {}", request.toString());
-        }
-
-        String authToken = request.getHeader("token");
-
-        if (Strings.isNullOrEmpty(authToken)) {
-            return false;
-        }
-
-        return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(authToken);
+    private boolean checkClusterToken(String token) {
+        return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.
@@ -383,6 +379,9 @@ public class LoadAction extends RestBaseController {
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setThreadLocalInfo();
             ctx.setRemoteIP(request.getRemoteAddr());
+            // set user to ADMIN_USER, so that we can get the proper resource tag
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setThreadLocalInfo();
 
             String dbName = db;
             String tableName = table;
@@ -439,8 +438,10 @@ public class LoadAction extends RestBaseController {
 
             return redirectView;
         } catch (Exception e) {
-            LOG.warn("Failed to execute stream load with cluster token, {}", e);
+            LOG.warn("Failed to execute stream load with cluster token, {}", e.getMessage(), e);
             return new RestBaseResult(e.getMessage());
+        } finally {
+            ConnectContext.remove();
         }
     }
 }
