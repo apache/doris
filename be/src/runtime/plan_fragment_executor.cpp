@@ -342,6 +342,9 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
 
             if (!eos || block->rows() > 0) {
+                LOG(INFO) << "query id: " << print_id(runtime_state()->query_id())
+                          << ", instance id: " << print_id(runtime_state()->fragment_instance_id())
+                          << ", block rows: " << block->rows();
                 st = _sink->send(runtime_state(), block.get());
                 if (st.is<END_OF_FILE>()) {
                     break;

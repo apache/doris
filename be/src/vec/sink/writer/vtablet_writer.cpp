@@ -1619,6 +1619,9 @@ void VTabletWriter::_generate_index_channels_payloads(
 Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
+    LOG(INFO) << "query id: " << print_id(_state->query_id())
+              << ", instance id: " << print_id(_state->fragment_instance_id())
+              << ", block rows: " << input_block.rows();
 
     if (_state->query_options().dry_run_query) {
         return status;
