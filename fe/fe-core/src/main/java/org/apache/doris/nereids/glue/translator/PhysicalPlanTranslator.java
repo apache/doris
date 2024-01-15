@@ -179,12 +179,12 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
@@ -367,8 +367,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(),
-                ConnectContext.get().getResultSinkType()));
+        TResultSinkType resultSinkType = context.getConnectContext() != null ? context.getConnectContext()
+                .getResultSinkType() : null;
+        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(), resultSinkType));
         return planFragment;
     }
 

@@ -2415,6 +2415,14 @@ public class Config extends ConfigBase {
     })
     public static int http_load_submitter_max_worker_threads = 2;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "The threshold of load labels' number. After this number is exceeded, "
+                    + "the labels of the completed import jobs or tasks will be deleted, "
+                    + "and the deleted labels can be reused."
+    })
+    public static int label_num_threshold = 2000;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

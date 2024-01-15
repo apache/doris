@@ -24,6 +24,14 @@
 
 namespace doris {
 
+void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
+    QueryStatistics tmp_qs;
+    for (auto& qs_ptr : _qs_list) {
+        tmp_qs.merge(*qs_ptr);
+    }
+    tmp_qs.to_thrift(tq_s);
+}
+
 void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
                                                          std::shared_ptr<QueryStatistics> qs_ptr,
                                                          TNetworkAddress fe_addr) {
@@ -31,7 +39,7 @@ void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
         _query_statistics_ctx_map[query_id] = std::make_unique<QueryStatisticsCtx>(fe_addr);
     }
-    _query_statistics_ctx_map.at(query_id)->qs_list.push_back(qs_ptr);
+    _query_statistics_ctx_map.at(query_id)->_qs_list.push_back(qs_ptr);
 }
 
 void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
@@ -44,24 +52,20 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
         int64_t current_time = MonotonicMillis();
         int64_t conf_qs_timeout = config::query_statistics_reserve_timeout_ms;
         for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
-            if (fe_qs_map.find(qs_ctx_ptr->fe_addr) == fe_qs_map.end()) {
+            if (fe_qs_map.find(qs_ctx_ptr->_fe_addr) == fe_qs_map.end()) {
                 std::map<std::string, TQueryStatistics> tmp_map;
-                fe_qs_map[qs_ctx_ptr->fe_addr] = std::move(tmp_map);
+                fe_qs_map[qs_ctx_ptr->_fe_addr] = std::move(tmp_map);
             }
 
-            QueryStatistics tmp_qs;
-            for (auto& qs_ptr : qs_ctx_ptr->qs_list) {
-                tmp_qs.merge(*qs_ptr);
-            }
             TQueryStatistics ret_t_qs;
-            tmp_qs.to_thrift(&ret_t_qs);
-            fe_qs_map.at(qs_ctx_ptr->fe_addr)[query_id] = ret_t_qs;
+            qs_ctx_ptr->collect_query_statistics(&ret_t_qs);
+            fe_qs_map.at(qs_ctx_ptr->_fe_addr)[query_id] = ret_t_qs;
 
-            bool is_query_finished = qs_ctx_ptr->is_query_finished;
+            bool is_query_finished = qs_ctx_ptr->_is_query_finished;
             bool is_timeout_after_finish = false;
             if (is_query_finished) {
                 is_timeout_after_finish =
-                        (current_time - qs_ctx_ptr->query_finish_time) > conf_qs_timeout;
+                        (current_time - qs_ctx_ptr->_query_finish_time) > conf_qs_timeout;
             }
             qs_status[query_id] = std::make_pair(is_query_finished, is_timeout_after_finish);
         }
@@ -149,8 +153,8 @@ void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
     // it may not register query statistics, so it can not be mark finish
     if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
         auto* qs_ptr = _query_statistics_ctx_map.at(query_id).get();
-        qs_ptr->is_query_finished = true;
-        qs_ptr->query_finish_time = MonotonicMillis();
+        qs_ptr->_is_query_finished = true;
+        qs_ptr->_query_finish_time = MonotonicMillis();
     }
 }
 
@@ -161,7 +165,7 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
         return nullptr;
     }
     std::shared_ptr<QueryStatistics> qs_ptr = std::make_shared<QueryStatistics>();
-    for (auto const& qs : _query_statistics_ctx_map[query_id]->qs_list) {
+    for (auto const& qs : _query_statistics_ctx_map[query_id]->_qs_list) {
         qs_ptr->merge(*qs);
     }
     return qs_ptr;
