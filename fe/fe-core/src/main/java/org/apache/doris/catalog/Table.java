@@ -120,7 +120,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
 
     @SerializedName(value = "constraints")
-    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
+    private Map<String, Constraint> constraintsMap = new HashMap<>();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
