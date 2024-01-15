@@ -649,6 +649,9 @@ struct TCondition {
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
     5:  optional bool marked_by_runtime_filter = false
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {

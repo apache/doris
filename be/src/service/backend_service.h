@@ -142,6 +142,22 @@ public:
     void query_ingest_binlog(TQueryIngestBinlogResult& result,
                              const TQueryIngestBinlogRequest& request) override;
 
+    void pre_cache_async(TPreCacheAsyncResponse& response,
+                         const TPreCacheAsyncRequest& request) override;
+
+    void check_pre_cache(TCheckPreCacheResponse& response,
+                         const TCheckPreCacheRequest& request) override;
+
+    // If another cluster load, FE need to notify the cluster to sync the load data
+    void sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                               const TSyncLoadForTabletsRequest& request) override;
+
+    void get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                  const TGetTopNHotPartitionsRequest& request) override;
+
+    void warm_up_tablets(TWarmUpTabletsResponse& response,
+                         const TWarmUpTabletsRequest& request) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env = nullptr;
