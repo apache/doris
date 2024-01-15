@@ -16,55 +16,73 @@
 // under the License.
 #pragma once
 
-#include "cloud/meta_mgr.h"
-#include "olap/rowset/rowset_meta.h"
+#include <memory>
+#include <string>
+#include <tuple>
+#include <vector>
 
-namespace doris::cloud {
+#include "common/status.h"
+#include "olap/rowset/rowset_meta.h"
+#include "util/s3_util.h"
+
+namespace doris {
+
+class DeleteBitmap;
+class StreamLoadContext;
+class Tablet;
+class TabletMeta;
+class TabletSchema;
+class RowsetMeta;
+
+namespace cloud {
+
+class FinishTabletJobResponse;
+class StartTabletJobResponse;
+class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
-class CloudMetaMgr final : public MetaMgr {
+class CloudMetaMgr {
 public:
     CloudMetaMgr() = default;
-    ~CloudMetaMgr() override = default;
+    ~CloudMetaMgr() = default;
     CloudMetaMgr(const CloudMetaMgr&) = delete;
     CloudMetaMgr& operator=(const CloudMetaMgr&) = delete;
 
-    Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta) override;
+    Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status sync_tablet_rowsets(Tablet* tablet, bool warmup_delta_data = false) override;
+    Status sync_tablet_rowsets(Tablet* tablet, bool warmup_delta_data = false);
 
-    Status prepare_rowset(const RowsetMeta* rs_meta, bool is_tmp,
-                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr) override;
+    Status prepare_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta* rs_meta, bool is_tmp,
-                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr) override;
+    Status commit_rowset(const RowsetMeta& rs_meta, bool is_tmp,
+                         std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status update_tmp_rowset(const RowsetMeta& rs_meta) override;
+    Status update_tmp_rowset(const RowsetMeta& rs_meta);
 
-    Status commit_txn(StreamLoadContext* ctx, bool is_2pc) override;
+    Status commit_txn(const StreamLoadContext& ctx, bool is_2pc);
 
-    Status abort_txn(StreamLoadContext* ctx) override;
+    Status abort_txn(const StreamLoadContext& ctx);
 
-    Status precommit_txn(StreamLoadContext* ctx) override;
+    Status precommit_txn(const StreamLoadContext& ctx);
 
-    Status get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos) override;
+    Status get_s3_info(std::vector<std::tuple<std::string, S3Conf>>* s3_infos);
 
-    Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res) override;
+    Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
-    Status commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res) override;
+    Status commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res);
 
-    Status abort_tablet_job(const TabletJobInfoPB& job) override;
+    Status abort_tablet_job(const TabletJobInfoPB& job);
 
-    Status lease_tablet_job(const TabletJobInfoPB& job) override;
+    Status lease_tablet_job(const TabletJobInfoPB& job);
 
-    Status update_tablet_schema(int64_t tablet_id, const TabletSchema* tablet_schema) override;
+    Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
 
     Status update_delete_bitmap(const Tablet* tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap) override;
+                                DeleteBitmap* delete_bitmap);
 
-    Status get_delete_bitmap_update_lock(const Tablet* tablet, int64_t lock_id,
-                                         int64_t initiator) override;
+    Status get_delete_bitmap_update_lock(const Tablet* tablet, int64_t lock_id, int64_t initiator);
 
 private:
     Status sync_tablet_delete_bitmap(
@@ -73,4 +91,5 @@ private:
             const TabletStatsPB& stas, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
 };
 
-} // namespace doris::cloud
+} // namespace cloud
+} // namespace doris
