@@ -625,6 +625,10 @@ public class Env {
         private static final Env INSTANCE = EnvFactory.createEnv(false);
     }
 
+    private Env() {
+        this(false);
+    }
+
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
     public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
