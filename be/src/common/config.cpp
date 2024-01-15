@@ -178,6 +178,9 @@ DEFINE_Int32(download_worker_count, "1");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// report random wait a little time to avoid FE receiving multiple be reports at the same time.
+// do not set it to false for production environment
+DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for refresh storage policy from FE
@@ -192,8 +195,6 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
-// sleep time for one second
-DEFINE_Int32(sleep_one_second, "1");
 
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -1060,6 +1061,7 @@ DEFINE_Bool(enable_feature_binlog, "false");
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
@@ -1068,7 +1070,8 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");

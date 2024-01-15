@@ -110,6 +110,10 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
+    DataDistribution required_data_distribution() const override {
+        return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
+    }
 };
 
 } // namespace pipeline

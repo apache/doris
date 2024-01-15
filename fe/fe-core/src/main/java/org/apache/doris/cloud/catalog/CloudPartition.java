@@ -385,12 +385,11 @@ public class CloudPartition extends Partition {
         return null;
     }
 
-    public static CloudPartition read(DataInput in) throws IOException {
-        CloudPartition partition = new CloudPartition();
-        partition.readFields(in);
-        partition.setDbId(in.readLong());
-        partition.setTableId(in.readLong());
-        return partition;
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        this.dbId = in.readLong();
+        this.tableId = in.readLong();
     }
 
     @Override

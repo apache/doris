@@ -1370,16 +1370,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
 
-<version since="1.2">
-
-#### `jvm_max_heap_size`
-
-* 类型：string
-* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数
-* 默认值：1024M
-
-</version>
-
 ### 日志
 
 #### `sys_log_dir`
