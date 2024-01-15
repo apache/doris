@@ -33,6 +33,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -88,7 +90,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String DEFAULT_EXPR_NAME = "expr";
 
     protected boolean disableTableName = false;
-    protected boolean needToMysql = false;
+    protected boolean needExternalSql = false;
+    protected TableType tableType = null;
+    protected TableIf inputTable = null;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -973,10 +977,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public void setNeedToMysql(boolean value) {
-        needToMysql = value;
+    public void setExternalContext(boolean needExternalSql, TableType tableType, TableIf inputTable) {
+        this.needExternalSql = needExternalSql;
+        this.tableType = tableType;
+        this.inputTable = inputTable;
+
         for (Expr child : children) {
-            child.setNeedToMysql(value);
+            child.setExternalContext(needExternalSql, tableType, inputTable);
         }
     }
 
@@ -1006,10 +1013,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return toSqlImpl();
     }
 
-    public String toMySql() {
-        setNeedToMysql(true);
-        String result =  toSql();
-        setNeedToMysql(false);
+    public String toExternalSql(TableType tableType, TableIf table) {
+        setExternalContext(true, tableType, table);
+        String result = toSql();
+        setExternalContext(false, null, null);
         return result;
     }
 
