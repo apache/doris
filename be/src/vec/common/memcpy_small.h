@@ -97,10 +97,14 @@ void memcpy_fixed(char* lhs, const char* rhs) {
 inline void memcpy_small(char* lhs, const char* rhs, size_t n) {
     while (n >= 4) {
         memcpy_fixed<uint32_t>(lhs, rhs);
-        n -= 8;
+        lhs += 4;
+        rhs += 4;
+        n -= 4;
     }
     while (n >= 1) {
         memcpy_fixed<uint8_t>(lhs, rhs);
+        lhs++;
+        rhs++;
         n--;
     }
 }
