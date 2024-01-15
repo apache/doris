@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerateUniq;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
@@ -445,6 +447,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayDifference.class, "array_difference"),
             scalar(ArrayDistinct.class, "array_distinct"),
             scalar(ArrayEnumerate.class, "array_enumerate"),
+            scalar(ArrayEnumerateUniq.class, "array_enumerate_uniq"),
             scalar(ArrayExcept.class, "array_except"),
             scalar(ArrayExists.class, "array_exists"),
             scalar(ArrayFilter.class, "array_filter"),
@@ -470,6 +473,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArraySlice.class, "array_slice"),
             scalar(ArraySort.class, "array_sort"),
             scalar(ArraySortBy.class, "array_sortby"),
+            scalar(ArrayShuffle.class, "array_shuffle", "shuffle"),
             scalar(ArraySum.class, "array_sum"),
             scalar(ArrayUnion.class, "array_union"),
             scalar(ArrayWithConstant.class, "array_with_constant"),
