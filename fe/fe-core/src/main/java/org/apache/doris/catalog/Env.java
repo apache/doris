@@ -3240,15 +3240,13 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            if (Config.isCloudMode()) {
-                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
-                sb.append(olapTable.getTTLSeconds()).append("\"");
-            }
-
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
 
             // replicationNum
-            if (!Config.isNotCloudMode()) {
+            if (Config.isCloudMode()) {
+                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTTLSeconds()).append("\"");
+            } else {
                 sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
                 sb.append(replicaAlloc.toCreateStmt()).append("\"");
 

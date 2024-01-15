@@ -2435,7 +2435,7 @@ public class Config extends ConfigBase {
     }
 
     public static boolean isNotCloudMode() {
-        return !isCloudMode();
+        return cloud_unique_id.isEmpty();
     }
 
     /**
