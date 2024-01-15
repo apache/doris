@@ -29,7 +29,7 @@ under the License.
 ### Description
 
 VARIANT Type
-Introduced a new data type VARIANT in Doris 2.1, which can store semi-structured JSON data. It allows storing complex data structures containing different data types (such as integers, strings, boolean values, etc.) without the need to define specific columns in the table structure beforehand. The VARIANT type is particularly useful for handling complex nested structures that may change at any time. During the writing process, this type can automatically infer column information based on the structure and types of the columns, merging them into the existing Schema of the table. It stores JSON keys and their corresponding values as columns and dynamic sub-columns.
+Introduced a new data type VARIANT in Doris 2.1, which can store semi-structured JSON data. It allows storing complex data structures containing different data types (such as integers, strings, boolean values, etc.) without the need to define specific columns in the table structure beforehand. The VARIANT type is particularly useful for handling complex nested structures that may change at any time. During the writing process, this type can automatically infer column information based on the structure and types of the columns, dynamicly merge written schemas. It stores JSON keys and their corresponding values as columns and dynamic sub-columns.
 
 ### Note
 
@@ -53,6 +53,7 @@ Below are test results based on clickbench data:
 | Second Query (hot) | 86.02s                     | 94.82s          | 789.24s         |
 | Third Query (hot)   | 83.03s                     | 92.29s          | 743.69s         |
 
+[test case](https://github.com/ClickHouse/ClickBench/blob/main/doris/queries.sql) contains 43 queries 
 
 **8x faster query, query performance comparable to static columns**
 
@@ -240,6 +241,21 @@ mysql> desc github_events;
 ....
 +------------------------------------------------------------+------------+------+-------+---------+-------+
 406 rows in set (0.07 sec)
+
+mysql> set describe_extend_variant_column = false;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> desc github_events;
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| Field                                                      | Type       | Null | Key   | Default | Extra |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| id                                                         | BIGINT     | No   | true  | NULL    |       |
+| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
+| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
+| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
+| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
++------------------------------------------------------------+------------+------+-------+---------+-------+
 ```
 DESC can be used to specify partition and view the schema of a particular partition. The syntax is as follows:
 
@@ -262,13 +278,13 @@ The following are three typical query scenarios
 
 ``` sql
 mysql> SELECT
-    ->     cast(repo["name"] as text), count() AS stars
+    ->     cast(repo["name"] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
-    -> GROUP BY cast(repo["name"] as text)
+    -> GROUP BY 
     -> ORDER BY stars DESC LIMIT 5;
 +--------------------------+-------+
-| CAST(`repo` AS TEXT)     | stars |
+| repo_name                | stars |
 +--------------------------+-------+
 | aplus-framework/app      |    78 |
 | lensterxyz/lenster       |    77 |
@@ -297,7 +313,7 @@ mysql> SELECT
 
 ``` sql
 mysql> SELECT 
-    ->   cast(repo["name"] as string), 
+    ->   cast(repo["name"] as string) as repo_name, 
     ->   cast(payload["issue"]["number"] as int) as issue_number, 
     ->   count() AS comments, 
     ->   count(
@@ -305,12 +321,12 @@ mysql> SELECT
     ->   ) AS authors 
     -> FROM  github_events 
     -> WHERE type = 'IssueCommentEvent' AND (cast(payload["action"] as string) = 'created') AND (cast(payload["issue"]["number"] as int) > 10) 
-    -> GROUP BY cast(repo["name"] as string), issue_number 
+    -> GROUP BY repo_name, issue_number 
     -> HAVING authors >= 4
-    -> ORDER BY comments DESC, cast(repo["name"] as string) 
+    -> ORDER BY comments DESC, repo_name 
     -> LIMIT 50;
 +--------------------------------------+--------------+----------+---------+
-| CAST(`repo` AS TEXT)                 | issue_number | comments | authors |
+| repo_name                            | issue_number | comments | authors |
 +--------------------------------------+--------------+----------+---------+
 | facebook/react-native                |        35228 |        5 |       4 |
 | swsnu/swppfall2022-team4             |           27 |        5 |       4 |
@@ -326,12 +342,17 @@ Dynamic columns of VARIANT are nearly as efficient as predefined static columns.
 
 Ensure consistency in types whenever possible. Doris automatically performs compatible type conversions. When a field cannot undergo compatible type conversion, it is uniformly converted to JSONB type. The performance of JSONB columns may degrade compared to columns like int or text.
 
+1. tinyint->smallint->int->bigint
+2. float->double
+3. text
+4. JSON
+
 **Other limitations include:**
 
 - Aggregate models are currently not supported.
 - VARIANT columns can only create inverted indexes.
 - Using the **RANDOM** mode is recommended for higher write performance.
-- Non-standard JSON types such as date and decimal should ideally use static types for better performance.
+- Non-standard JSON types such as date and decimal should ideally use static types for better performance, since these types are infered to text type.
 - Arrays with dimensions of 2 or higher will be stored as JSONB encoding, which might perform less efficiently than native arrays.
 - Not supported as primary or sort keys.
 - Queries with filters or aggregations require casting. The storage layer eliminates cast operations based on storage type and the target type of the cast, speeding up queries. 

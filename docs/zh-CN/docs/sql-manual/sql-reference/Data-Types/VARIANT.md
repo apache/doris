@@ -29,14 +29,14 @@ under the License.
 ### Description
 
 VARIANT类型
-在 Doris 2.1 中引入一种新的数据类型 VARIANT，它可以存储半结构化 JSON 数据。它允许存储包含不同数据类型（如整数、字符串、布尔值等）的复杂数据结构，而无需在表结构中提前定义具体的列。VARIANT 类型特别适用于处理复杂的嵌套结构，而这些结构可能随时会发生变化。在写入过程中，该类型可以自动根据列的结构、类型推断列信息，并将其合并到现有表的 Schema 中。通过将 JSON 键及其对应的值存储为列和动态子列。
+在 Doris 2.1 中引入一种新的数据类型 VARIANT，它可以存储半结构化 JSON 数据。它允许存储包含不同数据类型（如整数、字符串、布尔值等）的复杂数据结构，而无需在表结构中提前定义具体的列。VARIANT 类型特别适用于处理复杂的嵌套结构，而这些结构可能随时会发生变化。在写入过程中，该类型可以自动根据列的结构、类型推断列信息，动态合并写入的 schema，并通过将 JSON 键及其对应的值存储为列和动态子列。
 
 ### Note
 
 相比 JSON 类型有有以下优势:
 
-1. 存储方式不同， JSON 类型是以二进制 JSONB 格式进行存储，整行 JSON 以行存的形式存储到 segment 文件中。而 VARIANT 类型在写入的时候进行类型推断，将写入的 JSON 列存化。比JSON类型有更高的压缩比， 存储空间更好。
-2. 查询方式同步，查询不需要进行解析。VARIANT 充分利用 Doris 中列式存储、向量化引擎、优化器等组件给用户带来极高的查询性能。
+1. 存储方式不同， JSON 类型是以二进制 JSONB 格式进行存储，整行 JSON 以行存的形式存储到 segment 文件中。而 VARIANT 类型在写入的时候进行类型推断，将写入的 JSON 列存化。比JSON类型有更高的压缩比， 存储空间更小。
+2. 查询方式不同，查询不需要进行解析。VARIANT 充分利用 Doris 中列式存储、向量化引擎、优化器等组件给用户带来极高的查询性能。
 下面是基于 clickbench 数据测试的结果：
 
 |    | 存储空间   |
@@ -54,6 +54,8 @@ VARIANT类型
 | 第一次查询 (cold) | 233.79s      | 248.66s      | **大部分查询超时**  |
 | 第二次查询 (hot)  | 86.02s       | 94.82s       | 789.24s         |
 | 第三次查询 (hot)  | 83.03s       | 92.29s       | 743.69s         |
+
+[测试集](https://github.com/ClickHouse/ClickBench/blob/main/doris/queries.sql) 一共43个查询语句
 
 **查询提速 8+倍， 查询性能与静态列相当**
 
@@ -243,6 +245,22 @@ mysql> desc github_events;
 ....
 +------------------------------------------------------------+------------+------+-------+---------+-------+
 406 rows in set (0.07 sec)
+
+mysql> set describe_extend_variant_column = false;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> desc github_events;
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| Field                                                      | Type       | Null | Key   | Default | Extra |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+| id                                                         | BIGINT     | No   | true  | NULL    |       |
+| type                                                       | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+| actor                                                      | VARIANT    | Yes  | false | NULL    | NONE  |
+| created_at                                                 | DATETIME   | Yes  | false | NULL    | NONE  |
+| payload                                                    | VARIANT    | Yes  | false | NULL    | NONE  |
+| public                                                     | BOOLEAN    | Yes  | false | NULL    | NONE  |
++------------------------------------------------------------+------------+------+-------+---------+-------+
+6 rows in set (0.07 sec)
 ```
 
 desc 可以指定 partition 查看某个 partition 的 schema， 语法如下
@@ -268,13 +286,13 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 ``` sql
 mysql> SELECT
-    ->     cast(repo["name"] as text), count() AS stars
+    ->     cast(repo["name"] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
-    -> GROUP BY cast(repo["name"] as text)
+    -> GROUP BY stars 
     -> ORDER BY stars DESC LIMIT 5;
 +--------------------------+-------+
-| CAST(`repo` AS TEXT)     | stars |
+| repo_name                | stars |
 +--------------------------+-------+
 | aplus-framework/app      |    78 |
 | lensterxyz/lenster       |    77 |
@@ -303,7 +321,7 @@ mysql> SELECT
 
 ``` sql
 mysql> SELECT 
-    ->   cast(repo["name"] as string), 
+    ->   cast(repo["name"] as string) as repo_name, 
     ->   cast(payload["issue"]["number"] as int) as issue_number, 
     ->   count() AS comments, 
     ->   count(
@@ -311,12 +329,12 @@ mysql> SELECT
     ->   ) AS authors 
     -> FROM  github_events 
     -> WHERE type = 'IssueCommentEvent' AND (cast(payload["action"] as string) = 'created') AND (cast(payload["issue"]["number"] as int) > 10) 
-    -> GROUP BY cast(repo["name"] as string), issue_number 
+    -> GROUP BY repo_name, issue_number 
     -> HAVING authors >= 4
-    -> ORDER BY comments DESC, cast(repo["name"] as string) 
+    -> ORDER BY comments DESC, repo_name 
     -> LIMIT 50;
 +--------------------------------------+--------------+----------+---------+
-| CAST(`repo` AS TEXT)                 | issue_number | comments | authors |
+| repo_name                            | issue_number | comments | authors |
 +--------------------------------------+--------------+----------+---------+
 | facebook/react-native                |        35228 |        5 |       4 |
 | swsnu/swppfall2022-team4             |           27 |        5 |       4 |
@@ -332,12 +350,17 @@ VARIANT 动态列与预定义静态列几乎一样高效。处理诸如日志之
 
 尽可能保证类型一致， Doris 会自动进行如下兼容类型转换，当字段无法进行兼容类型转换时会统一转换成 JSONB 类型。JSONB 列的性能与 int、text 等列性能会有所退化。
 
+1. tinyint->smallint->int->bigint
+2. float->double
+3. text
+4. JSON
+
 其它限制如下：
 
 - 目前不支持 Aggregate 模型
 - VARIANT 列只能创建倒排索引
 - **推荐使用 RANDOM 模式， 写入性能更高效**
-- 日期、decimal 等非标准 JSON 类型尽可能用静态类型，性能更好
+- 日期、decimal 等非标准 JSON 类型会被默认推断成字符串类型，所以尽可能用静态类型，性能更好
 - 2 维及其以上的数组列存化会被存成 JSONB 编码，性能不如原生数组
 - 不支持作为主键或者排序键
 - 查询过滤、聚合需要带 cast， 存储层会根据存储类型和 cast 目标类型来消除 cast 操作，加速查询。
