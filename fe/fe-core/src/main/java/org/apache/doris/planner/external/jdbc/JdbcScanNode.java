@@ -311,7 +311,10 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         if (containsFunctionCallExpr(expr)) {
-            if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)) {
+            if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
+                    || tableType.equals(TOdbcTableType.ORACLE)
+                    || tableType.equals(TOdbcTableType.OCEANBASE) || tableType.equals(
+                    TOdbcTableType.OCEANBASE_ORACLE)) {
                 return Config.enable_func_pushdown;
             } else {
                 return false;
