@@ -123,8 +123,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
                     << it.first << " : " << it.second << " " << _num_partitions;
-            size_t start = local_state._partition_rows_histogram[it.second];
-            size_t size = local_state._partition_rows_histogram[it.second + 1] - start;
+            size_t start = local_state._partition_rows_histogram[it.first];
+            size_t size = local_state._partition_rows_histogram[it.first + 1] - start;
             if (size > 0) {
                 local_state._shared_state->add_mem_usage(
                         it.second, new_block_wrapper->data_block.allocated_bytes(), false);
