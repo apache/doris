@@ -165,6 +165,8 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
+    private long maxFinalTxnsNum = Long.MAX_VALUE;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -188,6 +190,9 @@ public class DatabaseTransactionMgr {
         this.env = env;
         this.idGenerator = idGenerator;
         this.editLog = env.getEditLog();
+        if (Config.label_num_threshold >= 0) {
+            this.maxFinalTxnsNum = Config.label_num_threshold;
+        }
     }
 
     public long getDbId() {
@@ -1534,13 +1539,13 @@ public class DatabaseTransactionMgr {
         return partitionInfos;
     }
 
-    public void removeExpiredTxns(long currentMillis) {
+    public void removeUselessTxns(long currentMillis) {
         // delete expired txns
         writeLock();
         try {
-            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveExpiredTxns(currentMillis,
+            Pair<Long, Integer> expiredTxnsInfoForShort = unprotectedRemoveUselessTxns(currentMillis,
                     finalStatusTransactionStateDequeShort, MAX_REMOVE_TXN_PER_ROUND);
-            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveExpiredTxns(currentMillis,
+            Pair<Long, Integer> expiredTxnsInfoForLong = unprotectedRemoveUselessTxns(currentMillis,
                     finalStatusTransactionStateDequeLong,
                     MAX_REMOVE_TXN_PER_ROUND - expiredTxnsInfoForShort.second);
             int numOfClearedTransaction = expiredTxnsInfoForShort.second + expiredTxnsInfoForLong.second;
@@ -1557,13 +1562,25 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private Pair<Long, Integer> unprotectedRemoveExpiredTxns(long currentMillis,
+    private Pair<Long, Integer> unprotectedRemoveUselessTxns(long currentMillis,
             ArrayDeque<TransactionState> finalStatusTransactionStateDeque, int left) {
         long latestTxnId = -1;
         int numOfClearedTransaction = 0;
         while (!finalStatusTransactionStateDeque.isEmpty() && numOfClearedTransaction < left) {
             TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
             if (transactionState.isExpired(currentMillis)) {
+                finalStatusTransactionStateDeque.pop();
+                clearTransactionState(transactionState.getTransactionId());
+                latestTxnId = transactionState.getTransactionId();
+                numOfClearedTransaction++;
+            } else {
+                break;
+            }
+        }
+        while (finalStatusTransactionStateDeque.size() > maxFinalTxnsNum
+                && numOfClearedTransaction < left) {
+            TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
+            if (transactionState.getFinishTime() != -1) {
                 finalStatusTransactionStateDeque.pop();
                 clearTransactionState(transactionState.getTransactionId());
                 latestTxnId = transactionState.getTransactionId();
@@ -1922,7 +1939,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredAndTimeoutTxns(long currentMillis) {
-        removeExpiredTxns(currentMillis);
+        removeUselessTxns(currentMillis);
         List<Long> timeoutTxns = getTimeoutTxns(currentMillis);
         // abort timeout txns
         for (Long txnId : timeoutTxns) {

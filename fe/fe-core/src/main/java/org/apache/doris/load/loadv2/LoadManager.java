@@ -66,8 +66,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -78,6 +81,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -404,26 +408,59 @@ public class LoadManager implements Writable {
      **/
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
+        removeLoadJobIf(job -> job.isExpired(currentTimeMs));
+    }
 
+    /**
+     * Remove completed jobs if total job num exceed Config.label_num_threshold
+     */
+    public void removeOverLimitLoadJob() {
+        if (Config.label_num_threshold < 0 || idToLoadJob.size() <= Config.label_num_threshold) {
+            return;
+        }
+        writeLock();
+        try {
+            Deque<LoadJob> finishedJobs = idToLoadJob
+                    .values()
+                    .stream()
+                    .filter(LoadJob::isCompleted)
+                    .sorted(Comparator.comparingLong(o -> o.finishTimestamp))
+                    .collect(Collectors.toCollection(ArrayDeque::new));
+            while (!finishedJobs.isEmpty()
+                    && idToLoadJob.size() > Config.label_num_threshold) {
+                LoadJob loadJob = finishedJobs.pollFirst();
+                idToLoadJob.remove(loadJob.getId());
+                jobRemovedTrigger(loadJob);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void jobRemovedTrigger(LoadJob job) {
+        Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+        List<LoadJob> list = map.get(job.getLabel());
+        list.remove(job);
+        if (job instanceof SparkLoadJob) {
+            ((SparkLoadJob) job).clearSparkLauncherLog();
+        }
+        if (list.isEmpty()) {
+            map.remove(job.getLabel());
+        }
+        if (map.isEmpty()) {
+            dbIdToLabelToLoadJobs.remove(job.getDbId());
+        }
+    }
+
+    private void removeLoadJobIf(Predicate<LoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
             while (iter.hasNext()) {
                 LoadJob job = iter.next().getValue();
-                if (job.isExpired(currentTimeMs)) {
+                if (pred.test(job)) {
                     iter.remove();
-                    Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
-                    List<LoadJob> list = map.get(job.getLabel());
-                    list.remove(job);
-                    if (job instanceof SparkLoadJob) {
-                        ((SparkLoadJob) job).clearSparkLauncherLog();
-                    }
-                    if (list.isEmpty()) {
-                        map.remove(job.getLabel());
-                    }
-                    if (map.isEmpty()) {
-                        dbIdToLabelToLoadJobs.remove(job.getDbId());
-                    }
+                    jobRemovedTrigger(job);
                 }
             }
         } finally {
@@ -510,8 +547,8 @@ public class LoadManager implements Writable {
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
      * @param statesValue used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
-     * JobInfo is a list which includes the comparable object: jobId, label, state etc.
-     * The result is unordered.
+     *         JobInfo is a list which includes the comparable object: jobId, label, state etc.
+     *         The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
             Set<String> statesValue) throws AnalysisException {
