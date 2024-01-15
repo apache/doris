@@ -84,7 +84,10 @@ public:
     // Add the IO thread task process block() to thread pool to dispose the IO
     void start_writer(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_writer_status() { return _writer_status; }
+    Status get_writer_status() {
+        std::lock_guard l(_m);
+        return _writer_status;
+    }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
