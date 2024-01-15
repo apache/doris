@@ -23,7 +23,9 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -168,13 +170,14 @@ public class Tablet extends MetaObject implements Writable {
         }
     }
 
-    private boolean deleteRedundantReplica(long backendId, long version) {
+    private boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
         boolean delete = false;
         boolean hasBackend = false;
         Iterator<Replica> iterator = replicas.iterator();
+        long version = newReplica.getVersion();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
-            if (replica.getBackendId() == backendId) {
+            if (Config.isCloudMode() || replica.getBackendId() == newReplica.getBackendId()) {
                 hasBackend = true;
                 if (replica.getVersion() <= version) {
                     iterator.remove();
@@ -187,7 +190,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public void addReplica(Replica replica, boolean isRestore) {
-        if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
+        if (isLatestReplicaAndDeleteOld(replica)) {
             replicas.add(replica);
             if (!isRestore) {
                 Env.getCurrentInvertedIndex().addReplica(id, replica);
@@ -212,16 +215,22 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public List<Long> getNormalReplicaBackendIds() {
-        return Lists.newArrayList(getNormalReplicaBackendPathMap().keySet());
+        try {
+            return Lists.newArrayList(getNormalReplicaBackendPathMap().keySet());
+        } catch (Exception e) {
+            LOG.warn("failed to getNormalReplicaBackendIds", e);
+            return Lists.newArrayList();
+        }
     }
 
     // return map of (BE id -> path hash) of normal replicas
     // for load plan.
-    public Multimap<Long, Long> getNormalReplicaBackendPathMap() {
+    public Multimap<Long, Long> getNormalReplicaBackendPathMap() throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
-            if (!infoService.checkBackendAlive(replica.getBackendId())) {
+            long backendId = replica.getBackendId();
+            if (!infoService.checkBackendAlive(backendId)) {
                 continue;
             }
 
@@ -229,10 +238,15 @@ public class Tablet extends MetaObject implements Writable {
                 continue;
             }
 
+            if (backendId == -1 && Config.isCloudMode()) {
+                throw new UserException(InternalErrorCode.META_NOT_FOUND_ERR,
+                        SystemInfoService.NOT_USING_VALID_CLUSTER_MSG);
+            }
+
             ReplicaState state = replica.getState();
             if (state.canLoad()
                     || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
-                map.put(replica.getBackendId(), replica.getPathHash());
+                map.put(backendId, replica.getPathHash());
             }
         }
         return map;
@@ -306,7 +320,7 @@ public class Tablet extends MetaObject implements Writable {
 
     public Replica getReplicaByBackendId(long backendId) {
         for (Replica replica : replicas) {
-            if (replica.getBackendId() == backendId) {
+            if (Config.isCloudMode() || replica.getBackendId() == backendId) {
                 return replica;
             }
         }
@@ -383,7 +397,7 @@ public class Tablet extends MetaObject implements Writable {
         int replicaCount = in.readInt();
         for (int i = 0; i < replicaCount; ++i) {
             Replica replica = Replica.read(in);
-            if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
+            if (isLatestReplicaAndDeleteOld(replica)) {
                 replicas.add(replica);
             }
         }

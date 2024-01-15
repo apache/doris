@@ -32,11 +32,16 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -630,6 +635,144 @@ public class Column implements Writable, GsonPostProcessable {
         }
     }
 
+    // SELECTDB_CODE_BEGIN
+    public int getFieldLengthByType(TPrimitiveType type, int stringLength) throws DdlException {
+        switch (type) {
+            case TINYINT:
+            case BOOLEAN:
+                return 1;
+            case SMALLINT:
+                return 2;
+            case INT:
+                return 4;
+            case BIGINT:
+                return 8;
+            case LARGEINT:
+                return 16;
+            case DATE:
+                return 3;
+            case DATEV2:
+                return 4;
+            case DATETIME:
+                return 8;
+            case DATETIMEV2:
+                return 8;
+            case FLOAT:
+                return 4;
+            case DOUBLE:
+                return 8;
+            case QUANTILE_STATE:
+            case OBJECT:
+                return 16;
+            case CHAR:
+                return stringLength;
+            case VARCHAR:
+            case HLL:
+            case AGG_STATE:
+                return stringLength + 2; // sizeof(OLAP_VARCHAR_MAX_LENGTH)
+            case STRING:
+                return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
+            case JSONB:
+                return stringLength + 4; // sizeof(OLAP_JSONB_MAX_LENGTH)
+            case ARRAY:
+                return 65535; // OLAP_ARRAY_MAX_LENGTH
+            case DECIMAL32:
+                return 4;
+            case DECIMAL64:
+                return 8;
+            case DECIMAL128I:
+                return 16;
+            case DECIMALV2:
+                return 12; // use 12 bytes in olap engine.
+            case STRUCT:
+                return 65535;
+            case MAP:
+                return 65535;
+            default:
+                LOG.warn("unknown field type. [type= << {} << ]", type);
+                throw new DdlException("unknown field type. type: " + type);
+        }
+    }
+
+    public OlapFile.ColumnPB toPb(Set<String> bfColumns, List<Index> indexes) throws DdlException {
+        OlapFile.ColumnPB.Builder builder = OlapFile.ColumnPB.newBuilder();
+
+        // when doing schema change, some modified column has a prefix in name.
+        // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
+        builder.setName(name.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)
+                ? name.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()) : name);
+
+        builder.setUniqueId(uniqueId);
+        builder.setType(this.getDataType().toThrift().name());
+        builder.setIsKey(this.isKey);
+        if (null != this.aggregationType) {
+            if (type.isAggStateType()) {
+                AggStateType aggState = (AggStateType) type;
+                builder.setAggregation(aggState.getFunctionName());
+                builder.setResultIsNullable(aggState.getResultIsNullable());
+                for (Column column : children) {
+                    builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
+                }
+            } else {
+                builder.setAggregation(this.aggregationType.toString());
+            }
+        } else {
+            builder.setAggregation("NONE");
+        }
+        builder.setIsNullable(this.isAllowNull);
+        if (this.defaultValue != null) {
+            builder.setDefaultValue(ByteString.copyFrom(this.defaultValue.getBytes()));
+        }
+        builder.setPrecision(this.getPrecision());
+        builder.setFrac(this.getScale());
+
+        int length = getFieldLengthByType(this.getDataType().toThrift(), this.getStrLen());
+
+        builder.setLength(length);
+        builder.setIndexLength(length);
+        if (this.getDataType().toThrift() == TPrimitiveType.VARCHAR
+                || this.getDataType().toThrift() == TPrimitiveType.STRING) {
+            builder.setIndexLength(this.getOlapColumnIndexSize());
+        }
+
+        if (bfColumns != null && bfColumns.contains(this.name)) {
+            builder.setIsBfColumn(true);
+        } else {
+            builder.setIsBfColumn(false);
+        }
+        builder.setVisible(visible);
+
+        if (indexes != null) {
+            for (Index index : indexes) {
+                if (index.getIndexType() == IndexDef.IndexType.BITMAP) {
+                    List<String> columns = index.getColumns();
+                    if (this.name.equalsIgnoreCase(columns.get(0))) {
+                        builder.setHasBitmapIndex(true);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (this.type.isArrayType()) {
+            Column child = this.getChildren().get(0);
+            builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        } else if (this.type.isMapType()) {
+            Column k = this.getChildren().get(0);
+            builder.addChildrenColumns(k.toPb(Sets.newHashSet(), Lists.newArrayList()));
+            Column v = this.getChildren().get(1);
+            builder.addChildrenColumns(v.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        } else if (this.type.isStructType()) {
+            List<Column> childrenColumns = this.getChildren();
+            for (Column c : childrenColumns) {
+                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+            }
+        }
+
+        OlapFile.ColumnPB col = builder.build();
+        return col;
+    }
+    // SELECTDB_CODE_END
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {

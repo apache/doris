@@ -668,6 +668,14 @@ public class OlapTable extends Table {
         return result;
     }
 
+    public List<Long> getIndexIdList() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            result.add(indexId);
+        }
+        return result;
+    }
+
     // schema
     public Map<Long, List<Column>> getIndexIdToSchema() {
         return getIndexIdToSchema(Util.showHiddenColumns());
@@ -1900,6 +1908,22 @@ public class OlapTable extends Table {
             return tableProperty.getEstimatePartitionSize();
         }
         return "";
+    }
+
+    public long getTTLSeconds() {
+        if (tableProperty != null) {
+            return tableProperty.getTTLSeconds();
+        }
+        return 0L;
+    }
+
+    public void setTTLSeconds(long ttlSeconds) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                                            Long.valueOf(ttlSeconds).toString());
+        tableProperty.buildTTLSeconds();
     }
 
     public boolean getEnableLightSchemaChange() {
