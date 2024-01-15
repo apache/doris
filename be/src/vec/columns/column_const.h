@@ -63,7 +63,7 @@ namespace doris::vectorized {
 class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
-
+    using Self = ColumnConst;
     WrappedPtr data;
     size_t s;
 
@@ -225,7 +225,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported in ColumnConst!";
+        this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
