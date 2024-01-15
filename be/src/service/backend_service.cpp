@@ -885,4 +885,30 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
         break;
     }
 }
+
+void BackendService::pre_cache_async(TPreCacheAsyncResponse& response,
+                                     const TPreCacheAsyncRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::check_pre_cache(TCheckPreCacheResponse& response,
+                                     const TCheckPreCacheRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                                           const TSyncLoadForTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                              const TGetTopNHotPartitionsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
+                                     const TWarmUpTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
 } // namespace doris
