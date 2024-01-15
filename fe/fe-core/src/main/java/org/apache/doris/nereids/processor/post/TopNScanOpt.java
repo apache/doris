@@ -52,6 +52,14 @@ public class TopNScanOpt extends PlanPostProcessor {
     public Plan visitPhysicalSink(PhysicalSink<? extends Plan> physicalSink, CascadesContext context) {
         if (physicalSink.child() instanceof TopN) {
             return super.visit(physicalSink, context);
+        } else if (physicalSink.child() instanceof Project && physicalSink.child().child(0) instanceof TopN) {
+            PhysicalTopN<?> oldTopN = (PhysicalTopN<?>) physicalSink.child().child(0);
+            PhysicalTopN<?> newTopN = (PhysicalTopN<?>) oldTopN.accept(this, context);
+            if (newTopN == oldTopN) {
+                return physicalSink;
+            } else {
+                return physicalSink.withChildren(physicalSink.child().withChildren(newTopN));
+            }
         }
         return physicalSink;
     }
