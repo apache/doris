@@ -33,6 +33,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -325,7 +327,7 @@ public class JdbcScanNode extends ExternalScanNode {
         return !fnExprList.isEmpty();
     }
 
-    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, JdbcTable tbl) {
+    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, TableIf tbl) {
         if (expr instanceof CompoundPredicate) {
             StringBuilder result = new StringBuilder();
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
@@ -358,34 +360,17 @@ public class JdbcScanNode extends ExternalScanNode {
 
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
-            String filter = children.get(0).toMySql();
+            String filter = children.get(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
             filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
 
             if (tableType.equals(TOdbcTableType.ORACLE)) {
-                filter += handleOracleDateFormat(children.get(1));
+                filter += handleOracleDateFormat(children.get(1), tbl);
             } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
-                filter += handleTrinoDateFormat(children.get(1));
+                filter += handleTrinoDateFormat(children.get(1), tbl);
             } else {
-                filter += children.get(1).toMySql();
+                filter += children.get(1).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
             }
 
-            return filter;
-        }
-
-        if (expr.contains(SlotRef.class) && expr instanceof BinaryPredicate) {
-            ArrayList<Expr> children = expr.getChildren();
-            String filter;
-            if (children.get(0) instanceof SlotRef) {
-                if (tbl != null) {
-                    filter = tbl.getProperRealColumnName(tableType, children.get(0).toMySql());
-                } else {
-                    filter = JdbcTable.databaseProperName(tableType, children.get(0).toMySql());
-                }
-            } else {
-                filter = children.get(0).toMySql();
-            }
-            filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
-            filter += children.get(1).toMySql();
             return filter;
         }
 
@@ -394,18 +379,18 @@ public class JdbcScanNode extends ExternalScanNode {
             return "1 = 1";
         }
 
-        return expr.toMySql();
+        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
     }
 
-    private static String handleOracleDateFormat(Expr expr) {
+    private static String handleOracleDateFormat(Expr expr, TableIf tbl) {
         if (expr.isConstant()
                 && (expr.getType().isDatetime() || expr.getType().isDatetimeV2())) {
             return "to_date('" + expr.getStringValue() + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
-        return expr.toMySql();
+        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
     }
 
-    private static String handleTrinoDateFormat(Expr expr) {
+    private static String handleTrinoDateFormat(Expr expr, TableIf tbl) {
         if (expr.isConstant()) {
             if (expr.getType().isDate() || expr.getType().isDateV2()) {
                 return "date '" + expr.getStringValue() + "'";
@@ -413,6 +398,6 @@ public class JdbcScanNode extends ExternalScanNode {
                 return "timestamp '" + expr.getStringValue() + "'";
             }
         }
-        return expr.toMySql();
+        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
     }
 }

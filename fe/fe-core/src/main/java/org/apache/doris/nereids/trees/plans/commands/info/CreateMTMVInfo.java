@@ -140,10 +140,10 @@ public class CreateMTMVInfo {
     public void analyze(ConnectContext ctx) {
         // analyze table name
         mvName.analyze(ctx);
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, mvName.getDb(),
                 mvName.getTbl(), PrivPredicate.CREATE)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(), ctx.getRemoteIP(),
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
@@ -82,6 +83,10 @@ public abstract class Job implements TracerSupplier {
 
     public boolean isOnce() {
         return once;
+    }
+
+    public ConnectContext getConnectContext() {
+        return context.getCascadesContext().getConnectContext();
     }
 
     public abstract void execute();
