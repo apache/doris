@@ -90,7 +90,7 @@ table_properties;
 
 ``` sql
 -- 使用 v['a']['b'] 形式例如
-SELECT v["properties"]["title"] from ${table_name}
+SELECT v['properties']['title'] from ${table_name}
 ```
 
 ### 基于 github events 数据集示例
@@ -270,7 +270,7 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 **注意**
 如使用过滤和聚合等功能来查询子列, 需要对子列进行额外的 cast 操作（因为存储类型不一定是固定的，需要有一个 SQL 统一的类型）。
-例如 SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"
+例如 SELECT * FROM tbl where CAST(var['titile'] as text) MATCH "hello world"
 以下简化的示例说明了如何使用 VARIANT 进行查询
 
 :::
@@ -281,7 +281,7 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 
 ``` sql
 mysql> SELECT
-    ->     cast(repo["name"] as text) as repo_name, count() AS stars
+    ->     cast(repo['name'] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
     -> GROUP BY stars 
@@ -303,7 +303,7 @@ mysql> SELECT
 ``` sql
 mysql> SELECT
     ->     count() FROM github_events
-    ->     WHERE cast(payload["comment"]["body"] as text) MATCH 'doris';
+    ->     WHERE cast(payload['comment']['body'] as text) MATCH 'doris';
 +---------+
 | count() |
 +---------+
@@ -316,14 +316,14 @@ mysql> SELECT
 
 ``` sql
 mysql> SELECT 
-    ->   cast(repo["name"] as string) as repo_name, 
-    ->   cast(payload["issue"]["number"] as int) as issue_number, 
+    ->   cast(repo['name'] as string) as repo_name, 
+    ->   cast(payload['issue']['number'] as int) as issue_number, 
     ->   count() AS comments, 
     ->   count(
-    ->     distinct cast(actor["login"] as string)
+    ->     distinct cast(actor['login'] as string)
     ->   ) AS authors 
     -> FROM  github_events 
-    -> WHERE type = 'IssueCommentEvent' AND (cast(payload["action"] as string) = 'created') AND (cast(payload["issue"]["number"] as int) > 10) 
+    -> WHERE type = 'IssueCommentEvent' AND (cast(payload['action'] as string) = 'created') AND (cast(payload['issue']['number'] as int) > 10) 
     -> GROUP BY repo_name, issue_number 
     -> HAVING authors >= 4
     -> ORDER BY comments DESC, repo_name 

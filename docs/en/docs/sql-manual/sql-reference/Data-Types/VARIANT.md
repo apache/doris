@@ -86,7 +86,7 @@ table_properties;
 
 ``` sql
 -- use v['a']['b'] format for example
-SELECT v["properties"]["title"] from ${table_name}
+SELECT v['properties']['title'] from ${table_name}
 
 ```
 
@@ -263,7 +263,7 @@ DESCRIBE ${table_name} PARTITION ($partition_name);
 ::: warning
 
 When utilizing filtering and aggregation functionalities to query sub-columns, additional casting operations need to be performed on sub-columns (because the storage types are not necessarily fixed and require a unified SQL type).
-For instance, `SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"`
+For instance, `SELECT * FROM tbl where CAST(var['titile'] as text) MATCH "hello world"`
 The simplified examples below illustrate how to use VARIANT for querying:
 The following are three typical query scenarios
 
@@ -273,7 +273,7 @@ The following are three typical query scenarios
 
 ``` sql
 mysql> SELECT
-    ->     cast(repo["name"] as text) as repo_name, count() AS stars
+    ->     cast(repo['name'] as text) as repo_name, count() AS stars
     -> FROM github_events
     -> WHERE type = 'WatchEvent'
     -> GROUP BY 
@@ -295,7 +295,7 @@ mysql> SELECT
 ``` sql
 mysql> SELECT
     ->     count() FROM github_events
-    ->     WHERE cast(payload["comment"]["body"] as text) MATCH 'doris';
+    ->     WHERE cast(payload['comment']['body'] as text) MATCH 'doris';
 +---------+
 | count() |
 +---------+
@@ -308,11 +308,11 @@ mysql> SELECT
 
 ``` sql
 mysql> SELECT 
-    ->   cast(repo["name"] as string) as repo_name, 
-    ->   cast(payload["issue"]["number"] as int) as issue_number, 
+    ->   cast(repo['name'] as string) as repo_name, 
+    ->   cast(payload['issue']['number'] as int) as issue_number, 
     ->   count() AS comments, 
     ->   count(
-    ->     distinct cast(actor["login"] as string)
+    ->     distinct cast(actor['login'] as string)
     ->   ) AS authors 
     -> FROM  github_events 
     -> WHERE type = 'IssueCommentEvent' AND (cast(payload["action"] as string) = 'created') AND (cast(payload["issue"]["number"] as int) > 10) 
