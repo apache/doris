@@ -305,7 +305,12 @@ LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
 
-if [[ "${java_version}" -gt 8 ]]; then
+if [[ "${java_version}" -gt 16 ]]; then
+    if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
+        JAVA_OPTS_FOR_JDK_17="-Xmx1024m -XX:+UseZGC ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
+elif [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
         JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
     fi
