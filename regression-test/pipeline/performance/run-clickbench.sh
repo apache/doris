@@ -91,9 +91,9 @@ exit_flag=0
     echo "#### 2. optimize doris config"
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/clickbench/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
-    target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-    sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
-    sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
+    dir_suffix="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
+    sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${dir_suffix}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
+    sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${dir_suffix}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 3. optimize session variables"
@@ -256,12 +256,13 @@ exit_flag=0
     echo "#### 5. run clickbench query"
     sed -i '/^run_sql \"analyze table hits with sync;\"/d' "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
-    cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
-    hot_run_time_threshold=${hot_run_time_threshold:-52}    # 单位 秒
+    cold_run_time_threshold=${cold_run_time_threshold_master:-120} # 单位 秒
+    hot_run_time_threshold=${hot_run_time_threshold_master:-34}    # 单位 秒
     if [[ "${target_branch}" == "branch-2.0" ]]; then
-        cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
-        hot_run_time_threshold=${hot_run_time_threshold:-55}    # 单位 秒
+        cold_run_time_threshold=${cold_run_time_threshold_branch20:-110} # 单位 秒
+        hot_run_time_threshold=${hot_run_time_threshold_branch20:-34}    # 单位 秒
     fi
+    echo "INFO: cold_run_time_threshold is ${cold_run_time_threshold}, hot_run_time_threshold is ${hot_run_time_threshold}"
     # result.csv 来自 run-clickbench-queries.sh 的产出
     if ! check_clickbench_performance_result result.csv; then exit 1; fi
     if ! (cd clickbench && bash check-query-result.sh && cd -); then exit 1; fi
