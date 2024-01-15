@@ -251,8 +251,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
             return false;
         }
-        return ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ConnectContext.get().isTxnModel()
+        return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+                && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ctx.isTxnModel()
                 && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
                 .isEmpty() && physicalOlapTableSink.getTargetTable().getTableProperty().getUseSchemaLightChange();
     }
