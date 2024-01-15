@@ -26,15 +26,18 @@ namespace doris {
 
 class QueryStatisticsCtx {
 public:
-    QueryStatisticsCtx(TNetworkAddress fe_addr) : fe_addr(fe_addr) {
-        this->is_query_finished = false;
+    QueryStatisticsCtx(TNetworkAddress fe_addr) : _fe_addr(fe_addr) {
+        this->_is_query_finished = false;
     }
     ~QueryStatisticsCtx() = default;
 
-    std::vector<std::shared_ptr<QueryStatistics>> qs_list;
-    bool is_query_finished;
-    TNetworkAddress fe_addr;
-    int64_t query_finish_time;
+    void collect_query_statistics(TQueryStatistics* tq_s);
+
+public:
+    std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
+    bool _is_query_finished;
+    TNetworkAddress _fe_addr;
+    int64_t _query_finish_time;
 };
 
 class RuntimeQueryStatiticsMgr {

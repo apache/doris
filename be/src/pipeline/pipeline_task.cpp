@@ -210,14 +210,21 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable
@@ -289,6 +296,9 @@ Status PipelineTask::execute(bool* eos) {
                 break;
             }
         }
+    }
+    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
     }
 
     return Status::OK();
@@ -369,10 +379,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::PENDING_FINISH) {
             COUNTER_UPDATE(_pending_finish_counts, 1);
         }
-    }
-
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
     }
 
     _cur_state = state;

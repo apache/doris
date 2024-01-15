@@ -3196,6 +3196,9 @@ public class Coordinator implements CoordInterface {
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
             this.enablePipelineX = enablePipelineX;
             this.executionProfile = executionProfile;
+            if (enablePipelineX) {
+                executionProfile.addFragments(profileFragmentId);
+            }
         }
 
         public Stream<RuntimeProfile> profileStream() {

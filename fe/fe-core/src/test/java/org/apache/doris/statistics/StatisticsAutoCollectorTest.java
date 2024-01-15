@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -464,7 +465,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto1() throws Exception {
-        InternalCatalog catalog1 = new InternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 
@@ -492,7 +493,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto2() throws Exception {
-        InternalCatalog catalog1 = new InternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 

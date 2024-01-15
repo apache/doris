@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayCumSum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDifference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerateUniq;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
@@ -182,6 +184,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IPv6CIDRToRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
@@ -486,6 +489,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayEnumerate, context);
     }
 
+    default R visitArrayEnumerateUniq(ArrayEnumerateUniq arrayEnumerateUniq, C context) {
+        return visitScalarFunction(arrayEnumerateUniq, context);
+    }
+
     default R visitArrayExcept(ArrayExcept arrayExcept, C context) {
         return visitScalarFunction(arrayExcept, context);
     }
@@ -564,6 +571,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraySortBy(ArraySortBy arraySortBy, C context) {
         return visitScalarFunction(arraySortBy, context);
+    }
+
+    default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
+        return visitScalarFunction(arrayShuffle, context);
     }
 
     default R visitArrayMap(ArrayMap arraySort, C context) {
@@ -1164,6 +1175,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIsIPAddressInRange(IsIpAddressInRange isIpAddressInRange, C context) {
         return visitScalarFunction(isIpAddressInRange, context);
+    }
+
+    default R visitIpv6CIDRToRange(IPv6CIDRToRange ipv6CIDRToRange, C context) {
+        return visitScalarFunction(ipv6CIDRToRange, context);
     }
 
     default R visitJsonArray(JsonArray jsonArray, C context) {

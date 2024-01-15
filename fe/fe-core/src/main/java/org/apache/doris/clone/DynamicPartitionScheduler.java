@@ -103,7 +103,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     public void executeDynamicPartitionFirstTime(Long dbId, Long tableId) {
         List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(Pair.of(dbId, tableId));
-        executeDynamicPartition(tempDynamicPartitionTableInfo);
+        executeDynamicPartition(tempDynamicPartitionTableInfo, true);
     }
 
     public void registerDynamicPartitionTable(Long dbId, Long tableId) {
@@ -185,8 +185,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
     }
 
-    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table) {
-        if (!table.isAutoBucket()) {
+    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table, boolean executeFirstTime) {
+        // if execute first time, all partitions no contain data
+        if (!table.isAutoBucket() || executeFirstTime) {
             return property.getBuckets();
         }
 
@@ -226,7 +227,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
-            Column partitionColumn, String partitionFormat) {
+            Column partitionColumn, String partitionFormat, boolean executeFirstTime) {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
@@ -322,7 +323,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable);
+            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable, executeFirstTime);
             if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<String> distColumnNames = new ArrayList<>();
@@ -491,7 +492,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return dropPartitionClauses;
     }
 
-    private void executeDynamicPartition(Collection<Pair<Long, Long>> dynamicPartitionTableInfoCol) {
+    private void executeDynamicPartition(Collection<Pair<Long, Long>> dynamicPartitionTableInfoCol,
+            boolean executeFirstTime) {
         Iterator<Pair<Long, Long>> iterator = dynamicPartitionTableInfoCol.iterator();
         while (iterator.hasNext()) {
             Pair<Long, Long> tableInfo = iterator.next();
@@ -550,7 +552,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 }
 
                 if (!skipAddPartition) {
-                    addPartitionClauses = getAddPartitionClause(db, olapTable, partitionColumn, partitionFormat);
+                    addPartitionClauses = getAddPartitionClause(db, olapTable, partitionColumn, partitionFormat,
+                            executeFirstTime);
                 }
                 dropPartitionClauses = getDropPartitionClause(db, olapTable, partitionColumn, partitionFormat);
                 tableName = olapTable.getName();
@@ -638,7 +641,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         setInterval(Config.dynamic_partition_check_interval_seconds * 1000L);
         if (Config.dynamic_partition_enable) {
-            executeDynamicPartition(dynamicPartitionTableInfo);
+            executeDynamicPartition(dynamicPartitionTableInfo, false);
         }
     }
 }
