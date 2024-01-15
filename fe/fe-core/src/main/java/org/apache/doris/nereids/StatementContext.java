@@ -72,7 +72,6 @@ public class StatementContext {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
-    private boolean isOtherJoinReorder = false;
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
@@ -149,14 +148,6 @@ public class StatementContext {
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
-    }
-
-    public boolean isOtherJoinReorder() {
-        return isOtherJoinReorder;
-    }
-
-    public void setOtherJoinReorder(boolean otherJoinReorder) {
-        isOtherJoinReorder = otherJoinReorder;
     }
 
     public ExprId getNextExprId() {

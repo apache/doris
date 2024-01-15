@@ -75,7 +75,6 @@ public class OptimizeGroupExpressionJob extends Job {
                 || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
                 .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
-        boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
