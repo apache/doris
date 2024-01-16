@@ -72,7 +72,6 @@ public class StatementContext {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
-    private boolean isOtherJoinReorder = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
     // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
@@ -156,14 +155,6 @@ public class StatementContext {
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
-    }
-
-    public boolean isOtherJoinReorder() {
-        return isOtherJoinReorder;
-    }
-
-    public void setOtherJoinReorder(boolean otherJoinReorder) {
-        isOtherJoinReorder = otherJoinReorder;
     }
 
     public ExprId getNextExprId() {
