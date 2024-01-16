@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -30,9 +29,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -119,7 +118,7 @@ public class OrToIn extends DefaultExpressionRewriter<ExpressionRewriteContext> 
                                    Map<Expression, NamedExpression> disConjunctToSlot) {
         // TODO a+b in (1,2,3...) is not supported now
         if (inPredicate.getCompareExpr() instanceof NamedExpression
-            && inPredicate.getOptions().stream().allMatch(opt -> opt instanceof Literal)) {
+                && inPredicate.getOptions().stream().allMatch(opt -> opt instanceof Literal)) {
             for (Expression opt : inPredicate.getOptions()) {
                 addSlotToLiteral((NamedExpression) inPredicate.getCompareExpr(), (Literal) opt, slotNameToLiteral);
             }
