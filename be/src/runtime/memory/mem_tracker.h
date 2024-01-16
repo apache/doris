@@ -141,6 +141,7 @@ public:
         _consumption->add(bytes);
         if (_query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
         }
     }
 

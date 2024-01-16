@@ -37,8 +37,8 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueriesMetadataParams;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -70,11 +71,14 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class MetadataGenerator {
@@ -414,6 +418,49 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TRow makeQueryStatisticsTRow(SimpleDateFormat sdf, String queryId, Backend be,
+            String selfNode, QueryInfo queryInfo, TQueryStatistics qs) {
+        TRow trow = new TRow();
+        if (be != null) {
+            trow.addToColumnValue(new TCell().setStringVal(be.getHost()));
+            trow.addToColumnValue(new TCell().setLongVal(be.getBePort()));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal("invalid host"));
+            trow.addToColumnValue(new TCell().setLongVal(-1));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(queryId));
+
+        String strDate = sdf.format(new Date(queryInfo.getStartExecTime()));
+        trow.addToColumnValue(new TCell().setStringVal(strDate));
+        trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - queryInfo.getStartExecTime()));
+
+        if (qs != null) {
+            trow.addToColumnValue(new TCell().setLongVal(qs.workload_group_id));
+            trow.addToColumnValue(new TCell().setLongVal(qs.cpu_ms));
+            trow.addToColumnValue(new TCell().setLongVal(qs.scan_rows));
+            trow.addToColumnValue(new TCell().setLongVal(qs.scan_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.max_peak_memory_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.current_used_memory_bytes));
+        } else {
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+        }
+
+        if (queryInfo.getConnectContext() != null) {
+            trow.addToColumnValue(new TCell().setStringVal(queryInfo.getConnectContext().getDatabase()));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(""));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(selfNode));
+        trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
+
+        return trow;
+    }
+
     private static TFetchSchemaTableDataResult queriesMetadataResult(TMetadataTableRequestParams params,
                                                                      TFetchSchemaTableDataRequest parentRequest) {
         if (!params.isSetQueriesMetadataParams()) {
@@ -429,24 +476,37 @@ public class MetadataGenerator {
         }
         selfNode = NetUtils.getHostnameByIp(selfNode);
 
+        // get query
+        Map<Long, Map<String, TQueryStatistics>> beQsMap = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr()
+                .getBeQueryStatsMap();
+        Set<Long> beIdSet = beQsMap.keySet();
+
         List<TRow> dataBatch = Lists.newArrayList();
-        List<QueryDetail> queries = QueryDetailQueue.getQueryDetails(0L);
-        for (QueryDetail query : queries) {
-            TRow trow = new TRow();
-            trow.addToColumnValue(new TCell().setStringVal(query.getQueryId()));
-            trow.addToColumnValue(new TCell().setLongVal(query.getStartTime()));
-            trow.addToColumnValue(new TCell().setLongVal(query.getEndTime()));
-            trow.addToColumnValue(new TCell().setLongVal(query.getEventTime()));
-            if (query.getState() == QueryDetail.QueryMemState.RUNNING) {
-                trow.addToColumnValue(new TCell().setLongVal(System.currentTimeMillis() - query.getStartTime()));
-            } else {
-                trow.addToColumnValue(new TCell().setLongVal(query.getLatency()));
+        Map<String, QueryInfo> queryInfoMap = QeProcessorImpl.INSTANCE.getQueryInfoMap();
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        for (Long beId : beIdSet) {
+            Map<String, TQueryStatistics> qsMap = beQsMap.get(beId);
+            if (qsMap == null) {
+                continue;
             }
-            trow.addToColumnValue(new TCell().setStringVal(query.getState().toString()));
-            trow.addToColumnValue(new TCell().setStringVal(query.getDatabase()));
-            trow.addToColumnValue(new TCell().setStringVal(query.getSql()));
-            trow.addToColumnValue(new TCell().setStringVal(selfNode));
-            dataBatch.add(trow);
+            Set<String> queryIdSet = qsMap.keySet();
+            for (String queryId : queryIdSet) {
+                QueryInfo queryInfo = queryInfoMap.get(queryId);
+                if (queryInfo == null) {
+                    continue;
+                }
+                //todo(wb) add connect context for insert select
+                if (queryInfo.getConnectContext() != null && !Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(queryInfo.getConnectContext(), queryInfo.getConnectContext().getDatabase(),
+                                PrivPredicate.SELECT)) {
+                    continue;
+                }
+                TQueryStatistics qs = qsMap.get(queryId);
+                Backend be = Env.getCurrentEnv().getClusterInfo().getBackend(beId);
+                TRow tRow = makeQueryStatisticsTRow(sdf, queryId, be, selfNode, queryInfo, qs);
+                dataBatch.add(tRow);
+            }
         }
 
         /* Get the query results from other FE also */
