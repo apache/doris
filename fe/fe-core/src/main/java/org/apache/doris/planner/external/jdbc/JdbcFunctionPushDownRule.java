@@ -72,6 +72,7 @@ public class JdbcFunctionPushDownRule {
 
     static {
         REPLACE_MYSQL_FUNCTIONS.put("nvl", "ifnull");
+        REPLACE_MYSQL_FUNCTIONS.put("to_date", "date");
     }
 
     private static boolean isReplaceMysqlFunctions(String functionName) {
