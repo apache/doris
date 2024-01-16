@@ -30,7 +30,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -64,7 +64,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -98,7 +98,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -144,7 +144,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -236,7 +236,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -337,7 +337,7 @@ suite("test_partition_refresh_mtmv") {
         CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NULL COMMENT '\"数量\"'
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
         ) ENGINE=OLAP
         DUPLICATE KEY(`user_id`, `date`, `num`)
         COMMENT 'OLAP'
@@ -400,4 +400,34 @@ suite("test_partition_refresh_mtmv") {
      waitingMTMVTaskFinished(jobName)
      order_qt_exclude_will_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
      order_qt_change_status "select SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+
+    // test create partitioned materialized view using no data table
+    sql """drop table if exists test_no_data;"""
+    sql """
+        CREATE TABLE `test_no_data` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+
+    sql """DROP MATERIALIZED VIEW IF EXISTS no_data_partition_mv;"""
+    sql """
+        CREATE MATERIALIZED VIEW no_data_partition_mv
+            BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM test_no_data where date > '2017-05-01';
+    """
 }

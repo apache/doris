@@ -43,8 +43,8 @@ Suppose our table DDL is as follows:
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
-    `TRADE_ID`                varchar(40) NULL COMMENT '交易编号',
+    `TRADE_DATE`              datev2 NOT NULL COMMENT '交易日期',
+    `TRADE_ID`                varchar(40) NOT NULL COMMENT '交易编号',
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
@@ -81,7 +81,7 @@ PROPERTIES (
 
 The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION) to make changes to the table partition. If such partitions need to be changed, or subdivided at a finer level of granularity, it is very tedious to modify them. At this point we can rewrite the table DDL using AUTO PARTITION.
 
-## Grammer
+## Grammar
 
 When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) with the `partition_info` section:
 
@@ -143,8 +143,9 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 1. Currently the AUTO RANGE PARTITION function supports only one partition column;
 2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
-3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` datatypes, and partitioned values are enum values.
+3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values.
 4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
+5. The partition column for AUTO PARTITION must be a NOT NULL column.
 
 ## Sample Scenarios
 
@@ -153,8 +154,8 @@ In the example in the Usage Scenarios section, the table DDL can be rewritten af
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL,
-    `TRADE_ID`                varchar(40) NULL,
+    `TRADE_DATE`              datev2 NOT NULL,
+    `TRADE_ID`                varchar(40) NOT NULL,
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)

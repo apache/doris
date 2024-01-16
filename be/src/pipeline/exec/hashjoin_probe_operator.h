@@ -36,7 +36,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class HashJoinProbeOperator final : public StatefulOperator<HashJoinProbeOperatorBuilder> {
+class HashJoinProbeOperator final : public StatefulOperator<vectorized::HashJoinNode> {
 public:
     HashJoinProbeOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
@@ -135,10 +135,6 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
-    // for full/right outer join
-    vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
-    vectorized::HashTableIteratorVariants _probe_row_match_iter;
-
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
@@ -176,6 +172,10 @@ public:
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
+    bool is_shuffled_hash_join() const override {
+        return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
@@ -197,7 +197,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
-    std::vector<TExpr> _partition_exprs;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

@@ -19,6 +19,7 @@
 
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 
 namespace doris {
 
@@ -73,13 +74,16 @@ QueryContext::~QueryContext() {
         static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
+    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
     _execution_dependency->set_ready();
     {
         std::lock_guard<std::mutex> l(_start_lock);
-        _is_cancelled = is_cancelled;
+        if (!_is_cancelled) {
+            _is_cancelled = is_cancelled;
+        }
         _ready_to_execute = true;
     }
     if (query_mem_tracker && is_cancelled) {
@@ -116,4 +120,36 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
     }
     return true;
 }
+
+void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
+    _exec_env->runtime_query_statistics_mgr()->register_query_statistics(print_id(_query_id), qs,
+                                                                         coord_addr);
+}
+
+std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {
+    return _exec_env->runtime_query_statistics_mgr()->get_runtime_query_statistics(
+            print_id(_query_id));
+}
+
+void QueryContext::register_memory_statistics() {
+    if (query_mem_tracker) {
+        std::shared_ptr<QueryStatistics> qs = query_mem_tracker->get_query_statistics();
+        std::string query_id = print_id(_query_id);
+        if (qs) {
+            _exec_env->runtime_query_statistics_mgr()->register_query_statistics(query_id, qs,
+                                                                                 coord_addr);
+        } else {
+            LOG(INFO) << " query " << query_id << " get memory query statistics failed ";
+        }
+    }
+}
+
+void QueryContext::register_cpu_statistics() {
+    if (!_cpu_statistics) {
+        _cpu_statistics = std::make_shared<QueryStatistics>();
+        _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
+                print_id(_query_id), _cpu_statistics, coord_addr);
+    }
+}
+
 } // namespace doris

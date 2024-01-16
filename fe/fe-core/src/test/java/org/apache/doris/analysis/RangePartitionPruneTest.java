@@ -105,7 +105,7 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                         + "PROPERTIES ('replication_num' = '1');";
 
         String autoCreatePartitionTable = new String("CREATE TABLE test.test_to_date_trunc(\n"
-                + "    event_day DATETIME\n"
+                + "    event_day DATETIME NOT NULL\n"
                 + ")\n"
                 + "DUPLICATE KEY(event_day)\n"
                 + "AUTO PARTITION BY range date_trunc(event_day, \"day\") (\n"

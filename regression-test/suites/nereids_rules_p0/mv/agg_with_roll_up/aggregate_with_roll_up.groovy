@@ -19,11 +19,11 @@ suite("aggregate_with_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -50,7 +50,7 @@ suite("aggregate_with_roll_up") {
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
-    )
+    );
     """
 
     sql """
@@ -147,7 +147,7 @@ suite("aggregate_with_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -167,7 +167,7 @@ suite("aggregate_with_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -191,7 +191,7 @@ suite("aggregate_with_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -210,7 +210,7 @@ suite("aggregate_with_roll_up") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 
@@ -245,6 +245,41 @@ suite("aggregate_with_roll_up") {
     check_rewrite(mv13_0, query13_0, "mv13_0")
     order_qt_query13_0_after "${query13_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
+
+
+    def mv13_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query13_1 = """
+            select t1.l_partkey, t1.l_suppkey, o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 10 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from (select * from lineitem where l_shipdate = '2023-12-11') t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query13_1_before "${query13_1}"
+    check_not_match(mv13_1, query13_1, "mv13_1")
+    order_qt_query13_1_after "${query13_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_1"""
 
 
     // filter inside + right + use roll up dimension
@@ -314,6 +349,45 @@ suite("aggregate_with_roll_up") {
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
+    def mv15_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic
+            from lineitem
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query15_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)),
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from (select * from lineitem where l_shipdate = '2023-12-11') t1
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+
+    order_qt_query15_1_before "${query15_1}"
+    check_rewrite_with_mv_partition(mv15_1, query15_1, "mv15_1", "l_shipdate")
+    order_qt_query15_1_after "${query15_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_1"""
 
     // filter outside + left + use roll up dimension
     def mv16_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, " +
@@ -402,7 +476,7 @@ suite("aggregate_with_roll_up") {
             "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
             "from lineitem t1 " +
             "left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where o_orderdate = '2023-12-11' and l_partkey = 2 " +
+            "where o_orderdate = '2023-12-11' and l_partkey = 3 " +
             "group by " +
             "l_shipdate, " +
             "l_suppkey"
@@ -459,11 +533,10 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "l_partkey, " +
             "l_suppkey"
-//    // Should pass but not, tmp
-//    order_qt_query19_1_before "${query19_1}"
-//    check_rewrite(mv19_1, query19_1, "mv19_1")
-//    order_qt_query19_1_after "${query19_1}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_1"""
+    order_qt_query19_1_before "${query19_1}"
+    check_rewrite(mv19_1, query19_1, "mv19_1")
+    order_qt_query19_1_after "${query19_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_1"""
 
 
     // filter inside + right + use not roll up dimension
@@ -498,6 +571,47 @@ suite("aggregate_with_roll_up") {
     check_rewrite(mv20_0, query20_0, "mv20_0")
     order_qt_query20_0_after "${query20_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
+
+    def mv20_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic
+            from lineitem
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+            """
+
+    def query20_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)),
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from lineitem
+            left join (select * from orders where o_orderstatus = 'o') t2
+            on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+            """
+    order_qt_query20_1_before "${query20_1}"
+    check_rewrite(mv20_1, query20_1, "mv20_1")
+    order_qt_query20_1_after "${query20_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_1"""
+
 
     // filter inside + right + left + use not roll up dimension
     def mv21_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, " +
@@ -593,11 +707,10 @@ suite("aggregate_with_roll_up") {
             "o_orderdate, " +
             "l_partkey, " +
             "l_suppkey"
-    // Should pass but not, tmp
-//    order_qt_query22_1_before "${query22_1}"
-//    check_rewrite(mv22_1, query22_1, "mv22_1")
-//    order_qt_query22_1_after "${query22_1}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
+    order_qt_query22_1_before "${query22_1}"
+    check_rewrite(mv22_1, query22_1, "mv22_1")
+    order_qt_query22_1_after "${query22_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_1"""
 
 
     // filter outside + right + use not roll up dimension
@@ -696,6 +809,83 @@ suite("aggregate_with_roll_up") {
     order_qt_query25_0_after "${query25_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_0"""
 
+
+    // bitmap_union roll up to bitmap_union
+    def mv25_1 = """
+           select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (3, 4, 5) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query25_1 = """
+            select o_orderdate, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (3, 4, 5) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_suppkey;
+    """
+    order_qt_query25_1_before "${query25_1}"
+    check_rewrite(mv25_1, query25_1, "mv25_1")
+    order_qt_query25_1_after "${query25_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_1"""
+
+    // bitmap_union roll up to bitmap_union_count
+    def mv25_2 = """
+           select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query25_2 = """
+            select o_orderdate, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_suppkey;
+    """
+    order_qt_query25_2_before "${query25_2}"
+    check_rewrite(mv25_2, query25_2, "mv25_2")
+    order_qt_query25_2_after "${query25_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_2"""
+
+
     // single table
     // filter + use roll up dimension
     def mv1_1 = "select o_orderdate, o_shippriority, o_comment, " +
@@ -763,5 +953,141 @@ suite("aggregate_with_roll_up") {
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
-    // can not rewrite, todo
+    // can not rewrite
+    // bitmap_union_count is aggregate function but not support roll up
+    def mv26_0 = """
+            select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment;
+            """
+    def query26_0 = """
+            select o_orderdate, o_shippriority,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union_count(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority;
+    """
+    order_qt_query26_0_before "${query26_0}"
+    check_not_match(mv26_0, query26_0, "mv26_0")
+    order_qt_query26_0_after "${query26_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv26_0"""
+
+
+    // bitmap_count is not aggregate function, so doesn't not support roll up
+    def mv27_0 = """
+            select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_count(bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 2, 3) then o_custkey else null end))) cnt_1,
+            bitmap_count(bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (3, 4, 5) then o_custkey else null end))) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment;
+            """
+    def query27_0 = """
+            select o_orderdate, o_shippriority,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_count(bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 2, 3) then o_custkey else null end))) cnt_1,
+            bitmap_count(bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (3, 4, 5) then o_custkey else null end))) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority;
+            """
+    order_qt_query27_0_before "${query27_0}"
+    check_not_match(mv27_0, query27_0, "mv27_0")
+    order_qt_query27_0_after "${query27_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv27_0"""
+
+    // with cte
+    // left join + aggregate
+    def mv28_0 = """
+           select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(ifnull(o_totalprice, 0)) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) as  cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (3, 4, 5) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query28_0 = """
+        with cte_view_1 as (
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            ifnull(o_totalprice, 0) as price_with_no_null
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+        )
+        select
+          l_shipdate,
+          sum(price_with_no_null)
+        from
+          cte_view_1 cte_view
+        group by
+          l_shipdate
+        order by
+          l_shipdate
+        limit 10;
+    """
+    order_qt_query28_0_before "${query28_0}"
+    check_rewrite(mv28_0, query28_0, "mv28_0")
+    order_qt_query28_0_after "${query28_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv28_0"""
+
+
+    // scalar aggregate
+    def mv29_0 = """
+            select count(*)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
+    """
+    def query29_0 = """
+        select *
+        from
+        (
+           with cte_view_1 as (
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            ifnull(o_totalprice, 0) as price_with_no_null
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            )    
+          select 
+            count(1) count_all
+          from
+            cte_view_1 cte_view
+          limit 1
+        ) as t;
+    """
+    order_qt_query29_0_before "${query29_0}"
+    check_rewrite(mv29_0, query29_0, "mv29_0")
+    order_qt_query29_0_after "${query29_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_0"""
 }

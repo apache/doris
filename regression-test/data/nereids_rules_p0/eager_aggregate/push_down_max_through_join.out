@@ -69,8 +69,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[max_t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[max_t]
 --------hashAgg[LOCAL]
 ----------filter((max_t.score > 10))
 ------------PhysicalOlapScan[max_t]
@@ -87,8 +87,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[max_t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[max_t]
 --------hashAgg[LOCAL]
 ----------filter((max_t.score > 10))
 ------------PhysicalOlapScan[max_t]
@@ -174,8 +174,8 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------PhysicalOlapScan[max_t] apply RFs: RF0
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[max_t]
 --------hashAgg[LOCAL]
 ----------filter((t1.score > 50))
 ------------PhysicalOlapScan[max_t]
@@ -228,9 +228,9 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((max_t.id < 100))
-----------PhysicalOlapScan[max_t] apply RFs: RF0
+----------PhysicalOlapScan[max_t]
 --------hashAgg[LOCAL]
 ----------filter((max_t.score > 20) and (t1.id < 100))
 ------------PhysicalOlapScan[max_t]

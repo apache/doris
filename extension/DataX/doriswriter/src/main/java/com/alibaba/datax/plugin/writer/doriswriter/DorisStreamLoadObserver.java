@@ -240,12 +240,10 @@ public class DorisStreamLoadObserver {
 
     private String getLoadHost() {
         List<String> hostList = options.getLoadUrlList();
-        long tmp = pos + hostList.size();
-        for (; pos < tmp; pos++) {
-            String host = new StringBuilder("http://").append(hostList.get((int) (pos % hostList.size()))).toString();
-            if (checkConnection(host)) {
-                return host;
-            }
+        Collections.shuffle(hostList);
+        String host = new StringBuilder("http://").append(hostList.get((0))).toString();
+        if (checkConnection(host)){
+            return host;
         }
         return null;
     }

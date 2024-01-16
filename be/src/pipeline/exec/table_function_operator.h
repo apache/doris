@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableFunctionOperator final : public StatefulOperator<TableFunctionOperatorBuilder> {
+class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
 public:
     TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 

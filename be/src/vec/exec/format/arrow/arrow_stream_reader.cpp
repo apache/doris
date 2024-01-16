@@ -27,7 +27,6 @@
 #include "arrow_pip_input_stream.h"
 #include "common/logging.h"
 #include "io/fs/stream_load_pipe.h"
-#include "olap/wal_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/utils/arrow_column_to_doris_column.h"

@@ -45,8 +45,25 @@ public class JoinEdge extends Edge {
         this.join = join;
     }
 
+    /**
+     * swap the edge
+     */
+    public JoinEdge swap() {
+        JoinEdge swapEdge = new
+                JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
+                getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes());
+        swapEdge.addLeftRejectEdges(getLeftRejectEdge());
+        swapEdge.addRightRejectEdges(getRightRejectEdge());
+        return swapEdge;
+    }
+
     public JoinType getJoinType() {
         return join.getJoinType();
+    }
+
+    public JoinEdge withJoinTypeAndCleanCR(JoinType joinType) {
+        return new JoinEdge(join.withJoinType(joinType), getIndex(), getLeftChildEdges(), getRightChildEdges(),
+                getSubTreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes());
     }
 
     public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {

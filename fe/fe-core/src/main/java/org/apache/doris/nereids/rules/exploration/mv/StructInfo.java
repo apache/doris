@@ -20,12 +20,15 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -38,8 +41,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -65,6 +70,7 @@ public class StructInfo {
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
     // source data
     private final Plan originalPlan;
+    private ObjectId originalPlanId;
     private final HyperGraph hyperGraph;
     private boolean valid = true;
     // derived data following
@@ -80,11 +86,16 @@ public class StructInfo {
     // split predicates is shuttled
     private SplitPredicate splitPredicate;
     private EquivalenceClass equivalenceClass;
-    // this is for LogicalCompatibilityContext later
+    // Key is the expression shuttled and the value is the origin expression
+    // this is for building LogicalCompatibilityContext later.
     private final Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new HashMap<>();
+    // Record the exprId and the corresponding expr map, this is used by expression shuttled
+    private final Map<ExprId, Expression> namedExprIdAndExprMapping = new HashMap<>();
 
     private StructInfo(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan, HyperGraph hyperGraph) {
         this.originalPlan = originalPlan;
+        this.originalPlanId = originalPlan.getGroupExpression()
+                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
         this.hyperGraph = hyperGraph;
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
@@ -101,7 +112,6 @@ public class StructInfo {
         }
         collectStructInfoFromGraph();
         initPredicates();
-        predicatesDerive();
     }
 
     public void addPredicates(List<Expression> canPulledUpExpressions) {
@@ -113,12 +123,22 @@ public class StructInfo {
         // Collect expression from join condition in hyper graph
         this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
+            // shuttle expression in edge for the build of LogicalCompatibilityContext later.
+            // Record the exprId to expr map in the processing to strut info
+            // TODO get exprId to expr map when complex project is ready in join dege
             hashJoinConjuncts.forEach(conjunctExpr -> {
-                // shuttle expression in edge for LogicalCompatibilityContext later
-                shuttledHashConjunctsToConjunctsMap.put(
-                        ExpressionUtils.shuttleExpressionWithLineage(
-                                Lists.newArrayList(conjunctExpr), edge.getJoin()).get(0),
-                        conjunctExpr);
+                ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                        new ExpressionLineageReplacer.ExpressionReplaceContext(
+                                Lists.newArrayList(conjunctExpr),
+                                ImmutableSet.of(),
+                                ImmutableSet.of());
+                this.topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                // Replace expressions by expression map
+                List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+                shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), conjunctExpr);
+                // Record this, will be used in top level expression shuttle later, see the method
+                // ExpressionLineageReplacer#visitGroupPlan
+                this.namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
             });
             List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
             if (!otherJoinConjuncts.isEmpty()) {
@@ -156,6 +176,7 @@ public class StructInfo {
         Set<Expression> topPlanPredicates = new HashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
         topPlanPredicates.forEach(this.predicates::addPredicate);
+        predicatesDerive();
     }
 
     // derive some useful predicate by predicates
@@ -258,14 +279,23 @@ public class StructInfo {
                 ? ((LogicalProject<Plan>) originalPlan).getProjects() : originalPlan.getOutput();
     }
 
+    public ObjectId getOriginalPlanId() {
+        return originalPlanId;
+    }
+
+    public Map<ExprId, Expression> getNamedExprIdAndExprMapping() {
+        return namedExprIdAndExprMapping;
+    }
+
     /**
      * Judge the source graph logical is whether the same as target
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static ComparisonResult isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
+        return HyperGraphComparator
+                .isLogicCompatible(queryStructInfo.hyperGraph, viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {

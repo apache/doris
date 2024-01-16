@@ -42,7 +42,7 @@ ADMIN REPAIR TABLE table_name[ PARTITION (p1,...)]
 
 illustrate:
 
-1. This statement only means to let the system try to repair the shard copy of the specified table or partition with high priority, and does not guarantee that the repair can be successful. Users can view the repair status through the ADMIN SHOW REPLICA STATUS command.
+1. This statement only means to let the system try to repair the shard copy of the specified table or partition with high priority, and does not guarantee that the repair can be successful. Users can view the repair status through the SHOW REPLICA STATUS command.
 2. The default timeout is 14400 seconds (4 hours). A timeout means that the system will no longer repair shard copies of the specified table or partition with high priority. Need to re-use this command to set
 
 ### Example

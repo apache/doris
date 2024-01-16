@@ -160,13 +160,13 @@ ALTER TABLE site_visit ADD ROLLUP rollup_city(city, pv);
 如对于 session_data 表：
 
 ```text
-session_data(visitorid, sessionid, visittime, city, province, ip, brower, url)
+session_data(visitorid, sessionid, visittime, city, province, ip, browser, url)
 ```
 
-如果除了通过 visitorid 分析访问情况外，还有通过 brower, province 分析的情形，可以单独建立 Rollup。
+如果除了通过 visitorid 分析访问情况外，还有通过 browser, province 分析的情形，可以单独建立 Rollup。
 
 ```sql
-ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLICATE KEY(brower,province);
+ALTER TABLE session_data ADD ROLLUP rollup_browser(browser,province,ip,url) DUPLICATE KEY(browser,province);
 ```
 
 ## Schema Change

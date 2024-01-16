@@ -88,11 +88,15 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
             state, block, &eos,
             std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
-    //have exectue const expr, queue have no data any more, and child could be colsed
-    if (eos || (!_has_data() && _data_queue->is_all_finish())) {
+    //have executing const expr, queue have no data anymore, and child could be closed.
+    if (eos) { // reach limit
         source_state = SourceState::FINISHED;
     } else if (_has_data()) {
         source_state = SourceState::MORE_DATA;
+    } else if (_data_queue->is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data() ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
@@ -120,7 +124,7 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_source_dependency(_dependency);
+    ss->data_queue.set_source_dependency(info.dependency);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
@@ -185,13 +189,15 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, source_state);
-    //have exectue const expr, queue have no data any more, and child could be colsed
+    //have executing const expr, queue have no data anymore, and child could be closed
     if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-        source_state = SourceState::FINISHED;
-    } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;
+    } else if (local_state._shared_state->data_queue.is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data(state) ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
@@ -217,6 +223,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
+        VLOG_ROW << "query id: " << print_id(state->query_id())
+                 << ", instance id: " << print_id(state->fragment_instance_id())
+                 << ", tmp_block rows: " << tmp_block.rows();
         if (tmp_block.rows() > 0) {
             RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();
@@ -226,6 +235,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
+    VLOG_ROW << "query id: " << print_id(state->query_id())
+             << ", instance id: " << print_id(state->fragment_instance_id())
+             << ", tmp_block rows: " << block->rows();
     if (block->rows() == 0) {
         block->insert({vectorized::ColumnUInt8::create(1),
                        std::make_shared<vectorized::DataTypeUInt8>(), ""});

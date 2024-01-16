@@ -202,6 +202,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected String sequenceCol;
 
+    protected boolean memtableOnSinkNode = false;
+
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -268,6 +270,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public RoutineLoadJob(long id, LoadDataSourceType type) {
         this.id = id;
         this.dataSourceType = type;
+        if (ConnectContext.get() != null) {
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+        }
     }
 
     public RoutineLoadJob(Long id, String name,
@@ -283,6 +288,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -304,6 +310,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -686,6 +693,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return !Strings.isNullOrEmpty(sequenceCol);
     }
 
+    @Override
+    public boolean isMemtableOnSinkNode() {
+        return memtableOnSinkNode;
+    }
+
+    public void setMemtableOnSinkNode(boolean memtableOnSinkNode) {
+        this.memtableOnSinkNode = memtableOnSinkNode;
+    }
+
     public void setComment(String comment) {
         this.comment = comment;
     }
@@ -874,11 +890,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void initPlanner() throws UserException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         // for multi table load job, the table name is dynamic,we will set table when task scheduling.
         if (isMultiTable) {
             return;
         }
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         planner = new StreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
@@ -1654,7 +1670,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract Map<String, String> getCustomProperties();
 
-    public boolean needRemove() {
+    public boolean isExpired() {
         if (!isFinal()) {
             return false;
         }

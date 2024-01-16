@@ -298,7 +298,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
    
     用户可以通过以下命令查看指定表或分区的副本状态，并可以通过 WHERE 语句对状态进行过滤。如查看表 tbl1 中，分区 p1 和 p2 上状态为 OK 的副本：
     
-    `ADMIN SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "OK";`
+    `SHOW REPLICA STATUS FROM tbl1 PARTITION (p1, p2) WHERE STATUS = "OK";`
     
     ```
     +----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
@@ -313,9 +313,9 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
     +----------+-----------+-----------+---------+-------------------+--------------------+------------------+------------+------------+-------+--------+--------+
     ```
 
-    这里会展示所有副本的状态。其中 `IsBad` 列为 `true` 则表示副本已经损坏。而 `Status` 列则会显示另外的其他状态。具体的状态说明，可以通过 `HELP ADMIN SHOW REPLICA STATUS;` 查看帮助。
+    这里会展示所有副本的状态。其中 `IsBad` 列为 `true` 则表示副本已经损坏。而 `Status` 列则会显示另外的其他状态。具体的状态说明，可以通过 `HELP SHOW REPLICA STATUS;` 查看帮助。
     
-    `ADMIN SHOW REPLICA STATUS` 命令主要用于查看副本的健康状态。用户还可以通过以下命令查看指定表中副本的一些额外信息：
+    `SHOW REPLICA STATUS` 命令主要用于查看副本的健康状态。用户还可以通过以下命令查看指定表中副本的一些额外信息：
     
     `SHOW TABLETS FROM tbl1;`
     
@@ -335,7 +335,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     此外，用户也可以通过以下命令，查看指定表或分区的副本分布情况，来检查副本分布是否均匀。
     
-    `ADMIN SHOW REPLICA DISTRIBUTION FROM tbl1;`
+    `SHOW REPLICA DISTRIBUTION FROM tbl1;`
     
     ```
     +-----------+------------+-------+---------+

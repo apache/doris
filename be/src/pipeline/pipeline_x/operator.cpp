@@ -187,13 +187,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
 }
 
-Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                              SourceState& source_state) {
+Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                               SourceState& source_state) {
     auto local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
@@ -315,7 +316,9 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
           _rows_returned_counter(nullptr),
           _peak_memory_usage_counter(nullptr),
           _parent(parent),
-          _state(state) {}
+          _state(state) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -334,18 +337,16 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
-            _shared_state->source_dep = _dependency;
-            _shared_state->sink_dep = deps.front().get();
+            _shared_state->source_dep = info.dependency;
+            _shared_state->sink_dep = deps.front();
         }
     }
 
@@ -377,11 +378,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    if (_shared_state) {
-        RETURN_IF_ERROR(_shared_state->close(state));
-    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
+        _dependency->clear_shared_state();
     }
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
@@ -418,10 +417,6 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
-        if constexpr (!is_fake_shared) {
-            _shared_state->ref();
-        }
-
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
@@ -444,11 +439,11 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     if (_closed) {
         return Status::OK();
     }
-    if (_shared_state) {
-        RETURN_IF_ERROR(_shared_state->close(state));
-    }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
+        if constexpr (!std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
+            _dependency->clear_shared_state();
+        }
     }
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
@@ -460,8 +455,8 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      SourceState& source_state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
-                                                                                 source_state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block,
+                                                                                  source_state));
     return pull(state, block, source_state);
 }
 
@@ -472,7 +467,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                 ->template cast<LocalStateType>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), local_state._child_source_state));
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&

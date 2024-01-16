@@ -67,11 +67,6 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         makeSureInitialized();
         return jdbcTable.toThrift();
@@ -101,6 +96,11 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
+        jdbcTable.setMinPoolSize(jdbcCatalog.getMinPoolSize());
+        jdbcTable.setMaxPoolSize(jdbcCatalog.getMaxPoolSize());
+        jdbcTable.setMaxIdleTime(jdbcCatalog.getMaxIdleTime());
+        jdbcTable.setMaxWaitTime(jdbcCatalog.getMaxWaitTime());
+        jdbcTable.setKeepAlive(jdbcCatalog.getKeepAlive());
         return jdbcTable;
     }
 

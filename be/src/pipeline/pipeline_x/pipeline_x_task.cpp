@@ -67,7 +67,8 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
     pipeline->incr_created_tasks();
 }
 
-Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink) {
+Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
+                              QueryContext* query_ctx) {
     DCHECK(_sink);
     DCHECK(_cur_state == PipelineTaskState::NOT_READY) << get_state_name(_cur_state);
     _init_profile();
@@ -97,6 +98,8 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
                              _le_state_map,  _task_idx,   _source_dependency[op->operator_id()]};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
+        query_ctx->register_query_statistics(
+                _state->get_local_state(op->operator_id())->query_statistics_ptr());
     }
 
     _block = doris::vectorized::Block::create_unique();
@@ -215,13 +218,21 @@ Status PipelineXTask::_open() {
 
 Status PipelineXTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable
@@ -272,7 +283,7 @@ Status PipelineXTask::execute(bool* eos) {
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_next_after_projects(_state, block, _data_state));
+            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, _data_state));
         } else {
             _data_state = SourceState::FINISHED;
         }
@@ -300,6 +311,7 @@ void PipelineXTask::finalize() {
     _finished = true;
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
     DependencyMap {}.swap(_upstream_dependency);
+    std::map<int, DependencySPtr> {}.swap(_source_dependency);
 
     _le_state_map.clear();
 }

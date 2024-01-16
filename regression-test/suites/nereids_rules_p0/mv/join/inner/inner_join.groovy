@@ -19,11 +19,10 @@ suite("inner_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
-    // tmp disable to rewrite, will be removed in the future
-    sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
 
     sql """
     drop table if exists orders
@@ -140,7 +139,7 @@ suite("inner_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains "(${mv_name})"
+            contains("${mv_name}(${mv_name})")
         }
     }
 
@@ -159,7 +158,7 @@ suite("inner_join") {
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            notContains "(${mv_name})"
+            notContains("${mv_name}(${mv_name})")
         }
     }
 
@@ -216,21 +215,40 @@ suite("inner_join") {
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
-    def mv1_4 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
-    def query1_4 = "select  lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
+    def mv1_4 = """
+        select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY
+        from lineitem
+        inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+        inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY
+        and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY;
+    """
+    def query1_4 = """
+        select  lineitem.L_LINENUMBER
+        from lineitem
+        inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+        inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY
+        and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY;
+    """
     order_qt_query1_4_before "${query1_4}"
     check_rewrite(mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 
+    def mv1_5 = """
+            select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, l_partkey, o_shippriority
+            from lineitem
+            inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY;
+            """
+    def query1_5 = """
+            select  lineitem.L_LINENUMBER
+            from lineitem
+            inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            and o_shippriority = l_partkey;
+            """
+    order_qt_query1_5_before "${query1_5}"
+    check_rewrite(mv1_5, query1_5, "mv1_5")
+    order_qt_query1_5_after "${query1_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
 
     // filter outside + left
     def mv2_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
@@ -239,7 +257,7 @@ suite("inner_join") {
     def query2_0 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 10"
+            "where lineitem.L_LINENUMBER > 0"
     order_qt_query2_0_before "${query2_0}"
     check_rewrite(mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
@@ -259,18 +277,17 @@ suite("inner_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
 
-    def mv2_2 = "select  t1.L_LINENUMBER, orders.O_CUSTKEY " +
+    def mv2_2 = "select  t1.L_LINENUMBER, orders.O_CUSTKEY, l_suppkey " +
             "from (select * from lineitem where L_LINENUMBER > 1) t1 " +
             "inner join orders on t1.L_ORDERKEY = orders.O_ORDERKEY "
     def query2_2 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where lineitem.L_LINENUMBER > 1 and l_suppkey = 3"
-    // Should success but not, because mv contains the part filter of mv, tmp
-//    order_qt_query2_2_before "${query2_2}"
-//    check_rewrite(mv2_2, query2_2, "mv2_2")
-//    order_qt_query2_2_after "${query2_2}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+    order_qt_query2_2_before "${query2_2}"
+    check_rewrite(mv2_2, query2_2, "mv2_2")
+    order_qt_query2_2_after "${query2_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
 
     def mv2_3 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY, l_suppkey " +
@@ -349,6 +366,26 @@ suite("inner_join") {
     order_qt_query3_3_after "${query3_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
 
+    // join derive, the mv is outer join with filter and query is inner join
+    // the predicate should be ComparisonPredicate
+    def mv3_4 = """
+            select l_linenumber, o_custkey
+            from orders
+            left join lineitem on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            where o_custkey = 1;
+            """
+    def query3_4 = """
+            select IFNULL(orders.O_CUSTKEY, 0) as custkey_not_null,
+            case when l_linenumber in (1,2,3) then l_linenumber else o_custkey end as case_when
+            from orders
+            inner join lineitem on orders.O_ORDERKEY = lineitem.L_ORDERKEY
+            where o_custkey = 1 and l_linenumber > 0;
+            """
+    order_qt_query3_4_before "${query3_4}"
+    check_rewrite(mv3_4, query3_4, "mv3_4")
+    order_qt_query3_4_after "${query3_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
+
 
     // filter outside + left + right
     def mv4_0 = "select l_linenumber, o_custkey, o_orderkey, o_orderstatus " +
@@ -400,10 +437,10 @@ suite("inner_join") {
             "on lineitem.l_orderkey = o_orderkey and l_shipdate = o_orderdate "
     def query7_0 = "select l_partkey, l_suppkey, l_shipdate " +
             "from (select l_shipdate, l_orderkey, l_partkey, l_suppkey " +
-            "from lineitem where l_partkey in (3, 4)) t1  " +
+            "from lineitem where l_partkey in (2, 3, 4)) t1  " +
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where l_partkey = 3"
+            "where l_partkey = 2"
     order_qt_query7_0_before "${query7_0}"
     check_rewrite(mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
@@ -417,8 +454,8 @@ suite("inner_join") {
     def query10_0 = "select orders.O_CUSTKEY " +
             "from orders " +
             "inner join lineitem on orders.O_ORDERKEY = lineitem.L_ORDERKEY " +
-            "WHERE lineitem.L_LINENUMBER > 10 AND orders.O_CUSTKEY = 5 AND " +
-            "orders.O_SHIPPRIORITY = 1"
+            "WHERE lineitem.L_LINENUMBER > 0 AND orders.O_CUSTKEY = 1 AND " +
+            "orders.O_SHIPPRIORITY = 2"
     order_qt_query10_0_before "${query10_0}"
     check_not_match(mv10_0, query10_0, "mv10_0")
     order_qt_query10_0_after "${query10_0}"

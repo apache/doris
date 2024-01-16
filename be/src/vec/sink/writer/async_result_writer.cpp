@@ -51,13 +51,13 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         add_block = _get_free_block(block, rows);
     }
 
+    std::lock_guard l(_m);
     // if io task failed, just return error status to
     // end the query
     if (!_writer_status.ok()) {
         return _writer_status;
     }
 
-    std::lock_guard l(_m);
     _eos = eos;
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
@@ -111,7 +111,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             }
 
             auto block = _get_block_from_queue();
-            auto status = write(block);
+            auto status = write(*block);
             if (!status.ok()) [[unlikely]] {
                 std::unique_lock l(_m);
                 _writer_status = status;
@@ -128,6 +128,10 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     // if not in transaction or status is in error or force close we can do close in
     // async IO thread
     if (!_writer_status.ok() || !in_transaction()) {
+        std::lock_guard l(_m);
+        // Using lock to make sure the writer status is not modified
+        // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
+        // maybe released. And it will core because use after free.
         _writer_status = close(_writer_status);
         _need_normal_close = false;
     }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -56,59 +57,102 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     }
 
     @Test
-    void testNotNull() throws Exception {
-        addConstraint("Alter table foreign_not_null add constraint uk1 unique (id2)\n");
+    void testNotNull() {
         String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .printlnTree();
-        dropConstraint("Alter table foreign_not_null drop constraint uk1\n");
+
+        sql = "select foreign_not_null.id2 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
     }
 
     @Test
-    void testNotNullWithPredicate() throws Exception {
-        addConstraint("Alter table foreign_not_null add constraint uk2 unique (id2)\n");
+    void testNotNullWithPredicate() {
         String sql = "select pri.id1 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
                 + "where pri.id1 = 1";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("(id2 = 1)", f.getPredicate().toSql());
+                    return true;
+                }))
                 .printlnTree();
-        dropConstraint("Alter table foreign_not_null drop constraint uk2\n");
+        sql = "select foreign_not_null.id2 from pri inner join foreign_not_null on pri.id1 = foreign_not_null.id2\n"
+                + "where pri.id1 = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("(id2 = 1)", f.getPredicate().toSql());
+                    return true;
+                }))
+                .printlnTree();
     }
 
     @Test
     void testNull() throws Exception {
-        addConstraint("Alter table foreign_null add constraint uk unique (id3)\n");
         String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 = foreign_null.id3";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("( not id3 IS NULL)", f.getPredicate().toSql());
+                    return true;
+                }))
                 .printlnTree();
-        dropConstraint("Alter table foreign_null drop constraint uk\n");
+        sql = "select foreign_null.id3 from pri inner join foreign_null on pri.id1 = foreign_null.id3";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("( not id3 IS NULL)", f.getPredicate().toSql());
+                    return true;
+                }))
+                .printlnTree();
     }
 
     @Test
     void testNullWithPredicate() throws Exception {
-        addConstraint("Alter table foreign_null add constraint uk unique (id3)\n");
         String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 = foreign_null.id3\n"
                 + "where pri.id1 = 1";
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("( not id3 IS NULL)", f.getExpressions().get(0).toSql());
+                    Assertions.assertEquals("(id3 = 1)", f.getExpressions().get(1).toSql());
+                    return true;
+                }))
                 .printlnTree();
-        dropConstraint("Alter table foreign_null drop constraint uk\n");
+        sql = "select id3 from pri inner join foreign_null on pri.id1 = foreign_null.id3\n"
+                + "where pri.id1 = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .matches(logicalFilter().when(f -> {
+                    Assertions.assertEquals("( not id3 IS NULL)", f.getExpressions().get(0).toSql());
+                    Assertions.assertEquals("(id3 = 1)", f.getExpressions().get(1).toSql());
+                    return true;
+                }))
+                .printlnTree();
     }
 
     @Test
-    void testMultiJoin() throws Exception {
-        addConstraint("Alter table foreign_null add constraint uk_id3 unique (id3)\n");
-        addConstraint("Alter table foreign_not_null add constraint uk_id2 unique (id2)\n");
+    void testMultiJoinCanPassForeign() throws Exception {
         String sql = "select id1 from "
                 + "foreign_null inner join foreign_not_null on id2 = id3\n"
                 + "inner join pri on id1 = id3";
@@ -117,7 +161,35 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalOlapScan().when(scan -> scan.getTable().getName().equals("pri")))
                 .printlnTree();
-        dropConstraint("Alter table foreign_null drop constraint uk_id3\n");
-        dropConstraint("Alter table foreign_not_null drop constraint uk_id2");
+    }
+
+    @Test
+    void testMultiJoinCannotPassPrimary() throws Exception {
+        String sql = "select id1 from "
+                + "foreign_null "
+                + "inner join pri on id1 = id3\n"
+                + "inner join foreign_not_null on id2 = id3\n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalOlapScan().when(scan -> scan.getTable().getName().equals("pri")))
+                .printlnTree();
+    }
+
+    @Test
+    void testOtherCond() {
+        String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 > foreign_null.id3 \n"
+                + "where pri.id1 = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalOlapScan().when(scan -> scan.getTable().getName().equals("pri")));
+
+        sql = "select pri.id1 from pri inner join foreign_null on pri.id1 != foreign_null.id3 \n"
+                + "where pri.id1 = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalOlapScan().when(scan -> scan.getTable().getName().equals("pri")));
     }
 }

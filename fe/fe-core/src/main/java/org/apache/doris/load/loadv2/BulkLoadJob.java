@@ -41,8 +41,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.LoadAuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -334,6 +334,11 @@ public abstract class BulkLoadJob extends LoadJob {
 
     public UserIdentity getUserInfo() {
         return userInfo;
+    }
+
+    public void recycleProgress() {
+        // Recycle memory occupied by Progress.
+        Env.getCurrentProgressManager().removeProgress(String.valueOf(id));
     }
 
     @Override
