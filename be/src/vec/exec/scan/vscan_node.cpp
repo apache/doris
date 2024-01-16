@@ -200,8 +200,8 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
                 RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
-                //LOG(INFO) << "instance shared scan enabled"
-                //          << print_id(state->fragment_instance_id());
+                LOG(INFO) << "instance shared scan enabled"
+                          << print_id(state->fragment_instance_id());
                 _shared_scanner_controller->set_scanner_context(id(),
                                                                 _eos ? nullptr : _scanner_ctx);
             }
