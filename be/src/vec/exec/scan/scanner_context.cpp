@@ -482,7 +482,6 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
     // calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
     // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
     // before we call the following if() block.
-    //LOG(INFO) << "yyyy one scanner finished " << debug_string();
     {
         --_num_running_scanners;
         if (scanner->_scanner->need_to_close()) {
@@ -504,8 +503,6 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
         if (!submit_status.ok()) {
             set_status_on_error(submit_status, false);
         }
-    } else {
-        //LOG(INFO) << "yyyy should be sched == false, not sched" << debug_string();
     }
 }
 
