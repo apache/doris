@@ -44,9 +44,17 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     scan_bytes += other.scan_bytes;
     int64_t other_cpu_time = other.cpu_nanos.load(std::memory_order_relaxed);
     cpu_nanos += other_cpu_time;
-    if (other.max_peak_memory_bytes > this->max_peak_memory_bytes) {
-        this->max_peak_memory_bytes = other.max_peak_memory_bytes.load(std::memory_order_relaxed);
+
+    int64_t other_peak_mem = other.max_peak_memory_bytes.load(std::memory_order_relaxed);
+    if (other_peak_mem > this->max_peak_memory_bytes) {
+        this->max_peak_memory_bytes = other_peak_mem;
     }
+
+    int64_t other_memory_used = other.current_used_memory_bytes.load(std::memory_order_relaxed);
+    if (other_memory_used > 0) {
+        this->current_used_memory_bytes = other_memory_used;
+    }
+
     for (auto& other_node_statistics : other._nodes_statistics_map) {
         int64_t node_id = other_node_statistics.first;
         auto node_statistics = add_nodes_statistics(node_id);
@@ -70,11 +78,13 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);
-    statistics->__set_scan_bytes(scan_bytes);
-    statistics->__set_scan_rows(scan_rows);
+    statistics->__set_scan_bytes(scan_bytes.load(std::memory_order_relaxed));
+    statistics->__set_scan_rows(scan_rows.load(std::memory_order_relaxed));
     statistics->__set_cpu_ms(cpu_nanos.load(std::memory_order_relaxed) / NANOS_PER_MILLIS);
     statistics->__set_returned_rows(returned_rows);
     statistics->__set_max_peak_memory_bytes(max_peak_memory_bytes.load(std::memory_order_relaxed));
+    statistics->__set_current_used_memory_bytes(
+            current_used_memory_bytes.load(std::memory_order_relaxed));
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
