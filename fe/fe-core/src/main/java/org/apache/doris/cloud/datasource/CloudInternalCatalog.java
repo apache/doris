@@ -20,6 +20,7 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -496,6 +497,14 @@ public class CloudInternalCatalog extends InternalCatalog {
     }
 
     // END CREATE TABLE
+
+    @Override
+    protected void checkAvailableCapacity(Database db) throws DdlException {
+        // check cluster capacity
+        Env.getCurrentSystemInfo().checkAvailableCapacity();
+        // check db quota
+        db.checkQuota();
+    }
 
     private void sleepSeveralMs() {
         // sleep random millis [20, 200] ms, avoid txn conflict

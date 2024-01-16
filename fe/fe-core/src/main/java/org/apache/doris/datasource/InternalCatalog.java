@@ -1068,11 +1068,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // only internal table should check quota and cluster capacity
-        if (Config.isNotCloudMode() && !stmt.isExternal()) {
-            // check cluster capacity
-            Env.getCurrentSystemInfo().checkAvailableCapacity();
-            // check db quota
-            db.checkQuota();
+        if (!stmt.isExternal()) {
+            checkAvailableCapacity(db);
         }
 
         // check if table exists in db
@@ -1960,6 +1957,13 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     protected void afterCreatePartitions(long tableId, List<Long> partitionIds, List<Long> indexIds)
             throws DdlException {
+    }
+
+    protected void checkAvailableCapacity(Database db) throws DdlException {
+        // check cluster capacity
+        Env.getCurrentSystemInfo().checkAvailableCapacity();
+        // check db quota
+        db.checkQuota();
     }
 
     // Create olap table and related base index synchronously.

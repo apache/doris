@@ -68,6 +68,7 @@ public class CloudTablet extends Tablet {
         Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             hasBackend = true;
+            Replica replica = iterator.next();
             if (replica.getVersion() <= version) {
                 iterator.remove();
                 delete = true;
