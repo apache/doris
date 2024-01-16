@@ -3240,9 +3240,10 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
 
             // replicationNum
+            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+
             if (Config.isCloudMode()) {
                 sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");

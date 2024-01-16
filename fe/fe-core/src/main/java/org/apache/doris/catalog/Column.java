@@ -635,7 +635,7 @@ public class Column implements Writable, GsonPostProcessable {
         }
     }
 
-    // SELECTDB_CODE_BEGIN
+    // CLOUD_CODE_BEGIN
     public int getFieldLengthByType(TPrimitiveType type, int stringLength) throws DdlException {
         switch (type) {
             case TINYINT:
@@ -772,7 +772,7 @@ public class Column implements Writable, GsonPostProcessable {
         OlapFile.ColumnPB col = builder.build();
         return col;
     }
-    // SELECTDB_CODE_END
+    // CLOUD_CODE_END
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
