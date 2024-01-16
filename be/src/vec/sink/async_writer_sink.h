@@ -104,7 +104,7 @@ public:
         // if the init failed, the _writer may be nullptr. so here need check
         if (_writer) {
             // For pipeline engine, the writer is always closed in async thread process_block
-            if (state->enable_pipeline_exec() || state->enable_pipelinex_exec()) {
+            if (state->enable_pipeline_exec()) {
                 RETURN_IF_ERROR(_writer->get_writer_status());
             } else {
                 RETURN_IF_ERROR(_writer->close(exec_status));
