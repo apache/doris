@@ -51,7 +51,7 @@ public class ShowConstraintsCommand extends Command implements NoForward {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
                 RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv()).value();
-        List<List<String>> res = tableIf.getConstraintMap().entrySet().stream()
+        List<List<String>> res = tableIf.getConstraintsMap().entrySet().stream()
                         .map(e -> Lists.newArrayList(e.getKey(),
                                 e.getValue().getType().getName(),
                                 e.getValue().toString()))

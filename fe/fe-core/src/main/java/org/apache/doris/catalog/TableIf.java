@@ -183,7 +183,7 @@ public interface TableIf {
         }
     }
 
-    default Map<String, Constraint> getConstraintMap() {
+    default Map<String, Constraint> getConstraintsMap() {
         readLock();
         try {
             return ImmutableMap.copyOf(getConstraintsMapUnsafe());
@@ -236,25 +236,27 @@ public interface TableIf {
         }
     }
 
-    default void addUniqueConstraint(String name, ImmutableList<String> columns) {
+    default Constraint addUniqueConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             UniqueConstraint uniqueConstraint =  new UniqueConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
+            return uniqueConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
+    default Constraint addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistence(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
+            return primaryKeyConstraint;
         } finally {
             writeUnlock();
         }
@@ -277,7 +279,7 @@ public interface TableIf {
         }
     }
 
-    default void addForeignConstraint(String name, ImmutableList<String> columns,
+    default Constraint addForeignConstraint(String name, ImmutableList<String> columns,
             TableIf referencedTable, ImmutableList<String> referencedColumns) {
         writeLock();
         try {
@@ -289,12 +291,32 @@ public interface TableIf {
                     foreignKeyConstraint.getReferencedColumnNames());
             updatePrimaryKeyForForeignKey(requirePrimaryKey, referencedTable);
             constraintMap.put(name, foreignKeyConstraint);
+            return foreignKeyConstraint;
         } finally {
             writeUnlock();
         }
     }
 
-    default void dropConstraint(String name) {
+    default void replayAddConstraint(Constraint constraint) {
+        if (constraint instanceof UniqueConstraint) {
+            UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
+            this.addUniqueConstraint(constraint.getName(),
+                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()));
+        } else if (constraint instanceof PrimaryKeyConstraint) {
+            PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
+            this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
+                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()));
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+            this.addForeignConstraint(foreignKey.getName(),
+                    ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
+                    foreignKey.getReferencedTable(),
+                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()));
+        }
+    }
+
+    default Constraint dropConstraint(String name) {
+        Constraint dropConstraint;
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
@@ -308,9 +330,11 @@ public interface TableIf {
                 ((PrimaryKeyConstraint) constraint).getForeignTables()
                         .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
             }
+            dropConstraint = constraint;
         } finally {
             writeUnlock();
         }
+        return dropConstraint;
     }
 
     default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {

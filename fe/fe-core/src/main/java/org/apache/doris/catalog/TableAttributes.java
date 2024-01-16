@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.constraint;
+package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -26,53 +27,27 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
-public abstract class Constraint implements Writable {
-    public enum ConstraintType {
-        FOREIGN_KEY("FOREIGN KEY"),
-        PRIMARY_KEY("PRIMARY KEY"),
-        UNIQUE("UNIQUE");
-        @SerializedName(value = "tn")
-        private final String name;
+/**
+ * TableAttributes contains additional information about all table
+ */
+public class TableAttributes implements Writable {
+    @SerializedName(value = "constraints")
+    private final Map<String, Constraint> constraintsMap = new HashMap<>();
 
-        ConstraintType(String stringValue) {
-            this.name = stringValue;
-        }
-
-        public String getName() {
-            return name;
-        }
-    }
-
-    @SerializedName(value = "n")
-    private final String name;
-    @SerializedName(value = "ty")
-    private final ConstraintType type;
-
-
-    protected Constraint(ConstraintType type, String name) {
-        this.name = name;
-        this.type = type;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public ConstraintType getType() {
-        return type;
-    }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    /**
-     * Read Constraint.
-     **/
-    public static Constraint read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Constraint.class);
+    public TableAttributes read(DataInput in)  throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableAttributes.class);
+    }
+
+    public Map<String, Constraint> getConstraintsMap() {
+        return constraintsMap;
     }
 }
