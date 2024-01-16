@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
@@ -29,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
-import org.apache.doris.nereids.trees.expressions.functions.table.Queries;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
@@ -54,7 +54,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
-            tableValued(Queries.class, "queries"),
+            tableValued(ActiveQueries.class, "active_queries"),
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),

@@ -64,14 +64,19 @@ public:
               scan_bytes(0),
               cpu_nanos(0),
               returned_rows(0),
-              max_peak_memory_bytes(0) {}
+              max_peak_memory_bytes(0),
+              current_used_memory_bytes(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
-    void add_scan_rows(int64_t scan_rows) { this->scan_rows += scan_rows; }
+    void add_scan_rows(int64_t delta_scan_rows) {
+        this->scan_rows.fetch_add(delta_scan_rows, std::memory_order_relaxed);
+    }
 
-    void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
+    void add_scan_bytes(int64_t delta_scan_bytes) {
+        this->scan_bytes.fetch_add(delta_scan_bytes, std::memory_order_relaxed);
+    }
 
     void add_cpu_nanos(int64_t delta_cpu_time) {
         this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
@@ -93,6 +98,10 @@ public:
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
         this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
+    }
+
+    void set_current_used_memory_bytes(int64_t current_used_memory) {
+        this->current_used_memory_bytes.store(current_used_memory, std::memory_order_relaxed);
     }
 
     void merge(QueryStatisticsRecvr* recvr);
@@ -121,8 +130,11 @@ public:
     bool collected() const { return _collected; }
     void set_collected() { _collected = true; }
 
-    int64_t get_scan_rows() { return scan_rows.load(); }
-    int64_t get_scan_bytes() { return scan_bytes.load(); }
+    int64_t get_scan_rows() { return scan_rows.load(std::memory_order_relaxed); }
+    int64_t get_scan_bytes() { return scan_bytes.load(std::memory_order_relaxed); }
+    int64_t get_current_used_memory_bytes() {
+        return current_used_memory_bytes.load(std::memory_order_relaxed);
+    }
 
 private:
     friend class QueryStatisticsRecvr;
@@ -139,6 +151,7 @@ private:
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
+    std::atomic<int64_t> current_used_memory_bytes;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
