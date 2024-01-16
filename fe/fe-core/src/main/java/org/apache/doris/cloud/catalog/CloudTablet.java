@@ -25,6 +25,8 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Multimap;
 
+import java.util.Iterator;
+
 public class CloudTablet extends Tablet {
 
     public CloudTablet() {
