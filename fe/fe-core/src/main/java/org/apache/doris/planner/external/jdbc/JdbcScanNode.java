@@ -37,7 +37,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -223,6 +222,7 @@ public class JdbcScanNode extends ExternalScanNode {
         }
 
         if (jdbcType == TOdbcTableType.CLICKHOUSE
+                && ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().jdbcClickhouseQueryFinal) {
             sql.append(" SETTINGS final = 1");
         }
@@ -313,7 +313,11 @@ public class JdbcScanNode extends ExternalScanNode {
         if (containsFunctionCallExpr(expr)) {
             if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
                     || tableType.equals(TOdbcTableType.ORACLE)) {
-                return Config.enable_func_pushdown;
+                if (ConnectContext.get() != null) {
+                    return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+                } else {
+                    return true;
+                }
             } else {
                 return false;
             }
