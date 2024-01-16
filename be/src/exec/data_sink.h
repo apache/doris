@@ -74,7 +74,7 @@ public:
         return Status::OK();
     }
 
-    virtual [[nodiscard]] bool is_pending_finish() const { return false; }
+    [[nodiscard]] virtual bool is_pending_finish() const { return false; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
