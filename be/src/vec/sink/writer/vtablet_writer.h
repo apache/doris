@@ -259,8 +259,6 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_send_data_rpc_done() const;
-
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
@@ -558,7 +556,7 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-    void _do_try_close(RuntimeState* state, Status exec_status);
+    void _do_try_close(RuntimeState* state, const Status& exec_status);
 
     TDataSink _t_sink;
 

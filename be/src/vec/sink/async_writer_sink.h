@@ -113,7 +113,7 @@ public:
         return Status::OK();
     }
 
-    bool is_pending_finish() override { return _writer->is_pending_finish(); }
+    [[nodiscard]] bool is_pending_finish() const override { return _writer->is_pending_finish(); }
 
 protected:
     const std::vector<TExpr>& _t_output_expr;

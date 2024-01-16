@@ -1355,7 +1355,7 @@ Status VTabletWriter::_send_new_partition_batch() {
     return Status::OK();
 }
 
-void VTabletWriter::_do_try_close(RuntimeState* state, Status exec_status) {
+void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
