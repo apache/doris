@@ -20,6 +20,7 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -31,22 +32,29 @@ public class TableIdentifier {
     private final long databaseId;
     @SerializedName(value = "tId")
     private final long tableId;
+    @SerializedName(value = "cId")
+    private final long catalogId;
 
     public TableIdentifier(TableIf tableIf) {
         Preconditions.checkArgument(tableIf != null,
                 "Table can not be null in constraint");
-        databaseId = tableIf.getDatabase().getId();
         tableId = tableIf.getId();
+        databaseId = tableIf.getDatabase().getId();
+        catalogId = tableIf.getDatabase().getCatalog().getId();
     }
 
     public TableIf toTableIf() {
-        DatabaseIf<?> databaseIf = Env.getCurrentEnv().getCurrentCatalog().getDbNullable(databaseId);
+        CatalogIf<?> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (catalogIf == null) {
+            throw new NullPointerException(String.format("Can not find catalog %s in constraint", catalogId));
+        }
+        DatabaseIf<?> databaseIf = catalogIf.getDbNullable(databaseId);
         if (databaseIf == null) {
-            throw new RuntimeException(String.format("Can not find database %s in constraint", databaseId));
+            throw new NullPointerException(String.format("Can not find database %s in constraint", databaseId));
         }
         TableIf tableIf = databaseIf.getTableNullable(tableId);
         if (tableIf == null) {
-            throw new RuntimeException(String.format("Can not find table %s in constraint", databaseId));
+            throw new NullPointerException(String.format("Can not find table %s in constraint", databaseId));
         }
         return tableIf;
     }

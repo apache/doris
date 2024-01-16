@@ -31,9 +31,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class AlterConstraintLog implements Writable {
-    @SerializedName("constraint")
+    @SerializedName("ct")
     final Constraint constraint;
-    @SerializedName("tableIdentifier")
+    @SerializedName("tid")
     final TableIdentifier tableIdentifier;
 
     public AlterConstraintLog(Constraint constraint, TableIf table) {

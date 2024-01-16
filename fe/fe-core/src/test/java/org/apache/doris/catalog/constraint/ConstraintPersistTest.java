@@ -20,6 +20,7 @@ package org.apache.doris.catalog.constraint;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -29,6 +30,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -151,5 +153,19 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         dropConstraint("alter table t1 drop constraint pk");
         dropConstraint("alter table t2 drop constraint pk");
         dropConstraint("alter table t1 drop constraint uk");
+    }
+
+    @Test
+    void externalTableTest() throws Exception {
+        ExternalTable externalTable =  new ExternalTable();
+        externalTable.addPrimaryKeyConstraint("pk", ImmutableList.of("col"));
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        DataOutput output = new DataOutputStream(outputStream);
+        externalTable.write(output);
+        InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+        DataInput input = new DataInputStream(inputStream);
+        TableIf loadTable = ExternalTable.read(input);
+        Assertions.assertEquals(1, loadTable.getConstraintsMap().size());
     }
 }
