@@ -300,7 +300,9 @@ public class HiveMetaStoreCache {
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
-            return new ListPartitionItem(Lists.newArrayList(key));
+            ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
+            listPartitionItem.setDefaultPartition(key.isHiveDefaultPartition());
+            return listPartitionItem;
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
                     e, partitionName, catalog.getName());

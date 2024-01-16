@@ -142,6 +142,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 partitionKey.originHiveKeys.add(values.get(i).getStringValue());
             }
             partitionKey.types.add(types.get(i).getPrimitiveType());
+            if (values.get(i).isHiveDefaultPartition()) {
+                partitionKey.setDefaultListPartition(true);
+            }
         }
         if (values.isEmpty()) {
             for (int i = 0; i < types.size(); ++i) {

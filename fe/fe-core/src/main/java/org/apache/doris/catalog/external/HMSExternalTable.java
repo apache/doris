@@ -802,8 +802,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                getDbName(), getName(), null);
-        return hivePartitionValues.getIdToPartitionItem();
+                getDbName(), getName(), getPartitionColumnTypes());
+
+        return hivePartitionValues.getIdToPartitionItem().entrySet().stream()
+                .filter(entry -> !entry.getValue().isDefaultPartition())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     @Override
