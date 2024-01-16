@@ -266,6 +266,10 @@ public class OdbcScanNode extends ExternalScanNode {
                 return false;
             }
         }
-        return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+        } else {
+            return true;
+        }
     }
 }

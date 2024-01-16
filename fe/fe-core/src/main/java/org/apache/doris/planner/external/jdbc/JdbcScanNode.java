@@ -222,6 +222,7 @@ public class JdbcScanNode extends ExternalScanNode {
         }
 
         if (jdbcType == TOdbcTableType.CLICKHOUSE
+                && ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().jdbcClickhouseQueryFinal) {
             sql.append(" SETTINGS final = 1");
         }
@@ -312,7 +313,11 @@ public class JdbcScanNode extends ExternalScanNode {
         if (containsFunctionCallExpr(expr)) {
             if (tableType.equals(TOdbcTableType.MYSQL) || tableType.equals(TOdbcTableType.CLICKHOUSE)
                     || tableType.equals(TOdbcTableType.ORACLE)) {
-                return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+                if (ConnectContext.get() != null) {
+                    return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+                } else {
+                    return true;
+                }
             } else {
                 return false;
             }
