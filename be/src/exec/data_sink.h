@@ -74,7 +74,7 @@ public:
         return Status::OK();
     }
 
-    virtual bool is_close_done() { return true; }
+    virtual bool is_pending_finish() { return false; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().

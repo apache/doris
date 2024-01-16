@@ -891,7 +891,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_close_done() is false at this time, will not block.
+    // For pipeline engine, the close is called in async writer's process block method,
+    // so that it will not block pipeline thread.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         bthread_usleep(1000);
     }
@@ -1400,21 +1401,6 @@ void VTabletWriter::_try_close(RuntimeState* state, Status exec_status) {
         _close_status = status;
         _close_wait = true;
     }
-}
-
-bool VTabletWriter::is_close_done() {
-    // Only after try_close, need to wait rpc end.
-    if (!_close_wait) {
-        return true;
-    }
-    bool close_done = true;
-    for (const auto& index_channel : _channels) {
-        index_channel->for_each_node_channel(
-                [&close_done](const std::shared_ptr<VNodeChannel>& ch) {
-                    close_done &= ch->is_send_data_rpc_done();
-                });
-    }
-    return close_done;
 }
 
 Status VTabletWriter::close(Status exec_status) {

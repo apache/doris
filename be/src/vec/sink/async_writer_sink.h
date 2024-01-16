@@ -113,7 +113,7 @@ public:
         return Status::OK();
     }
 
-    bool is_close_done() override { return !_writer->is_pending_finish(); }
+    bool is_pending_finish() override { return _writer->is_pending_finish(); }
 
 protected:
     const std::vector<TExpr>& _t_output_expr;

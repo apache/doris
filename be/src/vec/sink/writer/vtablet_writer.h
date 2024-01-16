@@ -532,8 +532,6 @@ public:
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
-    bool is_close_done();
-
     Status on_partitions_created(TCreatePartitionResult* result);
 
     Status _send_new_partition_batch();
