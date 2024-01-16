@@ -774,6 +774,12 @@ BaseCompaction:546859:
 * Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
 * Default value: 200
 
+#### `multi_table_max_wait_tables`
+
+* Type: int32
+* Description: Used in single-stream-multi-table load. When receiving a batch of messages from Kafka, if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.The param is aimed to avoid requesting and executing too many plans at once. Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC and improve the real-time processing of data.
+* Default value: 5
+
 #### `single_replica_load_download_num_workers`
 
 * Type: int32
