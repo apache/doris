@@ -94,6 +94,11 @@ public class ExternalSchemaCache {
         }
     }
 
+    public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
+        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
+        schemaCache.put(key, schema);
+    }
+
     public void invalidateTableCache(String dbName, String tblName) {
         SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
         schemaCache.invalidate(key);

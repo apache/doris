@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -55,6 +56,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -648,6 +650,15 @@ public abstract class TestWithFeService {
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
+    }
+
+    public void createCatalog(String sql) throws Exception {
+        CreateCatalogStmt stmt = (CreateCatalogStmt) parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
+    }
+
+    public CatalogIf getCatalog(String name) throws Exception {
+        return Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
     }
 
     public void createTables(String... sqls) throws Exception {

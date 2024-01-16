@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.constraint;
+package org.apache.doris.persist;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -27,40 +30,23 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public abstract class Constraint implements Writable {
-    public enum ConstraintType {
-        FOREIGN_KEY("FOREIGN KEY"),
-        PRIMARY_KEY("PRIMARY KEY"),
-        UNIQUE("UNIQUE");
-        @SerializedName(value = "tn")
-        private final String name;
+public class AlterConstraintLog implements Writable {
+    @SerializedName("ct")
+    final Constraint constraint;
+    @SerializedName("tid")
+    final TableIdentifier tableIdentifier;
 
-        ConstraintType(String stringValue) {
-            this.name = stringValue;
-        }
-
-        public String getName() {
-            return name;
-        }
+    public AlterConstraintLog(Constraint constraint, TableIf table) {
+        this.constraint = constraint;
+        this.tableIdentifier = new TableIdentifier(table);
     }
 
-    @SerializedName(value = "n")
-    private final String name;
-    @SerializedName(value = "ty")
-    private final ConstraintType type;
-
-
-    protected Constraint(ConstraintType type, String name) {
-        this.name = name;
-        this.type = type;
+    public TableIf getTableIf() {
+        return tableIdentifier.toTableIf();
     }
 
-    public String getName() {
-        return name;
-    }
-
-    public ConstraintType getType() {
-        return type;
+    public Constraint getConstraint() {
+        return constraint;
     }
 
     @Override
@@ -68,11 +54,8 @@ public abstract class Constraint implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    /**
-     * Read Constraint.
-     **/
-    public static Constraint read(DataInput in) throws IOException {
+    public static AlterConstraintLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Constraint.class);
+        return GsonUtils.GSON.fromJson(json, AlterConstraintLog.class);
     }
 }
