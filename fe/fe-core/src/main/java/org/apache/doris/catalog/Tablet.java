@@ -23,7 +23,6 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -114,7 +113,7 @@ public class Tablet extends MetaObject implements Writable {
         this(tabletId, new ArrayList<>());
     }
 
-    public Tablet(long tabletId, List<Replica> replicas) {
+    private Tablet(long tabletId, List<Replica> replicas) {
         this.id = tabletId;
         this.replicas = replicas;
         if (this.replicas == null) {
@@ -170,14 +169,14 @@ public class Tablet extends MetaObject implements Writable {
         }
     }
 
-    private boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
+    protected boolean isLatestReplicaAndDeleteOld(Replica newReplica) {
         boolean delete = false;
         boolean hasBackend = false;
-        Iterator<Replica> iterator = replicas.iterator();
         long version = newReplica.getVersion();
+        Iterator<Replica> iterator = replicas.iterator();
         while (iterator.hasNext()) {
             Replica replica = iterator.next();
-            if (Config.isCloudMode() || replica.getBackendId() == newReplica.getBackendId()) {
+            if (replica.getBackendId() == newReplica.getBackendId()) {
                 hasBackend = true;
                 if (replica.getVersion() <= version) {
                     iterator.remove();
@@ -236,11 +235,6 @@ public class Tablet extends MetaObject implements Writable {
 
             if (replica.isBad()) {
                 continue;
-            }
-
-            if (backendId == -1 && Config.isCloudMode()) {
-                throw new UserException(InternalErrorCode.META_NOT_FOUND_ERR,
-                        SystemInfoService.NOT_USING_VALID_CLUSTER_MSG);
             }
 
             ReplicaState state = replica.getState();
@@ -320,7 +314,7 @@ public class Tablet extends MetaObject implements Writable {
 
     public Replica getReplicaByBackendId(long backendId) {
         for (Replica replica : replicas) {
-            if (Config.isCloudMode() || replica.getBackendId() == backendId) {
+            if (replica.getBackendId() == backendId) {
                 return replica;
             }
         }
@@ -410,10 +404,10 @@ public class Tablet extends MetaObject implements Writable {
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Tablet.class);
+            return GsonUtils.GSON.fromJson(json, EnvFactory.getTabletClass());
         }
 
-        Tablet tablet = new Tablet();
+        Tablet tablet = EnvFactory.createTablet();
         tablet.readFields(in);
         return tablet;
     }

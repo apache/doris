@@ -22,6 +22,7 @@ import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -313,7 +314,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
             TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
-            Tablet tablet = new Tablet(Env.getCurrentEnv().getNextId());
+            Tablet tablet = EnvFactory.createTablet(Env.getCurrentEnv().getNextId());
 
             // add tablet to inverted index first
             index.addTablet(tablet, tabletMeta);
