@@ -302,6 +302,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
+    public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
+
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
@@ -522,7 +524,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
-    @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL)
+    /**
+     * Enables appending the 'FINAL' keyword in SQL queries to ClickHouse tables via JDBC,
+     * ensuring complete data merging and transformation before results are returned.
+     */
+    @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true)
     public boolean jdbcClickhouseQueryFinal = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
@@ -1087,6 +1093,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
     public boolean enableFunctionPushdown = false;
+
+    /**
+     * Determines whether to enable function and predicate pushdown in queries for external tables,
+     * such as those accessed via ODBC or JDBC. When enabled, this feature allows the optimizer to push
+     * down applicable functions and predicates in the WHERE clause to the external data source,
+     * potentially improving query performance by leveraging source-specific optimizations.
+     */
+    @VariableMgr.VarAttr(name = ENABLE_EXT_FUNC_PRED_PUSHDOWN, needForward = true)
+    public boolean enableExtFuncPredPushdown = true;
 
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;

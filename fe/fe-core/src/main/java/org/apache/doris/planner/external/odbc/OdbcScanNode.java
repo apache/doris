@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -267,6 +266,6 @@ public class OdbcScanNode extends ExternalScanNode {
                 return false;
             }
         }
-        return Config.enable_func_pushdown;
+        return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
     }
 }
