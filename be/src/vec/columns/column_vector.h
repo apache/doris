@@ -145,7 +145,7 @@ public:
     using Container = PaddedPODArray<value_type>;
 
 private:
-    ColumnVector() {}
+    ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
@@ -178,7 +178,7 @@ public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -194,6 +194,22 @@ public:
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+    }
+
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
+    void insert_range_of_integer(T begin, T end)
+        requires std::is_fundamental_v<T>
+    {
+        auto old_size = data.size();
+        data.resize(old_size + (end - begin));
+        for (int i = 0; i < end - begin; i++) {
+            data[old_size + i] = begin + i;
+        }
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
