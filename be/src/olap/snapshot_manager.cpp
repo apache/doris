@@ -492,7 +492,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 consistent_rowsets.clear(); // reset vector
 
                 // get latest version
-                const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
+                const RowsetSharedPtr last_version = ref_tablet->get_rowset_with_max_version();
                 if (last_version == nullptr) {
                     res = Status::InternalError("tablet has not any version. path={}",
                                                 ref_tablet->tablet_id());

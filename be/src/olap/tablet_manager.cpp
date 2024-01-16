@@ -146,8 +146,8 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     int32_t old_version, new_version;
     {
         std::shared_lock rdlock(existed_tablet->get_header_lock());
-        const RowsetSharedPtr old_rowset = existed_tablet->rowset_with_max_version();
-        const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
+        const RowsetSharedPtr old_rowset = existed_tablet->get_rowset_with_max_version();
+        const RowsetSharedPtr new_rowset = tablet->get_rowset_with_max_version();
         // If new tablet is empty, it is a newly created schema change tablet.
         // the old tablet is dropped before add tablet. it should not exist old tablet
         if (new_rowset == nullptr) {

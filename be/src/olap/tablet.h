@@ -149,14 +149,6 @@ public:
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
-    // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
-    // The caller must call hold _meta_lock when call this two function.
-    const RowsetSharedPtr get_rowset_by_version(const Version& version,
-                                                bool find_is_stale = false) const;
-    const RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
-
-    const RowsetSharedPtr rowset_with_max_version() const;
-
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
@@ -170,9 +162,9 @@ public:
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions_unlocked(const Version& spec_version,
-                                                std::vector<Version>* version_path,
+    Status capture_consistent_versions_unlocked(const Version& spec_version, Versions* version_path,
                                                 bool skip_missing_version, bool quiet) const;
+
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -203,11 +195,6 @@ public:
     uint32_t calc_compaction_score(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
-
-    // operation for clone
-    void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
-    void calc_missed_versions_unlocked(int64_t spec_version,
-                                       std::vector<Version>* missed_versions) const;
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -483,7 +470,6 @@ public:
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
-    Status all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
@@ -538,7 +524,7 @@ public:
 
     int64_t get_table_id() { return _tablet_meta->table_id(); }
 
-    // binlog releated functions
+    // binlog related functions
     bool is_enable_binlog();
     bool is_binlog_enabled() { return _tablet_meta->binlog_config().is_enable(); }
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
@@ -560,7 +546,6 @@ public:
 
 private:
     Status _init_once_action();
-    void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
 
@@ -758,7 +743,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;

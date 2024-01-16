@@ -560,18 +560,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_full_compaction_success_time(now);
     }
 
-    int64_t current_max_version;
+    int64_t current_max_version = -1;
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
-        if (max_rowset == nullptr) {
-            current_max_version = -1;
-        } else {
-            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        current_max_version = -1;
+        if (RowsetSharedPtr max_rowset = _tablet->get_rowset_with_max_version()) {
+            current_max_version = max_rowset->end_version();
         }
     }
 
-    auto cumu_policy = _tablet->cumulative_compaction_policy();
+    auto* cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << vertical_compaction
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
