@@ -79,6 +79,7 @@
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/txn_manager.h"
@@ -197,7 +198,7 @@ void offer_failed(T* response, google::protobuf::Closure* done, const FifoThread
     LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
 }
 
-PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
+PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
                                    ? config::brpc_heavy_work_pool_threads
@@ -238,7 +239,12 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
-PInternalServiceImpl::~PInternalServiceImpl() {
+PInternalServiceImpl::PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_env)
+        : PInternalService(exec_env), _engine(engine) {}
+
+PInternalServiceImpl::~PInternalServiceImpl() = default;
+
+PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
@@ -253,23 +259,23 @@ PInternalServiceImpl::~PInternalServiceImpl() {
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
-void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* controller,
+void PInternalService::transmit_data(google::protobuf::RpcController* controller,
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
                                          google::protobuf::Closure* done) {}
 
-void PInternalServiceImpl::transmit_data_by_http(google::protobuf::RpcController* controller,
+void PInternalService::transmit_data_by_http(google::protobuf::RpcController* controller,
                                                  const PEmptyRequest* request,
                                                  PTransmitDataResult* response,
                                                  google::protobuf::Closure* done) {}
 
-void PInternalServiceImpl::_transmit_data(google::protobuf::RpcController* controller,
+void PInternalService::_transmit_data(google::protobuf::RpcController* controller,
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done,
                                           const Status& extract_st) {}
 
-void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* controller,
+void PInternalService::tablet_writer_open(google::protobuf::RpcController* controller,
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
@@ -292,7 +298,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
+void PInternalService::exec_plan_fragment(google::protobuf::RpcController* controller,
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
@@ -305,7 +311,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
+void PInternalService::_exec_plan_fragment_in_pthread(
         google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
         PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
@@ -327,7 +333,7 @@ void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
+void PInternalService::exec_plan_fragment_prepare(google::protobuf::RpcController* controller,
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
@@ -340,7 +346,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* /*controller*/,
+void PInternalService::exec_plan_fragment_start(google::protobuf::RpcController* /*controller*/,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
@@ -355,7 +361,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
     }
 }
 
-void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* controller,
+void PInternalService::open_load_stream(google::protobuf::RpcController* controller,
                                             const POpenLoadStreamRequest* request,
                                             POpenLoadStreamResponse* response,
                                             google::protobuf::Closure* done) {
@@ -369,13 +375,14 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
                   << ", src_id=" << request->src_id();
 
         for (const auto& req : request->tablets()) {
-            TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
-            TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
-            if (tablet == nullptr) {
-                auto st = Status::NotFound("Tablet {} not found", req.tablet_id());
+            BaseTabletSPtr tablet;
+            if (auto res = ExecEnv::get_tablet(req.tablet_id()); !res.has_value()) [[unlikely]] {
+                auto st = std::move(res).error();
                 st.to_protobuf(response->mutable_status());
                 cntl->SetFailed(st.to_string());
                 return;
+            } else {
+                tablet = std::move(res).value();
             }
             auto resp = response->add_tablet_schemas();
             resp->set_index_id(req.index_id());
@@ -411,7 +418,7 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
     }
 }
 
-void PInternalServiceImpl::tablet_writer_add_block_by_http(
+void PInternalService::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
     PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
@@ -427,7 +434,7 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
     }
 }
 
-void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,
+void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBlockRequest* request,
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
@@ -457,7 +464,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
     }
 }
 
-void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
+void PInternalService::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
@@ -479,7 +486,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment_impl(
+Status PInternalService::_exec_plan_fragment_impl(
         const std::string& ser_request, PFragmentRequestVersion version, bool compact,
         const std::function<void(RuntimeState*, Status*)>& cb) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
@@ -561,7 +568,7 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
     }
 }
 
-void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* /*controller*/,
+void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*controller*/,
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
@@ -601,7 +608,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
     }
 }
 
-void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controller,
+void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                       const PFetchDataRequest* request, PFetchDataResult* result,
                                       google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
@@ -615,7 +622,7 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controlle
     }
 }
 
-void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* controller,
+void PInternalService::fetch_table_schema(google::protobuf::RpcController* controller,
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
@@ -723,7 +730,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
+void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController* controller,
                                                      const PFetchArrowFlightSchemaRequest* request,
                                                      PFetchArrowFlightSchemaResult* result,
                                                      google::protobuf::Closure* done) {
@@ -758,6 +765,7 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
 
 Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                                 PTabletKeyLookupResponse* response) {
+    // TODO(yuejing): use PointQueryExecutor lookup_util(_engine); instead
     PointQueryExecutor lookup_util;
     RETURN_IF_ERROR(lookup_util.init(request, response));
     RETURN_IF_ERROR(lookup_util.lookup_up());
@@ -773,7 +781,7 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
                                              PTabletKeyLookupResponse* response,
                                              google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+        [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
         Status st = _tablet_fetch_data(request, response);
         st.to_protobuf(response->mutable_status());
@@ -801,12 +809,12 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         google::protobuf::RpcController* controller, const PFetchColIdsRequest* request,
         PFetchColIdsResponse* response, google::protobuf::Closure* done) {
     brpc::ClosureGuard guard(done);
-    [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-    TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+    [[maybe_unused]] auto* cntl = static_cast<brpc::Controller*>(controller);
+    TabletManager* tablet_mgr = _engine.tablet_manager();
     const auto& params = request->params();
     for (const auto& param : params) {
         int64_t index_id = param.indexid();
-        auto tablet_ids = param.tablet_ids();
+        const auto& tablet_ids = param.tablet_ids();
         std::set<std::set<int32_t>> filter_set;
         std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
@@ -826,7 +834,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             for (const auto& col : columns) {
                 column_ids.insert(col.unique_id());
             }
-            filter_set.insert(column_ids);
+            filter_set.insert(std::move(column_ids));
 
             if (id_to_column.empty()) {
                 for (const auto& col : columns) {
@@ -889,7 +897,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                                                       const PFetchRemoteSchemaRequest* request,
                                                       PFetchRemoteSchemaResponse* response,
                                                       google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         if (request->is_coordinator()) {
@@ -961,7 +969,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 std::vector<TabletSchemaSPtr> tablet_schemas;
                 for (int64_t tablet_id : target_tablets) {
                     TabletSharedPtr tablet =
-                            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id,
+                            _engine.tablet_manager()->get_tablet(tablet_id,
                                                                                     false);
                     if (tablet == nullptr) {
                         // just ignore
@@ -987,7 +995,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
     }
 }
 
-void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcController* controller,
+void PInternalService::report_stream_load_status(google::protobuf::RpcController* controller,
                                                      const PReportStreamLoadStatusRequest* request,
                                                      PReportStreamLoadStatusResponse* response,
                                                      google::protobuf::Closure* done) {
@@ -1003,7 +1011,7 @@ void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcContro
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
+void PInternalService::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
@@ -1069,7 +1077,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
     }
 }
 
-void PInternalServiceImpl::update_cache(google::protobuf::RpcController* controller,
+void PInternalService::update_cache(google::protobuf::RpcController* controller,
                                         const PUpdateCacheRequest* request,
                                         PCacheResponse* response, google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
@@ -1082,7 +1090,7 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
     }
 }
 
-void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
+void PInternalService::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
@@ -1095,7 +1103,7 @@ void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controll
     }
 }
 
-void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controller,
+void PInternalService::clear_cache(google::protobuf::RpcController* controller,
                                        const PClearCacheRequest* request, PCacheResponse* response,
                                        google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
@@ -1108,7 +1116,7 @@ void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controll
     }
 }
 
-void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* controller,
+void PInternalService::merge_filter(::google::protobuf::RpcController* controller,
                                         const ::doris::PMergeFilterRequest* request,
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
@@ -1128,7 +1136,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* controller,
+void PInternalService::apply_filter(::google::protobuf::RpcController* controller,
                                         const ::doris::PPublishFilterRequest* request,
                                         ::doris::PPublishFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
@@ -1150,7 +1158,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
     }
 }
 
-void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* controller,
+void PInternalService::apply_filterv2(::google::protobuf::RpcController* controller,
                                           const ::doris::PPublishFilterRequestV2* request,
                                           ::doris::PPublishFilterResponse* response,
                                           ::google::protobuf::Closure* done) {
@@ -1172,7 +1180,7 @@ void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* con
     }
 }
 
-void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller,
+void PInternalService::send_data(google::protobuf::RpcController* controller,
                                      const PSendDataRequest* request, PSendDataResult* response,
                                      google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
@@ -1206,7 +1214,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
     }
 }
 
-void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
+void PInternalService::commit(google::protobuf::RpcController* controller,
                                   const PCommitRequest* request, PCommitResult* response,
                                   google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
@@ -1230,7 +1238,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     }
 }
 
-void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
+void PInternalService::rollback(google::protobuf::RpcController* controller,
                                     const PRollbackRequest* request, PRollbackResult* response,
                                     google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
@@ -1253,7 +1261,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
     }
 }
 
-void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* controller,
+void PInternalService::fold_constant_expr(google::protobuf::RpcController* controller,
                                               const PConstantExprRequest* request,
                                               PConstantExprResult* response,
                                               google::protobuf::Closure* done) {
@@ -1268,7 +1276,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
     }
 }
 
-Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
+Status PInternalService::_fold_constant_expr(const std::string& ser_request,
                                                  PConstantExprResult* response) {
     TFoldConstantParams t_request;
     {
@@ -1285,7 +1293,7 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
     return st;
 }
 
-void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* controller,
+void PInternalService::transmit_block(google::protobuf::RpcController* controller,
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
@@ -1298,7 +1306,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     _transmit_block(controller, request, response, done, Status::OK());
 }
 
-void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
+void PInternalService::transmit_block_by_http(google::protobuf::RpcController* controller,
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
@@ -1317,7 +1325,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
     }
 }
 
-void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* controller,
+void PInternalService::_transmit_block(google::protobuf::RpcController* controller,
                                            const PTransmitDataParams* request,
                                            PTransmitDataResult* response,
                                            google::protobuf::Closure* done,
@@ -1354,7 +1362,7 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
     }
 }
 
-void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* controller,
+void PInternalService::check_rpc_channel(google::protobuf::RpcController* controller,
                                              const PCheckRPCChannelRequest* request,
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
@@ -1387,7 +1395,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
     }
 }
 
-void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* controller,
+void PInternalService::reset_rpc_channel(google::protobuf::RpcController* controller,
                                              const PResetRPCChannelRequest* request,
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
@@ -1426,7 +1434,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
     }
 }
 
-void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controller,
+void PInternalService::hand_shake(google::protobuf::RpcController* controller,
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
@@ -1448,13 +1456,13 @@ constexpr char DownloadApiPath[] = "/api/_tablet/_download?token=";
 constexpr char FileParam[] = "&file=";
 constexpr auto Permissions = S_IRUSR | S_IWUSR;
 
-std::string construct_url(const std::string& host_port, const std::string& token,
+static std::string construct_url(const std::string& host_port, const std::string& token,
                           const std::string& path) {
     return fmt::format("{}{}{}{}{}{}", HttpProtocol, host_port, DownloadApiPath, token, FileParam,
                        path);
 }
 
-std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
+static std::string construct_file_path(const std::string& tablet_path, const std::string& rowset_id,
                                 int64_t segment) {
     return fmt::format("{}/{}_{}.dat", tablet_path, rowset_id, segment);
 }
@@ -1500,7 +1508,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t node_id = request->node_id();
     bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
                                            indices_size, http_port, token, rowset_path, this]() {
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (tablet == nullptr) {
             LOG(WARNING) << "failed to pull rowset for slave replica. tablet ["
@@ -1538,9 +1546,9 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         }
         RowsetId remote_rowset_id = rowset_meta->rowset_id();
         // change rowset id because it maybe same as other local rowset
-        RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+        RowsetId new_rowset_id = _engine.next_rowset_id();
         auto pending_rs_guard =
-                StorageEngine::instance()->pending_local_rowsets().add(new_rowset_id);
+                _engine.pending_local_rowsets().add(new_rowset_id);
         rowset_meta->set_rowset_id(new_rowset_id);
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         VLOG_CRITICAL << "succeed to init rowset meta for slave replica. rowset_id="
@@ -1639,7 +1647,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                         rowset_meta->tablet_id(), node_id, false);
             return;
         }
-        Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+        Status commit_txn_status = _engine.txn_manager()->commit_txn(
                 tablet->data_dir()->get_meta(), rowset_meta->partition_id(), rowset_meta->txn_id(),
                 rowset_meta->tablet_id(), tablet->tablet_uid(), rowset_meta->load_id(), rowset,
                 std::move(pending_rs_guard), false);
@@ -1720,13 +1728,13 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
                          "slave server="
                       << request->node_id() << ", is_succeed=" << request->is_succeed()
                       << ", tablet_id=" << request->tablet_id() << ", txn_id=" << request->txn_id();
-        StorageEngine::instance()->txn_manager()->finish_slave_tablet_pull_rowset(
+        txn_mgr->finish_slave_tablet_pull_rowset(
                 request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
         Status::OK().to_protobuf(response->mutable_status());
     });
@@ -1809,7 +1817,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         watch.start();
         TabletSharedPtr tablet = scope_timer_run(
                 [&]() {
-                    return StorageEngine::instance()->tablet_manager()->get_tablet(
+                    return _engine.tablet_manager()->get_tablet(
                             row_loc.tablet_id(), true /*include deleted*/);
                 },
                 &acquire_tablet_ms);
@@ -1820,7 +1828,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         }
         // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
         BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
-                [&]() { return StorageEngine::instance()->get_quering_rowset(rowset_id); },
+                [&]() { return _engine.get_quering_rowset(rowset_id); },
                 &acquire_rowsets_ms));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
@@ -1947,10 +1955,10 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
-    StorageEngine::instance()->get_tablet_rowset_versions(request, response);
+    _engine.get_tablet_rowset_versions(request, response);
 }
 
-void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
+void PInternalService::glob(google::protobuf::RpcController* controller,
                                 const PGlobRequest* request, PGlobResponse* response,
                                 google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
@@ -1972,7 +1980,7 @@ void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
     }
 }
 
-void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* controller,
+void PInternalService::group_commit_insert(google::protobuf::RpcController* controller,
                                                const PGroupCommitInsertRequest* request,
                                                PGroupCommitInsertResponse* response,
                                                google::protobuf::Closure* done) {
@@ -2042,7 +2050,7 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
     }
 };
 
-void PInternalServiceImpl::get_wal_queue_size(google::protobuf::RpcController* controller,
+void PInternalService::get_wal_queue_size(google::protobuf::RpcController* controller,
                                               const PGetWalQueueSizeRequest* request,
                                               PGetWalQueueSizeResponse* response,
                                               google::protobuf::Closure* done) {

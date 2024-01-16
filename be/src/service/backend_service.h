@@ -30,6 +30,7 @@
 
 namespace doris {
 
+class StorageEngine;
 class ExecEnv;
 class ThriftServer;
 class TAgentResult;
@@ -63,11 +64,11 @@ class ThreadPool;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
-class BackendService : public BackendServiceIf {
+class BaseBackendService : public BackendServiceIf {
 public:
-    BackendService(ExecEnv* exec_env);
+    BaseBackendService(ExecEnv* exec_env);
 
-    ~BackendService() override = default;
+    ~BaseBackendService() override = default;
 
     // NOTE: now we do not support multiple backend in one process
     static Status create_service(ExecEnv* exec_env, int port,
@@ -112,12 +113,6 @@ public:
 
     void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
 
-    void get_tablet_stat(TTabletStatResult& result) override;
-
-    int64_t get_trash_used_capacity() override;
-
-    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
-
     void submit_routine_load_task(TStatus& t_status,
                                   const std::vector<TRoutineLoadTask>& tasks) override;
 
@@ -130,18 +125,11 @@ public:
     // used for external service, close some context and release resource related with this context
     void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
 
-    void get_stream_load_record(TStreamLoadRecordResult& result,
-                                const int64_t last_stream_record_time) override;
-
-    void clean_trash() override;
-
-    void check_storage_format(TCheckStorageFormatResult& result) override;
-
-    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
-
-    void query_ingest_binlog(TQueryIngestBinlogResult& result,
-                             const TQueryIngestBinlogRequest& request) override;
-
+    // TODO(AlexYue): The below cloud backend functions should be implemented in 
+    // CloudBackendService
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cloud backend functions
+    ////////////////////////////////////////////////////////////////////////////
     void pre_cache_async(TPreCacheAsyncResponse& response,
                          const TPreCacheAsyncRequest& request) override;
 
@@ -157,12 +145,45 @@ public:
 
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
-
-private:
+    
+    ////////////////////////////////////////////////////////////////////////////
+    // end cloud backend functions
+    ////////////////////////////////////////////////////////////////////////////
+protected:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
+
     ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
     std::unique_ptr<ThreadPool> _ingest_binlog_workers;
+};
+
+// `StorageEngine` mixin for `BaseBackendService`
+class BackendService : public BaseBackendService {
+public:
+    BackendService(StorageEngine& engine, ExecEnv* exec_env);
+
+    ~BackendService() override = default;
+
+    void get_tablet_stat(TTabletStatResult& result) override;
+
+    int64_t get_trash_used_capacity() override;
+    
+    void get_stream_load_record(TStreamLoadRecordResult& result,
+                                int64_t last_stream_record_time) override;
+    
+    void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+
+    void clean_trash() override;
+
+    void check_storage_format(TCheckStorageFormatResult& result) override;
+
+    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
+
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
+private:
+    StorageEngine& _engine;
 };
 
 } // namespace doris
