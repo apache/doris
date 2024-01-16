@@ -278,7 +278,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     @Override
     public String toSqlImpl() {
-        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
     }
 
     @Override
