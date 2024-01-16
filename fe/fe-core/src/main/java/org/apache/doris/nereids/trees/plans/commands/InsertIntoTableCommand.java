@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -251,10 +252,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
             return false;
         }
+        OlapTable targetTable = physicalOlapTableSink.getTargetTable();
         return ctx.getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
-                && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ctx.isTxnModel()
-                && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
-                .isEmpty() && physicalOlapTableSink.getTargetTable().getTableProperty().getUseSchemaLightChange();
+                && !ctx.isTxnModel() && sink.getFragment().getPlanRoot() instanceof UnionNode
+                && physicalOlapTableSink.getPartitionIds().isEmpty() && targetTable.getTableProperty()
+                .getUseSchemaLightChange() && !targetTable.getQualifiedDbName()
+                .equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME);
     }
 
     @Override
