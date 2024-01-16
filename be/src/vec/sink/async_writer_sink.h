@@ -42,6 +42,7 @@ namespace vectorized {
 class Block;
 
 template <typename Writer, const char* Name>
+    requires(std::is_base_of_v<AsyncResultWriter, Writer>)
 class AsyncWriterSink : public DataSink {
 public:
     AsyncWriterSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs)

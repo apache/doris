@@ -680,6 +680,7 @@ public:
 };
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<AsyncResultWriter, Writer>)
 class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
 public:
     using Base = PipelineXSinkLocalState<FakeDependency>;
