@@ -855,7 +855,7 @@ public class HashJoinNode extends JoinNodeBase {
             output.append(detailPrefix).append("other join predicates: ")
                     .append(getExplainString(otherJoinConjuncts)).append("\n");
         }
-        if (!markJoinConjuncts.isEmpty()) {
+        if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("mark join predicates: ")
                     .append(getExplainString(markJoinConjuncts)).append("\n");
         }

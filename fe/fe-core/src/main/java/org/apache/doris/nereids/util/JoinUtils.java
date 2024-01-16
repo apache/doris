@@ -68,7 +68,7 @@ public class JoinUtils {
         // TODO actually standalone mark join can use shuffle, but need do nullaware shuffle to broadcast null value
         //  to all instances
         return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin()
-                || (join.isMarkJoin() && join.getHashJoinConjuncts().isEmpty()));
+                || (!join.getMarkJoinConjuncts().isEmpty() && join.getHashJoinConjuncts().isEmpty()));
     }
 
     public static boolean couldBroadcast(Join join) {

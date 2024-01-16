@@ -103,8 +103,15 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             if (apply.isMarkJoin()) {
                 List<Expression> joinConjuncts = apply.getCorrelationFilter().isPresent()
                         ? ExpressionUtils.extractConjunction(apply.getCorrelationFilter().get())
-                        : ExpressionUtils.EMPTY_CONDITION;
+                        : Lists.newArrayList();
                 List<Expression> markConjuncts = Lists.newArrayList(new EqualTo(left, right));
+                if (apply.isMarkJoinSlotNotNull() && !inSubquery.isNot()) {
+                    // for semi join with non-nullable mark slot, merge mark conjuncts with hash conjuncts
+                    // because semi join only care about mark slot with true value and discard false and null
+                    // it's safe the use false instead of null in this case
+                    joinConjuncts.addAll(markConjuncts);
+                    markConjuncts.clear();
+                }
                 return new LogicalJoin<>(
                         inSubquery.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
                         Lists.newArrayList(), joinConjuncts, markConjuncts,

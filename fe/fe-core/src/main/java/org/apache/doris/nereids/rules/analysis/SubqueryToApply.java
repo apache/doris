@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -75,8 +77,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             RuleType.FILTER_SUBQUERY_TO_APPLY.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
-                    boolean shouldOutputMarkJoinSlot = filter.getConjuncts().stream()
-                            .anyMatch(expr -> shouldOutputMarkJoinSlot(expr, SearchState.SearchNot));
                     ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
                             .<Set<SubqueryExpr>>map(e -> e.collect(SubqueryToApply::canConvertToSupply))
                             .collect(ImmutableList.toImmutableList());
@@ -84,6 +84,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
                         return filter;
                     }
+                    boolean shouldOutputMarkJoinSlot = filter.getConjuncts().stream()
+                            .anyMatch(expr -> !(expr instanceof SubqueryExpr));
 
                     List<Expression> oldConjuncts = ImmutableList.copyOf(filter.getConjuncts());
                     ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
@@ -104,16 +106,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 ctx.statementContext, shouldOutputMarkJoinSlot);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
-                        // boolean isMarkSlotNotNull =
-                        //         ExpressionUtils.canInferNotNullForMarkSlot(
-                        //                 TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
-                        //                         .rewrite(conjunct, null));
+                        boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
+                                        ? ExpressionUtils.canInferNotNullForMarkSlot(
+                                                TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, null))
+                                        : false;
 
                         applyPlan = subqueryToApply(subqueryExprs.stream()
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
                                 ctx.cascadesContext,
-                                Optional.of(conjunct), false);
+                                Optional.of(conjunct), false, isMarkSlotNotNull);
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
@@ -160,7 +162,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                             childPlan, context.getSubqueryToMarkJoinSlot(),
                             ctx.cascadesContext,
-                            Optional.of(newProject), true);
+                            Optional.of(newProject), true, false);
                     childPlan = applyPlan;
                     newProjects.add((NamedExpression) newProject);
                 }
@@ -221,12 +223,18 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
-
+                        boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
+                                        ? ExpressionUtils
+                                                .canInferNotNullForMarkSlot(
+                                                        TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
+                                                                .rewrite(conjunct,
+                                                                        null))
+                                        : false;
                         applyPlan = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
                                 context.getSubqueryToMarkJoinSlot(),
-                                ctx.cascadesContext, Optional.of(conjunct), false);
+                                ctx.cascadesContext, Optional.of(conjunct), false, isMarkSlotNotNull);
                         if (relatedInfoList.get(i) == RelatedInfo.RelatedToLeft) {
                             leftChildPlan = applyPlan;
                         } else {
@@ -327,7 +335,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private LogicalPlan subqueryToApply(List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
                                         Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
                                         CascadesContext ctx,
-                                        Optional<Expression> conjunct, boolean isProject) {
+                                        Optional<Expression> conjunct, boolean isProject,
+                                        boolean isMarkJoinSlotNotNull) {
         LogicalPlan tmpPlan = childPlan;
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
@@ -341,7 +350,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan,
                     subqueryToMarkJoinSlot, ctx, conjunct,
-                    isProject, subqueryExprs.size() == 1);
+                    isProject, subqueryExprs.size() == 1, isMarkJoinSlotNotNull);
             }
         }
         return tmpPlan;
@@ -359,7 +368,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private LogicalPlan addApply(SubqueryExpr subquery, LogicalPlan childPlan,
                                  Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
                                  CascadesContext ctx, Optional<Expression> conjunct,
-                                 boolean isProject, boolean singleSubquery) {
+                                 boolean isProject, boolean singleSubquery, boolean isMarkJoinSlotNotNull) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
         boolean needAddScalarSubqueryOutputToProjects = isConjunctContainsScalarSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
@@ -367,7 +376,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 subquery.getCorrelateSlots(),
                 subquery, Optional.empty(),
                 subqueryToMarkJoinSlot.get(subquery),
-                needAddScalarSubqueryOutputToProjects, isProject,
+                needAddScalarSubqueryOutputToProjects, isProject, isMarkJoinSlotNotNull,
                 childPlan, subquery.getQueryPlan());
 
         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()

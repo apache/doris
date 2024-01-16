@@ -473,52 +473,72 @@ public class ExpressionUtils {
     }
 
     /**
-     * canFilterNull
-     */
-    public static boolean canFilterNull(Set<Expression> predicates) {
-        // the idea is replacing mark join slot to null literal and run FoldConstant rule
-        // if the return value is false or null, we can safely change the mark conjunct to hash conjunct
-        NullLiteral nullLiteral = new NullLiteral(BooleanType.INSTANCE);
-        for (Expression predicate : predicates) {
-            Map<Expression, Expression> replaceMap = Maps.newHashMap();
-            predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
-            Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(ExpressionUtils.replace(predicate, replaceMap),
-                    new ExpressionRewriteContext(null));
-            if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * canInferNotNullForMarkSlot
      */
     public static boolean canInferNotNullForMarkSlot(Expression predicate) {
-        // the idea is replacing mark join slot to null literal and run FoldConstant rule
-        // if the return value is false or null, we can safely change the mark conjunct to hash conjunct
-        NullLiteral nullLiteral = new NullLiteral(BooleanType.INSTANCE);
-        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        /*
+         * assume predicate is from LogicalFilter
+         * the idea is replacing each mark join slot with null and false literal then run FoldConstant rule
+         * if the evaluate result are:
+         * 1. all true
+         * 2. all null and false (in logicalFilter, we discard both null and false values)
+         * the mark slot can be non-nullable boolean
+         * and in semi join, we can safely change the mark conjunct to hash conjunct
+         */
+        ImmutableList<Literal> literals =
+                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
+        List<MarkJoinSlotReference> markJoinSlotReferenceList =
+                ((Set<MarkJoinSlotReference>) predicate
+                        .collect(MarkJoinSlotReference.class::isInstance)).stream()
+                                .collect(Collectors.toList());
+        int markSlotSize = markJoinSlotReferenceList.size();
+        int maxMarkSlotCount = 4;
+        // if the conjunct has mark slot, and maximum 4 mark slots(for performance)
+        if (markSlotSize > 0 && markSlotSize <= maxMarkSlotCount) {
+            Map<Expression, Expression> replaceMap = Maps.newHashMap();
+            boolean meetTrue = false;
+            boolean meetNullOrFalse = false;
+            /*
+             * markSlotSize = 1 -> loopCount = 2  ---- 0, 1
+             * markSlotSize = 2 -> loopCount = 4  ---- 00, 01, 10, 11
+             * markSlotSize = 3 -> loopCount = 8  ---- 000, 001, 010, 011, 100, 101, 110, 111
+             * markSlotSize = 4 -> loopCount = 16 ---- 0000, 0001, ... 1111
+             */
+            int loopCount = 2 << markSlotSize;
+            for (int i = 0; i < loopCount; ++i) {
+                replaceMap.clear();
+                /*
+                 * replace each mark slot with null or false
+                 * literals.get(0) -> NullLiteral(BooleanType.INSTANCE)
+                 * literals.get(1) -> BooleanLiteral.FALSE
+                 */
+                for (int j = 0; j < markSlotSize; ++j) {
+                    replaceMap.put(markJoinSlotReferenceList.get(j), literals.get((i >> j) & 1));
+                }
+                Expression evalResult = FoldConstantRule.INSTANCE.rewrite(
+                        ExpressionUtils.replace(predicate, replaceMap),
+                        new ExpressionRewriteContext(null));
 
-        if (predicate.getInputSlots().size() == 1
-                && predicate.getInputSlots().iterator().next() instanceof MarkJoinSlotReference) {
-            predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
-        } else {
-            return false;
+                if (evalResult.equals(BooleanLiteral.TRUE)) {
+                    if (meetNullOrFalse) {
+                        return false;
+                    } else {
+                        meetTrue = true;
+                    }
+                } else if ((isNullOrFalse(evalResult))) {
+                    if (meetTrue) {
+                        return false;
+                    } else {
+                        meetNullOrFalse = true;
+                    }
+                }
+            }
         }
+        return true;
+    }
 
-        Expression evalExprNull = FoldConstantRule.INSTANCE.rewrite(
-                ExpressionUtils.replace(predicate, replaceMap), new ExpressionRewriteContext(null));
-
-        replaceMap.clear();
-        predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, BooleanLiteral.FALSE));
-        Expression evalExprFalse = FoldConstantRule.INSTANCE.rewrite(
-                ExpressionUtils.replace(predicate, replaceMap), new ExpressionRewriteContext(null));
-
-        if (evalExprNull.equals(evalExprFalse)) {
-            return true;
-        }
-        return false;
+    private static boolean isNullOrFalse(Expression expression) {
+        return expression.isNullLiteral() || expression.equals(BooleanLiteral.FALSE);
     }
 
     /**
