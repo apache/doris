@@ -111,7 +111,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     );
 
     private String catalogType = TRINO_CONNECTOR_HMS;
-    private final CatalogName trinoCatalogName;
     private final CatalogHandle trinoCatalogHandle;
     private Session trinoSession;
     private Connector connector;
@@ -123,7 +122,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         super(catalogId, name, Type.TRINO_CONNECTOR, comment);
         Objects.requireNonNull(name, "catalogName is null");
         catalogProperty = new CatalogProperty(resource, props);
-        trinoCatalogName = new CatalogName(name);
         trinoCatalogHandle = createRootCatalogHandle(name, new CatalogVersion("test"));
     }
 
@@ -158,10 +156,10 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 new InternalTypeManager(Env.getCurrentEnv().getTypeRegistry()),
                 new NodeSchedulerConfig().setIncludeCoordinator(true),
                 new OptimizerConfig()));
-        catalogFactory.addConnectorFactory(Env.getCurrentEnv().getPluginManager()
+        catalogFactory.addConnectorFactory(Env.getCurrentEnv().getTrinoConnectorPluginManager()
                 .getConnectorFactories().get(connectorName));
 
-        trinoConnectorServicesProvider = new TrinoConnectorServicesProvider(trinoCatalogName.getCatalogName(),
+        trinoConnectorServicesProvider = new TrinoConnectorServicesProvider(trinoCatalogHandle.getCatalogName(),
                 connectorNameString, catalogFactory, trinoConnectorProperties, MoreExecutors.directExecutor());
         trinoConnectorServicesProvider.loadInitialCatalogs();
         this.connector = trinoConnectorServicesProvider.getConnectorServices(trinoCatalogHandle).getConnector();
@@ -237,7 +235,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        QualifiedTablePrefix qualifiedTablePrefix = new QualifiedTablePrefix(trinoCatalogName.getCatalogName(), dbName);
+        QualifiedTablePrefix qualifiedTablePrefix = new QualifiedTablePrefix(trinoCatalogHandle.getCatalogName(), dbName);
         List<QualifiedObjectName> tables = trinoListTables(qualifiedTablePrefix);
         return tables.stream().map(field -> field.getObjectName()).collect(Collectors.toList());
     }
@@ -264,7 +262,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     public Optional<ConnectorTableHandle> getTrinoConnectorTable(String dbName, String tblName) {
         makeSureInitialized();
-        QualifiedObjectName tableName = new QualifiedObjectName(trinoCatalogName.getCatalogName(), dbName, tblName);
+        QualifiedObjectName tableName = new QualifiedObjectName(trinoCatalogHandle.getCatalogName(), dbName, tblName);
 
         if (!tableName.getCatalogName().isEmpty()
                 && !tableName.getSchemaName().isEmpty()
@@ -314,10 +312,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
 
     public Connector getConnector() {
         return connector;
-    }
-
-    public CatalogName getTrinoCatalogName() {
-        return trinoCatalogName;
     }
 
     public CatalogHandle getTrinoCatalogHandle() {

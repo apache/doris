@@ -844,7 +844,7 @@ public class Env {
         return typeRegistry;
     }
 
-    public TrinoConnectorPluginManager getPluginManager() {
+    public TrinoConnectorPluginManager getTrinoConnectorPluginManager() {
         return trinoConnectorPluginManager;
     }
 

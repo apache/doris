@@ -47,23 +47,4 @@ public class TrinoConnectorExternalDatabase extends ExternalDatabase<TrinoConnec
         // Sort the name instead, because the id may change.
         return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
-
-    @Override
-    public void dropTableForReplay(String tableName) {
-        LOG.debug("drop table [{}]", tableName);
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("drop table [{}] failed", tableName);
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void createTableForReplay(String tableName, long tableId) {
-        LOG.debug("create table [{}]", tableName);
-        tableNameToId.put(tableName, tableId);
-        TrinoConnectorExternalTable table = new TrinoConnectorExternalTable(tableId, tableName, name,
-                (TrinoConnectorExternalCatalog) extCatalog);
-        idToTbl.put(tableId, table);
-    }
 }

@@ -26,6 +26,7 @@ under the License.
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
+        <module>trino-connector-scanner</module>
         <module>max-compute-scanner</module>
         <module>avro-scanner</module>
         <module>preload-extensions</module>

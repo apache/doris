@@ -22,6 +22,7 @@ public enum TableFormatType {
     ICEBERG("iceberg"),
     HUDI("hudi"),
     PAIMON("paimon"),
+    TRINO_CONNECTOR("trino_connector"),
     MAX_COMPUTE("max_compute"),
     TRANSACTIONAL_HIVE("transactional_hive");
 

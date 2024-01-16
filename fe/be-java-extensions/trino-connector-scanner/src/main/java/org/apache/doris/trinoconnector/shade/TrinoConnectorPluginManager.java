@@ -14,13 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// copied from https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/PluginManager.java
 
-package org.apache.doris.datasource.shade;
-
-import org.apache.doris.common.EnvUtils;
+package org.apache.doris.trinoconnector.shade;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import io.trino.connector.ConnectorName;
 import io.trino.metadata.HandleResolver;
@@ -46,8 +44,8 @@ import java.util.function.Supplier;
 import javax.annotation.concurrent.ThreadSafe;
 
 @ThreadSafe
-public class TrinoConnectorPluginManager implements PluginInstaller {
-    public static final String trinoConnectorPluginsDir = EnvUtils.getDorisHome() + "/lib/connectors";
+public class TrinoConnectorPluginManager implements PluginInstaller  {
+    public static final String trinoConnectorPluginsDir = getDorisHome() + "/lib/connectors";
     private static final ImmutableList<String> SPI_PACKAGES = ImmutableList.<String>builder()
             .add("io.trino.spi.")
             .add("com.fasterxml.jackson.annotation.")
@@ -137,6 +135,14 @@ public class TrinoConnectorPluginManager implements PluginInstaller {
         return new PluginClassLoader(pluginName, urls, parent, SPI_PACKAGES);
     }
 
+    private static String getDorisHome() {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            dorisHome = "${Env.DORIS_HOME}";
+        }
+        return dorisHome;
+    }
+
     public ConcurrentMap<ConnectorName, ConnectorFactory> getConnectorFactories() {
         return connectorFactories;
     }
@@ -149,3 +155,4 @@ public class TrinoConnectorPluginManager implements PluginInstaller {
         return handleResolver;
     }
 }
+
