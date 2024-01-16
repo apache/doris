@@ -940,10 +940,8 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeUInt8>());
+        return std::make_shared<DataTypeUInt8>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -956,24 +954,16 @@ public:
                             column->get_name(), get_name());
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
-        auto null_map = ColumnUInt8::create(col_size, 0);
+        auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto& col_res_data = col_res->get_data();
-            auto& null_map_data = null_map->get_data();
-
-            if (col_in->is_null_at(i)) {
-                null_map_data[i] = 1;
-            } else {
-                auto ipv4_in = col_in->get_data_at(i);
-                if (is_ipv4_compat(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
-                    col_res_data[i] = 1;
-                }
+            auto ipv4_in = col_in->get_data_at(i);
+            if (is_ipv4_compat(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+                col_res_data[i] = 1;
             }
         }
 
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
@@ -995,10 +985,8 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeUInt8>());
+        return std::make_shared<DataTypeUInt8>();
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -1011,24 +999,16 @@ public:
                             column->get_name(), get_name());
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
-        auto null_map = ColumnUInt8::create(col_size, 0);
+        auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto& col_res_data = col_res->get_data();
-            auto& null_map_data = null_map->get_data();
-
-            if (col_in->is_null_at(i)) {
-                null_map_data[i] = 1;
-            } else {
-                auto ipv4_in = col_in->get_data_at(i);
-                if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
-                    col_res_data[i] = 1;
-                }
+            auto ipv4_in = col_in->get_data_at(i);
+            if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+                col_res_data[i] = 1;
             }
         }
 
-        block.replace_by_position(result,
-                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }
 
