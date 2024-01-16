@@ -1017,6 +1017,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
 
+    /// @TEMPORARY: for be_exec_version=3
+    factory.register_function<FunctionSubstringOld<Substr3ImplOld>>();
+    factory.register_function<FunctionSubstringOld<Substr2ImplOld>>();
+    factory.register_function<FunctionLeftOld>();
+    factory.register_function<FunctionRightOld>();
+
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
