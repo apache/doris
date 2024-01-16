@@ -558,7 +558,7 @@ private:
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
 
-    void _try_close(RuntimeState* state, Status exec_status);
+    void _do_try_close(RuntimeState* state, Status exec_status);
 
     TDataSink _t_sink;
 
