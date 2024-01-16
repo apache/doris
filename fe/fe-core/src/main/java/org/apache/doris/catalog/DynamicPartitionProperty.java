@@ -27,6 +27,8 @@ import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -233,7 +235,9 @@ public class DynamicPartitionProperty {
         sb.append(",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"");
         if (Config.isNotCloudMode()) {
             sb.append(",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\"");
-            sb.append(",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"");
+            if (!Strings.isNullOrEmpty(storageMedium)) {
+                sb.append(",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"");
+            }
         }
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             sb.append(",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"");
