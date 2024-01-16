@@ -17,28 +17,21 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
-#include <CLucene/search/query/TermPositionIterator.h>
-
-#include <memory>
-
-#include "roaring/roaring.hh"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 CL_NS_USE(index)
+CL_NS_USE(search)
 
 namespace doris::segment_v2 {
 
-class PhraseQuery {
+class PhraseQuery : public Query {
 public:
-    PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher)
-            : _searcher(searcher) {}
-    ~PhraseQuery();
+    PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                const TQueryOptions& query_options);
+    ~PhraseQuery() override;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
-    void search(roaring::Roaring& roaring);
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void search(roaring::Roaring& roaring) override;
 
 private:
     class PostingsAndPosition {
