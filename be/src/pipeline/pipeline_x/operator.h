@@ -470,7 +470,8 @@ public:
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
-                                      const bool is_shuffled_hash_join) {
+                                      const bool is_shuffled_hash_join,
+                                      const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
