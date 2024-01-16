@@ -524,6 +524,7 @@ Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request
 
     vectorized::Block send_data;
     RETURN_IF_ERROR(send_data.deserialize(request.block()));
+    LOG(INFO) << "load id: " << _load_id << ", block rows: " << send_data.rows();
     CHECK(send_data.rows() == request.tablet_ids_size())
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();

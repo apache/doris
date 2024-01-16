@@ -1642,11 +1642,17 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
+    LOG(INFO) << "query id: " << print_id(_state->query_id())
+              << ", instance id: " << print_id(_state->fragment_instance_id())
+              << ", number_input_rows: " << _number_input_rows;
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             _number_input_rows));
+    LOG(INFO) << "query id: " << print_id(_state->query_id())
+              << ", instance id: " << print_id(_state->fragment_instance_id())
+              << ", number_input_rows: " << _number_input_rows;
 
     ChannelDistributionPayloadVec channel_to_payload;
 
