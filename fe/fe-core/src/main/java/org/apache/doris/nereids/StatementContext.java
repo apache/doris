@@ -74,6 +74,13 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
+    // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
+    // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
+    // And hence, when column stats are unknown, even if the tables used by a sql is more than
+    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose cascading framework.
+    // Thus hasUnknownColStats has higher priority than isDpHyp
+    private boolean hasUnknownColStats = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -260,5 +267,13 @@ public class StatementContext {
 
     public void addJoinFilters(Collection<Expression> newJoinFilters) {
         this.joinFilters.addAll(newJoinFilters);
+    }
+
+    public boolean isHasUnknownColStats() {
+        return hasUnknownColStats;
+    }
+
+    public void setHasUnknownColStats(boolean hasUnknownColStats) {
+        this.hasUnknownColStats = hasUnknownColStats;
     }
 }

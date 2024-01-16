@@ -623,6 +623,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         TableIf table = catalogRelation.getTable();
         double rowCount = catalogRelation.getTable().estimatedRowCount();
+        boolean hasUnknownCol = false;
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
             boolean shouldIgnoreThisCol = StatisticConstants.shouldIgnoreCol(table, slotReference.getColumn().get());
@@ -644,12 +645,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count);
+            } else {
+                hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
                 columnStatisticMap.put(slotReference, cache);
             } else {
                 columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+                hasUnknownCol = true;
             }
+        }
+        if (hasUnknownCol && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+            ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
         }
         Statistics stats = new Statistics(rowCount, columnStatisticMap);
         stats = normalizeCatalogRelationColumnStatsRowCount(stats);
