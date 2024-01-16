@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -27,7 +28,7 @@ public class InternalDatabaseUtil {
 
     public static void checkDatabase(String dbName, ConnectContext ctx) throws AnalysisException {
         Preconditions.checkNotNull(dbName, "require dbName object");
-        if (!FeConstants.INTERNAL_DB_NAME.equals(dbName)) {
+        if (!FeConstants.INTERNAL_DB_NAME.equals(ClusterNamespace.getNameFromFullName(dbName))) {
             return;
         }
         if (ctx == null || ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser()) {
