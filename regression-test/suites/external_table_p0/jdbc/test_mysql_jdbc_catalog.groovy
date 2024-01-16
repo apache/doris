@@ -186,6 +186,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                 contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
             }
 
+            explain {
+                sql("select /*+ SET_VAR(enable_ext_func_pred_pushdown = false) */ `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """SELECT `datetime` FROM `doris_test`.`all_types`"""
+            }
+
             // test insert
             String uuid1 = UUID.randomUUID().toString();
             connect(user=user, password="${pwd}", url=url) {
@@ -378,7 +383,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 		}
         try {
             sql """ use ${ex_db_name}"""
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
             order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
             order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
             order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
@@ -409,13 +414,13 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
                 contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(`k6`, NULL), NULL) = 1)"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "false"); """
+            sql """ set enable_ext_func_pred_pushdown = "false"; """
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
                 contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
         } finally {
 			res_dbs_log = sql "show databases;"
 			for(int i = 0;i < res_dbs_log.size();i++) {
