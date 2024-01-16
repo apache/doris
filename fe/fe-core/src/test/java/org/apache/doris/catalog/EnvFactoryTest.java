@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
@@ -42,6 +43,8 @@ public class EnvFactoryTest {
         Assert.assertFalse(EnvFactory.createInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(EnvFactory.createPartition() instanceof Partition);
         Assert.assertFalse(EnvFactory.createPartition() instanceof CloudPartition);
+        Assert.assertTrue(EnvFactory.createTablet() instanceof Tablet);
+        Assert.assertFalse(EnvFactory.createTablet() instanceof CloudTablet);
         Assert.assertTrue(EnvFactory.createReplica() instanceof Replica);
         Assert.assertFalse(EnvFactory.createReplica() instanceof CloudReplica);
 
@@ -49,6 +52,7 @@ public class EnvFactoryTest {
         Assert.assertTrue(EnvFactory.createEnv(false) instanceof CloudEnv);
         Assert.assertTrue(EnvFactory.createInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(EnvFactory.createPartition() instanceof CloudPartition);
+        Assert.assertTrue(EnvFactory.createTablet() instanceof CloudTablet);
         Assert.assertTrue(EnvFactory.createReplica() instanceof CloudReplica);
     }
 
