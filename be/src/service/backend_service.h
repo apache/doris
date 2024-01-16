@@ -125,7 +125,7 @@ public:
     // used for external service, close some context and release resource related with this context
     void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) override;
 
-    // TODO(AlexYue): The below cloud backend functions should be implemented in 
+    // TODO(AlexYue): The below cloud backend functions should be implemented in
     // CloudBackendService
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
@@ -145,7 +145,7 @@ public:
 
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
-    
+
     ////////////////////////////////////////////////////////////////////////////
     // end cloud backend functions
     ////////////////////////////////////////////////////////////////////////////
@@ -158,7 +158,7 @@ protected:
 };
 
 // `StorageEngine` mixin for `BaseBackendService`
-class BackendService : public BaseBackendService {
+class BackendService final : public BaseBackendService {
 public:
     BackendService(StorageEngine& engine, ExecEnv* exec_env);
 
@@ -167,10 +167,10 @@ public:
     void get_tablet_stat(TTabletStatResult& result) override;
 
     int64_t get_trash_used_capacity() override;
-    
+
     void get_stream_load_record(TStreamLoadRecordResult& result,
                                 int64_t last_stream_record_time) override;
-    
+
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
     void clean_trash() override;

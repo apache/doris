@@ -27,7 +27,7 @@
 namespace google::protobuf {
 class Closure;
 class RpcController;
-} // namespace google
+} // namespace google::protobuf
 
 namespace doris {
 
@@ -250,13 +250,13 @@ public:
                                     const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response,
                                     google::protobuf::Closure* done) override;
-    
+
     void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
                                     const PFetchRemoteSchemaRequest* request,
                                     PFetchRemoteSchemaResponse* response,
                                     google::protobuf::Closure* done) override;
-private:
 
+private:
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);
 

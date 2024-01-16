@@ -893,27 +893,27 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
 }
 
 void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
-                                     const TPreCacheAsyncRequest& request) {
+                                         const TPreCacheAsyncRequest& request) {
     LOG(FATAL) << "BackendService is not implemented";
 }
 
 void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
-                                     const TCheckPreCacheRequest& request) {
+                                         const TCheckPreCacheRequest& request) {
     LOG(FATAL) << "BackendService is not implemented";
 }
 
 void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
-                                           const TSyncLoadForTabletsRequest& request) {
+                                               const TSyncLoadForTabletsRequest& request) {
     LOG(FATAL) << "BackendService is not implemented";
 }
 
 void BaseBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
-                                              const TGetTopNHotPartitionsRequest& request) {
+                                                  const TGetTopNHotPartitionsRequest& request) {
     LOG(FATAL) << "BackendService is not implemented";
 }
 
 void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
-                                     const TWarmUpTabletsRequest& request) {
+                                         const TWarmUpTabletsRequest& request) {
     LOG(FATAL) << "BackendService is not implemented";
 }
 
