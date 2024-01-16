@@ -865,10 +865,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     static_cast<void>(request->release_id());
 }
 
-bool VNodeChannel::is_send_data_rpc_done() const {
-    return _add_batches_finished || _cancelled;
-}
-
 Status VNodeChannel::close_wait(RuntimeState* state) {
     DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
