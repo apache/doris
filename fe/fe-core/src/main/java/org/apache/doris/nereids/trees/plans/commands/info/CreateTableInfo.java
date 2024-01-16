@@ -139,7 +139,6 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
-        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -175,7 +174,6 @@ public class CreateTableInfo {
         this.autoPartitionExprs = autoPartitionExprs;
         this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
-        appendColumnFromExprs();
         this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
@@ -459,6 +457,12 @@ public class CreateTableInfo {
                 }
             });
 
+            if (isAutoPartition) {
+                partitionColumns = ExpressionUtils
+                        .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
+                        .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
+            }
+
             if (partitionColumns != null) {
                 partitionColumns.forEach(p -> {
                     if (!columnMap.containsKey(p)) {
@@ -636,7 +640,7 @@ public class CreateTableInfo {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
                     + " For broker table, use table valued function instead."
-                    + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
+                    + ". Or you can temporarily set 'enable_odbc_mysql_broker_table=true'"
                     + " in fe.conf to reopen this feature.");
         }
     }
@@ -796,11 +800,6 @@ public class CreateTableInfo {
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToLegacyStmt() {
-        if (isAutoPartition) {
-            partitionColumns = ExpressionUtils
-                    .collectAll(autoPartitionExprs, UnboundSlot.class::isInstance).stream()
-                    .map(slot -> ((UnboundSlot) slot).getName()).collect(Collectors.toList());
-        }
         PartitionDesc partitionDesc = null;
         if (partitionColumns != null || isAutoPartition) {
             List<AllPartitionDesc> partitionDescs =
@@ -893,15 +892,5 @@ public class CreateTableInfo {
                 throw new AnalysisException("unsupported argument " + child.toString());
             }
         }).collect(Collectors.toList());
-    }
-
-    private void appendColumnFromExprs() {
-        for (Expression autoExpr : autoPartitionExprs) {
-            for (Expression child : autoExpr.children()) {
-                if (child instanceof UnboundSlot) {
-                    partitionColumns.add(((UnboundSlot) child).getName());
-                }
-            }
-        }
     }
 }
