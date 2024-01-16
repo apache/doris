@@ -492,6 +492,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
+    public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1509,6 +1511,10 @@ public class SessionVariable implements Serializable, Writable {
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+
+    @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    private boolean forceJniScanner = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3293,4 +3299,12 @@ public class SessionVariable implements Serializable, Writable {
         disableEmptyPartitionPrune = val;
     }
     // CLOUD_VARIABLES_END
+
+    public boolean isForceJniScanner() {
+        return forceJniScanner;
+    }
+
+    public void setForceJniScanner(boolean force) {
+        forceJniScanner = force;
+    }
 }
