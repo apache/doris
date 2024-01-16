@@ -3243,12 +3243,18 @@ public class Env {
 
             // replicationNum
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
-            sb.append(replicaAlloc.toCreateStmt()).append("\"");
 
-            // min load replica num
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
-            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+            if (Config.isCloudMode()) {
+                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTTLSeconds()).append("\"");
+            } else {
+                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
+                sb.append(replicaAlloc.toCreateStmt()).append("\"");
+
+                // min load replica num
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+                sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+            }
 
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -3294,6 +3300,11 @@ public class Env {
             // only display z-order sort info
             if (olapTable.isZOrderSort()) {
                 sb.append(olapTable.getDataSortInfo().toSql());
+            }
+
+            if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTTLSeconds()).append("\"");
             }
 
             // in memory

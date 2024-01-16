@@ -114,7 +114,7 @@ In some cases, the keywords in the database might be used as the field names. Fo
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
 
-2. When `enable_func_pushdown` is set to true, the function conditions after where will also be pushed down to the external data source. Currently, only MySQL and ClickHouse are supported. If you encounter a function that is not supported by MySQL or ClickHouse, you can set this parameter to false. , currently Doris will automatically identify some functions not supported by MySQL and functions supported by CLickHouse for push-down condition filtering, which can be viewed through explain sql.
+2. When `enable_func_pushdown` is set to true, the function conditions after where will also be pushed down to the external data source. Currently, only MySQL, ClickHouse, and Oracle are supported. If you encounter functions that are not supported by MySQL, ClickHouse, and Oracle, you can use this The parameter is set to false. At present, Doris will automatically identify some functions that are not supported by MySQL and functions supported by CLickHouse and Oracle for push-down condition filtering. You can view them through explain sql.
 
 Functions that are currently not pushed down include:
 
@@ -129,6 +129,10 @@ Functions that are currently pushed down include:
 |:--------------:|
 | FROM_UNIXTIME  |
 | UNIX_TIMESTAMP |
+
+| Oracle |
+|:------:|
+|  NVL   |
 
 ### Line Limit
 

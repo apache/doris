@@ -1021,6 +1021,12 @@ public class Config extends ConfigBase {
     public static boolean disable_balance = false;
 
     /**
+     * when be rebalancer idle, then disk balance will occurs.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_rebalancer_idle_seconds = 60;
+
+    /**
      * if set to true, TabletScheduler will not do disk balance.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2434,6 +2440,10 @@ public class Config extends ConfigBase {
         return !cloud_unique_id.isEmpty();
     }
 
+    public static boolean isNotCloudMode() {
+        return cloud_unique_id.isEmpty();
+    }
+
     /**
      * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
      */
@@ -2445,6 +2455,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int meta_service_connection_pool_size = 20;
+
+    @ConfField(mutable = true)
+    public static int meta_service_rpc_retry_times = 200;
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.

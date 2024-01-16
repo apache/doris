@@ -101,6 +101,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
+    public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
+
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
@@ -245,6 +247,7 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
+        properties.remove(PROPERTIES_FILE_CACHE_TTL_SECONDS);
 
         Preconditions.checkNotNull(storageMedium);
 
@@ -447,6 +450,23 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VERSION_INFO);
         }
         return version;
+    }
+
+    public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
+        long ttlSeconds = 0;
+        if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
+            try {
+                ttlSeconds = Long.parseLong(ttlSecondsStr);
+                if (ttlSeconds < 0) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
+                           + "(0 < integer < Long.MAX_VALUE)");
+            }
+        }
+        return ttlSeconds;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {

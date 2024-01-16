@@ -60,6 +60,7 @@ public class TableProperty implements Writable {
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
+    private long ttlSeconds = 0L;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -186,6 +187,15 @@ public class TableProperty implements Writable {
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
+    }
+
+    public TableProperty buildTTLSeconds() {
+        ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
+        return this;
+    }
+
+    public long getTTLSeconds() {
+        return ttlSeconds;
     }
 
     public TableProperty buildEnableLightSchemaChange() {

@@ -3153,7 +3153,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     // we should ensure the replica backend is alive
                     // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                     // BE id -> path hash
-                    Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                    Multimap<Long, Long> bePathsMap;
+                    try {
+                        bePathsMap = tablet.getNormalReplicaBackendPathMap();
+                    } catch (UserException ex) {
+                        errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
+                        result.setStatus(errorStatus);
+                        return result;
+                    }
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
