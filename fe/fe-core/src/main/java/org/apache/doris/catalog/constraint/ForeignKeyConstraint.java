@@ -24,13 +24,17 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class ForeignKeyConstraint extends Constraint {
-    private final ImmutableMap<String, String> foreignToReference;
+    @SerializedName(value = "ftr")
+    private final Map<String, String> foreignToReference;
+    @SerializedName(value = "rt")
     private final TableIdentifier referencedTable;
 
     public ForeignKeyConstraint(String name, List<String> columns,
@@ -50,11 +54,11 @@ public class ForeignKeyConstraint extends Constraint {
         this.foreignToReference = builder.build();
     }
 
-    public ImmutableSet<String> getForeignKeyNames() {
+    public Set<String> getForeignKeyNames() {
         return foreignToReference.keySet();
     }
 
-    public ImmutableSet<String> getReferencedColumnNames() {
+    public Set<String> getReferencedColumnNames() {
         return ImmutableSet.copyOf(foreignToReference.values());
     }
 
@@ -62,7 +66,7 @@ public class ForeignKeyConstraint extends Constraint {
         return foreignToReference.get(column);
     }
 
-    public ImmutableMap<String, String> getForeignToReference() {
+    public Map<String, String> getForeignToReference() {
         return foreignToReference;
     }
 

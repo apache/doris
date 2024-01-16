@@ -22,12 +22,14 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -50,7 +52,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -116,8 +117,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "comment")
     protected String comment = "";
 
-    @SerializedName(value = "constraints")
-    private HashMap<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "ta")
+    private TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
@@ -334,12 +335,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public Constraint getConstraint(String name) {
-        return constraintsMap.get(name);
+        return getConstraintsMap().get(name);
     }
 
     @Override
     public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return constraintsMap;
+        return tableAttributes.getConstraintsMap();
     }
 
     public TableType getType() {
@@ -455,9 +456,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         for (Column column : fullSchema) {
             column.write(out);
         }
-
         Text.writeString(out, comment);
-
+        // write table attributes
+        Text.writeString(out, GsonUtils.GSON.toJson(tableAttributes));
         // write create time
         out.writeLong(createTime);
     }
@@ -488,7 +489,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             hasCompoundKey = true;
         }
         comment = Text.readString(in);
+        // table attribute only support after version 127
+        if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
+            String json = Text.readString(in);
+            this.tableAttributes = GsonUtils.GSON.fromJson(json, TableAttributes.class);
 
+        }
         // read create time
         this.createTime = in.readLong();
     }

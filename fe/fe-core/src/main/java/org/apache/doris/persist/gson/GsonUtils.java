@@ -44,6 +44,10 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -202,6 +206,12 @@ public class GsonUtils {
                     Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<Constraint> constraintTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    Constraint.class, "clazz")
+            .registerSubtype(PrimaryKeyConstraint.class, PrimaryKeyConstraint.class.getSimpleName())
+            .registerSubtype(ForeignKeyConstraint.class, ForeignKeyConstraint.class.getSimpleName())
+            .registerSubtype(UniqueConstraint.class, UniqueConstraint.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     CatalogIf.class, "clazz")
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
@@ -287,6 +297,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())

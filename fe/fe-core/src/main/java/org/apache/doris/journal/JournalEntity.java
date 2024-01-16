@@ -58,6 +58,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -790,6 +791,12 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CHANGE_MTMV_TASK:
             case OperationType.OP_DROP_MTMV_TASK:
             case OperationType.OP_ALTER_MTMV_STMT: {
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_CONSTRAINT:
+            case OperationType.OP_ADD_CONSTRAINT: {
+                data = AlterConstraintLog.read(in);
                 isRead = true;
                 break;
             }
