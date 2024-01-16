@@ -975,16 +975,12 @@ public class EditLog {
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    if (log != null) {
-                        log.getTableIf().replayAddConstraint(log.getConstraint());
-                    }
+                    log.getTableIf().replayAddConstraint(log.getConstraint());
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    if (log != null) {
-                        log.getTableIf().dropConstraint(log.getConstraint().getName());
-                    }
+                    log.getTableIf().dropConstraint(log.getConstraint().getName());
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {

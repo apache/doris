@@ -17,11 +17,17 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.EsExternalDatabase;
+import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -31,6 +37,8 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,9 +50,12 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
+
     @Override
     public void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -167,5 +178,128 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         DataInput input = new DataInputStream(inputStream);
         TableIf loadTable = ExternalTable.read(input);
         Assertions.assertEquals(1, loadTable.getConstraintsMap().size());
+    }
+
+    @Test
+    void addConstraintLogPersistForExternalTableTest() throws Exception {
+        Config.edit_log_type = "local";
+        createCatalog("create catalog es properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
+                + " 'elasticsearch.username' = 'user1');");
+
+        Env.getCurrentEnv().changeCatalog(connectContext, "es");
+        EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es");
+        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
+        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog);
+        ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
+        tbl.setNewFullSchema(schema);
+        db.addTableForTest(tbl);
+        esCatalog.addDatabaseForTest(db);
+        Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(esCatalog).addSchemaForTest(db.getFullName(), tbl.getName(), schema);
+        new MockUp<RelationUtil>() {
+            @Mock
+            public TableIf getTable(List<String> qualifierName, Env env) {
+                return tbl;
+            }
+        };
+
+        new MockUp<ExternalTable>() {
+            @Mock
+            public DatabaseIf getDatabase() {
+                return db;
+            }
+        };
+
+        new MockUp<TableIdentifier>() {
+            @Mock
+            public TableIf toTableIf() {
+                return tbl;
+            }
+        };
+
+        addConstraint("alter table es.es_db1.es_tbl1 add constraint pk primary key (k1)");
+        addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv());
+        Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
+        tableIf.getConstraintsMapUnsafe().clear();
+        Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        DataOutput output = new DataOutputStream(outputStream);
+        for (Constraint value : new ArrayList<>(constraintMap.values())) {
+            JournalEntity journalEntity = new JournalEntity();
+            journalEntity.setData(new AlterConstraintLog(value, tableIf));
+            journalEntity.setOpCode(OperationType.OP_ADD_CONSTRAINT);
+            journalEntity.write(output);
+        }
+        InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+        DataInput input = new DataInputStream(inputStream);
+        for (int i = 0; i < constraintMap.values().size(); i++) {
+            JournalEntity journalEntity = new JournalEntity();
+            journalEntity.readFields(input);
+            EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
+        }
+        Assertions.assertEquals(tableIf.getConstraintsMap(), constraintMap);
+        Env.getCurrentEnv().changeCatalog(connectContext, "internal");
+    }
+
+    @Test
+    void dropConstraintLogPersistForExternalTest() throws Exception {
+        Config.edit_log_type = "local";
+        createCatalog("create catalog es2 properties('type' = 'es', 'elasticsearch.hosts' = 'http://192.168.0.1',"
+                + " 'elasticsearch.username' = 'user1');");
+
+        Env.getCurrentEnv().changeCatalog(connectContext, "es2");
+        EsExternalCatalog esCatalog = (EsExternalCatalog) getCatalog("es2");
+        EsExternalDatabase db = new EsExternalDatabase(esCatalog, 10002, "es_db1");
+        EsExternalTable tbl = new EsExternalTable(10003, "es_tbl1", "es_db1", esCatalog);
+        ImmutableList<Column> schema = ImmutableList.of(new Column("k1", PrimitiveType.INT));
+        tbl.setNewFullSchema(schema);
+        db.addTableForTest(tbl);
+        esCatalog.addDatabaseForTest(db);
+        Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(esCatalog).addSchemaForTest(db.getFullName(), tbl.getName(), schema);
+        new MockUp<RelationUtil>() {
+            @Mock
+            public TableIf getTable(List<String> qualifierName, Env env) {
+                return tbl;
+            }
+        };
+
+        new MockUp<ExternalTable>() {
+            @Mock
+            public DatabaseIf getDatabase() {
+                return db;
+            }
+        };
+
+        new MockUp<TableIdentifier>() {
+            @Mock
+            public TableIf toTableIf() {
+                return tbl;
+            }
+        };
+        addConstraint("alter table es.es_db1.es_tbl1 add constraint pk primary key (k1)");
+        addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
+        TableIf tableIf = RelationUtil.getTable(
+                RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
+                connectContext.getEnv());
+        Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        DataOutput output = new DataOutputStream(outputStream);
+        for (Constraint value : constraintMap.values()) {
+            JournalEntity journalEntity = new JournalEntity();
+            journalEntity.setData(new AlterConstraintLog(value, tableIf));
+            journalEntity.setOpCode(OperationType.OP_DROP_CONSTRAINT);
+            journalEntity.write(output);
+        }
+        InputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+        DataInput input = new DataInputStream(inputStream);
+        for (int i = 0; i < constraintMap.values().size(); i++) {
+            JournalEntity journalEntity = new JournalEntity();
+            journalEntity.readFields(input);
+            EditLog.loadJournal(Env.getCurrentEnv(), 0L, journalEntity);
+        }
+        Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
+        Env.getCurrentEnv().changeCatalog(connectContext, "internal");
     }
 }

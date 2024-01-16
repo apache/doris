@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -88,8 +87,6 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Can not found table in constraint " + constraint.toString());
         }
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
-        Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
-                "We only support table now but we meet ", catalogRelation.getTable());
         ImmutableList<String> columns = analyzedPlan.getOutput().stream()
                 .map(s -> {
                     Preconditions.checkArgument(s instanceof SlotReference

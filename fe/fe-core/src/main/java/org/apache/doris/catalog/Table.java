@@ -36,7 +36,6 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
-import cfjd.com.google.gson.reflect.TypeToken;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -53,7 +52,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -119,8 +117,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @SerializedName(value = "comment")
     protected String comment = "";
 
-    @SerializedName(value = "constraints")
-    private Map<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "ta")
+    private TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
@@ -337,12 +335,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public Constraint getConstraint(String name) {
-        return constraintsMap.get(name);
+        return getConstraintsMap().get(name);
     }
 
     @Override
     public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return constraintsMap;
+        return tableAttributes.getConstraintsMap();
     }
 
     public TableType getType() {
@@ -459,8 +457,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             column.write(out);
         }
         Text.writeString(out, comment);
-        // write constraints
-        Text.writeString(out, GsonUtils.GSON.toJson(getConstraintsMap()));
+        // write table attributes
+        Text.writeString(out, GsonUtils.GSON.toJson(tableAttributes));
         // write create time
         out.writeLong(createTime);
     }
@@ -491,13 +489,11 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             hasCompoundKey = true;
         }
         comment = Text.readString(in);
-        // constraint only support after version 127
+        // table attribute only support after version 127
         if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
             String json = Text.readString(in);
-            if (!json.isEmpty() && !json.equals("{}")) {
-                this.constraintsMap = GsonUtils.GSON.fromJson(json,
-                        new TypeToken<HashMap<String, Constraint>>() {}.getType());
-            }
+            this.tableAttributes = GsonUtils.GSON.fromJson(json, TableAttributes.class);
+
         }
         // read create time
         this.createTime = in.readLong();

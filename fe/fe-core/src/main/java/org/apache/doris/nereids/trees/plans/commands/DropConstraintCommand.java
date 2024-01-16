@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -33,7 +32,6 @@ import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,8 +71,6 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Can not found table when dropping constraint");
         }
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
-        Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
-                "Don't support table ", catalogRelation.getTable());
         return catalogRelation.getTable();
     }
 

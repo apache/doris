@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.persist;
+package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -29,33 +27,27 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
-public class AlterConstraintLog implements Writable {
-    @SerializedName("ct")
-    final Constraint constraint;
-    @SerializedName("tid")
-    final TableIdentifier tableIdentifier;
+/**
+ * TableAttributes contains additional information about all table
+ */
+public class TableAttributes implements Writable {
+    @SerializedName(value = "constraints")
+    private final Map<String, Constraint> constraintsMap = new HashMap<>();
 
-    public AlterConstraintLog(Constraint constraint, TableIf table) {
-        this.constraint = constraint;
-        this.tableIdentifier = new TableIdentifier(table);
-    }
-
-    public TableIf getTableIf() {
-        return tableIdentifier.toTableIf();
-    }
-
-    public Constraint getConstraint() {
-        return constraint;
-    }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static AlterConstraintLog read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, AlterConstraintLog.class);
+    public TableAttributes read(DataInput in)  throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableAttributes.class);
+    }
+
+    public Map<String, Constraint> getConstraintsMap() {
+        return constraintsMap;
     }
 }

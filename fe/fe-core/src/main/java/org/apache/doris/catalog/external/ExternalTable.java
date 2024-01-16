@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
@@ -51,7 +52,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -79,8 +79,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long timestamp;
     @SerializedName(value = "dbName")
     protected String dbName;
-    @SerializedName(value = "constraints")
-    private Map<String, Constraint> constraintsMap = new HashMap<>();
+    @SerializedName(value = "ta")
+    private final TableAttributes tableAttributes = new TableAttributes();
 
     // this field will be refreshed after reloading schema
     protected volatile long schemaUpdateTime;
@@ -279,7 +279,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return constraintsMap;
+        return tableAttributes.getConstraintsMap();
     }
 
     @Override
