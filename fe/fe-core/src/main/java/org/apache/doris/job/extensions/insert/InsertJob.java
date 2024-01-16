@@ -30,6 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -42,6 +43,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
@@ -244,9 +246,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
+        List<InsertTask> newTasks = new ArrayList<>();
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
             idToTasks.put(task.getTaskId(), task);
+            newTasks.add(task);
             recordTask(task.getTaskId());
         } else {
             // use for load stmt
@@ -256,11 +260,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                 }
                 InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
                 idToTasks.put(task.getTaskId(), task);
+                newTasks.add(task);
                 recordTask(task.getTaskId());
             }
         }
-        initTasks(idToTasks.values(), taskType);
-        return new ArrayList<>(idToTasks.values());
+        initTasks(newTasks, taskType);
+        return new ArrayList<>(newTasks);
     }
 
     public void recordTask(long id) {
@@ -269,14 +274,15 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         }
         if (CollectionUtils.isEmpty(historyTaskIdList)) {
             historyTaskIdList = new ConcurrentLinkedQueue<>();
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
             historyTaskIdList.add(id);
+            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
             return;
         }
         historyTaskIdList.add(id);
         if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
             historyTaskIdList.poll();
         }
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
@@ -317,22 +323,44 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         }
         //TODO it's will be refactor, we will storage task info in job inner and query from it
         List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
+        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+            Collections.reverse(taskIdList);
+            return queryLoadTasksByTaskIds(taskIdList);
+        }
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
+        if (CollectionUtils.isEmpty(loadJobs)) {
+            return new ArrayList<>();
+        }
+        List<InsertTask> tasks = new ArrayList<>();
+        loadJobs.forEach(loadJob -> {
+            InsertTask task;
+            try {
+                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
+            } catch (MetaNotFoundException e) {
+                log.warn("load job not found, job id is {}", loadJob.getId());
+                return;
+            }
+            task.setJobId(getJobId());
+            task.setTaskId(loadJob.getId());
+            task.setJobInfo(loadJob);
+            tasks.add(task);
+        });
+        return tasks;
 
-        Collections.reverse(taskIdList);
-        return queryLoadTasksByTaskIds(taskIdList);
     }
 
     public List<InsertTask> queryLoadTasksByTaskIds(List<Long> taskIdList) {
         if (taskIdList.isEmpty()) {
             return new ArrayList<>();
         }
-        List<InsertTask> jobs = new ArrayList<>();
+        List<InsertTask> tasks = new ArrayList<>();
         taskIdList.forEach(id -> {
             if (null != idToTasks.get(id)) {
-                jobs.add(idToTasks.get(id));
+                tasks.add(idToTasks.get(id));
             }
         });
-        return jobs;
+        return tasks;
     }
 
     @Override
@@ -351,14 +379,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public void onTaskFail(InsertTask task) {
-        try {
-            updateJobStatus(JobStatus.STOPPED);
+    public void onTaskFail(InsertTask task) throws JobException {
+        if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
             this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
-        } catch (JobException e) {
-            throw new RuntimeException(e);
         }
-        getRunningTasks().remove(task);
+        super.onTaskFail(task);
     }
 
     @Override

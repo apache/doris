@@ -284,6 +284,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         for (T job : jobMap.values()) {
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
+                job.logUpdateOperation();
                 return;
             }
         }
@@ -378,6 +379,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    //todo it's not belong to JobManager
     public void cancelLoadJob(CancelLoadStmt cs)
             throws JobException, AnalysisException, DdlException {
         String dbName = cs.getDbName();
