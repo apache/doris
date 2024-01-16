@@ -172,6 +172,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
             order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
             order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
+            order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
+            order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
             order_qt_information_schema """ show tables from information_schema; """
             order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
             order_qt_dt """select * from ${dt}; """
@@ -179,6 +181,10 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_test_dz """select * from ${test_zd} order by 1; """
             order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
             order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+            explain {
+                sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+            }
 
             // test insert
             String uuid1 = UUID.randomUUID().toString();
