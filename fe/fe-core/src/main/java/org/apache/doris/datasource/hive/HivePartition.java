@@ -72,7 +72,7 @@ public class HivePartition {
         if (parameters == null || !parameters.containsKey(LAST_MODIFY_TIME_KEY)) {
             return 0L;
         }
-        return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY));
+        return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY)) * 1000;
     }
 
     @Override

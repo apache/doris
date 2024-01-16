@@ -67,20 +67,6 @@ public class MTMVUtil {
     }
 
     /**
-     * Determine whether the mtmv is sync with tables
-     *
-     * @param mtmv
-     * @param tables
-     * @param excludedTriggerTables
-     * @param gracePeriod
-     * @return
-     */
-    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables,
-            Set<String> excludedTriggerTables, Long gracePeriod) throws AnalysisException {
-        return isSync(mtmv.getMinVisibleVersionTime(), tables, excludedTriggerTables, gracePeriod);
-    }
-
-    /**
      * Determine whether the partition is sync with retated partition and other baseTables
      *
      * @param mtmv
@@ -91,7 +77,7 @@ public class MTMVUtil {
      * @return
      * @throws AnalysisException
      */
-    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<BaseTableInfo> tables,
+    private static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables, Long gracePeriod) throws AnalysisException {
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
@@ -109,7 +95,7 @@ public class MTMVUtil {
             isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, item, relatedTable, relatedPartitionId,
                     relatedPartitionItems.get(relatedPartitionId));
         }
-        return isSyncWithPartition && isSync(
+        return isSyncWithPartition && isFresherThanTables(
                 mtmv.getPartitionOrAnalysisException(partitionId).getVisibleVersionTimeIgnoreInit(), tables,
                 excludedTriggerTables, gracePeriod);
 
@@ -172,11 +158,33 @@ public class MTMVUtil {
             return false;
         }
         try {
-            return isMTMVSync(mtmv, mtmv.getRelation().getBaseTables(), Sets.newHashSet(), 0L);
+            return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), Sets.newHashSet(), 0L);
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);
             return false;
         }
+    }
+
+    /**
+     * Determine whether the mtmv is sync with tables
+     *
+     * @param mtmv
+     * @param tables
+     * @param excludeTables
+     * @param gracePeriod
+     * @return
+     * @throws AnalysisException
+     */
+    public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables, Set<String> excludeTables, long gracePeriod)
+            throws AnalysisException {
+        Collection<Partition> partitions = mtmv.getPartitions();
+        for (Partition partition : partitions) {
+            if (!isMTMVPartitionSync(mtmv, partition.getId(), tables, excludeTables,
+                    gracePeriod)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -384,7 +392,7 @@ public class MTMVUtil {
      * @param gracePeriod
      * @return
      */
-    private static boolean isSync(long visibleVersionTime, Set<BaseTableInfo> tables,
+    private static boolean isFresherThanTables(long visibleVersionTime, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables, Long gracePeriod) throws AnalysisException {
         long maxAvailableTime = visibleVersionTime + gracePeriod;
         for (BaseTableInfo baseTableInfo : tables) {
