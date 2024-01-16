@@ -236,7 +236,7 @@ DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
 DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
     if (config == -1) {
         CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 4);
+        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
     }
     return true;
 });
