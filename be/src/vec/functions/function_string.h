@@ -150,10 +150,6 @@ struct SubstringUtil {
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
-        }
-
         const auto* specific_str_column =
                 assert_cast<const ColumnString*>(argument_columns[0].get());
         const auto* specific_start_column =
@@ -173,18 +169,16 @@ struct SubstringUtil {
         }
         vectors(specific_str_column->get_chars(), specific_str_column->get_offsets(),
                 specific_start_column->get_data(), specific_len_column->get_data(),
-                null_map->get_data(), res->get_chars(), res->get_offsets());
+                res->get_chars(), res->get_offsets());
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
+        block.get_by_position(result).column = std::move(res);
     }
 
 private:
     template <bool is_const>
     static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
                              const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                             NullMap& null_map, ColumnString::Chars& res_chars,
-                             ColumnString::Offsets& res_offsets) {
+                             ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
@@ -219,6 +213,8 @@ private:
             for (size_t j = 0, char_size = 0; j < str_size; j += char_size) {
                 char_size = get_utf8_byte_length(str_data[j]);
                 index.push_back(j);
+                // index_size represents the number of characters from the beginning of the character to the current position.
+                // So index.size() > start_value + len_value breaks because you don't need to get the characters after start + len characters.
                 if (start_value > 0 && index.size() > start_value + len_value) {
                     break;
                 }
@@ -231,10 +227,6 @@ private:
             }
             if (fixed_pos < 0) {
                 fixed_pos = index.size() + fixed_pos + 1;
-            }
-            if (fixed_pos > index.size()) {
-                StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                continue;
             }
 
             byte_pos = index[fixed_pos - 1];
@@ -256,8 +248,7 @@ private:
     static void vectors_ascii(const ColumnString::Chars& chars,
                               const ColumnString::Offsets& offsets,
                               const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                              NullMap& null_map, ColumnString::Chars& res_chars,
-                              ColumnString::Offsets& res_offsets) {
+                              ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
 
@@ -349,7 +340,7 @@ struct Substr2Impl {
         bool str_const;
         std::tie(str_col, str_const) = unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
         if (str_const) {
             std::fill(strlen_data.begin(), strlen_data.end(), str_offset[0] - str_offset[-1]);
@@ -609,11 +600,11 @@ public:
 
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
         auto pos_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
+        const auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
             strlen_data[i] = str_offset[i] - str_offset[i - 1];
