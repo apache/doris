@@ -24,7 +24,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
 
-public class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
+class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -76,7 +76,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest01() {
+    void inferPredicatesTest01() {
         String sql = "select * from student join score on student.id = score.sid where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -97,7 +97,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest02() {
+    void inferPredicatesTest02() {
         String sql = "select * from student join score on student.id = score.sid";
 
         PlanChecker.from(connectContext)
@@ -114,7 +114,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest03() {
+    void inferPredicatesTest03() {
         String sql = "select * from student join score on student.id = score.sid where student.id in (1,2,3)";
 
         PlanChecker.from(connectContext)
@@ -123,17 +123,15 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                 .matches(
                     logicalProject(
                         logicalJoin(
-                            logicalFilter(
-                                    logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
-                            logicalOlapScan()
+                            logicalFilter(logicalOlapScan()).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
+                            logicalFilter(logicalOlapScan()).when(filter -> filter.getPredicate().toSql().contains("sid IN (1, 2, 3)"))
                         )
                     )
                 );
     }
 
     @Test
-    public void inferPredicatesTest04() {
+    void inferPredicatesTest04() {
         String sql = "select * from student join score on student.id = score.sid and student.id in (1,2,3)";
 
         PlanChecker.from(connectContext)
@@ -142,17 +140,15 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                 .matches(
                     logicalProject(
                         logicalJoin(
-                            logicalFilter(
-                                    logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
-                            logicalOlapScan()
+                            logicalFilter(logicalOlapScan()).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
+                            logicalFilter(logicalOlapScan()).when(filter -> filter.getPredicate().toSql().contains("sid IN (1, 2, 3)"))
                         )
                     )
                 );
     }
 
     @Test
-    public void inferPredicatesTest05() {
+    void inferPredicatesTest05() {
         String sql = "select * from student join score on student.id = score.sid join course on score.sid = course.id where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -178,7 +174,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest06() {
+    void inferPredicatesTest06() {
         String sql = "select * from student join score on student.id = score.sid join course on score.sid = course.id and score.sid > 1";
 
         PlanChecker.from(connectContext)
@@ -204,7 +200,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest07() {
+    void inferPredicatesTest07() {
         String sql = "select * from student left join score on student.id = score.sid where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -225,7 +221,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest08() {
+    void inferPredicatesTest08() {
         String sql = "select * from student left join score on student.id = score.sid and student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -244,7 +240,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest09() {
+    void inferPredicatesTest09() {
         // convert left join to inner join
         String sql = "select * from student left join score on student.id = score.sid where score.sid > 1";
 
@@ -266,7 +262,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest10() {
+    void inferPredicatesTest10() {
         String sql = "select * from (select id as nid, name from student) t left join score on t.nid = score.sid where t.nid > 1";
 
         PlanChecker.from(connectContext)
@@ -289,7 +285,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest11() {
+    void inferPredicatesTest11() {
         String sql = "select * from (select id as nid, name from student) t left join score on t.nid = score.sid and t.nid > 1";
 
         PlanChecker.from(connectContext)
@@ -310,7 +306,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest12() {
+    void inferPredicatesTest12() {
         String sql = "select * from student left join (select sid as nid, sum(grade) from score group by sid) s on s.nid = student.id where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -337,7 +333,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest13() {
+    void inferPredicatesTest13() {
         String sql = "select * from (select id, name from student where id = 1) t left join score on t.id = score.sid";
 
         PlanChecker.from(connectContext)
@@ -360,7 +356,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest14() {
+    void inferPredicatesTest14() {
         String sql = "select * from student left semi join score on student.id = score.sid where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -383,7 +379,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest15() {
+    void inferPredicatesTest15() {
         String sql = "select * from student left semi join score on student.id = score.sid and student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -406,7 +402,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest16() {
+    void inferPredicatesTest16() {
         String sql = "select * from student left anti join score on student.id = score.sid and student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -427,7 +423,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest17() {
+    void inferPredicatesTest17() {
         String sql = "select * from student left anti join score on student.id = score.sid and score.sid > 1";
 
         PlanChecker.from(connectContext)
@@ -448,7 +444,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest18() {
+    void inferPredicatesTest18() {
         String sql = "select * from student left anti join score on student.id = score.sid where student.id > 1";
 
         PlanChecker.from(connectContext)
@@ -471,7 +467,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest19() {
+    void inferPredicatesTest19() {
         String sql = "select * from subquery1\n"
                 + "left semi join (\n"
                 + "  select t1.k3\n"
@@ -532,7 +528,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest20() {
+    void inferPredicatesTest20() {
         String sql = "select * from student left join score on student.id = score.sid and score.sid > 1 inner join course on course.id = score.sid";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
@@ -558,7 +554,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
-    public void inferPredicatesTest21() {
+    void inferPredicatesTest21() {
         String sql = "select * from student,score,course where student.id = score.sid and score.sid = course.id and score.sid > 1";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
@@ -587,7 +583,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
      * test for #15310
      */
     @Test
-    public void inferPredicatesTest22() {
+    void inferPredicatesTest22() {
         String sql = "select * from student join (select sid as id1, sid as id2, grade from score) s on student.id = s.id1 where s.id1 > 1";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
@@ -613,7 +609,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
      * in this case, filter on relation s1 should not contain s1.id = 1.
      */
     @Test
-    public void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
+    void innerJoinShouldNotInferUnderLeftJoinOnClausePredicates() {
         String sql = "select * from student s1"
                 + " left join (select sid as id1, sid as id2, grade from score) s2 on s1.id = s2.id1 and s1.id = 1"
                 + " join (select sid as id1, sid as id2, grade from score) s3 on s1.id = s3.id1 where s1.id = 2";
