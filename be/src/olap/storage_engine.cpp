@@ -132,7 +132,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr),
-          _create_tablet_idx_lru_cache(new CreateTabletIdxCache(10000)) {
+          _create_tablet_idx_lru_cache(
+                  new CreateTabletIdxCache(config::create_tablet_in_partition_idx_lru_size)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -476,7 +477,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
 
         for (auto& it : _store_map) {
-            DataDir* data_dir = it.second;
+            DataDir* data_dir = it.second.get();
             if (data_dir->is_used()) {
                 if ((_available_storage_medium_type_count == 1 ||
                      data_dir->storage_medium() == storage_medium) &&

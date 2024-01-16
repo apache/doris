@@ -1243,6 +1243,9 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
+// create tablet in partition random robin idx lru size, default 10000
+DECLARE_Int32(create_tablet_in_partition_idx_lru_size);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

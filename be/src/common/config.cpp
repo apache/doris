@@ -1167,6 +1167,9 @@ DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
+// create tablet in partition random robin idx lru size, default 10000
+DEFINE_Int32(create_tablet_in_partition_idx_lru_size, "10000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
