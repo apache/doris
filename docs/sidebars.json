@@ -923,7 +923,8 @@
                                 "sql-manual/sql-reference/Data-Types/MAP",
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
-                                "sql-manual/sql-reference/Data-Types/AGG_STATE"
+                                "sql-manual/sql-reference/Data-Types/AGG_STATE",
+                                "sql-manual/sql-reference/Data-Types/VARIANT"
                             ]
                         },
                         {
