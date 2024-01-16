@@ -36,7 +36,7 @@ under the License.
 
 1. KylinOS 版本：
 
-    ```shell
+```shell
     $> cat /etc/.kyinfo
     name=Kylin-Server
     milestone=10-SP1-Release-Build04-20200711
@@ -44,14 +44,14 @@ under the License.
     beta=False
     time=2020-07-11 17:16:54
     dist_id=Kylin-Server-10-SP1-Release-Build04-20200711-arm64-2020-07-11 17:16:54
-    ```
+```
 
 2. CPU型号：
 
-    ```shell
+```shell
     $> cat /proc/cpuinfo
     model name  : Phytium,FT-2000+/64
-    ```
+```
 
 ### CentOS & Ubuntu
 
@@ -83,26 +83,26 @@ under the License.
     <p>
       1. 创建软件下载安装包根目录和软件安装根目录
 
-        ```shell
+```shell
         # 创建软件下载安装包根目录
         mkdir /opt/tools
         # 创建软件安装根目录
         mkdir /opt/software
-        ```
-    </p>
+```
+  </p>
     <p>
       2. 安装依赖项
 
         - Git
 
-          ```shell
+```shell
           # 省去编译麻烦，直接使用 yum 安装
           yum install -y git
-          ```
+```
 
         - JDK8
 
-          ```shell
+```shell
           # 两种方式，第一种是省去额外下载和配置，直接使用 yum 安装，安装 devel 包是为了获取一些工具，如 jps 命令
           yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel
           
@@ -111,41 +111,41 @@ under the License.
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
             tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
             mv jdk1.8.0_291 /opt/software/jdk8
-          ```
+```
 
         - Maven
 
-          ```shell
+```shell
           cd /opt/tools
           # wget 工具下载后，直接解压缩配置环境变量使用
           wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
             tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
             mv apache-maven-3.6.3 /opt/software/maven
-          ```
+```
 
         - NodeJS
 
-          ```shell
+```shell
           cd /opt/tools
           # 下载 arm64 架构的安装包
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
             tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
             mv node-v16.3.0-linux-arm64 /opt/software/nodejs
-          ```
+```
 
         - LDB-Toolchain
 
-          ```shell
+```shell
           cd /opt/tools
           # 下载 LDB-Toolchain ARM 版本
           wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
             sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
-          ```
-    </p>
+```
+  </p>
     <p>
       3. 配置环境变量
 
-        ```shell
+```shell
         # 配置环境变量
         vim /etc/profile.d/doris.sh
         export JAVA_HOME=/opt/software/jdk8
@@ -166,12 +166,12 @@ under the License.
         > v16.3.0
         gcc --version
         > gcc-11
-        ```
-    </p>
+```
+  </p>
     <p>
       4. 安装其他额外环境和组件
 
-        ```shell
+```shell
         # install required system packages
         sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 bison zip util-linux wget git python2
         
@@ -184,98 +184,98 @@ under the License.
             ./configure && \
             make && \
             make install
-        ```
-    </p>
+```
+  </p>
   </TabItem>
   <TabItem value="Ubuntu 20.04" label="Ubuntu 20.04">
     <p>
       1. 更新 apt-get 软件库
 
-        ```shell
+```shell
         apt-get update
-        ```
-    </p>
+```
+  </p>
     <p>
       2. 检查 shell 命令集
 
         ubuntu 的 shell 默认安装的是 dash，而不是 bash，要切换成 bash 才能执行，运行以下命令查看 sh 的详细信息，确认 shell 对应的程序是哪个：
 
-        ```shell
+```shell
         ls -al /bin/sh
-        ```
+```
 
         通过以下方式可以使 shell 切换回 bash：
 
-        ```shell
+```shell
         sudo dpkg-reconfigure dash
-        ```
+```
 
         然后选择 no 或者 否 ，并确认
 
         这样做将重新配置 dash，并使其不作为默认的 shell 工具
-    </p>
+  </p>
     <p>
       3. 创建软件下载安装包根目录和软件安装根目录
 
-        ```shell
+```shell
         # 创建软件下载安装包根目录
         mkdir /opt/tools
         # 创建软件安装根目录
         mkdir /opt/software
-        ```
-    </p>
+```
+  </p>
     <p>
       4. 安装依赖项
         - Git
 
-          ```shell
+```shell
           # 省去编译麻烦，直接使用 apt-get 安装
           apt-get -y install git
-          ```
+```
 
         - JDK8
 
-          ```shell
+```shell
           # 下载 arm64 架构的安装包，解压配置环境变量后使用
           cd /opt/tools
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
             tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
             mv jdk1.8.0_291 /opt/software/jdk8
-          ```
+```
 
         - Maven
 
-          ```shell
+```shell
           cd /opt/tools
           # wget 工具下载后，直接解压缩配置环境变量使用
           wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
             tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
             mv apache-maven-3.6.3 /opt/software/maven
-          ```
+```
 
         - NodeJS
 
-          ```shell
+```shell
           cd /opt/tools
           # 下载 arm64 架构的安装包
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
             tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
             mv node-v16.3.0-linux-arm64 /opt/software/nodejs
-          ```
+```
 
         - LDB-Toolchain
 
-          ```shell
+```shell
           cd /opt/tools
           # 下载 LDB-Toolchain ARM 版本
           wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
           sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
-          ```
-    </p>
+```
+  </p>
     <p>
       5. 配置环境变量
 
-        ```shell
+```shell
         # 配置环境变量
         vim /etc/profile.d/doris.sh
         export JAVA_HOME=/opt/software/jdk8
@@ -296,12 +296,12 @@ under the License.
         > v16.3.0
         gcc --version
         > gcc-11
-        ```
-    </p>
+```
+  </p>
     <p>
       6. 安装其他额外环境和组件
 
-        ```shell
+```shell
         # install required system packages
         sudo apt install -y build-essential cmake flex automake bison binutils-dev libiberty-dev zip libncurses5-dev curl ninja-build
         sudo apt-get install -y make
@@ -325,8 +325,8 @@ under the License.
             ./configure && \
             make && \
             make install
-        ```
-    </p>
+```
+  </p>
   </TabItem>
 </Tabs>
 
@@ -378,10 +378,10 @@ export USE_UNWIND=OFF
 
      - 使用第三方下载仓库
 
-       ```shell
+```shell
        export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
        sh /opt/doris/thirdparty/build-thirdparty.sh
-       ```
+```
 
        REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
 
@@ -403,12 +403,12 @@ export USE_UNWIND=OFF
 
      建立 `\usr\bin` 中 `python` 命令的软连接
 
-     ```shell
+```shell
      # 查看python安装目录
      whereis python
      # 建立软连接
      sudo ln -s /usr/bin/python2.7 /usr/bin/python
-     ```
+```
 
 3. 编译结束后没有 output 目录
 
@@ -422,9 +422,9 @@ export USE_UNWIND=OFF
 
    - 解决方案
 
-     ```shell
+```shell
      sh build.sh --clean
-     ```
+```
 
 4. spark-dpp 编译失败
 
@@ -487,10 +487,10 @@ export USE_UNWIND=OFF
 
      将 ldb/aclocal 目录下的 `pkg.m4` 文件拷贝至 libxml2/m4 目录下，重新编译第三方库
 
-     ```shell
+```shell
      cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/doris/thirdparty/src/libxml2-v2.9.10/m4
      sh /opt/doris/thirdparty/build-thirdparty.sh
-     ```
+```
 
 7. 执行测试 CURL_HAS_TLS_PROXY 失败
 
@@ -518,7 +518,7 @@ export USE_UNWIND=OFF
 
      配置 ldb 环境变量
 
-     ```shell
+```shell
      # 配置环境变量
      vim /etc/profile.d/ldb.sh
      export LDB_HOME=/opt/software/ldb_toolchain
@@ -528,7 +528,7 @@ export USE_UNWIND=OFF
      # 测试
      gcc --version
      > gcc-11
-     ```
+```
 
 ### 启动问题
 
@@ -571,9 +571,9 @@ export USE_UNWIND=OFF
 
     - 解决方案
       重新编译 BE，编译时增加环境变量：
-      ```shell
+```shell
       export GLIBC_COMPATIBILITY=OFF
-      ```
+```
 
 ### 其他组件问题
 

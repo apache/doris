@@ -36,7 +36,7 @@ Note that this document is intended as a guide only. Other errors may occur when
 
 1. KylinOS Version：
 
-   ```shell
+```shell
    $> cat /etc/.kyinfo
    name=Kylin-Server
    milestone=10-SP1-Release-Build04-20200711
@@ -44,14 +44,14 @@ Note that this document is intended as a guide only. Other errors may occur when
    beta=False
    time=2020-07-11 17:16:54
    dist_id=Kylin-Server-10-SP1-Release-Build04-20200711-arm64-2020-07-11 17:16:54
-   ```
+```
 
 2. CPU Model:
 
-   ```shell
+```shell
    $> cat /proc/cpuinfo
    model name  : Phytium,FT-2000+/64
-   ```
+```
 
 ### CentOS & Ubuntu
 
@@ -83,26 +83,26 @@ Note that this document is intended as a guide only. Other errors may occur when
     <p>
       1. Create root directories for pacakges
 
-        ```shell
+```shell
         # Create root directory for software download and installation packages
         mkdir /opt/tools
         # Create root directory for software installation
         mkdir /opt/software
-        ```
-    </p>
+```
+  </p>
     <p>
       2. Installing dependencies
 
         - Git
 
-          ```shell
+```shell
           # yum install (save the trouble of compilation)
           yum install -y git
-          ```
+```
 
         - JDK8 (2 methods)
 
-          ```shell
+```shell
           # 1. yum install, which can avoid additional download and configuration. Installing the devel package is to get tools such as the jps command.
           yum install -y java-1.8.0-openjdk java-1.8.0-openjdk-devel
           
@@ -111,41 +111,41 @@ Note that this document is intended as a guide only. Other errors may occur when
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
           tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
           mv jdk1.8.0_291 /opt/software/jdk8
-          ```
+```
 
         - Maven
 
-          ```shell
+```shell
           cd /opt/tools
           # Download the wget tool, decompress it, and configure the environment variables.
           wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
           tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
           mv apache-maven-3.6.3 /opt/software/maven
-          ```
+```
 
         - NodeJS
 
-          ```shell
+```shell
           cd /opt/tools
           # Download the installation package of the arm64 architecture
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
           tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
           mv node-v16.3.0-linux-arm64 /opt/software/nodejs
-          ```
+```
 
         - ldb-toolchain
 
-          ```shell
+```shell
           cd /opt/tools
           # Download ldb-toolchain ARM version
           wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
           sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
-          ```
-    </p>
+```
+  </p>
     <p>
       3. Configure environment variables
 
-        ```shell
+```shell
         # Configure environment variables
         vim /etc/profile.d/doris.sh
         export JAVA_HOME=/opt/software/jdk8
@@ -166,12 +166,12 @@ Note that this document is intended as a guide only. Other errors may occur when
         > v16.3.0
         gcc --version
         > gcc-11
-        ```
-    </p>
+```
+  </p>
     <p>
       4. Install other environments and components
 
-        ```shell
+```shell
         # Install required system packages
         sudo yum install -y byacc patch automake libtool make which file ncurses-devel gettext-devel unzip bzip2 bison zip util-linux wget git python2
         
@@ -184,98 +184,98 @@ Note that this document is intended as a guide only. Other errors may occur when
             ./configure && \
             make && \
             make install
-        ```
-    </p>
+```
+  </p>
   </TabItem>
   <TabItem value="Ubuntu 20.04" label="Ubuntu 20.04">
     <p>
       1. Update apt-get repository
 
-        ```shell
+```shell
         apt-get update
-        ```
+```
     </p>
     <p>
       2. Check the shell command set
 
         The Ubuntu shell installs dash instead of bash by default. It needs to be switched to bash for proper execution. Run the following command to view the details of sh and confirm which program corresponds to the shell:
 
-        ```shell
+```shell
         ls -al /bin/sh
-        ```
+```
 
         The shell can be switched back to bash by:
 
-        ```shell
+```shell
         sudo dpkg-reconfigure dash
-        ```
+```
 
         Then select no to confirm.
 
         After these steps, dash will no longer be the default shell tool.
-    </p>
+  </p>
     <p>
       3. Create root directories for packages
 
-        ```shell
+```shell
         # Create root directory for software download and installation packages
         mkdir /opt/tools
         # Create root directory for software installation
         mkdir /opt/software
-        ```
-    </p>
+```
+  </p>
     <p>
       4. Installing dependencies
         - Git
 
-          ```shell
+```shell
           # apt-get install, which can save the trouble of compilation
           apt-get -y install git
-          ```
+```
 
         - JDK8
 
-          ```shell
+```shell
           # Download the installation package of the ARM64 architecture, decompress it, and configure environment variables.
           cd /opt/tools
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz && \
           tar -zxvf jdk-8u291-linux-aarch64.tar.gz && \
           mv jdk1.8.0_291 /opt/software/jdk8
-          ```
+```
 
         - Maven
 
-          ```shell
+```shell
           cd /opt/tools
           # Download the wget tool, decompress it, and configure the environment variables.
           wget https://dlcdn.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz && \
           tar -zxvf apache-maven-3.6.3-bin.tar.gz && \
           mv apache-maven-3.6.3 /opt/software/maven
-          ```
+```
 
         - NodeJS
 
-          ```shell
+```shell
           cd /opt/tools
           # Download the installation package of ARM64 architecture.
           wget https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz && \
           tar -xvf node-v16.3.0-linux-arm64.tar.xz && \
           mv node-v16.3.0-linux-arm64 /opt/software/nodejs
-          ```
+```
 
         - ldb-toolchain
 
-          ```shell
+```shell
           cd /opt/tools
           # Download ldb-toolchain ARM version
           wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.9.1/ldb_toolchain_gen.aarch64.sh && \
           sh ldb_toolchain_gen.aarch64.sh /opt/software/ldb_toolchain/
-          ```
-    </p>
+```
+  </p>
     <p>
       5. Configure environment variables
 
-        ```shell
+```shell
         # Configure environment variables
         vim /etc/profile.d/doris.sh
         export JAVA_HOME=/opt/software/jdk8
@@ -296,12 +296,12 @@ Note that this document is intended as a guide only. Other errors may occur when
         > v16.3.0
         gcc --version
         > gcc-11
-        ```
-    </p>
+```
+  </p>
     <p>
       6. Install other environments and components
 
-        ```shell
+```shell
         # Install required system packages
         sudo apt install -y build-essential cmake flex automake bison binutils-dev libiberty-dev zip libncurses5-dev curl ninja-build
         sudo apt-get install -y make
@@ -325,8 +325,8 @@ Note that this document is intended as a guide only. Other errors may occur when
             ./configure && \
             make && \
             make install
-        ```
-    </p>
+```
+  </p>
   </TabItem>
 </Tabs>
 
@@ -378,10 +378,10 @@ If you still encounter problems when compiling or starting, please consult the [
 
       - Use a third-party download repository
 
-        ```shell
+```shell
         export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
         sh /opt/doris/thirdparty/build-thirdparty.sh
-        ````
+````
 
         REPOSITORY_URL contains all third-party library source packages and their historical versions.
 
@@ -403,12 +403,12 @@ If you still encounter problems when compiling or starting, please consult the [
 
      Establish a soft link to the `python` command in `\usr\bin`
 
-     ```shell
+```shell
      # View python installation directory
      whereis python
      # Establish soft connection
      sudo ln -s /usr/bin/python2.7 /usr/bin/python
-     ````
+````
 
 3. There is no output directory after compilation
 
@@ -422,9 +422,9 @@ If you still encounter problems when compiling or starting, please consult the [
 
    - Solution
 
-     ```shell
+```shell
      sh build.sh --clean
-     ````
+````
 
 4. spark-dpp compilation fails
 
@@ -483,10 +483,10 @@ If you still encounter problems when compiling or starting, please consult the [
 
      Copy the `pkg.m4` file in the ldb/aclocal directory into the libxml2/m4 directory, and recompile the third-party library.
 
-     ```shell
+```shell
      cp /opt/software/ldb_toolchain/share/aclocal/pkg.m4 /opt/incubator-doris/thirdparty/src/libxml2-v2.9.10/m4
      sh /opt/incubator-doris/thirdparty/build-thirdparty.sh
-     ````
+````
    
 7. Failed to execute test CURL_HAS_TLS_PROXY
 
@@ -514,7 +514,7 @@ If you still encounter problems when compiling or starting, please consult the [
 
      Configure ldb environment variables
 
-     ```shell
+```shell
      # Configure environment variables
      vim /etc/profile.d/ldb.sh
      export LDB_HOME=/opt/software/ldb_toolchain
@@ -524,7 +524,7 @@ If you still encounter problems when compiling or starting, please consult the [
      # Test
      gcc --version
      > gcc-11
-     ````
+````
 
 ### Problems about Starting
 
@@ -571,9 +571,9 @@ If you still encounter problems when compiling or starting, please consult the [
 
     - Solution
       Recompile the BE, with environment variables added:
-      ```shell
+```shell
       export GLIBC_COMPATIBILITY=OFF
-      ```
+```
 
 ### Other Component Issues 
 
