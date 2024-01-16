@@ -41,6 +41,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "olap/data_dir.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -201,7 +202,10 @@ Status LocalFileWriter::_close(bool sync) {
     }
 
     DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
-        return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+        // spare '.testfile' to make bad disk checker happy
+        if (_path.filename().compare(kTestFilePath)) {
+            return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+        }
     });
 
     _closed = true;
