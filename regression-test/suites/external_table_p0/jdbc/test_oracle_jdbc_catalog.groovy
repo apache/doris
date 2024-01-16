@@ -134,6 +134,12 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_date6  """ select * from TEST_DATE where (T1 < '2022-01-22 00:00:00' or T1 > '2022-01-20 00:00:00') and (T1 < '2022-01-23 00:00:00' or T1 > '2022-01-19 00:00:00'); """
         order_qt_date7  """select * from TEST_TIMESTAMP where T2 < str_to_date('2020-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');"""
 
+        // test nvl
+        explain {
+            sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
+            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE (nvl("SCORE", 0.0) < 95.0)"""
+        }
+
         // for old planner
         order_qt_filter4_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' order by ID; """
         order_qt_filter5_old_plan  """ select /*+ SET_VAR(enable_nereids_planner=false) */ * from STUDENT where NAME NOT like '%bob%' or NAME NOT LIKE '%jerry%' order by ID; """
