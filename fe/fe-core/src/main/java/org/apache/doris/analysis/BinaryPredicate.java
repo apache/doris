@@ -492,6 +492,14 @@ public class BinaryPredicate extends Predicate implements Writable {
                     SessionVariable.getEnableDecimal256());
         }
 
+        // Variant can be implicit cast to numeric type and string type at present
+        if (t1.isVariantType() && (t2.isNumericType() || t2.isStringType())) {
+            return Type.fromPrimitiveType(t2);
+        }
+        if (t2.isVariantType() && (t1.isNumericType() || t1.isStringType())) {
+            return Type.fromPrimitiveType(t1);
+        }
+
         return Type.DOUBLE;
     }
 
