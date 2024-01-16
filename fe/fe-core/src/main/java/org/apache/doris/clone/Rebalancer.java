@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -100,7 +101,7 @@ public abstract class Rebalancer {
         Long lastPickTime = lastPickTimeTable.get(tag, medium);
         Long now = System.currentTimeMillis();
         LOG.debug("tag={}, medium={}, lastPickTime={}, now={}", tag, medium, lastPickTime, now);
-        return lastPickTime == null || now - lastPickTime >= 5 * 60 * 1000L;
+        return lastPickTime == null || now - lastPickTime >= Config.be_rebalancer_idle_seconds * 1000L;
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)
