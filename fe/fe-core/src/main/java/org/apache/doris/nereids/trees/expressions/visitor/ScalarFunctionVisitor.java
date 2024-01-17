@@ -619,14 +619,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bitCount, context);
     }
 
-    default R visitBitShiftLeft(BitShiftLeft bitShiftLeft, C context) {
-        return visitScalarFunction(bitShiftLeft, context);
-    }
-
-    default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
-        return visitScalarFunction(bitShiftRight, context);
-    }
-
     default R visitBitLength(BitLength bitLength, C context) {
         return visitScalarFunction(bitLength, context);
     }
@@ -745,6 +737,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapXorCount(BitmapXorCount bitmapXorCount, C context) {
         return visitScalarFunction(bitmapXorCount, context);
+    }
+
+    default R visitBitShiftLeft(BitShiftLeft bitShiftLeft, C context) {
+        return visitScalarFunction(bitShiftLeft, context);
+    }
+
+    default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
+        return visitScalarFunction(bitShiftRight, context);
     }
 
     default R visitCardinality(Cardinality cardinality, C context) {

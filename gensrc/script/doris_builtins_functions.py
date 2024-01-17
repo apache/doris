@@ -57,10 +57,6 @@ visible_functions = {
         [['bit_count'], 'TINYINT',   ['INT'],         ''],
         [['bit_count'], 'TINYINT',   ['BIGINT'],      ''],
         [['bit_count'], 'SMALLINT',  ['LARGEINT'],    ''],
-        
-        [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
-        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
-        
 
         [['bitor'], 'TINYINT', ['TINYINT', 'TINYINT'], ''],
         [['bitor'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], ''],
@@ -78,7 +74,10 @@ visible_functions = {
         [['bitnot'], 'SMALLINT', ['SMALLINT'], ''],
         [['bitnot'], 'INT', ['INT'], ''],
         [['bitnot'], 'BIGINT', ['BIGINT'], ''],
-        [['bitnot'], 'LARGEINT', ['LARGEINT'], '']
+        [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
+        
+        [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
+        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     '']
     ],
 
     # map functions
