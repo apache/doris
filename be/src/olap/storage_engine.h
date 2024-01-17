@@ -333,35 +333,6 @@ private:
     void _decrease_low_priority_task_nums(DataDir* dir);
 
 private:
-    struct CompactionCandidate {
-        CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
-                : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
-        uint32_t nice; // priority
-        int64_t tablet_id;
-        uint32_t disk_index = -1;
-    };
-
-    // In descending order
-    struct CompactionCandidateComparator {
-        bool operator()(const CompactionCandidate& a, const CompactionCandidate& b) {
-            return a.nice > b.nice;
-        }
-    };
-
-    struct CompactionDiskStat {
-        CompactionDiskStat(std::string path, uint32_t index, bool used)
-                : storage_path(path),
-                  disk_index(index),
-                  task_running(0),
-                  task_remaining(0),
-                  is_used(used) {}
-        const std::string storage_path;
-        const uint32_t disk_index;
-        uint32_t task_running;
-        uint32_t task_remaining;
-        bool is_used;
-    };
-
     EngineOptions _options;
     std::mutex _store_lock;
     std::mutex _trash_sweep_lock;
@@ -512,7 +483,7 @@ public:
     }
 
     // -1 not found key in lru
-    int64 get_index(const std::string& key) {
+    int get_index(const std::string& key) {
         auto lru_handle = cache()->lookup(key);
         if (lru_handle) {
             Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
@@ -534,18 +505,31 @@ public:
             delete cache_value;
         };
         auto lru_handle =
-                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int64));
+                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
         cache()->release(lru_handle);
     }
 
     struct CacheValue : public LRUCacheValueBase {
-        int64 idx = 0;
+        int idx = 0;
     };
 
     CreateTabletIdxCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::CREATE_TABLET_RR_IDX_CACHE, capacity,
                              LRUCacheType::NUMBER,
                              /*stale_sweep_time_s*/ 30 * 60) {}
+};
+
+struct DirInfo {
+    DataDir* data_dir;
+
+    StorageEngine::DiskRemainingLevel available_level;
+
+    bool operator<(const DirInfo& other) const {
+        if (available_level != other.available_level) {
+            return available_level < other.available_level;
+        }
+        return data_dir->path_hash() < other.data_dir->path_hash();
+    }
 };
 
 } // namespace doris

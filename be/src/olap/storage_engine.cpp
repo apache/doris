@@ -96,7 +96,8 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-
+extern void get_random_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
 static Status _validate_options(const EngineOptions& options) {
@@ -133,7 +134,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
-                  new CreateTabletIdxCache(config::create_tablet_in_partition_idx_lru_size)) {
+                  new CreateTabletIdxCache(config::partitiion_disk_index_lru_size)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -446,19 +447,6 @@ StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent)
 
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         int64 partition_id, TStorageMedium::type storage_medium) {
-    struct DirInfo {
-        DataDir* data_dir;
-
-        StorageEngine::DiskRemainingLevel available_level;
-
-        bool operator<(const DirInfo& other) const {
-            if (available_level != other.available_level) {
-                return available_level < other.available_level;
-            }
-            return data_dir->path_hash() < other.data_dir->path_hash();
-        }
-    };
-
     std::vector<DirInfo> dir_infos;
     int curr_index = 0;
 
@@ -491,12 +479,16 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         }
     }
 
-    if (dir_infos.empty()) {
-        return stores;
-    }
-
     std::sort(dir_infos.begin(), dir_infos.end());
 
+    get_random_robin_stores(curr_index, dir_infos, stores);
+
+    return stores;
+}
+
+// maintain in stores LOW,MID,HIGH level random robin
+void get_random_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                             std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
         while (end < dir_infos.size() &&
@@ -511,7 +503,6 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         }
         i = end;
     }
-    return stores;
 }
 
 DataDir* StorageEngine::get_store(const std::string& path) {

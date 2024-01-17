@@ -22,11 +22,11 @@ suite("test_partition_create_tablet_rr") {
     def options = new ClusterOptions()
     options.beNum = 1
     options.feConfigs.add('disable_balance=true')
-    def create_tablet_in_partition_idx_lru_size = 50
+    def partitiion_disk_index_lru_size = 50
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
         'report_disk_state_interval_seconds=1',
-        "create_tablet_in_partition_idx_lru_size=$create_tablet_in_partition_idx_lru_size"
+        "partitiion_disk_index_lru_size=$partitiion_disk_index_lru_size"
     ]
     options.beDisks = ['HDD=4','SSD=4']
     options.enableDebugPoints()
@@ -58,7 +58,7 @@ suite("test_partition_create_tablet_rr") {
         sql """drop table if exists $single_hdd_tbl"""
         sql """drop table if exists $single_ssd_tbl"""
         sql """drop table if exists $single_partition_tbl"""
-        for (def j = 0; j < create_tablet_in_partition_idx_lru_size + 10; j++) {
+        for (def j = 0; j < partitiion_disk_index_lru_size + 10; j++) {
             def tbl = single_partition_tbl + j.toString()
             sql """drop table if exists $tbl"""
         }
@@ -119,10 +119,10 @@ suite("test_partition_create_tablet_rr") {
             checkTabletOnDiskTabletNumEq single_partition_tbl
 
             // 2. test multi thread create single partition tables
-            //  a. multi thread create create_tablet_in_partition_idx_lru_size + 10 table
+            //  a. multi thread create partitiion_disk_index_lru_size + 10 table
             //  b. check disk's tablet num
             def futures = []
-            for (def i = 0; i < create_tablet_in_partition_idx_lru_size + 10; i++) {
+            for (def i = 0; i < partitiion_disk_index_lru_size + 10; i++) {
                 def tblMulti = single_partition_tbl + i.toString()
                 futures.add(thread {
                             sql """
@@ -153,7 +153,7 @@ suite("test_partition_create_tablet_rr") {
                 sql """drop table if exists $single_hdd_tbl"""
                 sql """drop table if exists $single_ssd_tbl"""
                 sql """drop table if exists $single_partition_tbl"""
-                for (def j = 0; j < create_tablet_in_partition_idx_lru_size + 10; j++) {
+                for (def j = 0; j < partitiion_disk_index_lru_size + 10; j++) {
                     def tbl = single_partition_tbl + j.toString()
                     sql """drop table if exists $tbl"""
                 } 

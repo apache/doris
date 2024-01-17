@@ -1244,7 +1244,7 @@ DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
 
 // create tablet in partition random robin idx lru size, default 10000
-DECLARE_Int32(create_tablet_in_partition_idx_lru_size);
+DECLARE_Int32(partitiion_disk_index_lru_size);
 
 #ifdef BE_TEST
 // test s3
