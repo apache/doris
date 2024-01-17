@@ -71,7 +71,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmtUpper = new CancelExportStmt(null, labelBinaryPredicateUpper);
         stmtUpper.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `LABEL` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`LABEL` = 'doris_test_label')",
                 stmtUpper.toString());
 
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");

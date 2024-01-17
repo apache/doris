@@ -413,7 +413,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
             }
             sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
         } finally {

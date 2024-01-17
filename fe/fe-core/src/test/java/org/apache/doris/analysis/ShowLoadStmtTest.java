@@ -106,7 +106,7 @@ public class ShowLoadStmtTest {
 
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE (`label` LIKE \'ab%\') LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
 
         BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
