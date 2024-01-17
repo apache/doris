@@ -222,6 +222,9 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
+    // column with raw strings which are'nt parsed
+    ColumnPtr original_column;
+
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
@@ -240,6 +243,10 @@ public:
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
     }
+
+    void set_original_column(ColumnPtr col) { original_column = col; }
+
+    ColumnPtr get_original_column() const { return original_column; }
 
     bool serialize_one_row_to_string(int row, std::string* output) const;
 
