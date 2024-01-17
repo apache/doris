@@ -1036,9 +1036,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
-// default enter disk resource limit mode 5%
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
-// default exit disk resource limit mode 20%
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 
 // inverted index searcher cache

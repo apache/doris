@@ -109,7 +109,8 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             }
             std::string tmp_file = get_path_in_local_cache(dir, key.offset, key.meta.type, true);
             FileWriterPtr file_writer;
-            RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer));
+            FileWriterOptions opts {.sync_file_data = false};
+            RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
             writer = file_writer.get();
             _key_to_writer.emplace(key.hash, std::move(file_writer));
         }

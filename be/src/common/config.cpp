@@ -992,9 +992,9 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
-// DEFINE_Validator(file_cache_each_block_size, [](const int64_t config) -> bool {
-//     return config <= config::s3_write_buffer_size && config::s3_write_buffer_size % config == 0;
-// });
+DEFINE_Validator(file_cache_each_block_size, [](const int64_t config) -> bool {
+    return config <= config::s3_write_buffer_size && config::s3_write_buffer_size % config == 0;
+});
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
