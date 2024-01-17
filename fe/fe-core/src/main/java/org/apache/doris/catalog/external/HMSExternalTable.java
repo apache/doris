@@ -816,12 +816,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
-        List<HivePartition> resPartitions = cache.getAllPartitionsWithoutCache(getDbName(), getName(),
+        List<HivePartition> resPartitions = cache.getAllPartitionsWithCache(getDbName(), getName(),
                 partitionValuesList);
         if (resPartitions.size() != 1) {
             throw new AnalysisException("partition not normal, size: " + resPartitions.size());
         }
-        return resPartitions.get(0).getLastModifiedTime();
+        return resPartitions.get(0).getLastModifiedTimeIgnoreInit();
     }
 
     @Override

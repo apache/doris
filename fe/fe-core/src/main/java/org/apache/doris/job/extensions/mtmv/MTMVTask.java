@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -33,6 +34,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -224,12 +226,26 @@ public class MTMVTask extends AbstractTask {
         super.before();
         try {
             mtmv = getMTMV();
+            refreshHmsTable();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
                 MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
             }
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
+        }
+    }
+
+    private void refreshHmsTable() throws AnalysisException, DdlException {
+        for (BaseTableInfo tableInfo : mtmv.getRelation().getBaseTables()) {
+            TableIf tableIf = MTMVUtil.getTable(tableInfo);
+            if (tableIf instanceof HMSExternalTable) {
+                HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
+                Env.getCurrentEnv().getCatalogMgr()
+                        .refreshExternalTable(hmsTable.getDbName(), hmsTable.getName(), hmsTable.getCatalog().getName(),
+                                true);
+            }
+
         }
     }
 
@@ -374,7 +390,7 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return mtmv.getPartitionIds();
         }
-        return MTMVUtil.getMTMVNeedRefreshPartitions(mtmv);
+        return MTMVUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables());
     }
 
     public MTMVTaskContext getTaskContext() {

@@ -28,6 +28,7 @@ import java.util.Map;
 @Data
 public class HivePartition {
     public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
+    public static final String FILE_NUM_KEY = "numFiles";
 
     private String dbName;
     private String tblName;
@@ -73,6 +74,20 @@ public class HivePartition {
             return 0L;
         }
         return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY)) * 1000;
+    }
+
+    public long getLastModifiedTimeIgnoreInit() {
+        if (getFileNum() == 0) {
+            return 0L;
+        }
+        return getLastModifiedTime();
+    }
+
+    public long getFileNum() {
+        if (parameters == null || !parameters.containsKey(FILE_NUM_KEY)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(FILE_NUM_KEY));
     }
 
     @Override

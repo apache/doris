@@ -282,12 +282,12 @@ public class MTMVUtil {
         return res;
     }
 
-    public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv) {
+    public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables) {
         Collection<Partition> allPartitions = mtmv.getPartitions();
         List<Long> res = Lists.newArrayList();
         for (Partition partition : allPartitions) {
             try {
-                if (!isMTMVPartitionSync(mtmv, partition.getId(), mtmv.getRelation().getBaseTables(),
+                if (!isMTMVPartitionSync(mtmv, partition.getId(), baseTables,
                         mtmv.getExcludedTriggerTables(),
                         0L)) {
                     res.add(partition.getId());
