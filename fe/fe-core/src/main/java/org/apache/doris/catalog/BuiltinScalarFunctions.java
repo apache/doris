@@ -71,7 +71,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -480,6 +483,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Atan.class, "atan"),
             scalar(Bin.class, "bin"),
             scalar(BitLength.class, "bit_length"),
+            scalar(BitCount.class, "bit_count"),
+            scalar(BitShiftLeft.class, "bit_shift_left"),
+            scalar(BitShiftRight.class, "bit_shift_right"),
             scalar(BitmapAnd.class, "bitmap_and"),
             scalar(BitmapAndCount.class, "bitmap_and_count"),
             scalar(BitmapAndNot.class, "bitmap_and_not"),
