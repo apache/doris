@@ -839,8 +839,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
 
         // check database
-        Database db = (Database) getDbOrDdlException(dbName);
-        if (db.isMysqlCompatibleDatabase()) {
+        Database db = getDbOrDdlException(dbName);
+        if (db instanceof MysqlCompatibleDatabase) {
             throw new DdlException("Drop table from this database is not allowed.");
         }
 
@@ -1066,7 +1066,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check if db exists
         Database db = getDbOrDdlException(dbName);
         // InfoSchemaDb and MysqlDb can not create table manually
-        if (db.isMysqlCompatibleDatabase()) {
+        if (db instanceof MysqlCompatibleDatabase) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
                     ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
@@ -3227,7 +3227,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
             Database db = entry.getValue();
             // Don't write internal database meta.
-            if (!db.isMysqlCompatibleDatabase()) {
+            if (!(db instanceof MysqlCompatibleDatabase)) {
                 checksum ^= entry.getKey();
                 db.write(dos);
             }
@@ -3246,7 +3246,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Database dbPrev = fullNameToDb.get(db.getFullName());
             if (dbPrev != null) {
                 String errMsg;
-                if (dbPrev.isMysqlCompatibleDatabase() || db.isMysqlCompatibleDatabase()) {
+                if (dbPrev instanceof MysqlCompatibleDatabase || db instanceof MysqlCompatibleDatabase) {
                     errMsg = String.format(
                         "Mysql compatibility problem, previous checkpoint already has a database with full name "
                         + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
