@@ -16,8 +16,19 @@
 // under the License.
 
 suite("regression_test_variant_rowstore", "variant_type"){
+    def set_be_config = { key, value ->
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+    }
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
+    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
