@@ -62,7 +62,6 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-
     bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     UInt128Wrapper _cache_hash;

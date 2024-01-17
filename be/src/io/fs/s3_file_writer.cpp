@@ -45,8 +45,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache_manager.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/block_file_cache_manager.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_utils.h"
 #include "io/fs/err_utils.h"
@@ -297,7 +297,8 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                             [cache = _cache, k = _cache_hash, offset = _bytes_appended,
                              t = _expiration_time, cold = _is_cold_data]() -> FileBlocksHolderPtr {
                                 CacheContext ctx;
-                                ctx.cache_type = t == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
+                                ctx.cache_type =
+                                        t == 0 ? FileCacheType::NORMAL : FileCacheType::TTL;
                                 ctx.expiration_time = t;
                                 ctx.is_cold_data = cold;
                                 auto holder = cache->get_or_set(k, offset,

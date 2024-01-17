@@ -30,9 +30,14 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
+#include "runtime/exec_env.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
+
+FDCache* FDCache::instance() {
+    return ExecEnv::GetInstance()->file_cache_open_fd_cache();
+}
 
 std::shared_ptr<FileReader> FDCache::get_file_reader(const AccessKeyAndOffset& key) {
     if (config::file_cache_max_file_reader_cache_size == 0) [[unlikely]] {
@@ -397,7 +402,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCacheManager* _mgr
                     LOG(WARNING) << "parse offset err, path=" << offset_it->path().native();
                     continue;
                 }
-                TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::REMOVE_FILE_2", &offset_with_suffix);
+                TEST_SYNC_POINT_CALLBACK("BlockFileCacheManager::REMOVE_FILE_2",
+                                         &offset_with_suffix);
                 size_t size = offset_it->file_size(ec);
                 if (ec) {
                     LOG(WARNING) << "failed to file_size: file_name=" << offset_with_suffix

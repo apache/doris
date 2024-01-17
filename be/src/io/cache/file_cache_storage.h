@@ -36,7 +36,7 @@ public:
     virtual Status change_key_meta(const FileCacheKey& key, const KeyMeta& new_meta) = 0;
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCacheManager* _mgr, const FileCacheKey& key,
-                                      std::lock_guard<std::mutex>& cache_lock) {}
+                                               std::lock_guard<std::mutex>& cache_lock) {}
 };
 
 } // namespace doris::io

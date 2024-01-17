@@ -39,6 +39,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/block_file_cache_manager.h"
 #include "io/fs/file_meta_cache.h"
@@ -239,6 +240,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
     _spill_stream_mgr = new vectorized::SpillStreamManager(spill_store_paths);
 
@@ -353,7 +355,7 @@ void ExecEnv::init_file_cache_factory() {
             cache_path_set.emplace(cache_path.path);
         }
 
-       for (std::thread& thread : file_cache_init_threads) {
+        for (std::thread& thread : file_cache_init_threads) {
             if (thread.joinable()) {
                 thread.join();
             }
@@ -462,7 +464,7 @@ Status ExecEnv::_init_mem_env() {
               << ", config file_cache_max_file_reader_cache_size is: "
               << config::file_cache_max_file_reader_cache_size;
     config::file_cache_max_file_reader_cache_size = block_file_cache_fd_cache_size;
-    
+
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
 
     _lookup_connection_cache = LookupConnectionCache::create_global_instance(

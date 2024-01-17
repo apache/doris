@@ -25,8 +25,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/sync_point.h"
-#include "io/cache/file_cache_utils.h"
 #include "io/cache/file_block.h"
+#include "io/cache/file_cache_utils.h"
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
@@ -92,8 +92,7 @@ void UploadFileBuffer::set_index_offset(size_t offset) {
     _index_offset = offset;
     if (_holder) {
         bool change_to_index_cache = false;
-        for (auto iter = _holder->file_blocks.begin(); iter != _holder->file_blocks.end();
-             ++iter) {
+        for (auto iter = _holder->file_blocks.begin(); iter != _holder->file_blocks.end(); ++iter) {
             if (iter == _cur_file_block) {
                 change_to_index_cache = true;
             }

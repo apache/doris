@@ -279,7 +279,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 }
 
 io::FileCacheSettings CachePath::init_settings() const {
-    return io::calc_settings(total_bytes, query_limit_bytes, normal_percent, disposable_percent, index_percent);
+    return io::calc_settings(total_bytes, query_limit_bytes, normal_percent, disposable_percent,
+                             index_percent);
 }
 
 } // end namespace doris

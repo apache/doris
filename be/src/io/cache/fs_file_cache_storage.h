@@ -30,10 +30,7 @@ namespace doris::io {
 
 class FDCache {
 public:
-    static FDCache* instance() {
-        static FDCache fd_cache;
-        return &fd_cache;
-    }
+    static FDCache* instance();
 
     std::shared_ptr<FileReader> get_file_reader(const AccessKeyAndOffset& key);
 

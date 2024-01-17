@@ -11,7 +11,7 @@
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
+// KIND, either express or implied.  See the License for the∂∂∂
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
@@ -3598,7 +3598,7 @@ TEST_F(BlockFileCacheTest, test_align_size) {
 }
 
 TEST_F(BlockFileCacheTest, remove_if_cached_when_isnt_releasable) {
-     if (fs::exists(cache_base_path)) {
+    if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
     fs::create_directories(cache_base_path);
