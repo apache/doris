@@ -80,7 +80,7 @@ public class EnvFactory {
     }
 
     public DynamicPartitionProperty createDynamicPartitionProperty(Map<String, String> properties) {
-         return new DynamicPartitionProperty(properties);
+        return new DynamicPartitionProperty(properties);
     }
 
 }
