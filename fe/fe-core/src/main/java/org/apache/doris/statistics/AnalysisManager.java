@@ -46,7 +46,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AnalyzeDeletionLog;
-import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -1015,17 +1014,8 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void removeTableStats(long tblId) {
-        if (!idToTblStats.containsKey(tblId)) {
-            return;
-        }
-        TableStatsDeletionLog log = new TableStatsDeletionLog(tblId);
-        Env.getCurrentEnv().getEditLog().logDeleteTableStats(log);
-        replayTableStatsDeletion(log);
-    }
-
-    public void replayTableStatsDeletion(TableStatsDeletionLog log) {
-        idToTblStats.remove(log.id);
+    public void removeTableStats(long tableId) {
+        idToTblStats.remove(tableId);
     }
 
     public ColStatsMeta findColStatsMeta(long tblId, String colName) {

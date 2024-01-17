@@ -1135,7 +1135,9 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
-                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
+                    long tableId = ((TableStatsDeletionLog) journal.getData()).id;
+                    LOG.info("replay delete table stat tableId: {}", tableId);
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV: {
