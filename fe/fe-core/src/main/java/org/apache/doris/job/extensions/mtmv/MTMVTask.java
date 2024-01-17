@@ -226,6 +226,7 @@ public class MTMVTask extends AbstractTask {
         super.before();
         try {
             mtmv = getMTMV();
+            // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
             refreshHmsTable();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
                 MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
@@ -377,8 +378,9 @@ public class MTMVTask extends AbstractTask {
             }
         }
         // check if data is fresh
-        Set<String> excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables, 0L);
+        // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
+        // to avoid rebuilding the baseTable and causing a change in the tableId
+        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), mtmv.getExcludedTriggerTables(), 0L);
         if (fresh) {
             return Lists.newArrayList();
         }
@@ -390,6 +392,8 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return mtmv.getPartitionIds();
         }
+        // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
+        // to avoid rebuilding the baseTable and causing a change in the tableId
         return MTMVUtil.getMTMVNeedRefreshPartitions(mtmv, relation.getBaseTables());
     }
 

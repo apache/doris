@@ -222,18 +222,6 @@ public class MTMV extends OlapTable {
         return mvPartitionInfo;
     }
 
-    public long getMinVisibleVersionTime() {
-        long result = Long.MAX_VALUE;
-        long visibleVersionTime;
-        for (Partition partition : getAllPartitions()) {
-            visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
-            if (visibleVersionTime < result) {
-                result = visibleVersionTime;
-            }
-        }
-        return result;
-    }
-
     public void readMvLock() {
         this.mvRwLock.readLock().lock();
     }

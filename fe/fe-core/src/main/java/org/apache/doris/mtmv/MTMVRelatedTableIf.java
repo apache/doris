@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * The table that implements this interface can serve as a partition table followed by MTMV
+ */
 public interface MTMVRelatedTableIf extends TableIf {
 
     Map<Long, PartitionItem> getPartitionItems();

@@ -76,6 +76,10 @@ public class HivePartition {
         return Long.parseLong(parameters.get(LAST_MODIFY_TIME_KEY)) * 1000;
     }
 
+    /**
+     * If there are no files, it proves that there is no data under the partition, we return 0
+     * @return
+     */
     public long getLastModifiedTimeIgnoreInit() {
         if (getFileNum() == 0) {
             return 0L;
