@@ -777,7 +777,7 @@ public:
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
         const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
-        const ColumnInt16* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());;
+        const auto* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
         ColumnPtr col_res = nullptr;
 
         if (addr_type.is_ipv6()) {
@@ -809,8 +809,8 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto cidr = cidr_column.get_int(i);
             if (cidr < 0 || cidr > max_cidr_mask) {
-                throw Exception(
-                        ErrorCode::INVALID_ARGUMENT, "Illegal cidr value ''", std::to_string(cidr));
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Illegal cidr value '{}'",
+                                std::to_string(cidr));
             }
             apply_cidr_mask(from_column.get_data_at(i).data,
                             reinterpret_cast<char*>(&vec_res_lower_range[i]),
