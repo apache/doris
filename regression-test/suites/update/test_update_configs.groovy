@@ -43,7 +43,7 @@ suite("test_update_configs", "p0") {
         }
     }
 
-    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(!disableAutoCompaction), "enable_segcompaction", String.valueOf(!enableSegcompaction)))
+    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(!disableAutoCompaction), "enable_segcompaction", String.valueOf(!enableSegcompaction)))
 
 
     (code, out, err) = show_be_config(beIp, bePort)
@@ -64,7 +64,7 @@ suite("test_update_configs", "p0") {
         }
     }
 
-    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s&%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(disableAutoCompaction))
+    curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, "disable_auto_compaction", String.valueOf(disableAutoCompaction)))
 
     (code, out, err) = show_be_config(beIp, bePort)
     assertEquals(code, 0)
