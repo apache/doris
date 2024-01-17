@@ -26,6 +26,8 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -167,7 +169,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private CascadesContext cascadesContext;
 
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
-                                Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
+            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
         this.forbidUnknownColStats = forbidUnknownColStats;
@@ -193,7 +195,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * estimate stats
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-                                           Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
+            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(
                 groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
@@ -369,7 +371,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
-        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement());
     }
 
     @Override
@@ -533,7 +535,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             Void context) {
-        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows());
+        return computeAssertNumRows(assertNumRows.getAssertNumRowsElement());
     }
 
     @Override
@@ -556,11 +558,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return computeGenerate(generate);
     }
 
-    private Statistics computeAssertNumRows(long desiredNumOfRows) {
+    private Statistics computeAssertNumRows(AssertNumRowsElement assertNumRowsElement) {
         Statistics statistics = groupExpression.childStatistics(0);
-        statistics.withRowCountAndEnforceValid(Math.min(1, statistics.getRowCount()));
-        statistics = new StatisticsBuilder(statistics).setWidthInJoinCluster(1).build();
-        return statistics;
+        if (assertNumRowsElement.getAssertion() == Assertion.NE
+                || assertNumRowsElement.assertNumber((long) Math.ceil(statistics.getRowCount()))) {
+            return statistics;
+        } else {
+            Statistics newStatistics = statistics.withRowCountAndEnforceValid(
+                    Math.min(assertNumRowsElement.getDesiredNumOfRows(), statistics.getRowCount()));
+            return new StatisticsBuilder(newStatistics).setWidthInJoinCluster(1).build();
+        }
     }
 
     private Statistics computeFilter(Filter filter) {
