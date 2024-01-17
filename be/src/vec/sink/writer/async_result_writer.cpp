@@ -131,7 +131,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
     // maybe released. And it will core because use after free.
     std::lock_guard l(_m);
-    if (_writer_status.ok() && eos) {
+    if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
 
