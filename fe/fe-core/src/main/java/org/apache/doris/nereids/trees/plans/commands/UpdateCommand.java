@@ -143,7 +143,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
 
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && selectItems.size() < targetTable.getColumns().size();
+                && selectItems.size() < targetTable.getColumns().size()
+                && !targetTable.hasVariantColumns();
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
