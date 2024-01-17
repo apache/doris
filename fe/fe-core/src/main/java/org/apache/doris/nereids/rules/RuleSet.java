@@ -240,7 +240,6 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .addAll(MATERIALIZED_VIEW_RULES)
             .add(JoinCommute.BUSHY.build())
             .build();
 
