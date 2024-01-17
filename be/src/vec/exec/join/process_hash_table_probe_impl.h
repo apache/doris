@@ -50,6 +50,7 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _has_null_in_build_side(parent->has_null_in_build_side()),
           _rows_returned_counter(parent->_rows_returned_counter),
           _search_hashtable_timer(parent->_search_hashtable_timer),
+          _init_probe_side_timer(parent->_init_probe_side_timer),
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer),
@@ -156,13 +157,16 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
     auto& build_index = _parent->_build_index;
     auto last_probe_index = probe_index;
 
-    _init_probe_side<HashTableType>(
-            hash_table_ctx, probe_rows, with_other_conjuncts,
-            need_null_map_for_probe ? null_map->data() : nullptr,
-            need_null_map_for_probe && ignore_null &&
-                    (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
-                     JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
-                     JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || is_mark_join));
+    {
+        SCOPED_TIMER(_init_probe_side_timer);
+        _init_probe_side<HashTableType>(
+                hash_table_ctx, probe_rows, with_other_conjuncts,
+                need_null_map_for_probe ? null_map->data() : nullptr,
+                need_null_map_for_probe && ignore_null &&
+                        (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
+                         JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
+                         JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || is_mark_join));
+    }
 
     auto& mcol = mutable_block.mutable_columns();
 
