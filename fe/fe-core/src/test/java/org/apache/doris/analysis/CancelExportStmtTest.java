@@ -63,7 +63,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmt = new CancelExportStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `label` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label')",
                 stmt.toString());
 
         SlotRef labelSlotRefUpper = new SlotRef(null, "LABEL");
