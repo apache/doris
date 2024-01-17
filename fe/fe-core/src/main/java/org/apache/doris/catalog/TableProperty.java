@@ -56,7 +56,8 @@ public class TableProperty implements Writable {
     private Map<String, String> properties;
 
     // the follower variables are built from "properties"
-    private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
+    private DynamicPartitionProperty dynamicPartitionProperty =
+            EnvFactory.createDynamicPartitionProperty(Maps.newHashMap());
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
@@ -180,7 +181,7 @@ public class TableProperty implements Writable {
                 dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
             }
         }
-        dynamicPartitionProperty = new DynamicPartitionProperty(dynamicPartitionProperties);
+        dynamicPartitionProperty = EnvFactory.createDynamicPartitionProperty(dynamicPartitionProperties);
         return this;
     }
 

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
@@ -194,6 +195,51 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
+    // for unsupported property map,
+    // if property can ignore and use a default string, then its value is the default value,
+    // if property can't ignore,  then its value is null
+    private static final Map<String, String> unsupportedProperties;
+
+    static {
+        unsupportedProperties = Maps.newHashMap();
+        if (Config.isCloudMode()) {
+            ReplicaAllocation singleReplica = new ReplicaAllocation((short) 1);
+            unsupportedProperties.put(PROPERTIES_INMEMORY, "true");
+            //unsupportedProperties.put(PROPERTIES_STORAGE_MEDIUM, "");
+            //unsupportedProperties.put(DynamicPartitionProperty.PROPERTIES_STORAGE_MEDIUM, "");
+            unsupportedProperties.put(PROPERTIES_STORAGE_FORMAT, "");
+            unsupportedProperties.put(PROPERTIES_STORAGE_POLICY, "");
+            unsupportedProperties.put(PROPERTIES_STORAGE_COOLDOWN_TIME, "");
+            unsupportedProperties.put(PROPERTIES_DISABLE_AUTO_COMPACTION, "false");
+            unsupportedProperties.put(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true");
+            unsupportedProperties.put(PROPERTIES_REPLICATION_NUM, "1");
+            unsupportedProperties.put(DynamicPartitionProperty.REPLICATION_NUM, "1");
+            unsupportedProperties.put(PROPERTIES_REPLICATION_ALLOCATION, singleReplica.toCreateStmt());
+            unsupportedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                    singleReplica.toCreateStmt());
+        } else {
+            unsupportedProperties.put(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
+        }
+    }
+
+    public static void checkAndRewriteProperties(Map<String, String> properties) throws AnalysisException {
+        for (String property : properties.keySet()) {
+            if (!unsupportedProperties.containsKey(property)) {
+                continue;
+            }
+
+            String value = unsupportedProperties.get(property);
+            if (value != null) {
+                properties.put(property, value);
+            } else {
+                if (Config.isCloudMode()) {
+                    throw new AnalysisException("Unsupported property: " + property + " in cloud mode");
+                } else {
+                    throw new AnalysisException("Unsupported property: " + property);
+                }
+            }
+        }
+    }
 
     /**
      * check and replace members of DataProperty by properties.
@@ -1285,7 +1331,14 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static Map<String, String> rewriteReplicaAllocationProperties(
+    public static Map<String, String> rewriteOlapProperties(
+            String ctl, String db, Map<String, String> properties) throws AnalysisException {
+        Map<String, String> newProperties = rewriteReplicaAllocationProperties(ctl, db, properties);
+        checkAndRewriteProperties(newProperties);
+        return newProperties;
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationProperties(
             String ctl, String db, Map<String, String> properties) {
         if (Config.force_olap_table_replication_num <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);

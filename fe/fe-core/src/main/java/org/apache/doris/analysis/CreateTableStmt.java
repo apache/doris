@@ -494,7 +494,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // before analyzing partition, handle the replication allocation info
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(tableName.getCtl(), tableName.getDb(),
+            properties = PropertyAnalyzer.rewriteOlapProperties(tableName.getCtl(), tableName.getDb(),
                     properties);
             // analyze partition
             if (partitionDesc != null) {

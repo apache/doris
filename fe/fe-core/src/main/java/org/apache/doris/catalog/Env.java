@@ -670,7 +670,7 @@ public class Env {
         this.journalObservable = new JournalObservable();
         this.masterInfo = new MasterInfo();
 
-        this.systemInfo = new SystemInfoService();
+        this.systemInfo = EnvFactory.createSystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
@@ -3301,7 +3301,7 @@ public class Env {
                 sb.append(olapTable.getDataSortInfo().toSql());
             }
 
-            if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
+            if (olapTable.getTTLSeconds() != 0) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");
             }

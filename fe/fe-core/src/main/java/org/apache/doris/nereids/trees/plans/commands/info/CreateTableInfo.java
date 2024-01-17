@@ -284,16 +284,15 @@ public class CreateTableInfo {
         }
 
         if (engineName.equalsIgnoreCase("olap")) {
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(ctlName, dbName,
-                    properties);
             boolean enableDuplicateWithoutKeysByDefault = false;
-            if (properties != null) {
-                try {
+            try {
+                properties = PropertyAnalyzer.rewriteOlapProperties(ctlName, dbName, properties);
+                if (properties != null) {
                     enableDuplicateWithoutKeysByDefault =
-                            PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
                 }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
             if (keys.isEmpty()) {
                 boolean hasAggColumn = false;
