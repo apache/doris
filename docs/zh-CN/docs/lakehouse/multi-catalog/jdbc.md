@@ -303,37 +303,37 @@ CALL EXECUTE_STMT(jdbc_catalog", "create table dbl1.tbl2 (k1 int)");
 
 #### 类型映射
 
-| MYSQL Type                                | Doris Type     | Comment                                         |
-|-------------------------------------------|----------------|-------------------------------------------------|
-| BOOLEAN                                   | TINYINT        |                                                 |
-| TINYINT                                   | TINYINT        |                                                 |
-| SMALLINT                                  | SMALLINT       |                                                 |
-| MEDIUMINT                                 | INT            |                                                 |
-| INT                                       | INT            |                                                 |
-| BIGINT                                    | BIGINT         |                                                 |
-| UNSIGNED TINYINT                          | SMALLINT       | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
-| UNSIGNED MEDIUMINT                        | INT            | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
-| UNSIGNED INT                              | BIGINT         | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级 |
-| UNSIGNED BIGINT                           | LARGEINT       |                                                 |
-| FLOAT                                     | FLOAT          |                                                 |
-| DOUBLE                                    | DOUBLE         |                                                 |
-| DECIMAL                                   | DECIMAL        |                                                 |
-| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | 如果p+1>38, 将使用Doris STRING类型        |
-| DATE                                      | DATE           |                                                 |
-| TIMESTAMP                                 | DATETIME       |                                                 |
-| DATETIME                                  | DATETIME       |                                                 |
-| YEAR                                      | SMALLINT       |                                                 |
-| TIME                                      | STRING         |                                                 |
-| CHAR                                      | CHAR           |                                                 |
-| VARCHAR                                   | VARCHAR        |                                                 |
-| JSON                                      | JSON           |                                                 |
-| SET                                       | STRING         |                                                 |
-| BIT                                       | BOOLEAN/STRING | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING  |
-| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                 |
-| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING         |                                                 |
-| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING         |                                                 |
-| BINARY、VARBINARY                          | STRING         |                                                 |
-| Other                                     | UNSUPPORTED    |                                                 |
+| MYSQL Type                                | Doris Type              | Comment                                               |
+|-------------------------------------------|-------------------------|-------------------------------------------------------|
+| BOOLEAN                                   | TINYINT                 |                                                       |
+| TINYINT                                   | TINYINT                 |                                                       |
+| SMALLINT                                  | SMALLINT                |                                                       |
+| MEDIUMINT                                 | INT                     |                                                       |
+| INT                                       | INT                     |                                                       |
+| BIGINT                                    | BIGINT                  |                                                       |
+| UNSIGNED TINYINT                          | SMALLINT                | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级            |
+| UNSIGNED MEDIUMINT                        | INT                     | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级            |
+| UNSIGNED INT                              | BIGINT                  | Doris 没有 UNSIGNED 数据类型，所以扩大一个数量级            |
+| UNSIGNED BIGINT                           | LARGEINT                |                                                       |
+| FLOAT                                     | FLOAT                   |                                                       |
+| DOUBLE                                    | DOUBLE                  |                                                       |
+| DECIMAL                                   | DECIMAL                 |                                                       |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | 如果p+1>38, 将使用Doris STRING类型                       |
+| DATE                                      | DATE                    |                                                       |
+| TIMESTAMP                                 | DATETIME                |                                                       |
+| DATETIME                                  | DATETIME                |                                                       |
+| YEAR                                      | SMALLINT                |                                                       |
+| TIME                                      | STRING                  |                                                       |
+| CHAR                                      | CHAR                    |                                                       |
+| VARCHAR                                   | VARCHAR                 |                                                       |
+| JSON                                      | STRING                  | 为了更好的性能，将外部数据源的 JSON 映射为 STRING 而不是JSONB |
+| SET                                       | STRING                  |                                                       |
+| BIT                                       | BOOLEAN/STRING          | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING            |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING                  |                                                       |
+| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING                  |                                                       |
+| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING                  |                                                       |
+| BINARY、VARBINARY                          | STRING                  |                                                       |
+| Other                                     | UNSUPPORTED             |                                                       |
 
 ### PostgreSQL
 
@@ -366,30 +366,30 @@ Doris 通过sql 语句 `select nspname from pg_namespace where has_schema_privil
 
 #### 类型映射
 
- | POSTGRESQL Type                         | Doris Type     | Comment                                       |
- |-----------------------------------------|----------------|-----------------------------------------------|
- | boolean                                 | BOOLEAN        |                                               |
- | smallint/int2                           | SMALLINT       |                                               |
- | integer/int4                            | INT            |                                               |
- | bigint/int8                             | BIGINT         |                                               |
- | decimal/numeric                         | DECIMAL        |                                               |
- | real/float4                             | FLOAT          |                                               |
- | double precision                        | DOUBLE         |                                               |
- | smallserial                             | SMALLINT       |                                               |
- | serial                                  | INT            |                                               |
- | bigserial                               | BIGINT         |                                               |
- | char                                    | CHAR           |                                               |
- | varchar/text                            | STRING         |                                               |
- | timestamp                               | DATETIME       |                                               |
- | date                                    | DATE           |                                               |
- | json/josnb                              | JSON           |                                               |
- | time                                    | STRING         |                                               |
- | interval                                | STRING         |                                               |
- | point/line/lseg/box/path/polygon/circle | STRING         |                                               |
- | cidr/inet/macaddr                       | STRING         |                                               |
- | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING |
- | uuid                                    | STRING         |                                               |
- | Other                                   | UNSUPPORTED    |                                               |
+ | POSTGRESQL Type                         | Doris Type     | Comment                                             |
+ |-----------------------------------------|----------------|-----------------------------------------------------|
+ | boolean                                 | BOOLEAN        |                                                     |
+ | smallint/int2                           | SMALLINT       |                                                     |
+ | integer/int4                            | INT            |                                                     |
+ | bigint/int8                             | BIGINT         |                                                     |
+ | decimal/numeric                         | DECIMAL        |                                                     |
+ | real/float4                             | FLOAT          |                                                     |
+ | double precision                        | DOUBLE         |                                                     |
+ | smallserial                             | SMALLINT       |                                                     |
+ | serial                                  | INT            |                                                     |
+ | bigserial                               | BIGINT         |                                                     |
+ | char                                    | CHAR           |                                                     |
+ | varchar/text                            | STRING         |                                                     |
+ | timestamp                               | DATETIME       |                                                     |
+ | date                                    | DATE           |                                                     |
+ | json/jsonb                              | STRING         | 为了更好的性能，将外部数据源的 JSON 映射为 STRING 而不是JSONB|
+ | time                                    | STRING         |                                                     |
+ | interval                                | STRING         |                                                     |
+ | point/line/lseg/box/path/polygon/circle | STRING         |                                                     |
+ | cidr/inet/macaddr                       | STRING         |                                                     |
+ | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING           |
+ | uuid                                    | STRING         |                                                     |
+ | Other                                   | UNSUPPORTED    |                                                     |
 
 ### Oracle
 
