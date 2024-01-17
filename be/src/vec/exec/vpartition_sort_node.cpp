@@ -168,8 +168,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             } else {
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, state->batch_size()));
                 RETURN_IF_CANCELLED(state);
-                RETURN_IF_ERROR(
-                        state->check_query_state("VPartitionSortNode, while split input block."));
                 input_block->clear_column_data();
             }
         }
@@ -237,7 +235,6 @@ Status VPartitionSortNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("VPartitionSortNode, while open."));
     return Status::OK();
 }
 

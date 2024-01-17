@@ -120,8 +120,6 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(
                         _split_block_by_partition(input_block, state->batch_size(), local_state));
                 RETURN_IF_CANCELLED(state);
-                RETURN_IF_ERROR(
-                        state->check_query_state("VPartitionSortNode, while split input block."));
                 input_block->clear_column_data();
             }
         }
