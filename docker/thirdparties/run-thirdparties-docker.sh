@@ -126,6 +126,7 @@ RUN_ORACLE=0
 RUN_SQLSERVER=0
 RUN_CLICKHOUSE=0
 RUN_HIVE=0
+RUN_KERBEROS=0
 RUN_ES=0
 RUN_ICEBERG=0
 RUN_HUDI=0
@@ -148,6 +149,9 @@ for element in "${COMPONENTS_ARR[@]}"; do
     elif [[ "${element}"x == "es"x ]]; then
         RUN_ES=1
     elif [[ "${element}"x == "hive"x ]]; then
+        RUN_HIVE=1
+    elif [[ "${element}"x == "kerberos"x ]]; then
+        RUN_KERBEROS=1
         RUN_HIVE=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
@@ -299,22 +303,32 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     if [ "_${IP_HOST}" == "_" ];then
         echo "please set IP_HOST according to your actual situation"
     fi
+    
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     cp "${ROOT}"/docker-compose/hive/gen_env.sh.tpl "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
+    cp "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml.tpl "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml
     cp "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl.tpl "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-2x.yaml
+    sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml.tpl
+    sed -i "s/externalEnvHost/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml.tpl
     sed -i "s/externalEnvIp/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sed -i "s/\${externalEnvIp}/${IP_HOST}/g" "${ROOT}"/docker-compose/hive/gen_env.sh
     sed -i "s/s3Endpoint/${s3Endpoint}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sed -i "s/s3BucketName/${s3BucketName}/g" "${ROOT}"/docker-compose/hive/scripts/hive-metastore.sh
     sudo bash "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
+    if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+      sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+    fi
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
+          sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-3x-kerberos.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up --build --remove-orphans -d
+        fi
     fi
 fi
 
