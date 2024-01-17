@@ -295,6 +295,9 @@ public class HyperGraph {
         private final List<JoinEdge> joinEdges = new ArrayList<>();
         private final List<FilterEdge> filterEdges = new ArrayList<>();
         private final List<AbstractNode> nodes = new ArrayList<>();
+
+        // These hyperGraphs should be replaced nodes when building all
+        private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new HashMap<>();
         private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
         private final Map<Long, List<NamedExpression>> complexProject = new HashMap<>();
         private Set<Slot> finalOutputs;
@@ -320,7 +323,7 @@ public class HyperGraph {
         }
 
         public List<HyperGraph> buildAll() {
-            return ImmutableList.of(new HyperGraph(finalOutputs, joinEdges, nodes, filterEdges, complexProject));
+            return ImmutableList.of(build());
         }
 
         public void updateNode(int idx, Group group) {
@@ -362,11 +365,6 @@ public class HyperGraph {
         private Pair<BitSet, Long> buildForMv(Plan plan) {
             if (plan instanceof GroupPlan) {
                 Group group = ((GroupPlan) plan).getGroup();
-                List<HyperGraph> childGraphs = ((GroupPlan) plan).getGroup().getHyperGraphs();
-                if (childGraphs.isEmpty()) {
-                    int idx = addStructInfoNode(childGraphs);
-                    return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
-                }
                 GroupExpression groupExpression = group.getLogicalExpressions().get(0);
                 return buildForMv(groupExpression.getPlan()
                         .withChildren(
@@ -471,15 +469,6 @@ public class HyperGraph {
                 slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
             }
             nodes.add(new StructInfoNode(nodes.size(), plan));
-            return nodes.size() - 1;
-        }
-
-        private int addStructInfoNode(List<HyperGraph> childGraphs) {
-            for (Slot slot : childGraphs.get(0).finalOutputs) {
-                Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
-                slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
-            }
-            nodes.add(new StructInfoNode(nodes.size(), childGraphs));
             return nodes.size() - 1;
         }
 
