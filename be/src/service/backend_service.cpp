@@ -793,14 +793,14 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     bool is_async = (_ingest_binlog_workers != nullptr);
     result.__set_is_async(is_async);
 
-    auto ingest_binlog_func = [=, tstatus = &tstatus]() {
+    auto ingest_binlog_func = [=, this, tstatus = &tstatus]() {
         IngestBinlogArg ingest_binlog_arg = {
                 .txn_id = txn_id,
                 .partition_id = partition_id,
                 .local_tablet_id = local_tablet_id,
                 .local_tablet = local_tablet,
 
-                .request = std::move(request),
+                .request = request,
                 .tstatus = is_async ? nullptr : tstatus,
         };
 
