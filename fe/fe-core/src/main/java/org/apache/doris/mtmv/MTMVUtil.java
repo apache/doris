@@ -242,13 +242,8 @@ public class MTMVUtil {
         if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
             return res;
         }
-        try {
-            if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
-                    .isMaterializedViewRewriteEnableContainExternalTable()) {
-                return res;
-            }
-        } catch (AnalysisException e) {
-            LOG.warn("getMTMVCanRewritePartitions error: ", e);
+        if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
+                .isMaterializedViewRewriteEnableContainExternalTable()) {
             return res;
         }
 
@@ -417,14 +412,11 @@ public class MTMVUtil {
         return true;
     }
 
-    private static boolean mtmvContainsExternalTable(MTMV mtmv) throws AnalysisException {
+    private static boolean mtmvContainsExternalTable(MTMV mtmv) {
         Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
-                TableIf table = getTable(baseTableInfo);
-                if (!(table instanceof MTMVRelatedTableIf)) {
-                    return true;
-                }
+                return true;
             }
         }
         return false;
