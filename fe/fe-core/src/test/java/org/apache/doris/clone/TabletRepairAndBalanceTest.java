@@ -384,8 +384,8 @@ public class TabletRepairAndBalanceTest {
         stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
         DdlExecutor.execute(Env.getCurrentEnv(), stmt);
         Assert.assertEquals(tag1, be.getLocationTag());
-        Thread.sleep(2000);
-        checkTableReplicaAllocation(tbl);
+        ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
+
         checkTableReplicaAllocation(colTbl1);
         checkTableReplicaAllocation(colTbl2);
 
