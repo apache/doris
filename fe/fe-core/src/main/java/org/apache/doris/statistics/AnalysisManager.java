@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -56,7 +57,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.DBObjects;
-import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -121,9 +121,6 @@ public class AnalysisManager implements Writable {
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
     private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
-
-    // To be deprecated, keep it for meta compatibility now, will remove later.
-    protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final String progressDisplayTemplate = "%d Finished  |  %d Failed  |  %d In Progress  |  %d Total";
 
@@ -862,13 +859,16 @@ public class AnalysisManager implements Writable {
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
         readIdToTblStats(in, analysisManager.idToTblStats);
-        readAutoJobs(in, analysisManager);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_128) {
+            readAutoJobs(in, analysisManager);
+        }
         return analysisManager;
     }
 
     private static void readAnalysisInfo(DataInput in, Map<Long, AnalysisInfo> map, boolean job) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
+            // AnalysisInfo is compatible with AnalysisJobInfo and AnalysisTaskInfo.
             AnalysisInfo analysisInfo = AnalysisInfo.read(in);
             // Unfinished manual once job/tasks doesn't need to keep in memory anymore.
             if (needAbandon(analysisInfo)) {
@@ -882,6 +882,9 @@ public class AnalysisManager implements Writable {
     // Journal only store finished tasks and jobs.
     public static boolean needAbandon(AnalysisInfo analysisInfo) {
         if (analysisInfo == null) {
+            return true;
+        }
+        if (analysisInfo.scheduleType == null || analysisInfo.scheduleType == null || analysisInfo.jobType == null) {
             return true;
         }
         if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
@@ -904,7 +907,6 @@ public class AnalysisManager implements Writable {
     private static void readAutoJobs(DataInput in, AnalysisManager analysisManager) throws IOException {
         Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
         GsonUtils.GSON.fromJson(Text.readString(in), type);
-        analysisManager.autoJobs = analysisManager.createSimpleQueue(null, null);
     }
 
     @Override
@@ -912,7 +914,6 @@ public class AnalysisManager implements Writable {
         writeJobInfo(out, analysisJobInfoMap);
         writeJobInfo(out, analysisTaskInfoMap);
         writeTableStats(out);
-        writeAutoJobsStatus(out);
     }
 
     private void writeJobInfo(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
@@ -927,12 +928,6 @@ public class AnalysisManager implements Writable {
         for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
             entry.getValue().write(out);
         }
-    }
-
-    private void writeAutoJobsStatus(DataOutput output) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
-        String autoJobs = GsonUtils.GSON.toJson(this.autoJobs, type);
-        Text.writeString(output, autoJobs);
     }
 
     // For unit test use only.
@@ -978,31 +973,6 @@ public class AnalysisManager implements Writable {
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
         recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
-    }
-
-    protected void logAutoJob(AnalysisInfo autoJob) {
-        Env.getCurrentEnv().getEditLog().logAutoJob(autoJob);
-    }
-
-    public void replayPersistSysJob(AnalysisInfo analysisInfo) {
-        autoJobs.offer(analysisInfo);
-    }
-
-    protected SimpleQueue<AnalysisInfo> createSimpleQueue(Collection<AnalysisInfo> collection,
-            AnalysisManager analysisManager) {
-        return new SimpleQueue<>(Config.analyze_record_limit,
-                a -> {
-                    // FE is not ready when replaying log and operations triggered by replaying
-                    // shouldn't be logged again.
-                    if (Env.getCurrentEnv().isReady() && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
-                        analysisManager.logAutoJob(a);
-                    }
-                    return null;
-                },
-                a -> {
-                    // DO NOTHING
-                    return null;
-                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
