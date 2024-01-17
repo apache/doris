@@ -859,11 +859,9 @@ public:
                             cidr_type->get_name(), get_name());
         }
         DataTypePtr element = std::make_shared<DataTypeIPv6>();
-        return make_nullable(std::make_shared<DataTypeStruct>(DataTypes {element, element},
-                                                              Strings {"min", "max"}));
+        return std::make_shared<DataTypeStruct>(DataTypes {element, element},
+                                                Strings {"min", "max"});
     }
-
-    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -873,54 +871,19 @@ public:
         WhichDataType cidr_type(cidr_column_with_type_and_name.type);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
         const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
-        const ColumnInt16* cidr_col = nullptr;
-        const NullMap* cidr_null_map = nullptr;
+        const ColumnInt16* cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());;
         ColumnPtr col_res = nullptr;
 
-        if (cidr_type.is_nullable()) {
-            const auto* cidr_column_nullable =
-                    assert_cast<const ColumnNullable*>(cidr_column.get());
-            cidr_col = assert_cast<const ColumnInt16*>(&cidr_column_nullable->get_nested_column());
-            cidr_null_map = &cidr_column_nullable->get_null_map_data();
+        if (addr_type.is_ipv6()) {
+            const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
+            col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, *cidr_col, input_rows_count);
+        } else if (addr_type.is_string()) {
+            const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+            col_res = execute_impl<ColumnString>(*str_addr_column, *cidr_col, input_rows_count);
         } else {
-            cidr_col = assert_cast<const ColumnInt16*>(cidr_column.get());
-        }
-
-        if (addr_type.is_nullable()) {
-            const auto* addr_column_nullable =
-                    assert_cast<const ColumnNullable*>(addr_column.get());
-            const NullMap* addr_null_map = &addr_column_nullable->get_null_map_data();
-            WhichDataType sub_addr_type(remove_nullable(addr_column_with_type_and_name.type));
-
-            if (sub_addr_type.is_ipv6()) {
-                const auto* ipv6_addr_column =
-                        check_and_get_column<ColumnIPv6>(addr_column_nullable->get_nested_column());
-                col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, addr_null_map, *cidr_col,
-                                                   cidr_null_map, input_rows_count);
-            } else if (sub_addr_type.is_string()) {
-                const auto* str_addr_column = check_and_get_column<ColumnString>(
-                        addr_column_nullable->get_nested_column());
-                col_res = execute_impl<ColumnString>(*str_addr_column, addr_null_map, *cidr_col,
-                                                     cidr_null_map, input_rows_count);
-            } else {
-                return Status::RuntimeError(
-                        "Illegal column {} of argument of function {}, Expected IPv6 or String",
-                        addr_column->get_name(), get_name());
-            }
-        } else {
-            if (addr_type.is_ipv6()) {
-                const auto* ipv6_addr_column = check_and_get_column<ColumnIPv6>(addr_column.get());
-                col_res = execute_impl<ColumnIPv6>(*ipv6_addr_column, nullptr, *cidr_col, nullptr,
-                                                   input_rows_count);
-            } else if (addr_type.is_string()) {
-                const auto* str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
-                col_res = execute_impl<ColumnString>(*str_addr_column, nullptr, *cidr_col, nullptr,
-                                                     input_rows_count);
-            } else {
-                return Status::RuntimeError(
-                        "Illegal column {} of argument of function {}, Expected IPv6 or String",
-                        addr_column->get_name(), get_name());
-            }
+            return Status::RuntimeError(
+                    "Illegal column {} of argument of function {}, Expected IPv6 or String",
+                    addr_column->get_name(), get_name());
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -928,33 +891,28 @@ public:
     }
 
     template <typename FromColumn>
-    static ColumnPtr execute_impl(const FromColumn& from_column, const NullMap* from_null_map,
-                                  const ColumnInt16& cidr_column, const NullMap* cidr_null_map,
+    static ColumnPtr execute_impl(const FromColumn& from_column, const ColumnInt16& cidr_column,
                                   size_t input_rows_count) {
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
-        auto col_res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& vec_res_lower_range = col_res_lower_range->get_data();
         auto& vec_res_upper_range = col_res_upper_range->get_data();
-        auto& vec_res_null_map = col_res_null_map->get_data();
 
-        static constexpr Int64 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
+        static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if ((from_null_map && (*from_null_map)[i]) || (cidr_null_map && (*cidr_null_map)[i])) {
-                vec_res_null_map[i] = 1;
-                continue;
+            auto cidr = cidr_column.get_int(i);
+            if (cidr < 0 || cidr > max_cidr_mask) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT, "Illegal cidr value ''", cidr);
             }
-            Int64 cidr = cidr_column.get_int(i);
-            cidr = std::min(cidr, max_cidr_mask);
             apply_cidr_mask(from_column.get_data_at(i).data,
                             reinterpret_cast<char*>(&vec_res_lower_range[i]),
                             reinterpret_cast<char*>(&vec_res_upper_range[i]), cidr);
         }
 
-        auto col_res_struct = ColumnStruct::create(
+        return ColumnStruct::create(
                 Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-        return ColumnNullable::create(std::move(col_res_struct), std::move(col_res_null_map));
     }
 
 private:
