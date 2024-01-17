@@ -27,9 +27,11 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -54,6 +56,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import doris.segment_v2.SegmentV2;
 import org.apache.logging.log4j.LogManager;
@@ -498,12 +501,164 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     // END CREATE TABLE
 
+    // BEGIN DROP TABLE
+
+    @Override
+    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+        if (!Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+
+        List<Long> indexs = Lists.newArrayList();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            for (MaterializedIndex materializedIndex : allIndices) {
+                long indexId = materializedIndex.getId();
+                indexs.add(indexId);
+            }
+        }
+
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > Config.drop_rpc_retry_num) {
+                LOG.warn("failed to drop index {} of table {}, try cnt {} reaches maximum retry count",
+                            indexs, olapTable.getId(), tryCnt);
+                break;
+            }
+
+            try {
+                if (indexs.isEmpty()) {
+                    break;
+                }
+                dropMaterializedIndex(olapTable.getId(), indexs);
+            } catch (Exception e) {
+                LOG.warn("failed to drop index {} of table {}, try cnt {}, execption {}",
+                        indexs, olapTable.getId(), tryCnt, e);
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    LOG.warn("Thread sleep is interrupted");
+                }
+                continue;
+            }
+            break;
+        }
+    }
+
+    @Override
+    public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
+        if (!Env.getCurrentEnv().isMaster() || partitions.isEmpty()) {
+            return;
+        }
+
+        long tableId = -1;
+        List<Long> partitionIds = Lists.newArrayList();
+        List<Long> indexIds = Lists.newArrayList();
+        for (Partition partition : partitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                indexIds.add(index.getId());
+                if (tableId == -1) {
+                    tableId = ((CloudReplica) index.getTablets().get(0).getReplicas().get(0)).getTableId();
+                }
+            }
+            partitionIds.add(partition.getId());
+        }
+
+        CloudPartition partition0 = (CloudPartition) partitions.get(0);
+
+        int tryCnt = 0;
+        while (true) {
+            if (tryCnt++ > Config.drop_rpc_retry_num) {
+                LOG.warn("failed to drop partition {} of table {}, try cnt {} reaches maximum retry count",
+                        partitionIds, tableId, tryCnt);
+                break;
+            }
+            try {
+                dropCloudPartition(partition0.getDbId(), tableId, partitionIds, indexIds);
+            } catch (Exception e) {
+                LOG.warn("failed to drop partition {} of table {}, try cnt {}, execption {}",
+                        partitionIds, tableId, tryCnt, e);
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException ie) {
+                    LOG.warn("Thread sleep is interrupted");
+                }
+                continue;
+            }
+            break;
+        }
+    }
+
+    private void dropCloudPartition(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds)
+            throws DdlException {
+        Cloud.PartitionRequest.Builder partitionRequestBuilder =
+                Cloud.PartitionRequest.newBuilder();
+        partitionRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        partitionRequestBuilder.setTableId(tableId);
+        partitionRequestBuilder.addAllPartitionIds(partitionIds);
+        partitionRequestBuilder.addAllIndexIds(indexIds);
+        if (dbId > 0) {
+            partitionRequestBuilder.setDbId(dbId);
+        }
+        final Cloud.PartitionRequest partitionRequest = partitionRequestBuilder.build();
+
+        Cloud.PartitionResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+            try {
+                response = MetaServiceProxy.getInstance().dropPartition(partitionRequest);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, dropPartition RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("dropPartition response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    private void dropMaterializedIndex(Long tableId, List<Long> indexIds) throws DdlException {
+        Cloud.IndexRequest.Builder indexRequestBuilder = Cloud.IndexRequest.newBuilder();
+        indexRequestBuilder.setCloudUniqueId(Config.cloud_unique_id);
+        indexRequestBuilder.addAllIndexIds(indexIds);
+        indexRequestBuilder.setTableId(tableId);
+        final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
+
+        Cloud.IndexResponse response = null;
+        int tryTimes = 0;
+        while (tryTimes++ < Config.meta_service_rpc_retry_times) {
+            try {
+                response = MetaServiceProxy.getInstance().dropIndex(indexRequest);
+                if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+            } catch (RpcException e) {
+                LOG.warn("tryTimes:{}, dropIndex RpcException", tryTimes, e);
+                if (tryTimes + 1 >= Config.meta_service_rpc_retry_times) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
+            sleepSeveralMs();
+        }
+
+        if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+            LOG.warn("dropIndex response: {} ", response);
+            throw new DdlException(response.getStatus().getMsg());
+        }
+    }
+
+    // END DROP TABLE
+
     @Override
     protected void checkAvailableCapacity(Database db) throws DdlException {
-        // check cluster capacity
-        Env.getCurrentSystemInfo().checkAvailableCapacity();
-        // check db quota
-        db.checkQuota();
     }
 
     private void sleepSeveralMs() {

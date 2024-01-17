@@ -19,7 +19,12 @@ package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.Env;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class CloudEnv extends Env {
+
+    private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
 
     public CloudEnv(boolean isCheckpointCatalog) {
         super(isCheckpointCatalog);

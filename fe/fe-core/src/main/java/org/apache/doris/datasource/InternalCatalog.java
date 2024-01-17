@@ -156,6 +156,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -963,6 +964,38 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    public void eraseTableDropBackendReplicas(OlapTable olapTable, boolean isReplay) {
+        if (isReplay || Env.isCheckpointThread()) {
+            return;
+        }
+
+        // drop all replicas
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Partition partition : olapTable.getAllPartitions()) {
+            List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
+            for (MaterializedIndex materializedIndex : allIndices) {
+                long indexId = materializedIndex.getId();
+                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                for (Tablet tablet : materializedIndex.getTablets()) {
+                    long tabletId = tablet.getId();
+                    List<Replica> replicas = tablet.getReplicas();
+                    for (Replica replica : replicas) {
+                        long backendId = replica.getBackendId();
+                        long replicaId = replica.getId();
+                        DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
+                                replicaId, schemaHash, true);
+                        batchTask.addTask(dropTask);
+                    } // end for replicas
+                } // end for tablets
+            } // end for indices
+        } // end for partitions
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    public void erasePartitionDropBackendReplicas(List<Partition> partitions) {
+        // no need send be delete task, when be report its tablets, fe will send delete task then.
     }
 
     private void unprotectAddReplica(OlapTable olapTable, ReplicaPersistInfo info) {
@@ -3085,6 +3118,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // Things may be changed outside the table lock.
         olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
         olapTable.writeLockOrDdlException();
+        List<Partition> oldPartitions = Lists.newArrayList();
         try {
             olapTable.checkNormalStateForAlter();
             // check partitions
@@ -3141,7 +3175,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             // replace
-            truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
+            oldPartitions = truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
             TruncateTableInfo info =
@@ -3152,6 +3186,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
+
+        erasePartitionDropBackendReplicas(oldPartitions);
+
         if (truncateEntireTable) {
             // Drop the whole table stats after truncate the entire table
             Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
@@ -3162,11 +3199,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
-    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
+    private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,
+            boolean isEntireTable) {
         // use new partitions to replace the old ones.
+        List<Partition> oldPartitions = Lists.newArrayList();
         Set<Long> oldTabletIds = Sets.newHashSet();
         for (Partition newPartition : newPartitions) {
             Partition oldPartition = olapTable.replacePartition(newPartition);
+            oldPartitions.add(oldPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
                 index.getTablets().forEach(t -> {
@@ -3176,6 +3216,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         if (isEntireTable) {
+            Set<Long> oldPartitionsIds = oldPartitions.stream().map(Partition::getId).collect(Collectors.toSet());
+            for (Partition partition : olapTable.getTempPartitions()) {
+                if (!oldPartitionsIds.contains(partition.getId())) {
+                    oldPartitions.add(partition);
+                }
+            }
             // drop all temp partitions
             olapTable.dropAllTempPartitions();
         }
@@ -3184,9 +3230,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Long tabletId : oldTabletIds) {
             Env.getCurrentInvertedIndex().deleteTablet(tabletId);
         }
+
+        return oldPartitions;
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
+        List<Partition> oldPartitions = Lists.newArrayList();
         Database db = (Database) getDbOrMetaException(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
         olapTable.writeLock();
@@ -3196,6 +3245,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             for (Partition partition : info.getPartitions()) {
+                oldPartitions.add(partition);
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId)
                         .getStorageMedium();
@@ -3215,6 +3265,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+
+        if (!Env.isCheckpointThread()) {
+            erasePartitionDropBackendReplicas(oldPartitions);
         }
     }
 
