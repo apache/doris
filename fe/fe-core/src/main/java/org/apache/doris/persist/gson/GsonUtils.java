@@ -44,6 +44,10 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -58,6 +62,8 @@ import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.PaimonExternalTable;
+import org.apache.doris.catalog.external.TestExternalDatabase;
+import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -70,10 +76,13 @@ import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonHMSExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
@@ -197,6 +206,12 @@ public class GsonUtils {
                     Policy.class, "clazz").registerSubtype(RowPolicy.class, RowPolicy.class.getSimpleName())
             .registerSubtype(StoragePolicy.class, StoragePolicy.class.getSimpleName());
 
+    private static RuntimeTypeAdapterFactory<Constraint> constraintTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
+                    Constraint.class, "clazz")
+            .registerSubtype(PrimaryKeyConstraint.class, PrimaryKeyConstraint.class.getSimpleName())
+            .registerSubtype(ForeignKeyConstraint.class, ForeignKeyConstraint.class.getSimpleName())
+            .registerSubtype(UniqueConstraint.class, UniqueConstraint.class.getSimpleName());
+
     private static RuntimeTypeAdapterFactory<CatalogIf> dsTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     CatalogIf.class, "clazz")
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
@@ -212,7 +227,9 @@ public class GsonUtils {
             .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName());
+            .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
+            .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
@@ -231,7 +248,9 @@ public class GsonUtils {
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName());
+            .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
+            .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
+            .registerSubtype(TestExternalDatabase.class, TestExternalDatabase.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
@@ -241,7 +260,9 @@ public class GsonUtils {
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
-            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName());
+            .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
+            .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
+            .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
@@ -276,6 +297,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(constraintTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())

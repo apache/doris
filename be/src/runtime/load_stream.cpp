@@ -189,9 +189,15 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
-            LOG(WARNING) << "No segid mapping for src_id " << src_id
-                         << " when ADD_SEGMENT, ignored";
-            return Status::OK();
+            return Status::InternalError(
+                    "add segment failed, no segment written by this src be yet, src_id={}, "
+                    "segment_id={}",
+                    src_id, segid);
+        }
+        if (segid >= _segids_mapping[src_id]->size()) {
+            return Status::InternalError(
+                    "add segment failed, segment is never written, src_id={}, segment_id={}",
+                    src_id, segid);
         }
         new_segid = _segids_mapping[src_id]->at(segid);
     }

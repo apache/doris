@@ -607,7 +607,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         while (true) {
-            LOG.info("wai for wal queue size to be empty");
+            LOG.info("wait for wal queue size to be empty");
             boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
                     .isPreviousWalFinished(tableId, aliveBeIds);
             if (walFinished) {

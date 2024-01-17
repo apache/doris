@@ -43,8 +43,8 @@ under the License.
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
-    `TRADE_ID`                varchar(40) NULL COMMENT '交易编号',
+    `TRADE_DATE`              datev2 NOT NULL COMMENT '交易日期',
+    `TRADE_ID`                varchar(40) NOT NULL COMMENT '交易编号',
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
@@ -145,6 +145,7 @@ PROPERTIES (
 2. 在AUTO RANGE PARTITION中，分区函数仅支持`date_trunc`，分区列仅支持`DATEV2`或者`DATETIMEV2`格式；
 3. 在AUTO LIST PARTITION中，不支持函数调用，分区列支持 `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` 数据类型，分区值为枚举值。
 4. 在AUTO LIST PARTITION中，分区列的每个当前不存在对应分区的取值，都会创建一个独立的新PARTITION。
+5. 自动分区的分区列必须为 NOT NULL 列。
 
 ## 场景示例
 
@@ -153,8 +154,8 @@ PROPERTIES (
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
-    `TRADE_ID`                varchar(40) NULL COMMENT '交易编号',
+    `TRADE_DATE`              datev2 NOT NULL COMMENT '交易日期',
+    `TRADE_ID`                varchar(40) NOT NULL COMMENT '交易编号',
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)

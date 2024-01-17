@@ -974,6 +974,16 @@ public class EditLog {
                 case OperationType.OP_ALTER_MTMV_STMT: {
                     break;
                 }
+                case OperationType.OP_ADD_CONSTRAINT: {
+                    final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
+                    log.getTableIf().replayAddConstraint(log.getConstraint());
+                    break;
+                }
+                case OperationType.OP_DROP_CONSTRAINT: {
+                    final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
+                    log.getTableIf().dropConstraint(log.getConstraint().getName());
+                    break;
+                }
                 case OperationType.OP_ALTER_USER: {
                     final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
                     env.getAuth().replayAlterUser(log);
@@ -1112,7 +1122,9 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
-                    env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
+                    long tableId = ((TableStatsDeletionLog) journal.getData()).id;
+                    LOG.info("replay delete table stat tableId: {}", tableId);
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(tableId);
                     break;
                 }
                 case OperationType.OP_ALTER_MTMV: {
@@ -1221,8 +1233,8 @@ public class EditLog {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}", txId, numTransactions,
-                    totalTimeTransactions, op);
+            LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {} delta = {}",
+                    txId, numTransactions, totalTimeTransactions, op, end - start);
         }
 
         if (txId >= Config.edit_log_roll_num) {
@@ -1964,6 +1976,14 @@ public class EditLog {
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
 
+    }
+
+    public void logAddConstraint(AlterConstraintLog log) {
+        logEdit(OperationType.OP_ADD_CONSTRAINT, log);
+    }
+
+    public void logDropConstraint(AlterConstraintLog log) {
+        logEdit(OperationType.OP_DROP_CONSTRAINT, log);
     }
 
     public void logInsertOverwrite(InsertOverwriteLog log) {

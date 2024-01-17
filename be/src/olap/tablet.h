@@ -195,7 +195,7 @@ public:
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
 
-    std::shared_mutex& get_migration_lock() { return _migration_lock; }
+    std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
@@ -625,7 +625,7 @@ private:
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
-    std::shared_mutex _migration_lock;
+    std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 
     // In unique key table with MoW, we should guarantee that only one

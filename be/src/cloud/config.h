@@ -27,4 +27,18 @@ static inline bool is_cloud_mode() {
     return !cloud_unique_id.empty();
 }
 
+DECLARE_String(meta_service_endpoint);
+// Set the underlying connection type to pooled.
+DECLARE_Bool(meta_service_connection_pooled);
+DECLARE_mInt64(meta_service_connection_pool_size);
+// A connection will expire after a random time during [base, 2*base], so that the BE
+// has a chance to connect to a new RS. Set zero to disable it.
+DECLARE_mInt32(meta_service_connection_age_base_minutes);
+// Rebuild the idle connections after the timeout exceeds. Set zero to disable it.
+DECLARE_mInt32(meta_service_idle_connection_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_retry_times);
+// default brpc timeout
+DECLARE_mInt32(meta_service_brpc_timeout_ms);
+
 } // namespace doris::config

@@ -206,6 +206,8 @@ public:
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
+
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
         return false;
@@ -467,14 +469,17 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(ExchangeType type, int num_buckets) {
+    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+                                      const bool is_shuffled_hash_join,
+                                      const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+    [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
+                                                   LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -492,11 +497,13 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution required_data_distribution() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
+
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");

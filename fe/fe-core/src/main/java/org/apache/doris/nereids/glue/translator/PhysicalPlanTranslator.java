@@ -43,7 +43,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -180,12 +179,12 @@ import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
@@ -269,13 +268,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
-        PlanFragment inputFragment = distribute.child().accept(this, context);
-        List<List<Expr>> distributeExprLists = getDistributeExprs(distribute.child());
+        Plan child = distribute.child();
+        PlanFragment inputFragment = child.accept(this, context);
+        List<List<Expr>> distributeExprLists = getDistributeExprs(child);
         // TODO: why need set streaming here? should remove this.
         if (inputFragment.getPlanRoot() instanceof AggregationNode
-                && distribute.child() instanceof PhysicalHashAggregate
-                && context.getFirstAggregateInFragment(inputFragment) == distribute.child()) {
-            PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) distribute.child();
+                && child instanceof PhysicalHashAggregate
+                && context.getFirstAggregateInFragment(inputFragment) == child) {
+            PhysicalHashAggregate<?> hashAggregate = (PhysicalHashAggregate<?>) child;
             if (hashAggregate.getAggPhase() == AggPhase.LOCAL
                     && hashAggregate.getAggMode() == AggMode.INPUT_TO_BUFFER) {
                 AggregationNode aggregationNode = (AggregationNode) inputFragment.getPlanRoot();
@@ -286,23 +286,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), inputFragment.getPlanRoot());
         updateLegacyPlanIdToPhysicalPlan(exchangeNode, distribute);
         List<ExprId> validOutputIds = distribute.getOutputExprIds();
-        if (distribute.child() instanceof PhysicalHashAggregate) {
+        if (child instanceof PhysicalHashAggregate) {
             // we must add group by keys to output list,
             // otherwise we could not process aggregate's output without group by keys
-            List<ExprId> keys = ((PhysicalHashAggregate<?>) distribute.child()).getGroupByExpressions().stream()
+            List<ExprId> keys = ((PhysicalHashAggregate<?>) child).getGroupByExpressions().stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .map(SlotReference::getExprId)
                     .collect(Collectors.toList());
             keys.addAll(validOutputIds);
             validOutputIds = keys;
+        } else if (child instanceof PhysicalLimit && ((PhysicalLimit<?>) child).getPhase().isGlobal()) {
+            // because sort already contains Offset, we don't need to handle PhysicalTopN
+            exchangeNode.setOffset(((PhysicalLimit<?>) child).getOffset());
         }
         if (inputFragment instanceof MultiCastPlanFragment) {
             // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
             MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
-            if (!(distribute.child() instanceof PhysicalProject)) {
+            if (!(child instanceof PhysicalProject)) {
                 List<Expr> projectionExprs = new ArrayList<>();
                 PhysicalCTEConsumer consumer = getCTEConsumerChild(distribute);
                 Preconditions.checkState(consumer != null, "consumer not found");
@@ -364,8 +367,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(),
-                ConnectContext.get().getResultSinkType()));
+        TResultSinkType resultSinkType = context.getConnectContext() != null ? context.getConnectContext()
+                .getResultSinkType() : null;
+        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(), resultSinkType));
         return planFragment;
     }
 
@@ -743,7 +747,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, PlanTranslatorContext context) {
-        Table table = schemaScan.getTable();
+        TableIf table = schemaScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(schemaScan.getOutput());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
 
@@ -1591,7 +1595,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
         child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(), child.getLimit()));
-        child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
+        // TODO: plan node don't support limit
+        // child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
         updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
         return inputFragment;
     }

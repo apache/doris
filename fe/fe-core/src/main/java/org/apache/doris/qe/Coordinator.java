@@ -1611,6 +1611,7 @@ public class Coordinator implements CoordInterface {
                             dest.fragment_instance_id = instanceExecParams.instanceId;
                             dest.server = toRpcHost(instanceExecParams.host);
                             dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                            instanceExecParams.recvrId = params.destinations.size();
                             break;
                         }
                     }
@@ -1630,6 +1631,7 @@ public class Coordinator implements CoordInterface {
                             destHosts.put(param.host, param);
                             param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                            param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
                             try {
                                 dest.server = toRpcHost(param.host);
@@ -1653,6 +1655,7 @@ public class Coordinator implements CoordInterface {
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                         dest.setBrpcServer(toBrpcHost(destParams.instanceExecParams.get(j).host));
+                        destParams.instanceExecParams.get(j).recvrId = params.destinations.size();
                         params.destinations.add(dest);
                     }
                 }
@@ -1732,6 +1735,7 @@ public class Coordinator implements CoordInterface {
                                 dest.fragment_instance_id = instanceExecParams.instanceId;
                                 dest.server = toRpcHost(instanceExecParams.host);
                                 dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                                instanceExecParams.recvrId = params.destinations.size();
                                 break;
                             }
                         }
@@ -1752,6 +1756,7 @@ public class Coordinator implements CoordInterface {
                             param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
+                            param.recvrId = params.destinations.size();
                             try {
                                 dest.server = toRpcHost(param.host);
                                 dest.setBrpcServer(toBrpcHost(param.host));
@@ -1773,6 +1778,7 @@ public class Coordinator implements CoordInterface {
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                         dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
+                        destParams.instanceExecParams.get(j).recvrId = params.destinations.size();
                         destinations.add(dest);
                     }
                 }
@@ -3190,6 +3196,9 @@ public class Coordinator implements CoordInterface {
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
             this.enablePipelineX = enablePipelineX;
             this.executionProfile = executionProfile;
+            if (enablePipelineX) {
+                executionProfile.addFragments(profileFragmentId);
+            }
         }
 
         public Stream<RuntimeProfile> profileStream() {
@@ -3755,22 +3764,26 @@ public class Coordinator implements CoordInterface {
                     params.setFileScanParams(fileScanRangeParamsMap);
                     params.setNumBuckets(fragment.getBucketNum());
                     params.setPerNodeSharedScans(perNodeSharedScans);
+                    params.setTotalInstances(instanceExecParams.size());
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
                     }
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
+                    res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
                     instanceIdx.put(instanceExecParam.host, 0);
                 }
                 // Set each bucket belongs to which instance on this BE.
                 // This is used for LocalExchange(BUCKET_HASH_SHUFFLE).
                 int instanceId = instanceIdx.get(instanceExecParam.host);
+
                 for (int bucket : instanceExecParam.bucketSeqSet) {
                     res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, instanceId);
-
                 }
                 instanceIdx.replace(instanceExecParam.host, ++instanceId);
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
+                res.get(instanceExecParam.host).getShuffleIdxToInstanceIdx().put(instanceExecParam.recvrId,
+                        params.getLocalParams().size());
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
                 localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
@@ -3918,6 +3931,8 @@ public class Coordinator implements CoordInterface {
         FragmentExecParams fragmentExecParams;
 
         boolean buildHashTableForBroadcastJoin = false;
+
+        int recvrId = -1;
 
         List<TUniqueId> instancesSharingHashTable = Lists.newArrayList();
 

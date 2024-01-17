@@ -178,6 +178,9 @@ DEFINE_Int32(download_worker_count, "1");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// report random wait a little time to avoid FE receiving multiple be reports at the same time.
+// do not set it to false for production environment
+DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for refresh storage policy from FE
@@ -192,8 +195,6 @@ DEFINE_mInt32(max_download_speed_kbps, "50000");
 DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 // download low speed time(seconds)
 DEFINE_mInt32(download_low_speed_time, "300");
-// sleep time for one second
-DEFINE_Int32(sleep_one_second, "1");
 
 // log dir
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -235,7 +236,7 @@ DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
 DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
     if (config == -1) {
         CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 4);
+        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
     }
     return true;
 });
@@ -264,8 +265,6 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
-// return_row / total_row
-DEFINE_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 
@@ -453,8 +452,8 @@ DEFINE_mInt32(finished_migration_tasks_size, "10000");
 // If size less than this, the remaining rowsets will be force to complete
 DEFINE_mInt32(migration_remaining_size_threshold_mb, "10");
 // If the task runs longer than this time, the task will be terminated, in seconds.
-// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
-DEFINE_mInt32(migration_task_timeout_secs, "20480");
+// timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
+DEFINE_mInt32(migration_task_timeout_secs, "300");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");
@@ -541,10 +540,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
 
-// The probing algorithm of partitioned hash table.
-// Enable quadratic probing hash table
-DEFINE_Bool(enable_quadratic_probing, "false");
-
 // for pprof
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
@@ -556,8 +551,6 @@ DEFINE_mBool(enable_token_check, "true");
 
 // to open/close system metrics
 DEFINE_Bool(enable_system_metrics, "true");
-
-DEFINE_mBool(enable_prefetch, "true");
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
@@ -776,8 +769,6 @@ DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
 // timeout for load stream close wait in ms
 DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
-// idle timeout for load stream in ms
-DEFINE_mInt64(load_stream_idle_timeout_ms, "600000");
 // brpc streaming max_buf_size in bytes
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
@@ -838,6 +829,13 @@ DEFINE_Int32(routine_load_consumer_pool_size, "10");
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
 DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
+// Used in single-stream-multi-table load. When receiving a batch of messages from Kafka,
+// if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.
+// The param is aimed to avoid requesting and executing too many plans at once.
+// Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC
+// and improve the real-time processing of data.
+DEFINE_Int32(multi_table_max_wait_tables, "5");
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -1062,6 +1060,7 @@ DEFINE_Bool(enable_feature_binlog, "false");
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
+DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "3600");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 // Apply delete pred in cumu compaction
 DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
@@ -1070,7 +1069,8 @@ DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
-DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+DEFINE_mString(kerberos_ccache_path, "");
+DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
@@ -1125,6 +1125,7 @@ DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
+DEFINE_mInt32(tablet_schema_cache_capacity, "102400");
 
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
@@ -1162,6 +1163,8 @@ DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
 DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
+// 30s
+DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
 
 // clang-format off
 #ifdef BE_TEST

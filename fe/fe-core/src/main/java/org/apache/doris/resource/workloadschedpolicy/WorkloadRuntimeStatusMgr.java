@@ -20,7 +20,7 @@ package org.apache.doris.resource.workloadschedpolicy;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
@@ -69,6 +69,7 @@ public class WorkloadRuntimeStatusMgr {
                     auditEvent.scanRows = queryStats.scan_rows;
                     auditEvent.scanBytes = queryStats.scan_bytes;
                     auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
             }
@@ -164,6 +165,10 @@ public class WorkloadRuntimeStatusMgr {
         }
 
         return retQueryMap;
+    }
+
+    public Map<Long, Map<String, TQueryStatistics>> getBeQueryStatsMap() {
+        return beToQueryStatsMap;
     }
 
     private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {

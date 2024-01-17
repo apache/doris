@@ -1021,6 +1021,12 @@ public class Config extends ConfigBase {
     public static boolean disable_balance = false;
 
     /**
+     * when be rebalancer idle, then disk balance will occurs.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_rebalancer_idle_seconds = 60;
+
+    /**
      * if set to true, TabletScheduler will not do disk balance.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1916,13 +1922,6 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * This is used whether to push down function to MYSQL in external Table with query sql
-     * like odbc, jdbc for mysql table
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_func_pushdown = true;
-
-    /**
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
@@ -2063,15 +2062,6 @@ public class Config extends ConfigBase {
     public static long lock_reporting_threshold_ms = 500L;
 
     /**
-     * If false, when select from tables in information_schema database,
-     * the result will not contain the information of the table in external catalog.
-     * This is to avoid query time when external catalog is not reachable.
-     * TODO: this is a temp solution, we should support external catalog in the future.
-     */
-    @ConfField(mutable = true)
-    public static boolean infodb_support_ext_catalog = false;
-
-    /**
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
@@ -2098,17 +2088,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
-
-    /**
-     * Now we not fully support array/struct/map nesting complex type in many situation,
-     * so just disable creating nesting complex data type when create table.
-     * We can make it able after we fully support
-     */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
-            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
-                    + "when we create table, only support array type nested array"})
-    public static boolean disable_nested_complex_type  = true;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
@@ -2407,13 +2386,6 @@ public class Config extends ConfigBase {
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
-    // This config is deprecated and has not taken effect anymore,
-    // please use dialect plugin: fe_plugins/http-dialect-converter for instead
-    @Deprecated
-    @ConfField(description = {"用于SQL方言转换的服务地址。",
-            "The service address for SQL dialect conversion."})
-    public static String sql_convertor_service = "";
-
     @ConfField(mutable = true)
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
@@ -2431,6 +2403,14 @@ public class Config extends ConfigBase {
     })
     public static int http_load_submitter_max_worker_threads = 2;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "The threshold of load labels' number. After this number is exceeded, "
+                    + "the labels of the completed import jobs or tasks will be deleted, "
+                    + "and the deleted labels can be reused."
+    })
+    public static int label_num_threshold = 2000;
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================
@@ -2441,6 +2421,54 @@ public class Config extends ConfigBase {
     public static boolean isCloudMode() {
         return !cloud_unique_id.isEmpty();
     }
+
+    public static boolean isNotCloudMode() {
+        return cloud_unique_id.isEmpty();
+    }
+
+    /**
+     * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     */
+    @ConfField
+    public static String meta_service_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static boolean meta_service_connection_pooled = true;
+
+    @ConfField(mutable = true)
+    public static int meta_service_connection_pool_size = 20;
+
+    @ConfField(mutable = true)
+    public static int meta_service_rpc_retry_times = 200;
+
+    // A connection will expire after a random time during [base, 2*base), so that the FE
+    // has a chance to connect to a new RS. Set zero to disable it.
+    @ConfField(mutable = true)
+    public static int meta_service_connection_age_base_minutes = 5;
+
+    @ConfField(mutable = false)
+    public static boolean enable_sts_vpc = true;
+
+    @ConfField(mutable = true)
+    public static int sts_duration = 3600;
+
+    @ConfField(mutable = true)
+    public static int drop_rpc_retry_num = 200;
+
+    @ConfField
+    public static int cloud_meta_service_rpc_failed_retry_times = 200;
+
+    @ConfField
+    public static int default_get_version_from_ms_timeout_second = 3;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_multi_replica = false;
+
+    @ConfField(mutable = true)
+    public static int cloud_replica_num = 3;
+
+    @ConfField(mutable = true)
+    public static int cloud_cold_read_percent = 10; // 10%
 
     //==========================================================================
     //                      end of cloud config

@@ -609,7 +609,7 @@ public class OlapTable extends Table {
                 idx.clearTabletsForRestore();
                 for (int i = 0; i < tabletNum; i++) {
                     long newTabletId = env.getNextId();
-                    Tablet newTablet = new Tablet(newTabletId);
+                    Tablet newTablet = EnvFactory.createTablet(newTabletId);
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                     // replicas
@@ -664,6 +664,14 @@ public class OlapTable extends Table {
             if (indexId != baseIndexId) {
                 result.add(indexId);
             }
+        }
+        return result;
+    }
+
+    public List<Long> getIndexIdList() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            result.add(indexId);
         }
         return result;
     }
@@ -1900,6 +1908,22 @@ public class OlapTable extends Table {
             return tableProperty.getEstimatePartitionSize();
         }
         return "";
+    }
+
+    public long getTTLSeconds() {
+        if (tableProperty != null) {
+            return tableProperty.getTTLSeconds();
+        }
+        return 0L;
+    }
+
+    public void setTTLSeconds(long ttlSeconds) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                                            Long.valueOf(ttlSeconds).toString());
+        tableProperty.buildTTLSeconds();
     }
 
     public boolean getEnableLightSchemaChange() {

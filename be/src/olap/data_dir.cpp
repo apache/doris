@@ -21,9 +21,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <stdio.h>
 
 #include <atomic>
+#include <cstdio>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
@@ -39,12 +39,10 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/remote_file_system.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -67,10 +65,44 @@
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
-using strings::Substitute;
-
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+Status read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+    *cluster_id = -1;
+    if (exists) {
+        io::FileReaderSPtr reader;
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
+        size_t fsize = reader->size();
+        if (fsize > 0) {
+            std::string content;
+            content.resize(fsize, '\0');
+            size_t bytes_read = 0;
+            RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
+            DCHECK_EQ(fsize, bytes_read);
+            *cluster_id = std::stoi(content);
+        }
+    }
+    return Status::OK();
+}
+
+Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
+    if (!exists) {
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
+        RETURN_IF_ERROR(file_writer->append(std::to_string(cluster_id)));
+        RETURN_IF_ERROR(file_writer->close());
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_total_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_avail_capacity, MetricUnit::BYTES);
@@ -81,23 +113,17 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_state, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_score, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 
-DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-                 TStorageMedium::type storage_medium, TabletManager* tablet_manager,
-                 TxnManager* txn_manager)
-        : _path(path),
-          _fs(io::LocalFileSystem::create(path)),
+DataDir::DataDir(StorageEngine& engine, const std::string& path, int64_t capacity_bytes,
+                 TStorageMedium::type storage_medium)
+        : _engine(engine),
+          _path(path),
           _available_bytes(0),
           _disk_capacity_bytes(0),
           _trash_used_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
-          _tablet_manager(tablet_manager),
-          _txn_manager(txn_manager),
           _cluster_id(-1),
-          _cluster_id_incomplete(false),
-          _to_be_deleted(false),
-          _current_shard(0),
-          _meta(nullptr) {
+          _to_be_deleted(false) {
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
@@ -143,25 +169,6 @@ Status DataDir::_init_cluster_id() {
     RETURN_IF_ERROR(read_cluster_id(cluster_id_path, &_cluster_id));
     if (_cluster_id == -1) {
         _cluster_id_incomplete = true;
-    }
-    return Status::OK();
-}
-
-Status DataDir::read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
-    *cluster_id = -1;
-    if (exists) {
-        io::FileReaderSPtr reader;
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cluster_id_path, &reader));
-        size_t fsize = reader->size();
-        if (fsize > 0) {
-            std::string content;
-            content.reserve(fsize);
-            size_t bytes_read = 0;
-            RETURN_IF_ERROR(reader->read_at(0, {content.data(), fsize}, &bytes_read));
-            *cluster_id = std::stoi(content);
-        }
     }
     return Status::OK();
 }
@@ -219,20 +226,6 @@ Status DataDir::set_cluster_id(int32_t cluster_id) {
     return _write_cluster_id_to_path(cluster_id_path, cluster_id);
 }
 
-Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
-    std::stringstream cluster_id_ss;
-    cluster_id_ss << cluster_id;
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
-    if (!exists) {
-        io::FileWriterPtr file_writer;
-        RETURN_IF_ERROR(io::global_local_filesystem()->create_file(path, &file_writer));
-        RETURN_IF_ERROR(file_writer->append(cluster_id_ss.str()));
-        RETURN_IF_ERROR(file_writer->close());
-    }
-    return Status::OK();
-}
-
 void DataDir::health_check() {
     // check disk
     if (_is_used) {
@@ -240,7 +233,7 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
-            StorageEngine::instance()->add_broken_path(_path);
+            _engine.add_broken_path(_path);
             _is_used = !res.is<IO_ERROR>();
         }
     }
@@ -250,16 +243,6 @@ void DataDir::health_check() {
 Status DataDir::_read_and_write_test_file() {
     auto test_file = fmt::format("{}/{}", _path, kTestFilePath);
     return read_write_test_file(test_file);
-}
-
-uint64_t DataDir::get_shard() {
-    uint32_t next_shard = 0;
-    {
-        std::lock_guard<std::mutex> l(_mutex);
-        next_shard = _current_shard;
-        _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
-    }
-    return next_shard;
 }
 
 void DataDir::register_tablet(Tablet* tablet) {
@@ -370,9 +353,8 @@ Status DataDir::load() {
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
-    auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs(), this](
-                                    TabletUid tablet_uid, RowsetId rowset_id,
-                                    const std::string& meta_str) -> bool {
+    auto load_rowset_func = [&dir_rowset_metas, this](TabletUid tablet_uid, RowsetId rowset_id,
+                                                      const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
@@ -380,9 +362,7 @@ Status DataDir::load() {
             // return false will break meta iterator, return true to skip this error
             return true;
         }
-        if (rowset_meta->is_local()) {
-            rowset_meta->set_fs(local_fs);
-        }
+
         if (rowset_meta->has_delete_predicate()) {
             // copy the delete sub pred v1 to check then
             auto orig_delete_sub_pred = rowset_meta->delete_predicate().sub_predicates();
@@ -436,8 +416,8 @@ Status DataDir::load() {
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
                                     const std::string& value) -> bool {
-        Status status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash, value,
-                                                               false, false, false, false);
+        Status status = _engine.tablet_manager()->load_tablet_from_meta(
+                this, tablet_id, schema_hash, value, false, false, false, false);
         if (!status.ok() && !status.is<TABLE_ALREADY_DELETED_ERROR>() &&
             !status.is<ENGINE_INSERT_OLD_TABLET>()) {
             // load_tablet_from_meta() may return Status::Error<TABLE_ALREADY_DELETED_ERROR>()
@@ -463,7 +443,7 @@ Status DataDir::load() {
         return true;
     };
     Status load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
-    if (failed_tablet_ids.size() != 0) {
+    if (!failed_tablet_ids.empty()) {
         LOG(WARNING) << "load tablets from header failed"
                      << ", loaded tablet: " << tablet_ids.size()
                      << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
@@ -482,26 +462,26 @@ Status DataDir::load() {
     }
 
     for (int64_t tablet_id : tablet_ids) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (tablet && tablet->set_tablet_schema_into_rowset_meta()) {
             RETURN_IF_ERROR(TabletMetaManager::save(this, tablet->tablet_id(),
                                                     tablet->schema_hash(), tablet->tablet_meta()));
         }
     }
 
-    auto load_pending_publish_info_func = [](int64_t tablet_id, int64_t publish_version,
-                                             const string& info) {
-        PendingPublishInfoPB pending_publish_info_pb;
-        bool parsed = pending_publish_info_pb.ParseFromString(info);
-        if (!parsed) {
-            LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
-                         << " publish_version: " << publish_version;
-        }
-        StorageEngine::instance()->add_async_publish_task(
-                pending_publish_info_pb.partition_id(), tablet_id, publish_version,
-                pending_publish_info_pb.transaction_id(), true);
-        return true;
-    };
+    auto load_pending_publish_info_func =
+            [&engine = _engine](int64_t tablet_id, int64_t publish_version, const string& info) {
+                PendingPublishInfoPB pending_publish_info_pb;
+                bool parsed = pending_publish_info_pb.ParseFromString(info);
+                if (!parsed) {
+                    LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
+                                 << " publish_version: " << publish_version;
+                }
+                engine.add_async_publish_task(pending_publish_info_pb.partition_id(), tablet_id,
+                                              publish_version,
+                                              pending_publish_info_pb.transaction_id(), true);
+                return true;
+            };
     RETURN_IF_ERROR(
             TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
 
@@ -524,7 +504,7 @@ Status DataDir::load() {
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     int64_t invalid_rowset_counter = 0;
     for (auto&& rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(rowset_meta->tablet_id());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet == nullptr) {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
@@ -558,13 +538,10 @@ Status DataDir::load() {
                                                         rowset_meta->rowset_id(),
                                                         rowset_meta->get_rowset_pb(), false));
             }
-            Status commit_txn_status = _txn_manager->commit_txn(
+            Status commit_txn_status = _engine.txn_manager()->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_uid(), rowset_meta->load_id(),
-                    rowset,
-                    StorageEngine::instance()->pending_local_rowsets().add(
-                            rowset_meta->rowset_id()),
-                    true);
+                    rowset, _engine.pending_local_rowsets().add(rowset_meta->rowset_id()), true);
             if (commit_txn_status || commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
                 LOG(INFO) << "successfully to add committed rowset: " << rowset_meta->rowset_id()
                           << " to tablet: " << rowset_meta->tablet_id()
@@ -611,7 +588,7 @@ Status DataDir::load() {
     }
 
     auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version, const string& val) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             return true;
         }
@@ -668,10 +645,10 @@ void DataDir::perform_path_gc() {
 
 // gc unused tablet schemahash dir
 void DataDir::_perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths) {
-    if (_stop_bg_worker) return;
-    if (tablet_paths.empty()) {
+    if (_stop_bg_worker || tablet_paths.empty()) {
         return;
     }
+
     LOG(INFO) << "start to path gc by tablet, dir=" << _path;
     // Use double pointer to avoid move elements after erase a element
     auto forward = tablet_paths.begin();
@@ -685,16 +662,17 @@ void DataDir::_perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths)
         auto& path = *forward;
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
-        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
-                                                                                 &schema_hash);
+        bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
+                                                                               &schema_hash);
         if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
             LOG(WARNING) << "unknown path:" << path;
             --backward;
             std::swap(*forward, *backward);
             continue;
         }
-        if (auto tablet = _tablet_manager->get_tablet(tablet_id); !tablet) {
-            _tablet_manager->try_delete_unused_tablet_path(this, tablet_id, schema_hash, path);
+        if (auto tablet = _engine.tablet_manager()->get_tablet(tablet_id); !tablet) {
+            _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
+                                                                    path);
             --backward;
             std::swap(*forward, *backward);
             continue;
@@ -732,7 +710,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
             continue;
         }
 
-        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             // Could not found the tablet, maybe it's a dropped tablet, will be reclaimed
             // in the next time `_perform_path_gc_by_tablet`
@@ -755,7 +733,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
                 continue; // Not a rowset
             }
 
-            if (StorageEngine::instance()->pending_local_rowsets().contains(rowset_id)) {
+            if (_engine.pending_local_rowsets().contains(rowset_id)) {
                 continue; // Pending rowset file
             }
 
@@ -780,7 +758,7 @@ void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_
 
         auto should_reclaim = [&, this](const RowsetId& rowset_id) {
             return !rowsets_in_version_map.contains(rowset_id) &&
-                   !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id) &&
+                   !_engine.check_rowset_id_in_unused_rowsets(rowset_id) &&
                    RowsetMetaManager::exists(get_meta(), tablet->tablet_uid(), rowset_id)
                            .is<META_KEY_NOT_FOUND>();
         };
@@ -874,7 +852,7 @@ Status DataDir::update_capacity() {
 void DataDir::update_trash_capacity() {
     auto trash_path = fmt::format("{}/{}", _path, TRASH_PREFIX);
     try {
-        _trash_used_bytes = StorageEngine::instance()->get_file_or_directory_size(trash_path);
+        _trash_used_bytes = _engine.get_file_or_directory_size(trash_path);
     } catch (const std::filesystem::filesystem_error& e) {
         LOG(WARNING) << "update trash capacity failed, path: " << _path << ", err: " << e.what();
         return;
@@ -997,7 +975,7 @@ void DataDir::perform_remote_rowset_gc() {
         }
         LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
                   << ", rowset_id=" << rowset_id;
-        auto st = std::static_pointer_cast<io::RemoteFileSystem>(fs)->batch_delete(seg_paths);
+        auto st = fs->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
         } else {

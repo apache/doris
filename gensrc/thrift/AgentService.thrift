@@ -151,6 +151,10 @@ struct TCreateTabletReq {
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
     26: optional i64 time_series_compaction_empty_rowsets_threshold = 5
+
+    // For cloud
+    1000: optional bool is_in_memory = false
+    1001: optional bool is_persistent = false
 }
 
 struct TDropTabletReq {
@@ -193,6 +197,10 @@ struct TAlterTabletReqV2 {
     9: optional Descriptors.TDescriptorTable desc_tbl
     10: optional list<Descriptors.TColumn> columns
     11: optional i32 be_exec_version = 0
+
+    // For cloud
+    1000: optional i64 job_id
+    1001: optional i64 expiration
 }
 
 struct TAlterInvertedIndexReq {
@@ -380,6 +388,17 @@ struct TPublishVersionRequest {
     3: optional bool strict_mode = false
 }
 
+struct TCalcDeleteBitmapPartitionInfo {
+    1: required Types.TPartitionId partition_id
+    2: required Types.TVersion version
+    3: required list<Types.TTabletId> tablet_ids
+}
+
+struct TCalcDeleteBitmapRequest {
+    1: required Types.TTransactionId transaction_id
+    2: required list<TCalcDeleteBitmapPartitionInfo> partitions;
+}
+
 struct TClearAlterTaskRequest {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
@@ -479,6 +498,9 @@ struct TAgentTaskRequest {
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
     33: optional TGcBinlogReq gc_binlog_req
+
+    // For cloud
+    1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req
 }
 
 struct TAgentResult {

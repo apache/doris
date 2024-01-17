@@ -125,7 +125,7 @@ public:
                 BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -152,6 +152,9 @@ public:
     // remote will close stream when it receives CLOSE_LOAD
     // if timeout_ms <= 0, will fallback to config::close_load_stream_timeout_ms
     Status close_wait(int64_t timeout_ms = 0);
+
+    // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
+    void cancel(Status reason);
 
     Status wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                            int64_t timeout_ms = 60000);
@@ -197,9 +200,19 @@ private:
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
     Status _send_with_retry(butil::IOBuf& buf);
 
+    Status _check_cancel() {
+        if (!_is_cancelled.load()) {
+            return Status::OK();
+        }
+        std::lock_guard<bthread::Mutex> lock(_cancel_mutex);
+        return Status::Cancelled("load_id={}, reason: {}", print_id(_load_id),
+                                 _cancel_reason.to_string_no_stack());
+    }
+
 protected:
     std::atomic<bool> _is_init;
     std::atomic<bool> _is_closed;
+    std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
     std::atomic<int> _use_cnt;
 
@@ -207,9 +220,11 @@ protected:
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id
     int64_t _dst_id = -1; // destination backend_id
+    Status _cancel_reason;
 
     bthread::Mutex _open_mutex;
     bthread::Mutex _close_mutex;
+    bthread::Mutex _cancel_mutex;
     bthread::ConditionVariable _close_cv;
 
     std::mutex _tablets_to_commit_mutex;

@@ -48,8 +48,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -68,8 +66,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     protected static final Multimap<Expression, Expression>
             AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
-    protected final String currentClassName = this.getClass().getSimpleName();
-    private final Logger logger = LogManager.getLogger(this.getClass());
 
     static {
         // support count distinct roll up
@@ -141,6 +137,18 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                     queryTopPlan.getExpressions(),
                                     materializationContext.getMvExprToMvScanExprMapping(),
                                     queryToViewSlotMapping)));
+        }
+        // if view is scalar aggregate but query is not. Or if query is scalar aggregate but view is not
+        // Should not rewrite
+        if (queryTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()
+                || viewTopPlanAndAggPair.value().getGroupByExpressions().isEmpty()) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("only one the of query or view is scalar aggregate and "
+                                    + "can not rewrite expression meanwhile",
+                            String.format("query aggregate = %s,\n view aggregate = %s,\n",
+                                    queryTopPlanAndAggPair.value().treeString(),
+                                    viewTopPlanAndAggPair.value().treeString())));
+            return null;
         }
         // try to roll up.
         // split the query top plan expressions to group expressions and functions, if can not, bail out.
@@ -268,15 +276,15 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Plan viewTopPlan = viewTopPlanAndAggPair.key();
         LogicalAggregate<Plan> queryAggregate = queryTopPlanAndAggPair.value();
         LogicalAggregate<Plan> viewAggregate = viewTopPlanAndAggPair.value();
-        List<? extends Expression> queryGroupShuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                queryAggregate.getGroupByExpressions(), queryTopPlan);
-        List<? extends Expression> viewGroupShuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
+        Set<? extends Expression> queryGroupShuttledExpression = new HashSet<>(
+                ExpressionUtils.shuttleExpressionWithLineage(
+                        queryAggregate.getGroupByExpressions(), queryTopPlan));
+        Set<? extends Expression> viewGroupShuttledExpressionQueryBased = ExpressionUtils.shuttleExpressionWithLineage(
                         viewAggregate.getGroupByExpressions(), viewTopPlan)
                 .stream()
                 .map(expr -> ExpressionUtils.replace(expr, viewToQurySlotMapping.toSlotReferenceMap()))
-                .collect(Collectors.toList());
-        return queryAggregate.getGroupByExpressions().size() == viewAggregate.getGroupByExpressions().size()
-                && queryGroupShuttledExpression.equals(viewGroupShuttledExpression);
+                .collect(Collectors.toSet());
+        return queryGroupShuttledExpression.equals(viewGroupShuttledExpressionQueryBased);
     }
 
     /**

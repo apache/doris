@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_alter_user", "account") {
+suite("test_alter_user", "account,nonConcurrent") {
 
     sql """drop user if exists test_auth_user2"""
     sql """drop user if exists test_auth_user3"""

@@ -396,7 +396,7 @@ message RecycleRowsetPB {
     optional int64 creation_time = 3;
     optional int64 expiration = 4; // expiration timestamp
     optional Type type = 5;
-    optional doris.RowsetMetaPB rowset_meta = 6;
+    optional doris.RowsetMetaCloudPB rowset_meta = 6;
 }
 
 message RecycleStagePB {
@@ -724,7 +724,7 @@ message GetObjStoreInfoResponse {
 
 message CreateTabletsRequest {
     optional string cloud_unique_id = 1; // For auth
-    repeated doris.TabletMetaPB tablet_metas = 2;
+    repeated doris.TabletMetaCloudPB tablet_metas = 2;
 }
 
 message CreateTabletsResponse {
@@ -743,7 +743,7 @@ message UpdateTabletResponse {
 message UpdateTabletSchemaRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
-    optional doris.TabletSchemaPB tablet_schema = 3;
+    optional doris.TabletSchemaCloudPB tablet_schema = 3;
 }
 
 message UpdateTabletSchemaResponse {
@@ -764,18 +764,18 @@ message GetTabletRequest {
 
 message GetTabletResponse {
     optional MetaServiceResponseStatus status = 1;
-    optional doris.TabletMetaPB tablet_meta = 2;
+    optional doris.TabletMetaCloudPB tablet_meta = 2;
 }
 
 message CreateRowsetRequest {
     optional string cloud_unique_id = 1; // For auth
-    optional doris.RowsetMetaPB rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
 }
 
 message CreateRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
-    optional doris.RowsetMetaPB existed_rowset_meta = 2;
+    optional doris.RowsetMetaCloudPB existed_rowset_meta = 2;
 }
 
 message GetRowsetRequest {
@@ -791,7 +791,7 @@ message GetRowsetRequest {
 
 message GetRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
-    repeated doris.RowsetMetaPB rowset_meta = 2;
+    repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
 }
 
