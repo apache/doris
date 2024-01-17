@@ -214,7 +214,7 @@ public class StructInfo {
         // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
-        List<HyperGraph> structInfos = HyperGraph.toStructInfo(planSplitContext.getBottomPlan());
+        List<HyperGraph> structInfos = HyperGraph.builderForMv(planSplitContext.getBottomPlan()).buildAll();
         return structInfos.stream()
                 .map(hyperGraph -> new StructInfo(originalPlan, planSplitContext.getTopPlan(),
                         planSplitContext.getBottomPlan(), hyperGraph))
