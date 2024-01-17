@@ -934,7 +934,20 @@ class Suite implements GroovyInterceptable {
     }
 
     String[][] deduplicate_tablets(String[][] tablets) {
-        def result = [:].withDefault { null }
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    ArrayList deduplicate_tablets(ArrayList tablets) {
+        def result = [:]
 
         tablets.each { row ->
             def tablet_id = row[0]
@@ -946,4 +959,3 @@ class Suite implements GroovyInterceptable {
         return result.values().toList()
     }
 }
-
