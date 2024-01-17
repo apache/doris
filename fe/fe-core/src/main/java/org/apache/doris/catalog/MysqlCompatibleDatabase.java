@@ -77,11 +77,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
         throw new IOException("Not support.");
     }
 
-    @Override
-    public boolean isMysqlCompatibleDatabase() {
-        return true;
-    }
-
     /**
      * This method must be re-implemented since {@link Env#createView(CreateViewStmt)}
      * will call this method. And create view should not succeed under this database.
