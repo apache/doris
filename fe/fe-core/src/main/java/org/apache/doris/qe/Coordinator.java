@@ -842,7 +842,7 @@ public class Coordinator implements CoordInterface {
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
-            if (context.getSessionVariable().enableProfile()) {
+            if (context != null && context.getSessionVariable().enableProfile()) {
                 attachInstanceProfileToFragmentProfile();
             }
         } finally {
@@ -986,7 +986,7 @@ public class Coordinator implements CoordInterface {
                 }
                 waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
-            if (context.getSessionVariable().enableProfile()) {
+            if (context != null && context.getSessionVariable().enableProfile()) {
                 attachInstanceProfileToFragmentProfile();
             }
         } finally {
