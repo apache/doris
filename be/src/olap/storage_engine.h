@@ -71,6 +71,7 @@ class ThreadPool;
 class TxnManager;
 class ReportWorker;
 class CreateTabletIdxCache;
+struct DirInfo;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -332,6 +333,11 @@ private:
     bool _increase_low_priority_task_nums(DataDir* dir);
 
     void _decrease_low_priority_task_nums(DataDir* dir);
+
+    void _get_candidate_stores(TStorageMedium::type storage_medium,
+                               std::vector<DirInfo>& dir_infos);
+
+    int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
 
 private:
     EngineOptions _options;

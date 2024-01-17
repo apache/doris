@@ -445,7 +445,9 @@ StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent)
     return StorageEngine::DiskRemainingLevel::HIGH;
 }
 
-int get_and_set_next_disk_index() {
+int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+                                                TStorageMedium::type storage_medium) {
+    auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
     int curr_index = _create_tablet_idx_lru_cache->get_index(key);
     // -1, lru can't find key
     if (curr_index == -1) {
@@ -456,8 +458,8 @@ int get_and_set_next_disk_index() {
     return curr_index;
 }
 
-void StorageEngine::get_candidate_stores(TStorageMedium::type storage_medium,
-                                         std::vector<DirInfo>& dir_infos) {
+void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
+                                          std::vector<DirInfo>& dir_infos) {
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
         if (data_dir->is_used()) {
@@ -477,14 +479,11 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         int64 partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
     int curr_index = 0;
-
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-
-        auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
-        curr_index = get_and_set_next_disk_index();
-        get_candidate_stores(storage_medium, dir_infos);
+        curr_index = _get_and_set_next_disk_index(partition_id, storage_medium);
+        _get_candidate_stores(storage_medium, dir_infos);
     }
 
     std::sort(dir_infos.begin(), dir_infos.end());
