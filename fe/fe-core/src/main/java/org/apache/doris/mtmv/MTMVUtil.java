@@ -277,6 +277,13 @@ public class MTMVUtil {
         return res;
     }
 
+    /**
+     * Get the partitions that need to be refreshed
+     *
+     * @param mtmv
+     * @param baseTables
+     * @return
+     */
     public static List<Long> getMTMVNeedRefreshPartitions(MTMV mtmv, Set<BaseTableInfo> baseTables) {
         Collection<Partition> allPartitions = mtmv.getPartitions();
         List<Long> res = Lists.newArrayList();
