@@ -233,7 +233,6 @@ public class Coordinator implements CoordInterface {
     // Input parameter
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
-    private final boolean needReport;
 
     // parallel execute
     private final TUniqueId nextInstanceId;
@@ -324,7 +323,6 @@ public class Coordinator implements CoordInterface {
         } else {
             this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
-        this.needReport = context.getSessionVariable().enableProfile();
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
@@ -348,7 +346,6 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
-        this.needReport = true;
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
@@ -845,8 +842,9 @@ public class Coordinator implements CoordInterface {
                 }
                 waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
-
-            attachInstanceProfileToFragmentProfile();
+            if (context.getSessionVariable().enableProfile()) {
+                attachInstanceProfileToFragmentProfile();
+            }
         } finally {
             unlock();
         }
@@ -988,8 +986,9 @@ public class Coordinator implements CoordInterface {
                 }
                 waitPipelineRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
-
-            attachInstanceProfileToFragmentProfile();
+            if (context.getSessionVariable().enableProfile()) {
+                attachInstanceProfileToFragmentProfile();
+            }
         } finally {
             unlock();
         }
