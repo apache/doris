@@ -944,6 +944,10 @@ public class HashJoinNode extends JoinNodeBase {
         return otherJoinConjuncts;
     }
 
+    public List<Expr> getMarkJoinConjuncts() {
+        return markJoinConjuncts;
+    }
+
     SlotRef getMappedInputSlotRef(SlotRef slotRef) {
         if (outputSmap != null) {
             Expr mappedExpr = outputSmap.mappingForRhsExpr(slotRef);

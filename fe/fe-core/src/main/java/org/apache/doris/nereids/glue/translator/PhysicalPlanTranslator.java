@@ -1717,6 +1717,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (Expr expr : otherConjuncts) {
                     Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
                 }
+                if (!((HashJoinNode) joinNode).getEqJoinConjuncts().isEmpty()
+                        && !((HashJoinNode) joinNode).getMarkJoinConjuncts().isEmpty()) {
+                    List<Expr> markConjuncts = ((HashJoinNode) joinNode).getMarkJoinConjuncts();
+                    for (Expr expr : markConjuncts) {
+                        Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
+                    }
+                }
                 requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
                 requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
                 for (ExprId exprId : requiredExprIds) {
