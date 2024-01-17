@@ -87,6 +87,4 @@ void register_function_bit_shift(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitShiftRight>();
 }
 
-} // namespace vectorized
-
-} // namespace doris
+} // namespace doris::vectorized

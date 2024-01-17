@@ -62,6 +62,4 @@ void register_function_bit_count(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitCount>();
 }
 
-} // namespace vectorized
-
-} // namespace doris
+} // namespace doris::vectorized
