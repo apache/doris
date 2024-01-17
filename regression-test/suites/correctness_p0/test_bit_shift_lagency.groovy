@@ -16,8 +16,7 @@
 // under the License.
 
 suite("test_bit_shift_lagency") {
-    sql "SET enable_nereids_planner=true;"
-    sql "SET enable_fallback_to_original_planner=false;"
+    sql "SET enable_nereids_planner=false;"
 
     qt_comment """
         select "testing big_shift_left";
