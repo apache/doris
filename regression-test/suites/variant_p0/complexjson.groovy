@@ -64,7 +64,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
     }')"""
     // qt_sql """SELECT v:key_0.key_1.key_3.key_4, v:key_0.key_1.key_3.key_5, \
     // v:key_0.key_1.key_3.key_6, v:key_0.key_1.key_3.key_7 FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson2"
     create_table table_name
@@ -98,7 +98,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
     // v:key_1.key_2.key_3.key_4.key_6, \
     // v:key_1.key_2.key_3.key_4.key_7 \
     // FROM  ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson3"
     create_table table_name
@@ -122,7 +122,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
     // v:key_0.key_10, \
     // v:key_0.key_0 \
     // FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 
     table_name = "complexjson5"
     create_table table_name
@@ -156,5 +156,5 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
     // v:key_0.key_1.key_2.key_5.key_6, \
     // v:key_0.key_1.key_2.key_5.key_7
     // FROM ${table_name} ORDER BY v:id"""
-    qt_sql """SELECT * from ${table_name} order by cast(v:id as int)"""
+    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
 }
