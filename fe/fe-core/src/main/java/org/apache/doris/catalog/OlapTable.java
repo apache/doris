@@ -609,7 +609,7 @@ public class OlapTable extends Table {
                 idx.clearTabletsForRestore();
                 for (int i = 0; i < tabletNum; i++) {
                     long newTabletId = env.getNextId();
-                    Tablet newTablet = EnvFactory.createTablet(newTabletId);
+                    Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                     // replicas

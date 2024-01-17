@@ -404,10 +404,10 @@ public class Tablet extends MetaObject implements Writable {
     public static Tablet read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, EnvFactory.getTabletClass());
+            return GsonUtils.GSON.fromJson(json, EnvFactory.getInstance().getTabletClass());
         }
 
-        Tablet tablet = EnvFactory.createTablet();
+        Tablet tablet = EnvFactory.getInstance().createTablet();
         tablet.readFields(in);
         return tablet;
     }

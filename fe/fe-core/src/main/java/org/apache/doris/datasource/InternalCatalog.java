@@ -2872,7 +2872,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             // create a new tablet with random chosen backends
-            Tablet tablet = EnvFactory.createTablet(idGeneratorBuffer.getNextId());
+            Tablet tablet = EnvFactory.getInstance().createTablet(idGeneratorBuffer.getNextId());
 
             // add tablet to inverted index first
             index.addTablet(tablet, tabletMeta);

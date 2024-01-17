@@ -210,6 +210,7 @@ public class PropertyAnalyzer {
             unsupportedProperties.put(PROPERTIES_STORAGE_FORMAT, "");
             unsupportedProperties.put(PROPERTIES_STORAGE_POLICY, "");
             unsupportedProperties.put(PROPERTIES_STORAGE_COOLDOWN_TIME, "");
+            unsupportedProperties.put(PROPERTIES_MIN_LOAD_REPLICA_NUM, "-1");
             unsupportedProperties.put(PROPERTIES_DISABLE_AUTO_COMPACTION, "false");
             unsupportedProperties.put(PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true");
             unsupportedProperties.put(PROPERTIES_REPLICATION_NUM, "1");
@@ -223,6 +224,9 @@ public class PropertyAnalyzer {
     }
 
     public static void checkAndRewriteProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties == null) {
+            return;
+        }
         for (String property : properties.keySet()) {
             if (!unsupportedProperties.containsKey(property)) {
                 continue;
