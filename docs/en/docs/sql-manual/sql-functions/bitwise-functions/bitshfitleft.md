@@ -66,57 +66,6 @@ FROM tbl
 +---------------------+-------------------------------+
 1 row in set (0.05 sec)
 ```
-
-## bit_shift_right
-### description
-#### syntax
-
-`BIT_SHIFT_RIGHT(BIGINT x, TINYINT c)`
-
-Return result of logical right shift of `BIGINT` type x by c bits.
-
-### example
-Normal case
-```sql
-select 1024 as x, number as c, bit_shift_right(1024, number) as bit_shift_right from numbers("number"="5")
---------------
-
-+------+------+-----------------+
-| x    | c    | bit_shift_right |
-+------+------+-----------------+
-| 1024 |    0 |            1024 |
-| 1024 |    1 |             512 |
-| 1024 |    2 |             256 |
-| 1024 |    3 |             128 |
-| 1024 |    4 |              64 |
-+------+------+-----------------+
-5 rows in set (0.03 sec)
-```
-Logical right shift `BIGINT` -1 by 1 bits gets `BIGINT_MAX`
-```sql
-select bit_shift_right(-1, 1)
---------------
-
-+------------------------+
-| bit_shift_right(-1, 1) |
-+------------------------+
-|    9223372036854775807 |
-+------------------------+
-```
-Return zero if `c` is less than 0
-```sql
-select bit_shift_right(100, -1)
---------------
-
-+--------------------------+
-| bit_shift_right(100, -1) |
-+--------------------------+
-|                        0 |
-+--------------------------+
-1 row in set (0.04 sec)
-```
-
-
 ### keywords
 
-    BIGTSHIFT, BIGTSHIFTLEFT, BIGTSHIFTRIGHT
+    BITSHIFT, BITSHIFTLEFT
