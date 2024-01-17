@@ -280,5 +280,7 @@ suite("test_string_function") {
     qt_sql_func_char6 """ select char(k1) from test_function_char order by k1; """
     qt_sql_func_char7 """ select char(k1, k2, k3, k4) from test_function_char order by k1, k2, k3, k4; """
     qt_sql_func_char8 """ select char(k1, k2, k3, k4, 65) from test_function_char order by k1, k2, k3, k4; """
+    qt_sql_func_char9 """ select char(0) = ' '; """
+    qt_sql_func_char10 """ select char(0) = '\0'; """
 
 }
