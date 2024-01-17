@@ -250,4 +250,25 @@ bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
     return false;
 }
 
+// should use this method to get a copy of current tablet meta
+// there are some rowset meta in local meta store and in in-memory tablet meta
+// but not in tablet meta in local meta store
+void BaseTablet::generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const {
+    TabletMetaPB tablet_meta_pb;
+    {
+        std::shared_lock rdlock(_meta_lock);
+        _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    }
+    generate_tablet_meta_copy_unlocked(new_tablet_meta);
+}
+
+// this is a unlocked version of generate_tablet_meta_copy()
+// some method already hold the _meta_lock before calling this,
+// such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
+void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const {
+    TabletMetaPB tablet_meta_pb;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    new_tablet_meta.init_from_pb(tablet_meta_pb);
+}
+
 } // namespace doris

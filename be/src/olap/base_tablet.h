@@ -102,6 +102,9 @@ public:
     Versions get_missed_versions(int64_t spec_version) const;
     Versions get_missed_versions_unlocked(int64_t spec_version) const;
 
+    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const;
+    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
+
 protected:
     // Find the missed versions until the spec_version.
     //

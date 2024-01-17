@@ -429,13 +429,14 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     PLoadStreamResponse response;
     Status st = Status::OK();
     for (const auto& req : hdr.tablets()) {
-        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
-        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
-        if (tablet == nullptr) {
-            st = Status::NotFound("Tablet {} not found", req.tablet_id());
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(req.tablet_id()); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            st = std::move(res).error();
             break;
         }
-        auto resp = response.add_tablet_schemas();
+        auto* resp = response.add_tablet_schemas();
         resp->set_index_id(req.index_id());
         resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
         tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());

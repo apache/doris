@@ -68,8 +68,7 @@ public:
         EngineOptions options;
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        k_engine = std::make_unique<StorageEngine>(options);
         _data_dir = new DataDir(*k_engine, _engine_data_path, 1000000000);
         static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
@@ -78,14 +77,9 @@ public:
     virtual void TearDown() {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-        }
-        SAFE_DELETE(k_engine);
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _tablet_mgr = nullptr;
     }
-    StorageEngine* k_engine = nullptr;
+    std::unique_ptr<StorageEngine> k_engine;
 
 private:
     DataDir* _data_dir = nullptr;
