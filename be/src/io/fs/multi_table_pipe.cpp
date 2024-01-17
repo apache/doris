@@ -209,7 +209,7 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                              _unplanned_pipes.size(), _planned_pipes.size(), params.size());
     _unplanned_pipes.clear();
 
-    _inflight_plan_cnt += params.size();
+    _inflight_cnt += params.size();
     for (auto& plan : params) {
         if (!plan.__isset.table_name ||
             _planned_pipes.find(plan.table_name) == _planned_pipes.end()) {
@@ -263,20 +263,9 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
                         _status = *status;
                     }
 
-                    --_inflight_plan_cnt;
-                    if (_inflight_plan_cnt == 0 && is_consume_finished()) {
-                        _ctx->number_total_rows = _number_total_rows;
-                        _ctx->number_loaded_rows = _number_loaded_rows;
-                        _ctx->number_filtered_rows = _number_filtered_rows;
-                        _ctx->number_unselected_rows = _number_unselected_rows;
-                        _ctx->commit_infos = _tablet_commit_infos;
-                        LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
-                                  << _ctx->number_total_rows
-                                  << " number_loaded_rows=" << _ctx->number_loaded_rows
-                                  << " number_filtered_rows=" << _ctx->number_filtered_rows
-                                  << " number_unselected_rows=" << _ctx->number_unselected_rows;
-                        _ctx->promise.set_value(
-                                _status); // when all done, finish the routine load task
+                    auto inflight_cnt = _inflight_cnt.fetch_sub(1);
+                    if (inflight_cnt == 1 && is_consume_finished()) {
+                        _handle_consumer_finished();
                     }
                 }));
     }
@@ -302,6 +291,19 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 }
 
 #endif
+
+void MultiTablePipe::_handle_consumer_finished() {
+    _ctx->number_total_rows = _number_total_rows;
+    _ctx->number_loaded_rows = _number_loaded_rows;
+    _ctx->number_filtered_rows = _number_filtered_rows;
+    _ctx->number_unselected_rows = _number_unselected_rows;
+    _ctx->commit_infos = _tablet_commit_infos;
+    LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
+              << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
+              << " number_filtered_rows=" << _ctx->number_filtered_rows
+              << " number_unselected_rows=" << _ctx->number_unselected_rows;
+    _ctx->promise.set_value(_status); // when all done, finish the routine load task
+}
 
 Status MultiTablePipe::put_pipe(const TUniqueId& pipe_id,
                                 std::shared_ptr<io::StreamLoadPipe> pipe) {
