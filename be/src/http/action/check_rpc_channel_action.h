@@ -33,6 +33,6 @@ public:
     void handle(HttpRequest* req) override;
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr
 };
 } // namespace doris
