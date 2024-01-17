@@ -94,6 +94,7 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
+import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -270,6 +271,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
 import com.google.common.base.Joiner;
@@ -441,7 +443,7 @@ public class Env {
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
 
-    private GlobalTransactionMgr globalTransactionMgr;
+    private GlobalTransactionMgrIface globalTransactionMgr;
 
     private DeployManager deployManager;
 
@@ -688,7 +690,11 @@ public class Env {
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
-        this.globalTransactionMgr = new GlobalTransactionMgr(this);
+        if (Config.isCloudMode()) {
+            this.globalTransactionMgr = new CloudGlobalTransactionMgr();
+        } else {
+            this.globalTransactionMgr = new GlobalTransactionMgr(this);
+        }
 
         this.tabletStatMgr = new TabletStatMgr();
 
@@ -795,11 +801,11 @@ public class Env {
         return resourceMgr;
     }
 
-    public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+    public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
         return getCurrentEnv().globalTransactionMgr;
     }
 
-    public GlobalTransactionMgr getGlobalTransactionMgr() {
+    public GlobalTransactionMgrIface getGlobalTransactionMgr() {
         return globalTransactionMgr;
     }
 
@@ -2044,6 +2050,10 @@ public class Env {
     }
 
     public long loadTransactionState(DataInputStream dis, long checksum) throws IOException {
+        if (Config.isCloudMode()) {
+            //for CloudGlobalTransactionMgr do nothing.
+            return checksum;
+        }
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
         globalTransactionMgr.readFields(dis);
@@ -2358,6 +2368,9 @@ public class Env {
     }
 
     public long saveTransactionState(CountingDataOutputStream dos, long checksum) throws IOException {
+        if (Config.isCloudMode()) {
+            return checksum;
+        }
         int size = globalTransactionMgr.getTransactionNum();
         checksum ^= size;
         dos.writeInt(size);

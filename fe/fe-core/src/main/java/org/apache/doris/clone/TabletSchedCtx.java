@@ -1156,7 +1156,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replica.setNeedFurtherRepair(true);
                 try {
                     long furtherRepairWatermarkTxnTd = Env.getCurrentGlobalTransactionMgr()
-                            .getTransactionIDGenerator().getNextTransactionId();
+                            .getNextTransactionId();
                     replica.setFurtherRepairWatermarkTxnTd(furtherRepairWatermarkTxnTd);
                     LOG.info("new replica {} of tablet {} set further repair watermark id {}",
                             replica, tabletId, furtherRepairWatermarkTxnTd);

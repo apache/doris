@@ -203,7 +203,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
-    protected void runPendingJob() throws AlterCancelException {
+    protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
@@ -331,8 +331,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
