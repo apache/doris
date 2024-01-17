@@ -75,7 +75,7 @@ visible_functions = {
     "map": [
         [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
-        [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+        [['size', 'map_size', 'cardinality'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
         [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'CUSTOM', ['K', 'V']],
         [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'CUSTOM', ['K', 'V']],
         #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
