@@ -1066,6 +1066,11 @@ import_column_descs ::=
         columns.add(column);
         RESULT = columns;
     :}
+    | import_column_descs:columns COMMA LPAREN import_column_desc:column RPAREN
+    {:
+        columns.add(column);
+        RESULT = columns;
+    :}
     ;
 
 import_column_desc ::=
