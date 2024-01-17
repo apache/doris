@@ -31,8 +31,7 @@
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 struct NameBitShiftLeft {
     static constexpr auto name = "bit_shift_left";
