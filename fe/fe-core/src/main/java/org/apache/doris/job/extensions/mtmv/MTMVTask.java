@@ -151,6 +151,11 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             this.relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
+            // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
+            refreshHmsTable();
+            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+                MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
+            }
             List<Long> needRefreshPartitionIds = calculateNeedRefreshPartitions();
             this.needRefreshPartitions = MTMVUtil.getPartitionNamesByIds(mtmv, needRefreshPartitionIds);
             this.refreshMode = generateRefreshMode(needRefreshPartitionIds);
@@ -226,11 +231,6 @@ public class MTMVTask extends AbstractTask {
         super.before();
         try {
             mtmv = getMTMV();
-            // Before obtaining information from hmsTable, refresh to ensure that the data is up-to-date
-            refreshHmsTable();
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-                MTMVUtil.alignMvPartition(mtmv, mtmv.getMvPartitionInfo().getRelatedTable());
-            }
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
@@ -238,7 +238,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void refreshHmsTable() throws AnalysisException, DdlException {
-        for (BaseTableInfo tableInfo : mtmv.getRelation().getBaseTables()) {
+        for (BaseTableInfo tableInfo : relation.getBaseTables()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof HMSExternalTable) {
                 HMSExternalTable hmsTable = (HMSExternalTable) tableIf;
