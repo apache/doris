@@ -609,6 +609,9 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request->set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
+    LOG(INFO) << "query id: " << print_id(state->query_id())
+              << ", instance id: " << print_id(state->fragment_instance_id())
+              << ", block rows: " << block.rows();
     CHECK(block.rows() == request->tablet_ids_size())
             << "block rows: " << block.rows()
             << ", tablet_ids_size: " << request->tablet_ids_size();
