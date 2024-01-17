@@ -146,9 +146,6 @@ true
 false
 
 -- !sql --
-\N
-
--- !sql --
 false
 
 -- !sql --
@@ -165,9 +162,6 @@ false
 
 -- !sql --
 true
-
--- !sql --
-\N
 
 -- !sql --
 false
