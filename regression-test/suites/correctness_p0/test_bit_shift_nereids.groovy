@@ -81,16 +81,6 @@ suite("test_bit_shift_nereids") {
                 bit_shift_left(ti, 1), bit_shift_left(si, 1),
                 bit_shift_left(i, 1), bit_shift_left(bi, 1) 
                 from test_bit_shift_nereids order by rid; """
-
-    sql "SET enable_nereids_planner=false;"
-    sql "SET enable_fallback_to_original_planner=false;"
-
-    qt_select """
-            select rid, 
-                bit_shift_left(ti, 1), bit_shift_left(si, 1),
-                bit_shift_left(i, 1), bit_shift_left(bi, 1) 
-                from test_bit_shift_nereids order by rid; """
-
     // bit_shift_right
 
     qt_comment """

@@ -56,7 +56,7 @@ public class BitShiftRight extends ScalarFunction
 
     @Override
     public BitShiftRight withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 2);
         return new BitShiftRight(children.get(0), children.get(1));
     }
 }

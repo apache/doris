@@ -65,6 +65,9 @@
 -- !bit_count_INT128_MIN --
 1	1
 
+-- !select --
+1	1
+
 -- !bit_count --
 0
 1
@@ -126,5 +129,8 @@
 127	127
 
 -- !bit_count_INT128_MIN --
+1	1
+
+-- !select --
 1	1
 

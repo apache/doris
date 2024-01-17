@@ -37,20 +37,17 @@ suite("test_bit_functions") {
     qt_bit_count_INT64_MAX 'select bit_count(cast (9223372036854775807 as bigint));'    // INT64_MAX
     qt_bit_count_INT64_MIN 'select bit_count(cast (-9223372036854775808 as bigint));'   // INT64_MIN
     // INT128_MAX
-    qt_bit_count_INT128_MAX '''
+    qt_bit_count_INT128_MAX """
         select bit_count(170141183460469231731687303715884105727),
                bit_count(cast (170141183460469231731687303715884105727 as largeint));
-    '''
+    """
     // INT128_MIN
-    qt_bit_count_INT128_MIN '''
-        select "bit_count(INT128_MIN)",
-                bit_count(-170141183460469231731687303715884105728),
+    qt_bit_count_INT128_MIN """
+        select  bit_count(-170141183460469231731687303715884105728),
                 bit_count(cast (-170141183460469231731687303715884105728 as largeint));
-    '''
+    """
 
-    qy_select '''
-        select "bit_count(bit_shift_right(-1, 63))", bit_count(bit_shift_right(-1, 63));
-    '''
+    qt_select "select bit_count(bit_shift_right(-1, 63)), bit_count(bit_shift_right(-1, 63));"
 
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
@@ -72,18 +69,16 @@ suite("test_bit_functions") {
     qt_bit_count_INT64_MAX 'select bit_count(cast (9223372036854775807 as bigint));'    // INT64_MAX
     qt_bit_count_INT64_MIN 'select bit_count(cast (-9223372036854775808 as bigint));'   // INT64_MIN
     // INT128_MAX
-    qt_bit_count_INT128_MAX '''
+    qt_bit_count_INT128_MAX """
         select bit_count(170141183460469231731687303715884105727),
                bit_count(cast (170141183460469231731687303715884105727 as largeint));
-    '''
+    """
     // INT128_MIN
-    qt_bit_count_INT128_MIN '''
-        select "bit_count(INT128_MIN)",
-                bit_count(-170141183460469231731687303715884105728),
+    qt_bit_count_INT128_MIN """
+        select  bit_count(-170141183460469231731687303715884105728),
                 bit_count(cast (-170141183460469231731687303715884105728 as largeint));
-    '''
+    """
 
-    qy_select '''
-        select "bit_count(bit_shift_right(-1, 63))", bit_count(bit_shift_right(-1, 63));
-    '''
+    qt_select "select bit_count(bit_shift_right(-1, 63)), bit_count(bit_shift_right(-1, 63));"
+
 }
