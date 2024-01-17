@@ -52,11 +52,11 @@ private:
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::shared_ptr<MetricEntity> _http_stream_entity;
     IntCounter* http_stream_requests_total;
     IntCounter* http_stream_duration_ms;
-    IntGauge* http_stream_current_processing;
+    IntGauge* http_stream_current_processing = nullptr;
 };
 
 } // namespace doris

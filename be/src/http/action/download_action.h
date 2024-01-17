@@ -63,7 +63,7 @@ private:
     void handle_error_log(HttpRequest* req, const std::string& file_param);
     void _handle(HttpRequest* req);
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     DOWNLOAD_TYPE _download_type;
 
     std::vector<std::string> _allow_paths;
