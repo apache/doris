@@ -322,11 +322,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
-        LOG(INFO) << "execute coordinator callback, query id: " << print_id(req.query_id)
-                  << ", instance id: " << print_id(req.fragment_instance_id)
-                  << ", num_rows_load_success: " << num_rows_load_success
-                  << ", num_rows_load_filtered: " << num_rows_load_filtered
-                  << ", num_rows_load_unselected: " << num_rows_load_unselected;
 
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
