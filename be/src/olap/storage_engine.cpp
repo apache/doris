@@ -96,8 +96,8 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-extern void get_random_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
-                                    std::vector<DataDir*>& stores);
+extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                                   std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
 static Status _validate_options(const EngineOptions& options) {
@@ -134,7 +134,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr),
           _create_tablet_idx_lru_cache(
-                  new CreateTabletIdxCache(config::partitiion_disk_index_lru_size)) {
+                  new CreateTabletIdxCache(config::partition_disk_index_lru_size)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -445,6 +445,34 @@ StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent)
     return StorageEngine::DiskRemainingLevel::HIGH;
 }
 
+int get_and_set_next_disk_index() {
+    int curr_index = _create_tablet_idx_lru_cache->get_index(key);
+    // -1, lru can't find key
+    if (curr_index == -1) {
+        curr_index = std::max(0, _last_use_index[storage_medium] + 1);
+    }
+    _last_use_index[storage_medium] = curr_index;
+    _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
+    return curr_index;
+}
+
+void StorageEngine::get_candidate_stores(TStorageMedium::type storage_medium,
+                                         std::vector<DirInfo>& dir_infos) {
+    for (auto& it : _store_map) {
+        DataDir* data_dir = it.second.get();
+        if (data_dir->is_used()) {
+            if ((_available_storage_medium_type_count == 1 ||
+                 data_dir->storage_medium() == storage_medium) &&
+                !data_dir->reach_capacity_limit(0)) {
+                DirInfo dir_info;
+                dir_info.data_dir = data_dir;
+                dir_info.available_level = get_available_level(data_dir->get_usage(0));
+                dir_infos.push_back(dir_info);
+            }
+        }
+    }
+}
+
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         int64 partition_id, TStorageMedium::type storage_medium) {
     std::vector<DirInfo> dir_infos;
@@ -455,40 +483,19 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         std::lock_guard<std::mutex> l(_store_lock);
 
         auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
-
-        curr_index = _create_tablet_idx_lru_cache->get_index(key);
-        // -1, lru can't find key
-        if (curr_index == -1) {
-            curr_index = std::max(0, _last_use_index[storage_medium] + 1);
-        }
-        _last_use_index[storage_medium] = curr_index;
-        _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
-
-        for (auto& it : _store_map) {
-            DataDir* data_dir = it.second.get();
-            if (data_dir->is_used()) {
-                if ((_available_storage_medium_type_count == 1 ||
-                     data_dir->storage_medium() == storage_medium) &&
-                    !data_dir->reach_capacity_limit(0)) {
-                    DirInfo dir_info;
-                    dir_info.data_dir = data_dir;
-                    dir_info.available_level = get_available_level(data_dir->get_usage(0));
-                    dir_infos.push_back(dir_info);
-                }
-            }
-        }
+        curr_index = get_and_set_next_disk_index();
+        get_candidate_stores(storage_medium, dir_infos);
     }
 
     std::sort(dir_infos.begin(), dir_infos.end());
-
-    get_random_robin_stores(curr_index, dir_infos, stores);
+    get_round_robin_stores(curr_index, dir_infos, stores);
 
     return stores;
 }
 
-// maintain in stores LOW,MID,HIGH level random robin
-void get_random_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
-                             std::vector<DataDir*>& stores) {
+// maintain in stores LOW,MID,HIGH level round robin
+void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                            std::vector<DataDir*>& stores) {
     for (size_t i = 0; i < dir_infos.size();) {
         size_t end = i + 1;
         while (end < dir_infos.size() &&

@@ -107,10 +107,11 @@ public:
 
     int64_t get_file_or_directory_size(const std::string& file_path);
 
-    // get root path for creating tablet. The returned vector of root path should be random,
+    // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
                                                        TStorageMedium::type storage_medium);
+
     DataDir* get_store(const std::string& path);
 
     uint32_t available_storage_medium_type_count() const {
