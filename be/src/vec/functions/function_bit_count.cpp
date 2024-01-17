@@ -27,8 +27,7 @@
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 struct NameBitCount {
     static constexpr auto name = "bit_count";
