@@ -222,7 +222,8 @@ private:
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
 
-    // column with raw strings which are'nt parsed
+    // column with raw json strings
+    // used for quickly row store encoding
     ColumnPtr original_column;
 
 public:

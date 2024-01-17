@@ -38,6 +38,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
@@ -112,13 +113,19 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
+    // referencing the original root column
     std::vector<vectorized::ColumnPtr> orignal_roots;
     orignal_roots.resize(block.columns());
     for (int i : variant_column_pos) {
-        orignal_roots[i] = vectorized::check_and_get_column<vectorized::ColumnObject>(
-                                   remove_nullable(block.get_by_position(i).column).get())
-                                   ->get_root();
+        const auto* var = vectorized::check_and_get_column<vectorized::ColumnObject>(
+                remove_nullable(block.get_by_position(i).column).get());
+        if (!var->is_scalar_variant()) {
+            // the input variant is already parsed variant before this funtion
+            continue;
+        }
+        orignal_roots[i] = var->get_root();
     }
+
     RETURN_IF_ERROR(
             vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
 
@@ -178,14 +185,26 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         // Create new variant column and set root column
         auto obj = vectorized::ColumnObject::create(true, false);
         // '{}' indicates a root path
-
         static_cast<vectorized::ColumnObject*>(obj.get())->add_sub_column(
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
+
+        // set for rowstore
         if (_context->original_tablet_schema->store_row_column()) {
+            // null means the input variant is already parsed variant before this funtion
+            if (orignal_roots[variant_pos] == nullptr) {
+                orignal_roots[variant_pos] = vectorized::ColumnString::create();
+                for (size_t i = 0; i < object_column.rows(); ++i) {
+                    std::string raw_str;
+                    object_column.serialize_one_row_to_string(i, &raw_str);
+                    orignal_roots[variant_pos]->assume_mutable()->insert_data(raw_str.c_str(),
+                                                                              raw_str.size());
+                }
+            }
             static_cast<vectorized::ColumnObject*>(obj.get())->set_original_column(
                     orignal_roots[variant_pos]);
         }
+
         vectorized::ColumnPtr result = obj->get_ptr();
         if (is_nullable) {
             const auto& null_map = assert_cast<const vectorized::ColumnNullable&>(*column_ref)

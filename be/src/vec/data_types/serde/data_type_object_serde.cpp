@@ -26,6 +26,12 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+
 namespace doris {
 
 namespace vectorized {
@@ -67,19 +73,25 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
         const_cast<ColumnObject&>(variant).finalize();
     }
     result.writeKey(col_id);
+    JsonbParser json_parser;
     CHECK(variant.get_original_column() != nullptr);
+    // use original document
     const auto& data_ref = variant.get_original_column()->get_data_at(row_num);
+    // encode as jsonb
+    bool succ = json_parser.parse(data_ref.data, data_ref.size);
+    // maybe more graceful, it is ok to check here since data could be parsed
+    CHECK(succ);
     result.writeStartBinary();
-    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                       json_parser.getWriter().getOutput()->getSize());
     result.writeEndBinary();
 }
 
 void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& variant = assert_cast<ColumnObject&>(column);
-    assert(arg->isBinary());
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
     Field field;
-    field.assign_string(blob->getBlob(), blob->getBlobLen());
+    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
     variant.insert(field);
 }
 
