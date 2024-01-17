@@ -17,6 +17,8 @@
 
 #include "s3_file_bufferpool.h"
 
+#include <bvar/bvar.h>
+
 #include <chrono>
 #include <memory>
 

@@ -1084,7 +1084,7 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
-DECLARE_mInt32(s3_write_buffer_size);
+DECLARE_mInt64(s3_write_buffer_size);
 // The timeout config for S3 buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt

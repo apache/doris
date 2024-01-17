@@ -992,9 +992,7 @@ DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 DEFINE_String(file_cache_path, "");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
-DEFINE_Validator(file_cache_each_block_size, [](const int64_t config) -> bool {
-    return config <= config::s3_write_buffer_size && config::s3_write_buffer_size % config == 0;
-});
+
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
@@ -1044,7 +1042,7 @@ DEFINE_mInt32(tablet_path_check_batch_size, "1000");
 // Page size of row column, default 4KB
 DEFINE_mInt64(row_column_page_size, "4096");
 // it must be larger than or equal to 5MB
-DEFINE_mInt32(s3_write_buffer_size, "5242880");
+DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // The timeout config for S3 buffer allocation
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");

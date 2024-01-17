@@ -128,6 +128,7 @@ public:
             ASSERT_TRUE(writer->close().ok());
         }
         ExecEnv::GetInstance()->_file_cache_factory = factory.get();
+        ExecEnv::GetInstance()->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     }
     static void TearDownTestSuite() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 90;

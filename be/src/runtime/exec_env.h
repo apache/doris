@@ -109,6 +109,7 @@ class RowCache;
 class DummyLRUCache;
 class CacheManager;
 class WalManager;
+class DorisMetrics;
 
 inline bool k_doris_exit = false;
 

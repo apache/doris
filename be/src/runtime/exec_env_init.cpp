@@ -330,6 +330,15 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 void ExecEnv::init_file_cache_factory() {
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     if (doris::config::enable_file_cache) {
+        if (config::file_cache_each_block_size > config::s3_write_buffer_size ||
+            config::s3_write_buffer_size % config::file_cache_each_block_size != 0) {
+            LOG_FATAL(
+                    "The config file_cache_each_block_size {} must less than or equal to config "
+                    "s3_write_buffer_size {} and config::s3_write_buffer_size % "
+                    "config::file_cache_each_block_size must be zero",
+                    config::file_cache_each_block_size, config::s3_write_buffer_size);
+            exit(-1);
+        }
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
         Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -633,6 +642,7 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
+    _file_cache_open_fd_cache.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
