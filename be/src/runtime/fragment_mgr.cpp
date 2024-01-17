@@ -77,6 +77,7 @@
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/doris_metrics.h"
 #include "util/hash_util.hpp"
 #include "util/mem_info.h"
@@ -1139,6 +1140,8 @@ void FragmentMgr::cancel_worker() {
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
         timeout_canceled_fragment_count->increment(to_cancel.size());
+        g_adder_timeout_canceled_fragment_count.increment(to_cancel.size());
+        
         for (auto& id : to_cancel) {
             cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "

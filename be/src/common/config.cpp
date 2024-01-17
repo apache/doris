@@ -550,6 +550,9 @@ DEFINE_mBool(enable_je_purge_dirty_pages, "true");
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
 
+// use bvar to replace original metric counter.
+DEFINE_Bool(enable_bvar_metrics, "true");
+
 // to open/close system metrics
 DEFINE_Bool(enable_system_metrics, "true");
 

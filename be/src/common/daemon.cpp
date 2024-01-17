@@ -57,6 +57,7 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/network_util.h"

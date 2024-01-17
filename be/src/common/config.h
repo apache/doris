@@ -601,6 +601,9 @@ DECLARE_mBool(enable_je_purge_dirty_pages);
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
 
+// use bvar to replace original metric counter.
+DECLARE_Bool(enable_bvar_metrics);
+
 // to open/close system metrics
 DECLARE_Bool(enable_system_metrics);
 
