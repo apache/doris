@@ -525,15 +525,19 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
-        PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
-        load_id.set_hi(UNKNOWN_ID_FOR_TEST);
-        load_id.set_lo(UNKNOWN_ID_FOR_TEST);
-    });
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
-        PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
-        t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
-    });
+    // CLOSE_LOAD message should not be fault injected,
+    // otherwise the message will be ignored and causing close wait timeout
+    if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
+            PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
+            load_id.set_hi(UNKNOWN_ID_FOR_TEST);
+            load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+        });
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
+            PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+            t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
+        });
+    }
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
         Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));
