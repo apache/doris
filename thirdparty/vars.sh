@@ -490,6 +490,24 @@ STREAMVBYTE_NAME=streamvbyte-1.0.0.tar.gz
 STREAMVBYTE_SOURCE=streamvbyte-1.0.0
 STREAMVBYTE_MD5SUM="f334219db5a832b6dae3589a56a29563"
 
+# jsoncpp
+JSONCPP_DOWNLOAD="https://github.com/open-source-parsers/jsoncpp/archive/refs/tags/1.9.5.tar.gz"
+JSONCPP_NAME="1.9.5.tar.gz"
+JSONCPP_SOURCE="jsoncpp-1.9.5"
+JSONCPP_MD5SUM="d6c8c609f2162eff373db62b90a051c7"
+
+# libuuid
+LIBUUID_DOWNLOAD="https://nchc.dl.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
+LIBUUID_NAME="libuuid-1.0.3.tar.gz"
+LIBUUID_SOURCE="libuuid-1.0.3"
+LIBUUID_MD5SUM="d44d866d06286c08ba0846aba1086d68"
+
+# ali
+ALI_SDK_DOWNLOAD="https://github.com/aliyun/aliyun-openapi-cpp-sdk/archive/refs/tags/1.36.1586.tar.gz"
+ALI_SDK_NAME="1.36.1586.tar.gz"
+ALI_SDK_SOURCE="aliyun-openapi-cpp-sdk-1.36.1586"
+ALI_SDK_MD5SUM="14623ee8e87c89615477d9bf8cb30bea"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -562,6 +580,9 @@ export TP_ARCHIVES=(
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
+    'JSONCPP'
+    'LIBUUID'
+    'ALI_SDK'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
