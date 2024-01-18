@@ -182,15 +182,12 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
-            {
-                std::shared_lock rdlock(tablet->get_header_lock());
-                auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                     &read_source.rs_splits,
-                                                     _state->skip_missing_version());
-                if (!st.ok()) {
-                    LOG(WARNING) << "fail to init reader.res=" << st;
-                    return st;
-                }
+            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
+                                                 &read_source.rs_splits,
+                                                 _state->skip_missing_version());
+            if (!st.ok()) {
+                LOG(WARNING) << "fail to init reader.res=" << st;
+                return st;
             }
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
