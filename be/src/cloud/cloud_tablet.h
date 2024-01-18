@@ -93,6 +93,17 @@ public:
     // Return number of deleted stale rowsets
     int delete_expired_stale_rowsets();
 
+    bool has_stale_rowsets() const { return !_stale_rs_version_map.empty(); }
+
+    int64_t get_cloud_base_compaction_score() const;
+    int64_t get_cloud_cumu_compaction_score() const;
+
+    int64_t last_sync_time_s = 0;
+    int64_t last_load_time_ms = 0;
+    int64_t last_base_compaction_success_time_ms = 0;
+    int64_t last_cumu_compaction_success_time_ms = 0;
+    int64_t last_cumu_no_suitable_version_ms = 0;
+
 private:
     Versions calc_missed_versions(int64_t spec_version);
 
