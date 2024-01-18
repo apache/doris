@@ -490,31 +490,9 @@ public:
     }
 
     // -1 not found key in lru
-    int get_index(const std::string& key) {
-        auto lru_handle = cache()->lookup(key);
-        if (lru_handle) {
-            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)cache()->value(lru_handle);
-            value->last_visit_time = UnixMillis();
-            VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
-            return value->idx;
-        }
-        return -1;
-    }
+    int get_index(const std::string& key);
 
-    void set_index(const std::string& key, int next_idx) {
-        assert(next_idx >= 0);
-        CacheValue* value = new CacheValue;
-        value->last_visit_time = UnixMillis();
-        value->idx = next_idx;
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            CacheValue* cache_value = (CacheValue*)value;
-            delete cache_value;
-        };
-        auto lru_handle =
-                cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
-        cache()->release(lru_handle);
-    }
+    void set_index(const std::string& key, int next_idx);
 
     struct CacheValue : public LRUCacheValueBase {
         int idx = 0;
