@@ -137,7 +137,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         // test nvl
         explain {
             sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
-            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE (nvl("SCORE", 0.0) < 95.0)"""
+            contains """SELECT "ID", "NAME", "AGE", "SCORE" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("SCORE", 0.0) < 95.0))"""
         }
 
         // for old planner

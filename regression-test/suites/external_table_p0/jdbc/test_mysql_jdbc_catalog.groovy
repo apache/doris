@@ -407,18 +407,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(`k6`, NULL), NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
             }
             sql """ set enable_ext_func_pred_pushdown = "false"; """
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
             }
             sql """ set enable_ext_func_pred_pushdown = "true"; """
         } finally {
