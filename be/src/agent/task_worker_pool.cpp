@@ -257,7 +257,7 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
                                          storage_medium);
         }
         // get a random store of specified storage medium
-        auto stores = engine.get_stores_for_create_tablet(storage_medium);
+        auto stores = engine.get_stores_for_create_tablet(tablet->partition_id(), storage_medium);
         if (stores.empty()) {
             return Status::InternalError("failed to get root path for create tablet");
         }
