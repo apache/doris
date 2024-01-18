@@ -32,7 +32,7 @@ public class EnvFactory {
 
     private static class SingletonHolder {
         private static final EnvFactory INSTANCE =
-                Config.isCloudMode() ? new EnvFactory() : new CloudEnvFactory();
+                Config.isCloudMode() ? new CloudEnvFactory() : new EnvFactory();
     }
 
     public static EnvFactory getInstance() {
