@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Streams;
 
 import java.util.List;
 
@@ -61,10 +62,10 @@ public class FindHashConditionForJoin extends OneRewriteRuleFactory {
                 return join;
             }
 
-            List<Expression> combinedHashJoinConjuncts = new ImmutableList.Builder<Expression>()
-                    .addAll(join.getHashJoinConjuncts())
-                    .addAll(extractedHashJoinConjuncts)
-                    .build();
+            List<Expression> combinedHashJoinConjuncts = Streams
+                    .concat(join.getHashJoinConjuncts().stream(), extractedHashJoinConjuncts.stream())
+                    .distinct()
+                    .collect(ImmutableList.toImmutableList());
             JoinType joinType = join.getJoinType();
             if (joinType == JoinType.CROSS_JOIN && !combinedHashJoinConjuncts.isEmpty()) {
                 joinType = JoinType.INNER_JOIN;
