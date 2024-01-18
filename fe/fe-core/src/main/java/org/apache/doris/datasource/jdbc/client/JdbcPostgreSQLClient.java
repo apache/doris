@@ -101,10 +101,9 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "varbit":
             case "uuid":
             case "bytea":
-                return ScalarType.createStringType();
             case "json":
             case "jsonb":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }
