@@ -24,6 +24,8 @@ namespace cloud {
 class CloudMetaMgr;
 }
 
+class CloudTabletMgr;
+
 class CloudStorageEngine {
 public:
     CloudStorageEngine();
@@ -34,6 +36,7 @@ public:
 
 private:
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
+    std::unique_ptr<CloudTabletMgr> _tablet_mgr;
 };
 
 } // namespace doris

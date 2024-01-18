@@ -23,6 +23,8 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <atomic>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
@@ -363,6 +365,17 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         RowsetWriterContext& context, bool vertical) {
     return ResultError(
             Status::NotSupported("CloudTablet::create_rowset_writer is not implemented"));
+}
+
+int64_t CloudTablet::get_cloud_base_compaction_score() const {
+    return _approximate_num_rowsets.load(std::memory_order_relaxed) -
+           _approximate_cumu_num_rowsets.load(std::memory_order_relaxed);
+}
+
+int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
+    // TODO(plat1ko): Propose an algorithm that considers tablet's key type, number of delete rowsets,
+    //  number of tablet versions simultaneously.
+    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
 }
 
 // return a json string to show the compaction status of this tablet
