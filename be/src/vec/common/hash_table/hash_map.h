@@ -155,12 +155,6 @@ public:
 
     using HashTable<Key, Cell, Hash, Grower, Allocator>::HashTable;
 
-    /// Call func(const Key &, Mapped &) for each hash map element.
-    template <typename Func>
-    void for_each_value(Func&& func) {
-        for (auto& v : *this) func(v.get_first(), v.get_second());
-    }
-
     /// Call func(Mapped &) for each hash map element.
     template <typename Func>
     void for_each_mapped(Func&& func) {
