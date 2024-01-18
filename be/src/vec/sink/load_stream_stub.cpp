@@ -311,6 +311,10 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     if (!_is_init.load() || _is_closed.load()) {
         return Status::OK();
     }
+    // if there are other sinks remaining, let the last sink handle close wait
+    if (_use_cnt > 0) {
+        return Status::OK();
+    }
     if (timeout_ms <= 0) {
         timeout_ms = config::close_load_stream_timeout_ms;
     }
