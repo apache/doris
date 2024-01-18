@@ -2002,14 +2002,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange() && (request.getGroupCommitMode() != null
-                && !request.getGroupCommitMode().equals("off_mode"))) {
-            throw new UserException("table light_schema_change is false, can't do stream load with group commit mode");
+        if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new UserException(
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
-        result.setDbId(db.getId());
-        result.setTableId(table.getId());
-        result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
-        return generatePlanFragmentParams(request, db, fullDbName, (OlapTable) table, timeoutMs);
+        try {
+            if (!((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                    && (request.getGroupCommitMode() != null
+                    && !request.getGroupCommitMode().equals("off_mode"))) {
+                throw new UserException(
+                        "table light_schema_change is false, can't do stream load with group commit mode");
+            }
+            result.setDbId(db.getId());
+            result.setTableId(table.getId());
+            result.setBaseSchemaVersion(((OlapTable) table).getBaseSchemaVersion());
+            return generatePlanFragmentParams(request, db, fullDbName, (OlapTable) table, timeoutMs);
+        } finally {
+            table.readUnlock();
+        }
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
