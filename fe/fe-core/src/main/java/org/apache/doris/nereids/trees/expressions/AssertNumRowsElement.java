@@ -69,28 +69,6 @@ public class AssertNumRowsElement extends Expression implements LeafExpression, 
         return assertion;
     }
 
-    /**
-     * Assert the inputNumber is valid according to the assertion.
-     */
-    public boolean assertNumber(long inputNumber) {
-        switch (assertion) {
-            case EQ:
-                return inputNumber == desiredNumOfRows;
-            case NE:
-                return inputNumber != desiredNumOfRows;
-            case LT:
-                return inputNumber <= desiredNumOfRows;
-            case LE:
-                return inputNumber < desiredNumOfRows;
-            case GT:
-                return inputNumber >= desiredNumOfRows;
-            case GE:
-                return inputNumber > desiredNumOfRows;
-            default:
-                throw new IllegalArgumentException("Unknown assertion type: " + assertion);
-        }
-    }
-
     @Override
     public AssertNumRowsElement withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.isEmpty());

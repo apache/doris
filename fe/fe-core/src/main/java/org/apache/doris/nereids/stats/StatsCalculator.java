@@ -27,7 +27,6 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
-import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -560,14 +559,32 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Statistics computeAssertNumRows(AssertNumRowsElement assertNumRowsElement) {
         Statistics statistics = groupExpression.childStatistics(0);
-        if (assertNumRowsElement.getAssertion() == Assertion.NE
-                || assertNumRowsElement.assertNumber((long) Math.ceil(statistics.getRowCount()))) {
-            return statistics;
-        } else {
-            Statistics newStatistics = statistics.withRowCountAndEnforceValid(
-                    Math.min(assertNumRowsElement.getDesiredNumOfRows(), statistics.getRowCount()));
-            return new StatisticsBuilder(newStatistics).setWidthInJoinCluster(1).build();
+        long newRowCount;
+        long rowCount = (long) statistics.getRowCount();
+        long desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
+        switch (assertNumRowsElement.getAssertion()) {
+            case EQ:
+                newRowCount = desiredNumOfRows;
+                break;
+            case GE:
+                newRowCount = statistics.getRowCount() >= desiredNumOfRows ? rowCount : desiredNumOfRows;
+                break;
+            case GT:
+                newRowCount = statistics.getRowCount() > desiredNumOfRows ? rowCount : desiredNumOfRows;
+                break;
+            case LE:
+                newRowCount = statistics.getRowCount() <= desiredNumOfRows ? rowCount : desiredNumOfRows;
+                break;
+            case LT:
+                newRowCount = statistics.getRowCount() < desiredNumOfRows ? rowCount : desiredNumOfRows;
+                break;
+            case NE:
+                return statistics;
+            default:
+                throw new IllegalArgumentException("Unknown assertion: " + assertNumRowsElement.getAssertion());
         }
+        Statistics newStatistics = statistics.withRowCountAndEnforceValid(newRowCount);
+        return new StatisticsBuilder(newStatistics).setWidthInJoinCluster(1).build();
     }
 
     private Statistics computeFilter(Filter filter) {
@@ -617,7 +634,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         } else {
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                catalogId, dbId, table.getId(), colName);
+                    catalogId, dbId, table.getId(), colName);
         }
     }
 
@@ -708,7 +725,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 rowCount = rowCount * DEFAULT_COLUMN_NDV_RATIO;
             } else {
                 rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
-                    .max(Double::compare).get() * partitionTopN.getPartitionLimit());
+                        .max(Double::compare).get() * partitionTopN.getPartitionLimit());
             }
         } else {
             rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
