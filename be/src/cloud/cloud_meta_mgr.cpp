@@ -29,6 +29,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/logging.h"
@@ -38,7 +39,6 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_factory.h"
-#include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/network_util.h"
@@ -270,12 +270,12 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(Tablet* tablet, bool warmup_delta_data) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data) {
     return Status::NotSupported("CloudMetaMgr::sync_tablet_rowsets is not implemented");
 }
 
 Status CloudMetaMgr::sync_tablet_delete_bitmap(
-        Tablet* tablet, int64_t old_max_version,
+        CloudTablet* tablet, int64_t old_max_version,
         const google::protobuf::RepeatedPtrField<RowsetMetaPB>& rs_metas,
         const TabletStatsPB& stats, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap) {
     return Status::NotSupported("CloudMetaMgr::sync_tablet_delete_bitmap is not implemented");
@@ -425,15 +425,15 @@ Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema&
     return Status::OK();
 }
 
-Status CloudMetaMgr::update_delete_bitmap(const Tablet* tablet, int64_t lock_id, int64_t initiator,
-                                          DeleteBitmap* delete_bitmap) {
-    VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet->tablet_id();
+Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
+                                          int64_t initiator, DeleteBitmap* delete_bitmap) {
+    VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_table_id(tablet->table_id());
-    req.set_partition_id(tablet->partition_id());
-    req.set_tablet_id(tablet->tablet_id());
+    req.set_table_id(tablet.table_id());
+    req.set_partition_id(tablet.partition_id());
+    req.set_tablet_id(tablet.tablet_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     for (auto iter = delete_bitmap->delete_bitmap.begin();
@@ -451,18 +451,18 @@ Status CloudMetaMgr::update_delete_bitmap(const Tablet* tablet, int64_t lock_id,
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}",
-                tablet->tablet_id(), lock_id);
+                tablet.tablet_id(), lock_id);
     }
     return st;
 }
 
-Status CloudMetaMgr::get_delete_bitmap_update_lock(const Tablet* tablet, int64_t lock_id,
+Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
-    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet->tablet_id();
+    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id();
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_table_id(tablet->table_id());
+    req.set_table_id(tablet.table_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     req.set_expiration(10); // 10s expiration time for compaction and schema_change

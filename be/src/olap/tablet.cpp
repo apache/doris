@@ -757,7 +757,8 @@ void Tablet::delete_expired_stale_rowset() {
             Version test_version = Version(0, lastest_delta->end_version());
             stale_version_path_map[*path_id_iter] = version_path;
 
-            Status status = capture_consistent_versions(test_version, nullptr, false, false);
+            Status status =
+                    capture_consistent_versions_unlocked(test_version, nullptr, false, false);
             // 1. When there is no consistent versions, we must reconstruct the tracker.
             if (!status.ok()) {
                 // 2. fetch missing version after delete
@@ -867,19 +868,9 @@ void Tablet::delete_expired_stale_rowset() {
 #endif
 }
 
-bool Tablet::_reconstruct_version_tracker_if_necessary() {
-    double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
-    if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
-        _timestamped_version_tracker.construct_versioned_tracker(
-                _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
-        return true;
-    }
-    return false;
-}
-
-Status Tablet::capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path,
-                                           bool skip_missing_version, bool quiet) const {
+Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
+                                                    std::vector<Version>* version_path,
+                                                    bool skip_missing_version, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
@@ -914,10 +905,10 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
 
 Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
-    return capture_consistent_versions(version, nullptr, false, quiet);
+    return capture_consistent_versions_unlocked(version, nullptr, false, quiet);
 }
 
-bool Tablet::exceed_version_limit(int32_t limit) const {
+bool Tablet::exceed_version_limit(int32_t limit) {
     if (_tablet_meta->version_count() > limit) {
         exceed_version_limit_counter << 1;
         return true;
@@ -947,7 +938,8 @@ void Tablet::acquire_version_and_rowsets(
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path, false, false));
+    RETURN_IF_ERROR(
+            capture_consistent_versions_unlocked(spec_version, &version_path, false, false));
     RETURN_IF_ERROR(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
@@ -984,39 +976,12 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                                  bool skip_missing_version) const {
+                                  bool skip_missing_version) {
+    std::shared_lock rlock(_meta_lock);
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(
-            capture_consistent_versions(spec_version, &version_path, skip_missing_version, false));
-    RETURN_IF_ERROR(capture_rs_readers(version_path, rs_splits));
-    return Status::OK();
-}
-
-Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
-                                  std::vector<RowSetSplits>* rs_splits) const {
-    DCHECK(rs_splits != nullptr && rs_splits->empty());
-    for (auto version : version_path) {
-        auto it = _rs_version_map.find(version);
-        if (it == _rs_version_map.end()) {
-            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << tablet_id()
-                        << ", version='" << version.first << "-" << version.second;
-
-            it = _stale_rs_version_map.find(version);
-            if (it == _stale_rs_version_map.end()) {
-                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
-                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
-                        "version={}-{}",
-                        tablet_id(), version.first, version.second);
-            }
-        }
-        RowsetReaderSharedPtr rs_reader;
-        auto res = it->second->create_reader(&rs_reader);
-        if (!res.ok()) {
-            return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
-                    "failed to create reader for rowset:{}", it->second->rowset_id().to_string());
-        }
-        rs_splits->push_back(RowSetSplits(std::move(rs_reader)));
-    }
+    RETURN_IF_ERROR(capture_consistent_versions_unlocked(spec_version, &version_path,
+                                                         skip_missing_version, false));
+    RETURN_IF_ERROR(capture_rs_readers_unlocked(version_path, rs_splits));
     return Status::OK();
 }
 
@@ -1419,16 +1384,6 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
-std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
-    const Version& ver = rowset->version();
-    std::string disk_size = PrettyPrinter::print(
-            static_cast<uint64_t>(rowset->rowset_meta()->total_disk_size()), TUnit::BYTES);
-    return strings::Substitute("[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second,
-                               rowset->num_segments(), (delete_flag ? "DELETE" : "DATA"),
-                               SegmentsOverlapPB_Name(rowset->rowset_meta()->segments_overlap()),
-                               rowset->rowset_id().to_string(), disk_size);
-}
-
 // For http compaction action
 void Tablet::get_compaction_status(std::string* json_result) {
     rapidjson::Document root;
@@ -1523,17 +1478,16 @@ void Tablet::get_compaction_status(std::string* json_result) {
     versions_arr.SetArray();
     missing_versions_arr.SetArray();
     int64_t last_version = -1;
-    for (int i = 0; i < rowsets.size(); ++i) {
-        const Version& ver = rowsets[i]->version();
+    for (auto& rowset : rowsets) {
+        const Version& ver = rowset->version();
         if (ver.first != last_version + 1) {
             rapidjson::Value miss_value;
-            miss_value.SetString(
-                    strings::Substitute("[$0-$1]", last_version + 1, ver.first - 1).c_str(),
-                    missing_versions_arr.GetAllocator());
+            miss_value.SetString(fmt::format("[{}-{}]", last_version + 1, ver.first - 1).c_str(),
+                                 missing_versions_arr.GetAllocator());
             missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
         }
         rapidjson::Value value;
-        std::string version_str = _get_rowset_info_str(rowsets[i], delete_flags[i]);
+        std::string version_str = rowset->get_rowset_info_str();
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
@@ -1544,15 +1498,9 @@ void Tablet::get_compaction_status(std::string* json_result) {
     // print all stale rowsets' version as an array
     rapidjson::Document stale_versions_arr;
     stale_versions_arr.SetArray();
-    for (int i = 0; i < stale_rowsets.size(); ++i) {
-        const Version& ver = stale_rowsets[i]->version();
+    for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
-        std::string disk_size = PrettyPrinter::print(
-                static_cast<uint64_t>(stale_rowsets[i]->rowset_meta()->total_disk_size()),
-                TUnit::BYTES);
-        std::string version_str = strings::Substitute(
-                "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
-                stale_rowsets[i]->rowset_id().to_string(), disk_size);
+        std::string version_str = rowset->get_rowset_info_str();
         value.SetString(version_str.c_str(), version_str.length(),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
@@ -3449,8 +3397,8 @@ Status Tablet::check_rowid_conversion(
 Status Tablet::all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const {
     //  Ensure that the obtained versions of rowsets are continuous
     std::vector<Version> version_path;
-    RETURN_IF_ERROR(
-            capture_consistent_versions(Version(0, max_version), &version_path, false, false));
+    RETURN_IF_ERROR(capture_consistent_versions_unlocked(Version(0, max_version), &version_path,
+                                                         false, false));
     for (auto& ver : version_path) {
         if (ver.second == 1) {
             // [0-1] rowset is empty for each tablet, skip it
@@ -3719,8 +3667,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
         if (rowsets != nullptr) {
             for (const auto& rowset : *rowsets) {
                 rapidjson::Value value;
-                std::string version_str =
-                        _get_rowset_info_str(rowset, rowset->rowset_meta()->has_delete_predicate());
+                std::string version_str = rowset->get_rowset_info_str();
                 value.SetString(version_str.c_str(), version_str.length(),
                                 required_rowsets_arr.GetAllocator());
                 required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
@@ -3733,8 +3680,7 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
             }
             for (const auto& rowset : rowsets) {
                 rapidjson::Value value;
-                std::string version_str =
-                        _get_rowset_info_str(rowset, rowset->rowset_meta()->has_delete_predicate());
+                std::string version_str = rowset->get_rowset_info_str();
                 value.SetString(version_str.c_str(), version_str.length(),
                                 required_rowsets_arr.GetAllocator());
                 required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
