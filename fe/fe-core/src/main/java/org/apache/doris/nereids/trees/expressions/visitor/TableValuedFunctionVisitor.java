@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
+import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueryStats;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
@@ -91,7 +91,7 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(numbers, context);
     }
 
-    default R visitQueries(ActiveQueries queries, C context) {
+    default R visitQueries(ActiveQueryStats queries, C context) {
         return visitTableValuedFunction(queries, context);
     }
 

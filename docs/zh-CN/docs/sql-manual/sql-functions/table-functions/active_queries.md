@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ACTIVE_QUERIES",
+    "title": "active_query_stats",
     "language": "zh-CN"
 }
 ---
@@ -24,28 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `active_queries`
+## `active_query_stats`
 
 ### Name
 
 <version since="dev">
 
-active_queries
+active_query_stats
 
 </version>
 
 ### description
 
-表函数，生成active_queries临时表，可以查看当前doris集群中正在运行的 query 信息。
+表函数，生成active_query_stats临时表，可以查看当前doris集群中正在运行的 query 信息。
 
 该函数用于from子句中。
 
 #### syntax
-`active_queries()`
+`active_query_stats()`
 
-active_queries()表结构：
+active_query_stats()表结构：
 ```
-mysql [(none)]> desc function active_queries();
+mysql [(none)]> desc function active_query_stats();
 +------------------------+--------+------+-------+---------+-------+
 | Field                  | Type   | Null | Key   | Default | Extra |
 +------------------------+--------+------+-------+---------+-------+
@@ -69,7 +69,7 @@ mysql [(none)]> desc function active_queries();
 
 ### example
 ```
-mysql [(none)]>select * from active_queries();
+mysql [(none)]>select * from active_query_stats();
 +------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
 | BeHost     | BePort | QueryId                          | StartTime           | QueryTimeMs | WorkloadGroupId | QueryCpuTimeMs | ScanRows | ScanBytes  | BePeakMemoryBytes | CurrentUsedMemoryBytes | Database | FrontendInstance | Sql   |
 +------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
@@ -80,4 +80,4 @@ mysql [(none)]>select * from active_queries();
 
 ### keywords
 
-    active_queries
+    active_query_stats
