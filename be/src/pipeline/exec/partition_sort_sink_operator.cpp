@@ -189,7 +189,7 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
-                    auto aggregate_data = _pool->add(new vectorized::PartitionBlocks());
+                    auto* aggregate_data = _pool->add(new vectorized::PartitionBlocks());
                     local_state._value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);
                     local_state._num_partition++;
@@ -206,7 +206,7 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                             agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
                     mapped->add_row_idx(row);
                 }
-                for (auto place : local_state._value_places) {
+                for (auto* place : local_state._value_places) {
                     SCOPED_TIMER(local_state._selector_block_timer);
                     place->append_block_by_selector(input_block, _child_x->row_desc(),
                                                     _has_global_limit, _partition_inner_limit,
