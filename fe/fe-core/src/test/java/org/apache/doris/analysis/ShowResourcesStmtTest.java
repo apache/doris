@@ -67,7 +67,7 @@ public class ShowResourcesStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
         stmt = new ShowResourcesStmt(binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW RESOURCES WHERE `name` = \'abc\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW RESOURCES WHERE (`name` = \'abc\') LIMIT 10", stmt.toString());
 
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
                 slotRef, stringLiteral);
