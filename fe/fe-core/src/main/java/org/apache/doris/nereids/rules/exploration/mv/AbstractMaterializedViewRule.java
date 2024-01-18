@@ -221,7 +221,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (rewrittenPlan == null) {
                 continue;
             }
-            rewrittenPlan = rewriteByRules(cascadesContext, rewrittenPlan);
+            rewrittenPlan = rewriteByRules(cascadesContext, rewrittenPlan, originalPlan);
             if (!isOutputValid(originalPlan, rewrittenPlan)) {
                 ObjectId planObjId = originalPlan.getGroupExpression().map(GroupExpression::getId)
                         .orElseGet(() -> new ObjectId(-1));
@@ -253,35 +253,29 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     /**
-     * try to make output is the same after optimize by rules
+     * Rewrite by rules and try to make output is the same after optimize by rules
      */
-    protected Plan rewriteByRules(CascadesContext cascadesContext, Plan rewrittenPlan) {
-        Plan rewrittenPlanBefore = rewrittenPlan;
-        List<Slot> slotsBeforeRewritten = rewrittenPlanBefore.getOutput();
+    protected Plan rewriteByRules(CascadesContext cascadesContext, Plan rewrittenPlan, Plan originPlan) {
         // run rbo job on mv rewritten plan
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
         Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
         rewrittenPlan = rewrittenPlanContext.getRewritePlan();
-        List<Slot> slotsAfterRewritten = rewrittenPlan.getOutput();
-        if (slotsBeforeRewritten.size() != slotsAfterRewritten.size()) {
-            return rewrittenPlanBefore;
+        List<Slot> originPlanOutput = originPlan.getOutput();
+        List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
+        if (originPlanOutput.size() != rewrittenPlanOutput.size()) {
+            return null;
         }
         List<NamedExpression> expressions = new ArrayList<>();
-        if (!isOutputValid(rewrittenPlanBefore, rewrittenPlan)) {
-            for (int i = 0; i < slotsBeforeRewritten.size(); i++) {
-                if (slotsBeforeRewritten.get(i).nullable() != slotsAfterRewritten.get(i).nullable()) {
-                    expressions.add(((NamedExpression) normalizeExpressionToSource(
-                            slotsBeforeRewritten.get(i), slotsAfterRewritten.get(i))));
-                } else {
-                    expressions.add(slotsAfterRewritten.get(i));
-                }
+        // should add project above rewritten plan if top plan is not project, if aggregate above will nu
+        if (!isOutputValid(originPlan, rewrittenPlan)) {
+            // if (!isOutputValid(rewrittenPlanBefore, rewrittenPlan)) {
+            for (int i = 0; i < originPlanOutput.size(); i++) {
+                expressions.add(((NamedExpression) normalizeExpression(originPlanOutput.get(i),
+                        rewrittenPlanOutput.get(i))));
             }
-            // can not add project directly because Memo.skipProject will remove the top project
-            return new LogicalProject<>(expressions,
-                    rewrittenPlan instanceof LogicalProject ?
-                            ((LogicalProject<Plan>) rewrittenPlan).child() : rewrittenPlan, false);
+            return new LogicalProject<>(expressions, rewrittenPlan, false);
         }
         return rewrittenPlan;
     }
@@ -380,8 +374,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Map<? extends Expression, ? extends Expression> targetToTargetReplacementMapping = flattenExpressionMap.get(0);
 
         List<Expression> rewrittenExpressions = new ArrayList<>();
-        for (int index = 0; index < sourceShuttledExpressions.size(); index++) {
-            Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(index);
+        for (Expression expressionShuttledToRewrite : sourceShuttledExpressions) {
             if (expressionShuttledToRewrite instanceof Literal) {
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
@@ -394,8 +387,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 // if contains any slot to rewrite, which means can not be rewritten by target, bail out
                 return ImmutableList.of();
             }
-            Expression sourceExpression = sourceExpressionsToWrite.get(index);
-            rewrittenExpressions.add(normalizeExpressionToSource(sourceExpression, replacedExpression));
+            rewrittenExpressions.add(replacedExpression);
         }
         return rewrittenExpressions;
     }
@@ -404,7 +396,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * Normalize expression with query, keep the consistency of exprId and nullable props with
      * query
      */
-    protected Expression normalizeExpressionToSource(Expression sourceExpression, Expression replacedExpression) {
+    protected Expression normalizeExpression(Expression sourceExpression, Expression replacedExpression) {
         if (sourceExpression instanceof NamedExpression
                 && replacedExpression.nullable() != sourceExpression.nullable()) {
             // if enable join eliminate, query maybe inner join and mv maybe outer join.
@@ -420,22 +412,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     sourceNamedExpression.getName());
         }
         return replacedExpression;
-    }
-
-    /**
-     * Rewrite single expression, the logic is the same with above
-     */
-    protected Expression rewriteExpression(Expression sourceExpressionsToWrite, Plan sourcePlan,
-            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
-            boolean targetExpressionNeedSourceBased) {
-        List<Expression> expressionToRewrite = new ArrayList<>();
-        expressionToRewrite.add(sourceExpressionsToWrite);
-        List<Expression> rewrittenExpressions = rewriteExpression(expressionToRewrite, sourcePlan,
-                targetExpressionMapping, targetToSourceMapping, targetExpressionNeedSourceBased);
-        if (rewrittenExpressions.isEmpty()) {
-            return null;
-        }
-        return rewrittenExpressions.get(0);
     }
 
     /**

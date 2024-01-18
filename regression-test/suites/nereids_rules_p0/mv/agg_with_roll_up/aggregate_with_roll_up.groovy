@@ -890,30 +890,34 @@ suite("aggregate_with_roll_up") {
 
     // single table
     // filter + use roll up dimension
-    def mv1_1 = "select o_orderdate, o_shippriority, o_comment, " +
-            "sum(o_totalprice) as sum_total, " +
-            "max(o_totalprice) as max_total, " +
-            "min(o_totalprice) as min_total, " +
-            "count(*) as count_all, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 " +
-            "from orders " +
-            "group by " +
-            "o_orderdate, " +
-            "o_shippriority, " +
-            "o_comment "
-    def query1_1 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_orderdate = '2023-12-09' " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
+    def mv1_1 = """
+            select o_orderdate, o_shippriority, o_comment,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from orders
+            group by
+            o_orderdate,
+            o_shippriority,
+            o_comment;
+    """
+    def query1_1 = """
+            select o_shippriority, o_comment,
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*)
+            from orders
+            where o_orderdate = '2023-12-09'
+            group by
+            o_shippriority,
+            o_comment;
+            """
     order_qt_query1_1_before "${query1_1}"
     // rewrite success, for cbo chose, should force analyze
     // because data volume is small and mv plan is almost same to query plan
@@ -1105,9 +1109,6 @@ suite("aggregate_with_roll_up") {
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
     """
-
-
-
     def query29_1 = """
             select
             count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
@@ -1116,16 +1117,6 @@ suite("aggregate_with_roll_up") {
             count(*)
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
-    """
-
-
-    def query29 = """
-            select
-            bitmap_union_count(cnt_1),
-            sum(sum_total),
-            min(min_total),
-            sum(count_all)
-            from mv29_1
     """
 
     order_qt_query29_1_before "${query29_1}"

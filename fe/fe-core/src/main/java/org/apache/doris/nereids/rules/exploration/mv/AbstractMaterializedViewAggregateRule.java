@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -187,8 +188,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                             mvExprToMvScanExprQueryBased)));
                     return null;
                 }
-                finalAggregateExpressions.add(
-                        (NamedExpression) normalizeExpressionToSource(topExpression, rollupAggregateFunction));
+                finalAggregateExpressions.add(new Alias(rollupAggregateFunction));
             } else {
                 // if group by expression, try to rewrite group by expression
                 Expression queryGroupShuttledExpr =
@@ -201,10 +201,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                             mvExprToMvScanExprQueryBased, queryGroupShuttledExpr)));
                     return null;
                 }
-                Expression rewrittenGroupExpression = normalizeExpressionToSource(
-                        topExpression, mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr));
-                finalAggregateExpressions.add((NamedExpression) rewrittenGroupExpression);
-                finalGroupExpressions.add(rewrittenGroupExpression);
+                Expression expression = mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr);
+                finalAggregateExpressions.add((NamedExpression) expression);
+                finalGroupExpressions.add(expression);
             }
         }
         // add project to guarantee group by column ref is slot reference,

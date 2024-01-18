@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -59,8 +60,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 true
         );
         // Can not rewrite, bail out
-        if (expressionsRewritten.isEmpty()
-                || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
+        if (expressionsRewritten.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                     Pair.of("Rewrite expressions by view in join fail",
                             String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
@@ -77,7 +77,10 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                     queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
         return new LogicalProject<>(
-                expressionsRewritten.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                expressionsRewritten.stream()
+                        .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
+                        .map(NamedExpression.class::cast)
+                        .collect(Collectors.toList()),
                 tempRewritedPlan);
     }
 
