@@ -34,6 +34,7 @@
 #include <typeinfo>
 #include <utility>
 
+#include "common/compiler_util.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -131,8 +132,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
-
-    SCOPED_ATTACH_TASK(_runtime_state.get());
+    if (UNLIKELY(request.retry_group_commit)) {
+        _runtime_state->set_retry_group_commit();
+    }
+    if (LIKELY(!request.retry_group_commit)) {
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+    }
     static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
@@ -404,6 +409,9 @@ Status PlanFragmentExecutor::execute() {
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status st = open();
+        if (st.is<ErrorCode::DATA_QUALITY_ERROR>()) {
+            return st;
+        }
         WARN_IF_ERROR(st, strings::Substitute("Got error while opening fragment $0, query id: $1",
                                               print_id(_fragment_instance_id),
                                               print_id(_query_ctx->query_id())));

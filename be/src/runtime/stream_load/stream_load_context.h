@@ -187,10 +187,15 @@ public:
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
+    TStreamLoadPutRequest request;
+
     std::vector<TTabletCommitInfo> commit_infos;
 
     std::promise<Status> promise;
     std::future<Status> future = promise.get_future();
+
+    std::unique_ptr<std::promise<Status>> retry_promise;
+    std::unique_ptr<std::future<Status>> retry_future;
 
     Status status;
 

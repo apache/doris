@@ -325,6 +325,9 @@ public:
 
     int num_per_fragment_instances() const { return _num_per_fragment_instances; }
 
+    void set_retry_group_commit() { _retry_group_commit = true; }
+    bool retry_group_commit() const { return _retry_group_commit; }
+
     void set_load_stream_per_node(int load_stream_per_node) {
         _load_stream_per_node = load_stream_per_node;
     }
@@ -685,6 +688,8 @@ private:
     bool _load_zero_tolerance = false;
 
     std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+
+    bool _retry_group_commit = false;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

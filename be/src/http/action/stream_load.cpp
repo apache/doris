@@ -613,6 +613,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_group_commit_mode("sync_mode");
         }
     }
+    if (ctx->group_commit) {
+        // used for group commit retry
+        ctx->request = request;
+    }
 
 #ifndef BE_TEST
     // plan this load

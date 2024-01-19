@@ -491,6 +491,7 @@ struct TExecPlanFragmentParams {
   28: optional i32 num_local_sink
 
   29: optional i64 content_length
+  30: optional bool retry_group_commit 
 
   30: optional list<TPipelineWorkloadGroup> workload_groups
 

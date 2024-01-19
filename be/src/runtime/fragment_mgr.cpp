@@ -446,6 +446,11 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_ex
 
     Status st = fragment_executor->execute();
     if (!st.ok()) {
+        if (st.is<ErrorCode::DATA_QUALITY_ERROR>()) {
+            auto status = fragment_executor->status();
+            cb(fragment_executor->runtime_state(), &status);
+            return;
+        }
         fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                   "fragment_executor execute failed");
     }
@@ -735,7 +740,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         if (iter != _fragment_instance_map.end()) {
             // Duplicated
             LOG(WARNING) << "duplicate fragment instance id: " << print_id(fragment_instance_id);
-            return Status::OK();
+            if (!params.retry_group_commit) {
+                return Status::OK();
+            }
         }
     }
 

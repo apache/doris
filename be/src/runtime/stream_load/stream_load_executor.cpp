@@ -29,6 +29,7 @@
 
 #include <future>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -75,6 +76,9 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
+        }
+        if (ctx->group_commit && status->is<DATA_QUALITY_ERROR>()) {
+            *status = _retry_group_commit_txn(ctx);
         }
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
         ctx->commit_infos = std::move(state->tablet_commit_infos());
@@ -440,6 +444,58 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         return true;
     }
     return false;
+}
+
+Status StreamLoadExecutor::_retry_group_commit_txn(std::shared_ptr<StreamLoadContext> ctx) {
+    size_t content_length = ctx->put_result.params.content_length;
+    Status st;
+    for (int i = 0; i < 3; i++) {
+        st = Status::OK();
+        sleep(5);
+        LOG(INFO) << "group commit retry time: " << i << ", load id: " << ctx->id;
+        WARN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx),
+                      "failed to put load id.");
+        // plan this load
+        ctx->put_result.params.__set_retry_group_commit(true);
+        ctx->retry_promise = std::make_unique<std::promise<Status>>();
+        ctx->retry_future = std::make_unique<std::future<Status>>(ctx->retry_promise->get_future());
+        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+        int64_t stream_load_put_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port, [ctx](FrontendServiceConnection& client) {
+                    client->streamLoadPut(ctx->put_result, ctx->request);
+                }));
+        ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
+        Status plan_status(Status::create(ctx->put_result.status));
+        if (!plan_status.ok()) {
+            LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
+            return plan_status;
+        }
+        ctx->put_result.params.__set_content_length(content_length);
+
+        // execute this load
+        auto exec_fragment = [ctx](RuntimeState* state, Status* status) {
+            ctx->retry_promise->set_value(*status);
+            ctx->put_result.params.__set_retry_group_commit(false);
+        };
+        if (ctx->put_result.__isset.params) {
+            WARN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
+                                                                        exec_fragment),
+                          "exec plan fragment failed.");
+        } else {
+            WARN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
+                                  ctx->put_result.pipeline_params, exec_fragment),
+                          "exec plan fragment failed.");
+        }
+        // wait stream load finish
+        st = ctx->retry_future->get();
+
+        if (!st.ok()) {
+            continue;
+        }
+        return Status::OK();
+    }
+    return st;
 }
 
 } // namespace doris

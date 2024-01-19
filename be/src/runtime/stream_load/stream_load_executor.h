@@ -54,6 +54,8 @@ private:
     // return true if stat is set, otherwise, return false
     bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
 
+    Status _retry_group_commit_txn(std::shared_ptr<StreamLoadContext> ctx);
+
     ExecEnv* _exec_env = nullptr;
 };
 
