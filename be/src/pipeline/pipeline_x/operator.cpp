@@ -497,6 +497,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
@@ -516,6 +517,7 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _writer->start_writer(state, _profile);
@@ -523,12 +525,14 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -537,19 +541,13 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        if (_writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
-            }
-            RETURN_IF_ERROR(_writer->close(exec_status));
-        } else {
-            RETURN_IF_ERROR(_writer->get_writer_status());
-        }
+        RETURN_IF_ERROR(_writer->get_writer_status());
     }
     return Base::close(state, exec_status);
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
     if (state->is_cancelled() || !exec_status.ok()) {
         _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));

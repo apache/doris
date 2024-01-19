@@ -259,8 +259,6 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_send_data_rpc_done() const;
-
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
     std::string get_cancel_msg() {
@@ -527,14 +525,10 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status try_close(RuntimeState* state, Status exec_status);
-
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
-
-    bool is_close_done();
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
@@ -561,6 +555,8 @@ private:
     void _cancel_all_channel(Status status);
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
+
+    void _do_try_close(RuntimeState* state, const Status& exec_status);
 
     TDataSink _t_sink;
 
