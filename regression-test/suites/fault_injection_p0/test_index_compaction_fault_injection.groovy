@@ -127,6 +127,14 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         run_sql.call()
 
         int replicaNum = 1
+        String[][] dedup_tablets = deduplicate_tablets(tablets)
+        if (dedup_tablets.size() > 0) {
+            replicaNum = Math.round(tablets.size() / dedup_tablets.size())
+            if (replicaNum != 1 && replicaNum != 3) {
+                assert(false)
+            }
+        }
+
         // before full compaction, there are 7 rowsets.
         int rowsetCount = get_rowset_count.call(tablets);
         assert (rowsetCount == 7 * replicaNum)
