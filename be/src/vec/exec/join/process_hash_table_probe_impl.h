@@ -62,7 +62,7 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
 template <int JoinOpType, typename Parent>
 void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
         MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
-        bool have_other_join_conjunct) {
+        bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
     constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
                                        JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
@@ -73,7 +73,9 @@ void ProcessHashTableProbe<JoinOpType, Parent>::build_side_output_column(
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
 
-    if ((!is_semi_anti_join || have_other_join_conjunct) && size) {
+    if ((!is_semi_anti_join || have_other_join_conjunct ||
+         (is_mark_join && !_parent->_mark_join_conjuncts.empty())) &&
+        size) {
         for (int i = 0; i < _right_col_len; i++) {
             const auto& column = *_build_block->safe_get_by_position(i).column;
             if (output_slot_flags[i]) {
@@ -191,7 +193,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
         current_offset = new_current_offset;
     }
 
-    build_side_output_column(mcol, *_right_output_slot_flags, current_offset, with_other_conjuncts);
+    build_side_output_column(mcol, *_right_output_slot_flags, current_offset, with_other_conjuncts,
+                             is_mark_join);
 
     if constexpr (with_other_conjuncts || (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
                                            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
@@ -214,13 +217,103 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     output_block->swap(mutable_block.to_block());
 
-    if constexpr (with_other_conjuncts) {
+    if constexpr (is_mark_join) {
+        return do_mark_join_conjuncts<with_other_conjuncts>(
+                output_block, hash_table_ctx.hash_table->get_bucket_size());
+    } else if constexpr (with_other_conjuncts) {
         return do_other_join_conjuncts(output_block, is_mark_join,
                                        hash_table_ctx.hash_table->get_visited(),
                                        hash_table_ctx.hash_table->has_null_key());
     }
 
     return Status::OK();
+}
+
+template <int JoinOpType, typename Parent>
+template <bool with_other_conjuncts>
+Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
+        Block* output_block, const size_t hash_table_bucket_size) {
+    DCHECK(JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+           JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
+           JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+
+    constexpr bool is_anti_join = JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+                                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+
+    const auto row_count = output_block->rows();
+    auto mark_column_mutable =
+            output_block->get_by_position(_parent->_mark_column_id).column->assume_mutable();
+    auto& mark_column = assert_cast<ColumnNullable&>(*mark_column_mutable);
+    IColumn::Filter& filter = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
+
+    if (_parent->_mark_join_conjuncts.empty()) {
+        mark_column.resize(row_count);
+        auto* filter_data =
+                assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data().data();
+        auto* mark_null_map = mark_column.get_null_map_data().data();
+        for (size_t i = 0; i != row_count; ++i) {
+            filter_data[i] = _build_indexs[i] != 0;
+            mark_null_map[i] = _build_indexs[i] == hash_table_bucket_size;
+        }
+    } else {
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
+                                                        mark_column.get_null_map_column(), filter));
+    }
+    auto* mark_null_map = mark_column.get_null_map_data().data();
+
+    auto* mark_filter_data = filter.data();
+
+    if constexpr (with_other_conjuncts) {
+        IColumn::Filter other_conjunct_filter(row_count, 1);
+        {
+            bool can_be_filter_all = false;
+            RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_other_join_conjuncts, nullptr,
+                                                            output_block, &other_conjunct_filter,
+                                                            &can_be_filter_all));
+        }
+        DCHECK_EQ(filter.size(), other_conjunct_filter.size());
+        const auto* other_filter_data = other_conjunct_filter.data();
+        for (size_t i = 0; i != filter.size(); ++i) {
+            mark_filter_data[i] &= other_filter_data[i];
+        }
+    }
+
+    auto filter_column = ColumnUInt8::create(row_count, 0);
+    auto* __restrict filter_map = filter_column->get_data().data();
+    const bool should_be_null_if_build_side_has_null =
+            *_has_null_in_build_side & _parent->_mark_join_conjuncts.empty();
+    for (size_t i = 0; i != row_count; ++i) {
+        bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
+        if (_build_indexs[i] == 0) {
+            bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
+            if (not_matched_before) {
+                filter_map[i] = true;
+                mark_null_map[i] = has_null_mark_value | should_be_null_if_build_side_has_null;
+                mark_filter_data[i] = false;
+            }
+        } else {
+            if (mark_null_map[i]) { // is null
+                _parent->_last_probe_null_mark = _probe_indexs[i];
+            } else {
+                if (mark_filter_data[i] && not_matched_before) {
+                    _parent->_last_probe_match = _probe_indexs[i];
+                    filter_map[i] = true;
+                }
+            }
+        }
+    }
+
+    if constexpr (is_anti_join) {
+        // flip the mark column
+        for (size_t i = 0; i != row_count; ++i) {
+            mark_filter_data[i] ^= 1;
+        }
+    }
+
+    auto result_column_id = output_block->columns();
+    output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
+    return Block::filter_block(output_block, result_column_id, result_column_id);
 }
 
 template <int JoinOpType, typename Parent>

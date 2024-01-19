@@ -65,9 +65,15 @@ void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
+
     if (p._is_mark_join) {
-        DCHECK(!p._is_mark_join ||
-               _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
+        _mark_column_id = _join_block.columns() - 1;
+#ifndef NDEBUG
+        const auto& mark_column = assert_cast<const vectorized::ColumnNullable&>(
+                *_join_block.get_by_position(_mark_column_id).column);
+        auto& nested_column = mark_column.get_nested_column();
+        DCHECK(check_and_get_column<vectorized::ColumnUInt8>(nested_column) != nullptr);
+#endif
     }
 }
 

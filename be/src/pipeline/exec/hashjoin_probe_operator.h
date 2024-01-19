@@ -59,6 +59,8 @@ using HashTableCtxVariants = std::variant<
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinProbeLocalState>,
         vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN,
+                                          HashJoinProbeLocalState>,
+        vectorized::ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN,
                                           HashJoinProbeLocalState>>;
 
 class HashJoinProbeDependency final : public Dependency {
@@ -119,11 +121,15 @@ private:
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
     int _last_probe_match;
+    int _last_probe_null_mark;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
@@ -188,6 +194,9 @@ private:
     const bool _is_broadcast_join;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
+
+    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;
