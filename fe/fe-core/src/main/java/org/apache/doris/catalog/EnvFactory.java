@@ -20,10 +20,12 @@ package org.apache.doris.catalog;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 
+import java.lang.reflect.Type;
 
 public class EnvFactory {
 
@@ -43,11 +45,43 @@ public class EnvFactory {
         }
     }
 
+    public static Type getPartitionClass() {
+        if (Config.isCloudMode()) {
+            return CloudPartition.class;
+        } else {
+            return Partition.class;
+        }
+    }
+
     public static Partition createPartition() {
         if (Config.isCloudMode()) {
             return new CloudPartition();
         } else {
             return new Partition();
+        }
+    }
+
+    public static Type getTabletClass() {
+        if (Config.isCloudMode()) {
+            return CloudTablet.class;
+        } else {
+            return Tablet.class;
+        }
+    }
+
+    public static Tablet createTablet() {
+        if (Config.isCloudMode()) {
+            return new CloudTablet();
+        } else {
+            return new Tablet();
+        }
+    }
+
+    public static Tablet createTablet(long tabletId) {
+        if (Config.isCloudMode()) {
+            return new CloudTablet(tabletId);
+        } else {
+            return new Tablet(tabletId);
         }
     }
 

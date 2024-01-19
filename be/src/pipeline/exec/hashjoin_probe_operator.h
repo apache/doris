@@ -141,6 +141,7 @@ private:
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 };

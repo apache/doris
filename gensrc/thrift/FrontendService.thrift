@@ -404,6 +404,8 @@ struct TQueryStatistics {
     3: optional i64 returned_rows
     4: optional i64 cpu_ms
     5: optional i64 max_peak_memory_bytes
+    6: optional i64 current_used_memory_bytes
+    7: optional i64 workload_group_id
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -517,6 +519,10 @@ struct TMasterOpRequest {
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
     25: optional string defaultCatalog
     26: optional string defaultDatabase
+
+    // selectdb cloud
+    1000: optional string cloud_cluster
+    1001: optional bool noAuth;
 }
 
 struct TColumnDefinition {
@@ -673,6 +679,7 @@ struct TStreamLoadPutRequest {
 
     // For cloud
     1000: optional string cloud_cluster
+    1001: optional i64 table_id
 }
 
 struct TStreamLoadPutResult {
@@ -785,6 +792,9 @@ struct TLoadTxn2PCRequest {
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
+
+    // For cloud
+    1000: optional string auth_code_uuid
 }
 
 struct TLoadTxn2PCResult {

@@ -38,8 +38,8 @@ void register_function_ip(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionIsIPv4Compat>();
     factory.register_function<FunctionIsIPv4Mapped>();
-    factory.register_function<FunctionIsIPv4String>();
-    factory.register_function<FunctionIsIPv6String>();
+    factory.register_function<FunctionIsIPString<IPv4>>();
+    factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
     factory.register_function<FunctionIPv6CIDRToRange>();
 }

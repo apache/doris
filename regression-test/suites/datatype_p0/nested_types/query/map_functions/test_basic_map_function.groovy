@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_basic_map_function", "p0") {
-    sql """ ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false'); """
     sql """set enable_nereids_planner=false"""
     // ============ sum(map-value) ============
     qt_sql """ SELECT "sum-map-value" """

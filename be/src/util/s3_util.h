@@ -20,6 +20,7 @@
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 #include <stdint.h>
 
 #include <map>
@@ -77,6 +78,10 @@ struct S3Conf {
     int max_connections = -1;
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
+
+    bool sse_enabled = false;
+    cloud::ObjectStoreInfoPB::Provider provider;
+
     bool use_virtual_addressing = true;
 
     std::string to_string() const {

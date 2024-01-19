@@ -36,6 +36,7 @@
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
@@ -549,6 +550,13 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _rs_metas.push_back(std::move(rs_meta));
     }
 
+    // init _stale_rs_metas
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
+    }
+
     // For mow table, delete bitmap of stale rowsets has not been persisted.
     // When be restart, query should not read the stale rowset, otherwise duplicate keys
     // will be read out. Therefore, we don't add them to _stale_rs_meta for mow table.
@@ -725,6 +733,12 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     }
     _rs_metas.push_back(rs_meta);
     return Status::OK();
+}
+
+void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add) {
+    for (const auto& rs : to_add) {
+        _rs_metas.push_back(rs->rowset_meta());
+    }
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,

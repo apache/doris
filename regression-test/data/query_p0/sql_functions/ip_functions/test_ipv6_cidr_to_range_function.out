@@ -6,6 +6,8 @@
 5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 6	::	ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 7	f000::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	\N	\N
+9	\N	\N
 
 -- !sql --
 1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
@@ -15,6 +17,8 @@
 5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 6	::	ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 7	f000::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	\N	\N
+9	\N	\N
 
 -- !sql --
 {"min": "::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}

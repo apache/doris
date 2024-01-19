@@ -159,6 +159,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     // for restoring
     public BinaryPredicate() {
         super();
+        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
@@ -169,6 +170,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
+        printSqlInParens = true;
     }
 
     public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
@@ -181,6 +183,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
+        printSqlInParens = true;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
@@ -188,6 +191,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         op = other.op;
         slotIsleft = other.slotIsleft;
         isInferred = other.isInferred;
+        printSqlInParens = true;
     }
 
     public boolean isInferred() {

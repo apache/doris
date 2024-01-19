@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -45,4 +46,6 @@ public interface QeProcessor {
     Coordinator getCoordinator(TUniqueId queryId);
 
     List<Coordinator> getAllCoordinators();
+
+    Map<String, QueryInfo> getQueryInfoMap();
 }

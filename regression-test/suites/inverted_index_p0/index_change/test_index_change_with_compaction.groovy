@@ -226,7 +226,18 @@ suite("test_index_change_with_compaction") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount <= 8)
+
+        String[][] dedup_tablets = deduplicate_tablets(tablets)
+
+        // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
+        // if tablets or dedup_tablets is empty, exception is thrown, and case fail
+        int replicaNum = Math.floor(tablets.size() / dedup_tablets.size())
+        if (replicaNum != 1 && replicaNum != 3)
+        {
+            assert(false);
+        }
+
+        assert (rowCount <= 8*replicaNum)
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
     } finally {
         // try_sql("DROP TABLE IF EXISTS ${tableName}")

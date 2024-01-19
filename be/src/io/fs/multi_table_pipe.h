@@ -46,7 +46,13 @@ public:
     // request and execute plans for unplanned pipes
     Status request_and_exec_plans();
 
-    void set_consume_finished() { _consume_finished.store(true, std::memory_order_release); }
+    void handle_consume_finished() {
+        _set_consume_finished();
+        auto inflight_cnt = _inflight_cnt.fetch_sub(1);
+        if (inflight_cnt == 1) {
+            _handle_consumer_finished();
+        }
+    }
 
     bool is_consume_finished() { return _consume_finished.load(std::memory_order_acquire); }
 
@@ -71,27 +77,35 @@ private:
     template <typename ExecParam>
     Status exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params);
 
+    void _set_consume_finished() { _consume_finished.store(true, std::memory_order_release); }
+
+    void _handle_consumer_finished();
+
 private:
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _planned_pipes;
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _unplanned_pipes;
     std::atomic<uint64_t> _unplanned_row_cnt {0}; // trigger plan request when exceed threshold
-    std::atomic<uint64_t> _inflight_plan_cnt {0}; // how many plan fragment are executing?
+    // inflight count, when it is zero, means consume and all plans is finished
+    std::atomic<uint64_t> _inflight_cnt {1};
     std::atomic<bool> _consume_finished {false};
     // note: Use raw pointer here to avoid cycle reference with StreamLoadContext.
     // Life cycle of MultiTablePipe is under control of StreamLoadContext, which means StreamLoadContext is created
     // before NultiTablePipe and released after it. It is safe to use raw pointer here.
     StreamLoadContext* _ctx = nullptr;
     Status _status; // save the first error status of all executing plan fragment
-#ifndef BE_TEST
+
     std::mutex _tablet_commit_infos_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos; // collect from each plan fragment
     std::atomic<int64_t> _number_total_rows {0};
     std::atomic<int64_t> _number_loaded_rows {0};
     std::atomic<int64_t> _number_filtered_rows {0};
     std::atomic<int64_t> _number_unselected_rows {0};
-#endif
+
     std::mutex _pipe_map_lock;
     std::unordered_map<TUniqueId /*instance id*/, std::shared_ptr<io::StreamLoadPipe>> _pipe_map;
+
+    uint32_t _row_threshold = config::multi_table_batch_plan_threshold;
+    uint32_t _wait_tables_threshold = config::multi_table_max_wait_tables;
 };
 } // namespace io
 } // end namespace doris

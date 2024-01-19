@@ -83,6 +83,9 @@ public class SystemInfoService {
 
     public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
 
+    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
+            + "please use a cluster before issuing any queries";
+
     private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
     // TODO(gavin): use {clusterId -> List<BackendId>} instead to reduce risk of inconsistency

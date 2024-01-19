@@ -302,6 +302,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
 
+    public static final String ENABLE_EXT_FUNC_PRED_PUSHDOWN = "enable_ext_func_pred_pushdown";
+
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
@@ -492,6 +494,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
+    public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -522,7 +526,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXPAND_RUNTIME_FILTER_BY_INNER_JION)
     public boolean expandRuntimeFilterByInnerJoin = true;
 
-    @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL)
+    @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
+            description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
+                    "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
     public boolean jdbcClickhouseQueryFinal = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
@@ -1088,6 +1094,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
     public boolean enableFunctionPushdown = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_EXT_FUNC_PRED_PUSHDOWN, needForward = true,
+            description = {"启用外部表（如通过ODBC或JDBC访问的表）查询中谓词的函数下推",
+                    "Enable function pushdown for predicates in queries to external tables "
+                    + "(such as tables accessed via ODBC or JDBC)"})
+    public boolean enableExtFuncPredPushdown = true;
+
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
 
@@ -1142,6 +1154,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
+
+    @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
+    public int nereidsTimeoutSecond = 5;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
@@ -1306,12 +1321,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
-
-    /**
-     * determine should we enable unified load (use insert stmt as the backend for all load)
-     */
-    @VariableMgr.VarAttr(name = ENABLE_UNIFIED_LOAD, needForward = true)
-    public boolean enableUnifiedLoad = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -1509,6 +1518,10 @@ public class SessionVariable implements Serializable, Writable {
                     "whether to use a materialized view that contains the foreign table "
                             + "when using rewriting based on struct info"})
     public boolean materializedViewRewriteEnableContainExternalTable = false;
+
+    @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
+            description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
+    private boolean forceJniScanner = false;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3142,10 +3155,6 @@ public class SessionVariable implements Serializable, Writable {
         return num;
     }
 
-    public boolean isEnableUnifiedLoad() {
-        return enableUnifiedLoad;
-    }
-
     public boolean getEnablePipelineEngine() {
         return enablePipelineEngine || enablePipelineXEngine;
     }
@@ -3293,4 +3302,12 @@ public class SessionVariable implements Serializable, Writable {
         disableEmptyPartitionPrune = val;
     }
     // CLOUD_VARIABLES_END
+
+    public boolean isForceJniScanner() {
+        return forceJniScanner;
+    }
+
+    public void setForceJniScanner(boolean force) {
+        forceJniScanner = force;
+    }
 }

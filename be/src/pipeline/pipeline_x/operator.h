@@ -22,6 +22,9 @@
 #include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 
+namespace doris::vectorized {
+class AsyncResultWriter;
+}
 namespace doris::pipeline {
 
 struct LocalExchangeSinkDependency;
@@ -470,7 +473,8 @@ public:
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
-                                      const bool is_shuffled_hash_join) {
+                                      const bool is_shuffled_hash_join,
+                                      const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
@@ -568,6 +572,7 @@ public:
 
 protected:
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     // _operator_id : the current Operator's ID, which is not visible to the user.
     // _node_id : the plan node ID corresponding to the Operator, which is visible on the profile.
@@ -679,6 +684,7 @@ public:
 };
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
 public:
     using Base = PipelineXSinkLocalState<FakeDependency>;
