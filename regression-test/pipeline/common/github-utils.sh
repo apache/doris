@@ -273,6 +273,20 @@ file_changed_be_ut() {
     echo "return no need" && return 1
 }
 
+file_changed_cloud_ut() {
+    local all_files
+    all_files=$(cat all_files)
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
+    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
+    for af in ${all_files}; do
+        if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'cloud/test/'* ]]; then
+            echo "cloud-ut related file changed, return need" && return 0
+        fi
+    done
+    echo "return no need" && return 1
+}
+
 file_changed_regression_p0() {
     local all_files
     all_files=$(cat all_files)
