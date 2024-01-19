@@ -665,7 +665,7 @@ public:
                     assert_cast<const ColumnNullable*>(cidr_column.get());
             str_cidr_column =
                     check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
-            null_map_addr = &cidr_column_nullable->get_null_map_data();
+            null_map_cidr = &cidr_column_nullable->get_null_map_data();
         } else {
             str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
         }
