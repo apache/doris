@@ -488,7 +488,7 @@ public class SystemInfoService {
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
-    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+    public Pair<Map<Tag, List<Long>>, TStorageMedium> selectBackendIdsForReplicaCreation(
             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
             TStorageMedium storageMedium, boolean isStorageMediumSpecified,
             boolean isOnlyForCheck)
@@ -557,7 +557,7 @@ public class SystemInfoService {
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
-        return chosenBackendIds;
+        return Pair.of(chosenBackendIds, storageMedium);
     }
 
     /**
