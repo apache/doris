@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -35,24 +35,24 @@ import java.util.List;
 /**
  * scalar function to_ipv6
  */
-public class ToIPv6 extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+public class ToIpv6 extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IPv6Type.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(IPv6Type.INSTANCE).args(StringType.INSTANCE));
 
-    public ToIPv6(Expression arg0) {
+    public ToIpv6(Expression arg0) {
         super("to_ipv6", arg0);
     }
 
     @Override
-    public ToIPv6 withChildren(List<Expression> children) {
+    public ToIpv6 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "to_ipv6 accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new ToIPv6(children.get(0));
+        return new ToIpv6(children.get(0));
     }
 
     @Override
@@ -62,6 +62,6 @@ public class ToIPv6 extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitToIPv6(this, context);
+        return visitor.visitToIpv6(this, context);
     }
 }
