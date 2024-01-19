@@ -46,7 +46,8 @@ struct BitCountImpl {
                       std::is_same_v<T, Int8>) {
             return std::popcount(static_cast<std::make_unsigned_t<T>>(a));
         } else {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "bit_count only support using INTEGER as operator");
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "bit_count only support using INTEGER as operator");
         }
     }
 };
