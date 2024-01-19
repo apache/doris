@@ -192,6 +192,7 @@
             "label": "Query Acceleration",
             "items": [
                 "query-acceleration/pipeline-execution-engine",
+                "query-acceleration/pipeline-x-execution-engine",
                 "query-acceleration/nereids",
                 "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
