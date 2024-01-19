@@ -185,11 +185,6 @@ public class RuntimeFilterTranslator {
         origFilter.markFinalized();
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
-        // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
-        if (origFilter.hasRemoteTargets() && origFilter.getType() == TRuntimeFilterType.IN_OR_BLOOM
-                && SessionVariable.enablePipelineEngine()) {
-            origFilter.setType(TRuntimeFilterType.BLOOM);
-        }
         return origFilter;
     }
 }

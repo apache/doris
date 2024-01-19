@@ -112,7 +112,8 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
                 && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
+                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)
+                && !builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;
         }
         org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
