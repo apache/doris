@@ -512,7 +512,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 | --postgres-conf         | Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。 |
 | --sqlserver-conf        | SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
 | --sink-conf             | Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。 |
-| --table-conf            | Doris表的配置项，即properties中包含的内容（其中table-buckets例外，非properties属性）。 例如 --table-conf replication_num=1， 而 --table-conf table-buckets=10用于指定建表时buckets数量。 |
+| --table-conf            | Doris表的配置项，即properties中包含的内容（其中table-buckets例外，非properties属性）。 例如 --table-conf replication_num=1， 而 --table-conf table-buckets="tbl1:10,tbl2:20,a.*:30,b.*:40,.*:50"表示按照正则表达式顺序指定不同表的buckets数量，如果没有匹配到则采用BUCKETS AUTO建表. |
 | --ignore-default-value  | 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152) |
 | --use-new-schema-change | 是否使用新的schema change，支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167) |
 | --single-sink           | 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。 |
