@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -31,6 +30,7 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.function.BiConsumer;
 
 public class DynamicPartitionProperty {
     public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition.";
@@ -104,6 +104,10 @@ public class DynamicPartitionProperty {
         } else {
             this.exist = false;
         }
+    }
+
+    protected boolean supportProperty(String property) {
+        return true;
     }
 
     private ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties) {
@@ -217,33 +221,35 @@ public class DynamicPartitionProperty {
      * use table replication_num as dynamic_partition.replication_num default value
      */
     public String getProperties(ReplicaAllocation tableReplicaAlloc) {
+        ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
         StringBuilder sb = new StringBuilder();
-        sb.append(",\n\"" + ENABLE + "\" = \"" + enable + "\"");
-        sb.append(",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"");
-        sb.append(",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"");
-        sb.append(",\n\"" + START + "\" = \"" + start + "\"");
-        sb.append(",\n\"" + END + "\" = \"" + end + "\"");
-        sb.append(",\n\"" + PREFIX + "\" = \"" + prefix + "\"");
-        if (Config.isNotCloudMode()) {
-            ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
-            sb.append(",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\"");
-        }
-        sb.append(",\n\"" + BUCKETS + "\" = \"" + buckets + "\"");
-        sb.append(",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"");
-        sb.append(",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"");
-        sb.append(",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"");
-        sb.append(",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"");
-        if (Config.isNotCloudMode()) {
-            sb.append(",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\"");
-            if (!Strings.isNullOrEmpty(storageMedium)) {
-                sb.append(",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"");
+        BiConsumer<String, Object> addProperty = (property, value) -> {
+            if (supportProperty(property)) {
+                sb.append(",\n\"" + property + "\" = \"" + value + "\"");
             }
+        };
+        addProperty.accept(ENABLE, enable);
+        addProperty.accept(TIME_UNIT, timeUnit);
+        addProperty.accept(TIME_ZONE, tz.getID());
+        addProperty.accept(START, start);
+        addProperty.accept(END, end);
+        addProperty.accept(PREFIX, prefix);
+        addProperty.accept(REPLICATION_ALLOCATION, tmpAlloc.toCreateStmt());
+        addProperty.accept(BUCKETS, buckets);
+        addProperty.accept(CREATE_HISTORY_PARTITION, createHistoryPartition);
+        addProperty.accept(HISTORY_PARTITION_NUM, historyPartitionNum);
+        addProperty.accept(HOT_PARTITION_NUM, hotPartitionNum);
+        addProperty.accept(RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
+        addProperty.accept(STORAGE_POLICY, storagePolicy);
+        if (!Strings.isNullOrEmpty(storageMedium)) {
+            addProperty.accept(STORAGE_MEDIUM, storageMedium);
         }
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            sb.append(",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"");
+            addProperty.accept(START_DAY_OF_WEEK, startOfWeek.dayOfWeek);
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            sb.append(",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"");
+            addProperty.accept(START_DAY_OF_MONTH, startOfMonth.day);
         }
+
         return sb.toString();
     }
 
