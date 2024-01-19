@@ -89,6 +89,8 @@ if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
 fi
 
 # add java libs
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 

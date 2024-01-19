@@ -140,6 +140,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
@@ -872,6 +873,10 @@ public interface ScalarFunctionVisitor<R, C> {
     }
 
     default R visitIf(If function, C context) {
+        return visitScalarFunction(function, context);
+    }
+
+    default R visitIgnore(Ignore function, C context) {
         return visitScalarFunction(function, context);
     }
 
