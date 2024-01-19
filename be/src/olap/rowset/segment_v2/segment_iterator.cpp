@@ -1960,6 +1960,12 @@ void SegmentIterator::_replace_version_col(size_t num_rows) {
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
+    if (_is_need_vec_eval) {
+        _is_need_vec_eval = false;
+        for (const auto& pred : _pre_eval_block_predicate) {
+            _is_need_vec_eval |= (!pred->always_true());
+        }
+    }
     if (!_is_need_vec_eval) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
@@ -1969,14 +1975,20 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint16_t original_size = selected_size;
     bool ret_flags[original_size];
-    DCHECK(_pre_eval_block_predicate.size() > 0);
-    auto column_id = _pre_eval_block_predicate[0]->column_id();
-    auto& column = _current_return_columns[column_id];
-    _pre_eval_block_predicate[0]->evaluate_vec(*column, original_size, ret_flags);
+    DCHECK(!_pre_eval_block_predicate.empty());
+    bool is_first = true;
     for (int i = 1; i < _pre_eval_block_predicate.size(); i++) {
+        if (_pre_eval_block_predicate[i]->always_true()) {
+            continue;
+        }
         auto column_id2 = _pre_eval_block_predicate[i]->column_id();
         auto& column2 = _current_return_columns[column_id2];
-        _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, original_size, ret_flags);
+        if (is_first) {
+            _pre_eval_block_predicate[i]->evaluate_vec(*column2, original_size, ret_flags);
+            is_first = false;
+        } else {
+            _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, original_size, ret_flags);
+        }
     }
 
     uint16_t new_size = 0;

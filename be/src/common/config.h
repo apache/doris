@@ -939,7 +939,7 @@ DECLARE_mInt64(small_column_size_buffer);
 
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
-DECLARE_mInt32(bloom_filter_predicate_check_row_num);
+DECLARE_mInt32(rf_predicate_check_row_num);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);

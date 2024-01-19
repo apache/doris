@@ -139,22 +139,6 @@ public:
         return Status::OK();
     }
 
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
-                      uint16_t size) const override {
-        if (column.is_nullable()) {
-            auto* nullable_column_ptr =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& nested_column = nullable_column_ptr->get_nested_column();
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_column_ptr->get_null_map_column())
-                                     .get_data();
-
-            return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
-        } else {
-            return _base_evaluate<false>(&column, nullptr, sel, size);
-        }
-    }
-
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         _evaluate_bit<true>(column, sel, size, flags);
@@ -273,17 +257,27 @@ public:
     template <bool is_and>
     __attribute__((flatten)) void _evaluate_vec_internal(const vectorized::IColumn& column,
                                                          uint16_t size, bool* flags) const {
+        if (_can_ignore() && !_has_calculate_filter) {
+            if (is_and) {
+                for (uint16_t i = 0; i < size; i++) {
+                    _evaluated_rows += flags[i];
+                }
+            } else {
+                _evaluated_rows += size;
+            }
+        }
+
         if (column.is_nullable()) {
-            auto* nullable_column_ptr =
+            const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
-            auto& nested_column = nullable_column_ptr->get_nested_column();
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_column_ptr->get_null_map_column())
-                                     .get_data();
+            const auto& nested_column = nullable_column_ptr->get_nested_column();
+            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                           nullable_column_ptr->get_null_map_column())
+                                           .get_data();
 
             if (nested_column.is_column_dictionary()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
-                    auto* dict_column_ptr =
+                    const auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(
                                     nested_column);
 
@@ -295,7 +289,7 @@ public:
                                 break;
                             }
                         }
-                        auto* data_array = dict_column_ptr->get_data().data();
+                        const auto* data_array = dict_column_ptr->get_data().data();
 
                         _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
                                                      dict_code);
@@ -316,7 +310,7 @@ public:
         } else {
             if (column.is_column_dictionary()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
-                    auto* dict_column_ptr =
+                    const auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                     do {
@@ -326,7 +320,7 @@ public:
                                 break;
                             }
                         }
-                        auto* data_array = dict_column_ptr->get_data().data();
+                        const auto* data_array = dict_column_ptr->get_data().data();
 
                         _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                     } while (false);
@@ -350,6 +344,17 @@ public:
                 flags[i] = !flags[i];
             }
         }
+
+        if (_can_ignore() && !_has_calculate_filter) {
+            uint16_t new_size = 0;
+            for (uint16_t i = 0; i < size; i++) {
+                new_size += flags[i];
+            }
+            _passed_rows += new_size;
+            vectorized::VRuntimeFilterWrapper::calculate_filter(
+                    get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
+                    _has_calculate_filter, _always_true);
+        }
     }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
@@ -362,7 +367,25 @@ public:
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
+    double get_ignore_threshold() const override { return 0.9; }
+
 private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override {
+        if (column.is_nullable()) {
+            const auto* nullable_column_ptr =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            const auto& nested_column = nullable_column_ptr->get_nested_column();
+            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                           nullable_column_ptr->get_null_map_column())
+                                           .get_data();
+
+            return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
+        } else {
+            return _base_evaluate<false>(&column, nullptr, sel, size);
+        }
+    }
+
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {

@@ -111,7 +111,7 @@ Runtime Filter主要用于大表join小表的优化，如果左表的数据量�
 
 使用的Runtime Filter类型。
 
-**类型**: 数字(1, 2, 4, 8, 16)或者相对应的助记符字符串(IN, BLOOM_FILTER, MIN_MAX, `IN_OR_BLOOM_FILTER`, BITMAP_FILTER)，默认8(`IN_OR_BLOOM_FILTER`)，使用多个时用逗号分隔，注意需要加引号，或者将任意多个类型的数字相加，例如:
+**类型**: 数字(1, 2, 4, 8, 16)或者相对应的助记符字符串(IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER, BITMAP_FILTER)，默认12(MIN_MAX,IN_OR_BLOOM_FILTER)，使用多个时用逗号分隔，注意需要加引号，或者将任意多个类型的数字相加，例如:
 
 ```sql
 set runtime_filter_type="BLOOM_FILTER,IN,MIN_MAX";
