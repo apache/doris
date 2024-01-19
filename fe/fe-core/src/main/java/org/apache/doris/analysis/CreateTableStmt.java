@@ -37,6 +37,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -311,8 +312,9 @@ public class CreateTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 

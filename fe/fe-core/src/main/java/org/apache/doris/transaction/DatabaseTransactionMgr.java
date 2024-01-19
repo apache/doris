@@ -44,6 +44,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
@@ -313,6 +314,8 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+        Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
+        InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
         checkDatabaseDataQuota();
         writeLock();
         try {
