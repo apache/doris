@@ -1736,6 +1736,11 @@ public class OlapScanNode extends ScanNode {
 
         return true;
     }
+
+    @Override
+    public int getScanRangeNum() {
+        return getScanTabletIds().size();
+    }
 }
 
 

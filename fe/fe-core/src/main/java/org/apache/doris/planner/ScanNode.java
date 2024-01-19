@@ -725,8 +725,11 @@ public abstract class ScanNode extends PlanNode {
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.isHasNullAwareLeftAntiJoin()
-                && ((this instanceof OlapScanNode) && ((OlapScanNode) this).getScanTabletIds().size()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+                && getScanRangeNum() < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+    }
+
+    public int getScanRangeNum() {
+        return Integer.MAX_VALUE;
     }
 
     public boolean haveLimitAndConjunts() {
