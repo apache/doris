@@ -623,7 +623,7 @@ public class Env {
     }
 
     private static class SingletonHolder {
-        private static final Env INSTANCE = EnvFactory.createEnv(false);
+        private static final Env INSTANCE = EnvFactory.getInstance().createEnv(false);
     }
 
     private Env() {
@@ -673,7 +673,7 @@ public class Env {
         this.journalObservable = new JournalObservable();
         this.masterInfo = new MasterInfo();
 
-        this.systemInfo = new SystemInfoService();
+        this.systemInfo = EnvFactory.getInstance().createSystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
@@ -773,7 +773,7 @@ public class Env {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = EnvFactory.createEnv(true);
+                CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
         } else {
@@ -3253,7 +3253,6 @@ public class Env {
 
             // replicationNum
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-
             if (Config.isCloudMode()) {
                 sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");
@@ -3312,7 +3311,7 @@ public class Env {
                 sb.append(olapTable.getDataSortInfo().toSql());
             }
 
-            if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
+            if (olapTable.getTTLSeconds() != 0) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");
             }
