@@ -20,7 +20,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.URL
 import java.io.File
-import java.util.concurrent.locks.ReentrantLock
 
 suite("multi_thread_load") {
     // get doris-db from s3
