@@ -176,6 +176,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Can not found query function",
                                     String.format("queryFunctionShuttled = %s", queryFunctionShuttled)));
+                    return null;
                 }
                 Function rollupAggregateFunction = rollup((AggregateFunction) queryFunctions.get(0),
                         queryFunctionShuttled, mvExprToMvScanExprQueryBased);
