@@ -28,6 +28,7 @@ import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -77,6 +78,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -653,6 +655,15 @@ public class SingleNodePlanner {
                 List<Column> conditionColumns = Lists.newArrayList();
                 if (!(aggExpr.getChild(0) instanceof SlotRef)) {
                     Expr child = aggExpr.getChild(0);
+                    // convert IF to CASE WHEN.
+                    // For example:
+                    // IF(a > 1, 1, 0) -> CASE WHEN a > 1 THEN 1 ELSE 0 END
+                    if (child instanceof FunctionCallExpr && ((FunctionCallExpr) child)
+                            .getFnName().getFunction().equalsIgnoreCase("IF")) {
+                        Preconditions.checkArgument(child.getChildren().size() == 3);
+                        CaseWhenClause caseWhenClause = new CaseWhenClause(child.getChild(0), child.getChild(1));
+                        child = new CaseExpr(ImmutableList.of(caseWhenClause), child.getChild(2));
+                    }
                     if ((child instanceof CastExpr) && (child.getChild(0) instanceof SlotRef)) {
                         if (child.getType().isNumericType()
                                 && child.getChild(0).getType().isNumericType()) {
@@ -664,8 +675,8 @@ public class SingleNodePlanner {
                             aggExprValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getChild(0) instanceof CaseExpr) {
-                        CaseExpr caseExpr = (CaseExpr) aggExpr.getChild(0);
+                    } else if (child instanceof CaseExpr) {
+                        CaseExpr caseExpr = (CaseExpr) child;
                         List<Expr> conditionExprs = caseExpr.getConditionExprs();
                         for (Expr conditionExpr : conditionExprs) {
                             List<TupleId> conditionTupleIds = Lists.newArrayList();
@@ -682,6 +693,8 @@ public class SingleNodePlanner {
                         for (Expr returnExpr : returnExprs) {
                             if (returnExpr instanceof SlotRef) {
                                 returnColumns.add(((SlotRef) returnExpr).getDesc().getColumn());
+                            } else if (returnExpr.isNullLiteral() || returnExpr.isConstantZero()) {
+                                // If then expr is NULL or Zero, open the preaggregation
                             } else {
                                 turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()
                                         + "] is not SlotExpr";

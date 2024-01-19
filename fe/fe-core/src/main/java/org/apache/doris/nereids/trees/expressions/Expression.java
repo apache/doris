@@ -260,6 +260,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         }
     }
 
+    public boolean isConstantZero() {
+        return this instanceof Literal && ((Literal) this).isZero();
+    }
+
     public final Expression castTo(DataType targetType) throws AnalysisException {
         return uncheckedCastTo(targetType);
     }

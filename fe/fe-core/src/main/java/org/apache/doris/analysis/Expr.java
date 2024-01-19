@@ -2627,5 +2627,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             expr.replaceSlot(tuple);
         }
     }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
+    }
+
+    public boolean isConstantZero() {
+        return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
+    }
 }
 

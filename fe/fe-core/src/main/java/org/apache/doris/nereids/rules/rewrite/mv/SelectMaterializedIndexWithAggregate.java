@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -53,8 +55,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -79,6 +83,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -879,6 +884,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
                     return PreAggStatus.on();
                 }
+                if (count.child(0).arity() != 0) {
+                    return checkSubExpressions(count, null, context);
+                }
             }
             return PreAggStatus.off(String.format(
                     "Count distinct is only valid for key columns, but meet %s.", count.toSql()));
@@ -963,10 +971,94 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     return PreAggStatus.off(String.format("Aggregate operator don't match, aggregate function: %s"
                             + ", column aggregate type: %s", aggFunc.toSql(), aggType));
                 }
+            } else if (!aggFunc.child(0).children().isEmpty()) {
+                return checkSubExpressions(aggFunc, matchingAggType, ctx);
             } else {
                 return PreAggStatus.off(String.format("Slot(%s) in %s is neither key column nor value column.",
                         childNameWithFuncName, aggFunc.toSql()));
             }
+        }
+
+        // check sub expressions in AggregateFunction.
+        private PreAggStatus checkSubExpressions(AggregateFunction aggFunc, AggregateType matchingAggType,
+                                                 CheckContext ctx) {
+            Expression child = aggFunc.child(0);
+            List<Expression> conditionExps = new ArrayList<>();
+            List<Expression> returnExps = new ArrayList<>();
+
+            // step 1: extract all condition exprs and return exprs
+            if (child instanceof If) {
+                conditionExps.add(child.child(0));
+                returnExps.add(child.child(1));
+                returnExps.add(child.child(2));
+            } else if (child instanceof CaseWhen) {
+                CaseWhen caseWhen = (CaseWhen) child;
+                // WHEN THEN
+                for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                    conditionExps.add(whenClause.getOperand());
+                    returnExps.add(whenClause.getResult());
+                }
+                // ELSE
+                returnExps.add(caseWhen.getDefaultValue().orElse(new NullLiteral()));
+            } else {
+                // currently, only IF and CASE WHEN are supported
+                return PreAggStatus.off(String.format("do not support compound expression [%s] in %s.",
+                        child.toSql(), matchingAggType));
+            }
+
+            // check condition expressions
+            for (Expression conditionExp : conditionExps) {
+                if (!containsAllColumn(conditionExp, ctx.keyNameToColumn.keySet())) {
+                    return PreAggStatus.off(String.format("some columns in condition [%s] is not key.",
+                            conditionExp.toSql()));
+                }
+            }
+
+            // check return expressions
+            int returnExprValidateNum = 0;
+            for (Expression returnExp : returnExps) {
+                // now we only check simple return expressions
+                String exprName = returnExp.getExpressionName();
+                if (!returnExp.children().isEmpty()) {
+                    return PreAggStatus.off(String.format("do not support compound expression [%s] in %s.",
+                            returnExp, matchingAggType));
+                }
+                if (ctx.keyNameToColumn.containsKey(exprName)) {
+                    if (matchingAggType != AggregateType.MAX && matchingAggType != AggregateType.MIN
+                            && (aggFunc instanceof Count && !aggFunc.isDistinct())) {
+                        return PreAggStatus.off("agg on key column should be MAX, MIN or COUNT DISTINCT.");
+                    }
+                }
+
+                if (matchingAggType == AggregateType.SUM) {
+                    if ((ctx.valueNameToColumn.containsKey(exprName)
+                            && ctx.valueNameToColumn.get(exprName).getAggregationType() == matchingAggType)
+                            || returnExp.isConstantZero() || returnExp.isNullLiteral()) {
+                        returnExprValidateNum++;
+                    } else {
+                        return PreAggStatus.off(String.format("SUM cant preagg for [%s].", aggFunc.toSql()));
+                    }
+                } else if (matchingAggType == AggregateType.MAX || matchingAggType == AggregateType.MIN) {
+                    if (ctx.keyNameToColumn.containsKey(exprName) || returnExp.isNullLiteral()
+                            || (ctx.valueNameToColumn.containsKey(exprName)
+                            && ctx.valueNameToColumn.get(exprName).getAggregationType() == matchingAggType)) {
+                        returnExprValidateNum++;
+                    } else {
+                        return PreAggStatus.off(String.format("MAX/MIN cant preagg for [%s].", aggFunc.toSql()));
+                    }
+                } else if (aggFunc.getName().equalsIgnoreCase("COUNT") && aggFunc.isDistinct()) {
+                    if (ctx.keyNameToColumn.containsKey(exprName)
+                            || returnExp.isConstantZero() || returnExp.isNullLiteral()) {
+                        returnExprValidateNum++;
+                    } else {
+                        return PreAggStatus.off(String.format("COUNT DISTINCT cant preagg for [%s].", aggFunc.toSql()));
+                    }
+                }
+            }
+            if (returnExprValidateNum == returnExps.size()) {
+                return PreAggStatus.on();
+            }
+            return PreAggStatus.off(String.format("cant preagg for [%s].", aggFunc.toSql()));
         }
     }
 
