@@ -1,7 +1,7 @@
 ---
 {
-"title": "BIT_COUNT",
-"language": "en"
+"title": "BIT_SHIFT_LEFT",
+"language": "zh-CN"
 }
 ---
 

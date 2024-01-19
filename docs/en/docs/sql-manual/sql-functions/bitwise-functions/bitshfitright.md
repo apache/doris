@@ -1,6 +1,6 @@
 ---
 {
-"title": "BIT_COUNT",
+"title": "BIT_SHIFT_RIGHT",
 "language": "en"
 }
 ---

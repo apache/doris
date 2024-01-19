@@ -1,7 +1,7 @@
 ---
 {
 "title": "BIT_COUNT",
-"language": "en"
+"language": "zh-CH"
 }
 ---
 
@@ -32,7 +32,7 @@ under the License.
 
 统计整型 x 的二的补码表示中 1 的个数。
 
-整型可以是: TINYINT、SMALLINT、INT、BIGINT、LARGEINT
+整型可以是：TINYINT、SMALLINT、INT、BIGINT、LARGEINT
 
 ### example
 
