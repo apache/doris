@@ -95,8 +95,9 @@ public class SystemHandler extends AlterHandler {
                 continue;
             }
 
-            LOG.info("backend {} lefts {} wals and {} replicas to decommission: {}", beId, hasWal,
-                    backendTabletIds.size(), backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())));
+            LOG.info("backend {} lefts {} replicas to decommission: {}{}", beId, backendTabletIds.size(),
+                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())),
+                    hasWal ? "; and has unfinished WALs" : "");
         }
     }
 
