@@ -191,11 +191,11 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
 template <IPExceptionMode exception_mode>
 class FunctionIPv4StringToNum : public IFunction {
 public:
-    static constexpr auto name = exception_mode == IPExceptionMode::Throw
-                                         ? "ipv4_string_to_num"
-                                         : (exception_mode == IPExceptionMode::Default
-                                                    ? "ipv4_string_to_num_or_default"
-                                                    : "ipv4_string_to_num_or_null");
+    static constexpr auto name =
+            exception_mode == IPExceptionMode::Throw
+                    ? "ipv4_string_to_num"
+                    : (exception_mode == IPExceptionMode::Default ? "ipv4_string_to_num_or_default"
+                                                                  : "ipv4_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
@@ -343,8 +343,7 @@ public:
 };
 
 namespace detail {
-template <IPExceptionMode exception_mode, typename ToColumn = ColumnIPv6,
-          typename StringColumnType>
+template <IPExceptionMode exception_mode, typename ToColumn = ColumnIPv6, typename StringColumnType>
 ColumnPtr convertToIPv6(const StringColumnType& string_column,
                         const PaddedPODArray<UInt8>* null_map = nullptr) {
     if constexpr (!std::is_same_v<ToColumn, ColumnString> &&
@@ -500,11 +499,11 @@ ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
 template <IPExceptionMode exception_mode>
 class FunctionIPv6StringToNum : public IFunction {
 public:
-    static constexpr auto name = exception_mode == IPExceptionMode::Throw
-                                         ? "ipv6_string_to_num"
-                                         : (exception_mode == IPExceptionMode::Default
-                                                    ? "ipv6_string_to_num_or_default"
-                                                    : "ipv6_string_to_num_or_null");
+static constexpr auto name =
+            exception_mode == IPExceptionMode::Throw
+                    ? "ipv4_string_to_num"
+                    : (exception_mode == IPExceptionMode::Default ? "ipv4_string_to_num_or_default"
+                                                                  : "ipv4_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNum<exception_mode>>();
@@ -973,7 +972,7 @@ public:
                     throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "The arguments of function {} must be String, not NULL",
                                     get_name());
-                } if constexpr (exception_mode == IPExceptionMode::Default) {
+                } else if constexpr (exception_mode == IPExceptionMode::Default) {
                     col_res_data[i] = 0; // 0.0.0.0
                     continue;
                 } else {
@@ -989,8 +988,8 @@ public:
                     col_res_data[i] = ipv4_val;
                 } else {
                     if constexpr (exception_mode == IPExceptionMode::Throw) {
-                        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                        "Invalid IPv4 value '{}'", ipv4_str.to_string_view());
+                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 value '{}'",
+                                        ipv4_str.to_string_view());
                     } else if constexpr (exception_mode == IPExceptionMode::Default) {
                         col_res_data[i] = 0; // 0.0.0.0
                     } else {
@@ -1004,8 +1003,8 @@ public:
                     col_res_data[i] = ipv6_val;
                 } else {
                     if constexpr (exception_mode == IPExceptionMode::Throw) {
-                        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                        "Invalid IPv6 value '{}'", ipv6_str.to_string_view());
+                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value '{}'",
+                                        ipv6_str.to_string_view());
                     } else if constexpr (exception_mode == IPExceptionMode::Default) {
                         col_res_data[i] = 0; // ::
                     } else if constexpr (exception_mode == IPExceptionMode::Null) {
