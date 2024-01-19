@@ -109,6 +109,7 @@ struct ProcessHashTableProbe {
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
