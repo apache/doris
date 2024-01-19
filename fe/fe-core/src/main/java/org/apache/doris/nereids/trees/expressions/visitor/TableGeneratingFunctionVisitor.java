@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJso
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayJsonOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayString;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayStringOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMapOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbersOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
@@ -46,6 +48,14 @@ public interface TableGeneratingFunctionVisitor<R, C> {
     }
 
     default R visitExplodeOuter(ExplodeOuter explodeOuter, C context) {
+        return visitTableGeneratingFunction(explodeOuter, context);
+    }
+
+    default R visitExplodeMap(ExplodeMap explode, C context) {
+        return visitTableGeneratingFunction(explode, context);
+    }
+
+    default R visitExplodeMapOuter(ExplodeMapOuter explodeOuter, C context) {
         return visitTableGeneratingFunction(explodeOuter, context);
     }
 
