@@ -23,14 +23,26 @@ import java.util.Set;
 
 public class InvalidateStatsTarget {
 
+    @SerializedName("catalogId")
+    public final long catalogId;
+
+    @SerializedName("dbId")
+    public final long dbId;
+
     @SerializedName("tableId")
     public final long tableId;
 
     @SerializedName("columns")
     public final Set<String> columns;
 
-    public InvalidateStatsTarget(long tableId, Set<String> columns) {
+    public InvalidateStatsTarget(long catalogId, long dbId, long tableId, Set<String> columns, boolean isAllColumns) {
+        this.catalogId = catalogId;
+        this.dbId = dbId;
         this.tableId = tableId;
-        this.columns = columns;
+        if (isAllColumns) {
+            this.columns = null;
+        } else {
+            this.columns = columns;
+        }
     }
 }
