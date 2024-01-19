@@ -499,7 +499,7 @@ ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
 template <IPExceptionMode exception_mode>
 class FunctionIPv6StringToNum : public IFunction {
 public:
-static constexpr auto name =
+    static constexpr auto name =
             exception_mode == IPExceptionMode::Throw
                     ? "ipv4_string_to_num"
                     : (exception_mode == IPExceptionMode::Default ? "ipv4_string_to_num_or_default"
@@ -893,16 +893,14 @@ template <IPExceptionMode exception_mode, typename Type>
 inline constexpr auto to_ip_func_name() {
     if constexpr (std::is_same_v<Type, IPv4>) {
         return exception_mode == IPExceptionMode::Throw
-               ? "to_ipv4"
-               : (exception_mode == IPExceptionMode::Default
-                  ? "to_ipv4_or_default"
-                  : "to_ipv4_or_null");
+                       ? "to_ipv4"
+                       : (exception_mode == IPExceptionMode::Default ? "to_ipv4_or_default"
+                                                                     : "to_ipv4_or_null");
     } else {
         return exception_mode == IPExceptionMode::Throw
-               ? "to_ipv6"
-               : (exception_mode == IPExceptionMode::Default
-                  ? "to_ipv6_or_default"
-                  : "to_ipv6_or_null");
+                       ? "to_ipv6"
+                       : (exception_mode == IPExceptionMode::Default ? "to_ipv6_or_default"
+                                                                     : "to_ipv6_or_null");
     }
 }
 
