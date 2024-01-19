@@ -275,7 +275,7 @@ public class AnalysisManagerTest {
         new MockUp<OlapTable>() {
 
             int count = 0;
-            int[] rowCount = new int[]{100, 100, 200, 200};
+            int[] rowCount = new int[]{100, 100, 200, 200, 1, 1};
 
             final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
@@ -304,6 +304,11 @@ public class AnalysisManagerTest {
                 .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
+
+        TableStatsMeta stats3 = new TableStatsMeta(0, new AnalysisInfoBuilder()
+                .setColToPartitions(new HashMap<>()).setEmptyJob(true).setColName("col1").build(), olapTable);
+        Assertions.assertTrue(olapTable.needReAnalyzeTable(stats3));
+
     }
 
     @Test
