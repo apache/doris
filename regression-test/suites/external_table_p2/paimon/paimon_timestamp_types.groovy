@@ -22,13 +22,12 @@ suite("paimon_timestamp_types", "p2,external,paimon,external_remote,external_rem
 
     String enabled = context.config.otherConfigs.get("enableExternalPaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        // String catalog_name = "paimon_timestamp_catalog"
-        String catalog_name = "paimon_hg_hdfs"
+        String catalog_name = "paimon_timestamp_catalog"
         String user_name = context.config.otherConfigs.get("extHiveHmsUser")
         String hiveHost = context.config.otherConfigs.get("extHiveHmsHost")
         String hivePort = context.config.otherConfigs.get("extHdfsPort")
 
-        // sql """drop catalog if exists ${catalog_name};"""
+        sql """drop catalog if exists ${catalog_name};"""
         sql """
             create catalog if not exists ${catalog_name} properties (
                 "type" = "paimon",

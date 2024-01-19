@@ -134,8 +134,16 @@ struct ConvertParams {
     void reset_time_scale_if_missing(int scale) {
         const auto& schema = field_schema->parquet_schema;
         if (!schema.__isset.logicalType && !schema.__isset.converted_type) {
-            second_mask = common::exp10_i64(scale);
-            scale_to_nano_factor = common::exp10_i64(9 - scale);
+            int ts_scale = 6;
+            if (scale <= 3) {
+                ts_scale = 3;
+            }
+            second_mask = common::exp10_i64(ts_scale);
+            scale_to_nano_factor = common::exp10_i64(9 - ts_scale);
+
+            // The missing parque metadata makes it impossible for us to know the time zone information,
+            // so we default to UTC here.
+            ctz = const_cast<cctz::time_zone*>(&utc0);
         }
     }
 
@@ -687,12 +695,8 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
             convert_params->reset_time_scale_if_missing(9);
             *converter = std::make_unique<Int96toTimestamp>();
         } else if (tparquet::Type::INT64 == parquet_physical_type) {
-            int ts_scale = remove_nullable(dst_data_type)->get_scale();
-            int scale = 6;
-            if (ts_scale <= 3) {
-                scale = 3;
-            }
-            convert_params->reset_time_scale_if_missing(scale);
+            convert_params->reset_time_scale_if_missing(
+                   remove_nullable(dst_data_type)->get_scale());
             *converter = std::make_unique<Int64ToTimestamp>();
         }
         break;
