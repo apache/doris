@@ -241,6 +241,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
+    _init_probe_side_timer = ADD_CHILD_TIMER(probe_phase_profile, "InitProbeSideTime", "ProbeTime");
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
