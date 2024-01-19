@@ -1219,10 +1219,7 @@ Status PipelineXFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
-    auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
-        scheduler = _exec_env->pipeline_task_group_scheduler();
-    }
+    auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());

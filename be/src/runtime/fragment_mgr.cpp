@@ -682,41 +682,27 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx->register_memory_statistics();
         query_ctx->register_cpu_statistics();
 
+        bool is_pipeline = false;
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                uint64_t tg_id = params.workload_groups[0].id;
-                auto* tg_mgr = _exec_env->task_group_manager();
-                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
-                    task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                    query_ctx->set_task_group(task_group_ptr);
-                    stringstream ss;
-                    ss << "Query/load id: " << print_id(query_ctx->query_id())
-                       << ", use task group:" << task_group_ptr->debug_string()
-                       << ", enable cpu hard limit:"
-                       << (tg_mgr->enable_cpu_hard_limit() ? "true" : "false");
-                    bool ret = false;
-                    if (tg_mgr->enable_cgroup()) {
-                        ret = tg_mgr->set_cg_task_sche_for_query_ctx(tg_id, query_ctx.get());
-                        if (ret) {
-                            ss << ", use cgroup for cpu limit.";
-                        } else {
-                            ss << ", not found cgroup sche, no limit for cpu.";
-                        }
-                    } else {
-                        ss << ", use doris sche for cpu limit.";
-                        query_ctx->use_task_group_for_cpu_limit.store(true);
-                    }
-                    LOG(INFO) << ss.str();
-                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
-                            print_id(query_id), tg_id);
-                } else {
-                    VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                               << " no task group found, does not use task group.";
-                }
-            } else {
-                VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                           << " does not use task group.";
+            is_pipeline = true;
+        }
+
+        if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+            uint64_t tg_id = params.workload_groups[0].id;
+            auto* tg_mgr = _exec_env->task_group_manager();
+            if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
+                task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
+                query_ctx->set_task_group(task_group_ptr);
+                _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
+                                                                                 tg_id);
+                query_ctx->set_query_scheduler(tg_id);
+
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", is pipeline: " << ((int)is_pipeline)
+                          << ", enable cgroup soft limit: "
+                          << ((int)config::enable_cgroup_cpu_soft_limit);
             }
         }
 
@@ -800,7 +786,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
         _cv.notify_all();
     }
-    auto st = _thread_pool->submit_func(
+
+    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
+    if (!current_thread_pool) {
+        current_thread_pool = _thread_pool.get();
+    }
+    auto st = current_thread_pool->submit_func(
             [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {

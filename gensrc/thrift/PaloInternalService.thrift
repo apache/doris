@@ -483,6 +483,8 @@ struct TExecPlanFragmentParams {
 
   29: optional i64 content_length
 
+  30: optional list<TPipelineWorkloadGroup> workload_groups
+
   // For cloud
   1000: optional bool is_mow_table;
 }
