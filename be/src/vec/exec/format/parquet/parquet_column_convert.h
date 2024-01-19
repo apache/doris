@@ -687,8 +687,12 @@ inline Status get_converter(tparquet::Type::type parquet_physical_type, Primitiv
             convert_params->reset_time_scale_if_missing(9);
             *converter = std::make_unique<Int96toTimestamp>();
         } else if (tparquet::Type::INT64 == parquet_physical_type) {
-            convert_params->reset_time_scale_if_missing(
-                    remove_nullable(dst_data_type)->get_scale());
+            int ts_scale = remove_nullable(dst_data_type)->get_scale();
+            int scale = 6;
+            if (ts_scale <= 3) {
+                scale = 3;
+            }
+            convert_params->reset_time_scale_if_missing(scale);
             *converter = std::make_unique<Int64ToTimestamp>();
         }
         break;
