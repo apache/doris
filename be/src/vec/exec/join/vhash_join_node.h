@@ -201,7 +201,8 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::CROSS_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN, HashJoinNode>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN, HashJoinNode>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>>;
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN, HashJoinNode>,
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN, HashJoinNode>>;
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -291,6 +292,9 @@ private:
     // other expr
     VExprContextSPtrs _other_join_conjuncts;
 
+    // conjuncts for mark join, which result type is ternary boolean(true, false, null)
+    VExprContextSPtrs _mark_join_conjuncts;
+
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
 
@@ -351,6 +355,9 @@ private:
     bool _ready_probe = false;
     bool _probe_eos = false;
     int _last_probe_match;
+
+    // For mark join, last probe index of null mark
+    int _last_probe_null_mark;
 
     bool _build_side_ignore_null = false;
 

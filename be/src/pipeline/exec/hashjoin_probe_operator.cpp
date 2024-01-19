@@ -44,6 +44,12 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     for (size_t i = 0; i < _other_join_conjuncts.size(); i++) {
         RETURN_IF_ERROR(p._other_join_conjuncts[i]->clone(state, _other_join_conjuncts[i]));
     }
+
+    _mark_join_conjuncts.resize(p._mark_join_conjuncts.size());
+    for (size_t i = 0; i < _mark_join_conjuncts.size(); i++) {
+        RETURN_IF_ERROR(p._mark_join_conjuncts[i]->clone(state, _mark_join_conjuncts[i]));
+    }
+
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
     _probe_arena_memory_usage =
@@ -83,6 +89,7 @@ void HashJoinProbeLocalState::prepare_for_next() {
     _build_index = 0;
     _ready_probe = false;
     _last_probe_match = -1;
+    _last_probe_null_mark = -1;
     _prepare_probe_block();
 }
 
@@ -540,7 +547,8 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     DCHECK(tnode.__isset.hash_join_node);
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
+            _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::LEFT_SEMI_JOIN;
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
@@ -575,6 +583,20 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         DCHECK(!_build_unique);
         DCHECK(_have_other_join_conjunct);
     }
+
+    if (tnode.hash_join_node.__isset.mark_join_conjuncts &&
+        !tnode.hash_join_node.mark_join_conjuncts.empty()) {
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
+                tnode.hash_join_node.mark_join_conjuncts, _mark_join_conjuncts));
+        DCHECK(_is_mark_join);
+
+        /// We make mark join conjuncts as equal conjuncts for null aware join,
+        /// so `_mark_join_conjuncts` should be empty if this is null aware join.
+        DCHECK_EQ(_mark_join_conjuncts.empty(),
+                  _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                          _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+    }
+
     return Status::OK();
 }
 
@@ -603,6 +625,11 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+    }
+
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
     DCHECK(_build_side_child != nullptr);
     // right table data types
@@ -621,6 +648,11 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
+    }
+
     return Status::OK();
 }
 

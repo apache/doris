@@ -107,7 +107,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
                                    _join_op == TJoinOp::RIGHT_ANTI_JOIN;
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
+            _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::LEFT_SEMI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
@@ -155,6 +156,29 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         DCHECK(!_build_unique);
         DCHECK(_have_other_join_conjunct);
     }
+
+    if (tnode.hash_join_node.__isset.mark_join_conjuncts) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.mark_join_conjuncts,
+                                                 _mark_join_conjuncts));
+        DCHECK(_is_mark_join);
+
+        /// We make mark join conjuncts as equal conjuncts for null aware join,
+        /// so `_mark_join_conjuncts` should be empty if this is null aware join.
+        DCHECK_EQ(_mark_join_conjuncts.empty(),
+                  _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                          _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+    }
+
+#ifndef NDEBUG
+    /// mark join should be half join
+    if (_is_mark_join) {
+        DCHECK(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN)
+                << "join(op: " << _join_op << ") should not be mark join";
+    }
+#endif
 
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
@@ -250,6 +274,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+    }
+
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
     // right table data types
@@ -300,6 +329,7 @@ void HashJoinNode::prepare_for_next() {
     _build_index = 0;
     _ready_probe = false;
     _last_probe_match = -1;
+    _last_probe_null_mark = -1;
     _prepare_probe_block();
 }
 
@@ -672,6 +702,10 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
+    }
     return Status::OK();
 }
 
@@ -821,9 +855,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _process_hashtable_ctx_variants_init(state);
     }
 
-    // Since the comparison of null values is meaningless, null aware left anti join should not output null
+    // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
     // when the build side is not empty.
-    if (_build_block && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    if (_build_block && (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
         _probe_ignore_null = true;
     }
     _init_short_circuit_for_probe();

@@ -775,7 +775,6 @@ struct THashJoinNode {
 
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
-
   13: optional list<Exprs.TExpr> mark_join_conjuncts
 }
 

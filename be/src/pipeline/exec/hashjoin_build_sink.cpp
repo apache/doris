@@ -568,10 +568,11 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     local_state.init_short_circuit_for_probe();
     if (source_state == SourceState::FINISHED) {
-        // Since the comparison of null values is meaningless, null aware left anti join should not output null
+        // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
         // when the build side is not empty.
         if (local_state._shared_state->build_block &&
-            _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
             local_state._shared_state->probe_ignore_null = true;
         }
         local_state._dependency->set_ready_to_read();
