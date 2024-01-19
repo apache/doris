@@ -152,6 +152,22 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     Block tmp_block {arguments};
     size_t result_column = tmp_block.columns();
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
+
+    // To prevent from null info lost, we should not call function since the function framework will wrap
+    // nullable to Variant instead of the root of Variant
+    // Nullable(Array(int)) -> Variant<Nullable(Array(int))>
+    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+        // set variant root column/type to from column/type
+        auto variant = ColumnObject::create(true /*always nullable*/);
+        CHECK(arg.column->is_nullable());
+        variant->create_root(arg.type, arg.column->assume_mutable());
+        ColumnPtr nullable = ColumnNullable::create(
+                variant->get_ptr(),
+                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
+        *result = type->is_nullable() ? nullable : variant->get_ptr();
+        return Status::OK();
+    }
+
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
     // each line in original string column.
     ctx->set_string_as_jsonb_string(true);
@@ -159,6 +175,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     RETURN_IF_ERROR(
             function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
     *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
+    VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
+                              arg.column->get_name(), (*result)->get_name());
     return Status::OK();
 }
 
@@ -488,7 +506,9 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
     size_t result_column = tmp_block.columns();
     tmp_block.insert({nullptr, json_type, ""});
     RETURN_IF_ERROR(function->execute(nullptr, tmp_block, argnum, result_column, source->size()));
-    dst = tmp_block.get_by_position(result_column).column->assume_mutable();
+    dst = tmp_block.get_by_position(result_column)
+                  .column->convert_to_full_column_if_const()
+                  ->assume_mutable();
     return Status::OK();
 }
 // ---------------------------
