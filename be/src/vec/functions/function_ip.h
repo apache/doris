@@ -971,7 +971,7 @@ public:
                                     "The arguments of function {} must be String, not NULL",
                                     get_name());
                 } else if constexpr (exception_mode == IPExceptionMode::Default) {
-                    col_res_data[i] = 0; // 0.0.0.0
+                    col_res_data[i] = 0; // '0.0.0.0' or '::'
                     continue;
                 } else {
                     res_null_map_data[i] = 1;
@@ -989,7 +989,7 @@ public:
                         throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 value '{}'",
                                         ipv4_str.to_string_view());
                     } else if constexpr (exception_mode == IPExceptionMode::Default) {
-                        col_res_data[i] = 0; // 0.0.0.0
+                        col_res_data[i] = 0; // '0.0.0.0'
                     } else {
                         res_null_map_data[i] = 1;
                     }
@@ -1004,7 +1004,7 @@ public:
                         throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value '{}'",
                                         ipv6_str.to_string_view());
                     } else if constexpr (exception_mode == IPExceptionMode::Default) {
-                        col_res_data[i] = 0; // ::
+                        col_res_data[i] = 0; // '::'
                     } else if constexpr (exception_mode == IPExceptionMode::Null) {
                         res_null_map_data[i] = 1;
                     }
