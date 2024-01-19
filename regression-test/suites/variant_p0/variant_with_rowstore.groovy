@@ -26,9 +26,11 @@ suite("regression_test_variant_rowstore", "variant_type"){
         def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
+ 
     def table_name = "var_rs"
     sql "DROP TABLE IF EXISTS ${table_name}"
     set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+
     sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -38,10 +40,10 @@ suite("regression_test_variant_rowstore", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
         """
-    sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
-    sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
-            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
     sql "set experimental_enable_nereids_planner = false"
+    sql """insert into ${table_name} values (-3, '{"a" : 1, "b" : 1.5, "c" : [1, 2, 3]}')"""
+    sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
+            union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
     qt_sql "select * from ${table_name} order by k limit 10"
 
 
@@ -57,7 +59,6 @@ suite("regression_test_variant_rowstore", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 1
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
     """
-    sql """insert into ${table_name} select k, v, v from var_rs"""
-    sql "set experimental_enable_nereids_planner = false"
+    sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rs"""
     qt_sql "select * from ${table_name} order by k limit 10"
 }

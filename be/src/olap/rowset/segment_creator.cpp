@@ -113,21 +113,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
-    // referencing the original root column
-    std::vector<vectorized::ColumnPtr> orignal_roots;
-    orignal_roots.resize(block.columns());
-    for (int i : variant_column_pos) {
-        const auto* var = vectorized::check_and_get_column<vectorized::ColumnObject>(
-                remove_nullable(block.get_by_position(i).column).get());
-        if (!var->is_scalar_variant()) {
-            // the input variant is already parsed variant before this funtion
-            continue;
-        }
-        orignal_roots[i] = var->get_root();
-    }
-
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
+    vectorized::schema_util::ParseContext ctx;
+    ctx.record_raw_json_column = _context->original_tablet_schema->store_row_column();
+    RETURN_IF_ERROR(vectorized::schema_util::parse_and_encode_variant_columns(
+            block, variant_column_pos, ctx));
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
     //     static     extracted
@@ -189,20 +178,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                 {}, root->data.get_finalized_column_ptr()->assume_mutable(),
                 root->data.get_least_common_type());
 
-        // set for rowstore
+        // // set for rowstore
         if (_context->original_tablet_schema->store_row_column()) {
-            // null means the input variant is already parsed variant before this funtion
-            if (orignal_roots[variant_pos] == nullptr) {
-                orignal_roots[variant_pos] = vectorized::ColumnString::create();
-                for (size_t i = 0; i < object_column.rows(); ++i) {
-                    std::string raw_str;
-                    object_column.serialize_one_row_to_string(i, &raw_str);
-                    orignal_roots[variant_pos]->assume_mutable()->insert_data(raw_str.c_str(),
-                                                                              raw_str.size());
-                }
-            }
             static_cast<vectorized::ColumnObject*>(obj.get())->set_original_column(
-                    orignal_roots[variant_pos]);
+                    object_column.get_original_column());
         }
 
         vectorized::ColumnPtr result = obj->get_ptr();
