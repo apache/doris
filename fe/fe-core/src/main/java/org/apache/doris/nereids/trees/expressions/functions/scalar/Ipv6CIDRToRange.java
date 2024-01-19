@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv6Type;
@@ -38,8 +38,8 @@ import java.util.List;
 /**
  * scalar function `ipv6_cidr_to_range`
  */
-public class IPv6CIDRToRange extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+public class Ipv6CIDRToRange extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES;
 
@@ -54,17 +54,17 @@ public class IPv6CIDRToRange extends ScalarFunction
                 FunctionSignature.ret(retType).args(StringType.INSTANCE, SmallIntType.INSTANCE));
     }
 
-    public IPv6CIDRToRange(Expression arg0, Expression arg1) {
+    public Ipv6CIDRToRange(Expression arg0, Expression arg1) {
         super("ipv6_cidr_to_range", arg0, arg1);
     }
 
     @Override
-    public IPv6CIDRToRange withChildren(List<Expression> children) {
+    public Ipv6CIDRToRange withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
                 "ipv6_cidr_to_range accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IPv6CIDRToRange(children.get(0), children.get(1));
+        return new Ipv6CIDRToRange(children.get(0), children.get(1));
     }
 
     @Override
