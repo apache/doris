@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/radix_sort.h"
@@ -44,14 +45,8 @@ struct BitCountImpl {
                       std::is_same_v<T, Int32> || std::is_same_v<T, Int16> ||
                       std::is_same_v<T, Int8>) {
             return std::popcount(static_cast<std::make_unsigned_t<T>>(a));
-        }
-
-        if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, UInt64> ||
-                      std::is_same_v<T, UInt32> || std::is_same_v<T, UInt16> ||
-                      std::is_same_v<T, UInt8>) {
-            return std::popcount(a);
         } else {
-            return std::popcount(bit_cast<uint64_t>(a));
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "bit_count only support using INTEGER as operator");
         }
     }
 };
