@@ -46,7 +46,7 @@ Takes a Int16、Int32、Int64 number. Interprets it as an IPv4 address in big en
 ```
 mysql> select inet_ntoa(3232235521);
 +-----------------------------+
-| ipv4numtostring(3232235521) |
+| IPV4_NUM_TO_STRING(3232235521) |
 +-----------------------------+
 | 192.168.0.1                 |
 +-----------------------------+
@@ -54,7 +54,7 @@ mysql> select inet_ntoa(3232235521);
 
 mysql> select num,inet_ntoa(num) from ipv4_bi;
 +------------+------------------------+
-| num        | ipv4numtostring(`num`) |
+| num        | IPV4_NUM_TO_STRING(`num`) |
 +------------+------------------------+
 |         -1 | NULL                   |
 |          0 | 0.0.0.0                |

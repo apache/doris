@@ -22,11 +22,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## IPv4NumToString
+## IPV4_NUM_TO_STRING
 
 <version since="dev">
 
-IPv4NumToString
+IPV4_NUM_TO_STRING
 
 </version>
 
@@ -34,7 +34,7 @@ IPv4NumToString
 
 #### Syntax
 
-`VARCHAR IPv4NumToString(BIGINT ipv4_num)`
+`VARCHAR IPV4_NUM_TO_STRING(BIGINT ipv4_num)`
 
 Takes a Int16、Int32、Int64 number. Interprets it as an IPv4 address in big endian. Returns a string containing the corresponding IPv4 address in the format A.B.C.d (dot-separated numbers in decimal form).
 ### notice
@@ -44,17 +44,17 @@ Takes a Int16、Int32、Int64 number. Interprets it as an IPv4 address in big en
 ### example
 
 ```
-mysql> select ipv4numtostring(3232235521);
+mysql> select IPV4_NUM_TO_STRING(3232235521);
 +-----------------------------+
-| ipv4numtostring(3232235521) |
+| IPV4_NUM_TO_STRING(3232235521) |
 +-----------------------------+
 | 192.168.0.1                 |
 +-----------------------------+
 1 row in set (0.01 sec)
 
-mysql> select num,ipv4numtostring(num) from ipv4_bi;
+mysql> select num,IPV4_NUM_TO_STRING(num) from ipv4_bi;
 +------------+------------------------+
-| num        | ipv4numtostring(`num`) |
+| num        | IPV4_NUM_TO_STRING(`num`) |
 +------------+------------------------+
 |         -1 | NULL                   |
 |          0 | 0.0.0.0                |
@@ -67,4 +67,4 @@ mysql> select num,ipv4numtostring(num) from ipv4_bi;
 
 ### keywords
 
-IPV4NUMTOSTRING, IP
+IPV4_NUM_TO_STRING, IP
