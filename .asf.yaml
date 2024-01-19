@@ -57,6 +57,7 @@ github:
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - performance (Performance New)
           - Build Broker
           - Build Documents
           - ShellCheck          
@@ -92,6 +93,7 @@ github:
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - performance (Performance New)
           - Build Broker
           - ShellCheck
           - Build Documents
