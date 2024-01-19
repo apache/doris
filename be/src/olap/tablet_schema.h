@@ -421,6 +421,9 @@ public:
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
     std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+    InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
+        return _inverted_index_storage_format;
+    }
 
     void update_tablet_columns(const TabletSchema& tablet_schema,
                                const std::vector<TColumn>& t_columns);
@@ -465,6 +468,7 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V2;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

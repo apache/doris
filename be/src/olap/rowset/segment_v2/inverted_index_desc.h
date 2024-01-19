@@ -32,6 +32,7 @@ public:
                                                 const std::string& index_suffix_path);
     static std::string get_index_file_name(const std::string& path, uint32_t uuid,
                                            const std::string& index_suffix_path);
+    static std::string get_index_file_name(const std::string& path);
     static const std::string get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
     static const std::string get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const std::string get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }

@@ -38,17 +38,23 @@ namespace lucene::store {
 class LockFactory;
 } // namespace lucene::store
 
-namespace doris::segment_v2 {
+namespace doris {
+class TabletIndex;
+
+namespace segment_v2 {
+LUCENE_STATIC_CONSTANT(int32_t, INVERTED_INDEX_FORMAT_V1 = 1);
+LUCENE_STATIC_CONSTANT(int32_t, INVERTED_INDEX_FORMAT_V2 = 2);
 
 class DorisCompoundFileWriter : LUCENE_BASE {
 public:
+    DorisCompoundFileWriter() = default;
     DorisCompoundFileWriter(CL_NS(store)::Directory* dir);
     ~DorisCompoundFileWriter() override = default;
     /** Returns the directory of the compound file. */
     CL_NS(store)::Directory* getDirectory();
-    size_t writeCompoundFile();
-    void copyFile(const char* fileName, lucene::store::IndexOutput* output, uint8_t* buffer,
-                  int64_t bufferLength);
+    virtual size_t writeCompoundFile();
+    void copyFile(const char* fileName, lucene::store::Directory* dir,
+                  lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
 
 private:
     class FileInfo {
@@ -60,6 +66,25 @@ private:
     void sort_files(std::vector<FileInfo>& file_infos);
 
     CL_NS(store)::Directory* directory = nullptr;
+};
+
+class DorisMultiIndexCompoundWriter : public DorisCompoundFileWriter {
+public:
+    DorisMultiIndexCompoundWriter(const io::FileSystemSPtr fs, std::string& segment_file_path,
+                                  std::string& segment_file_name)
+            : _fs(fs),
+              _segment_file_path(segment_file_path),
+              _segment_file_name(segment_file_name) {}
+    Status initialize(const std::vector<std::pair<int64_t, std::string>>& indices);
+    ~DorisMultiIndexCompoundWriter() override = default;
+    size_t writeCompoundFile() override;
+    size_t headerLength();
+
+private:
+    std::map<int64_t, std::unique_ptr<CL_NS(store)::Directory>> _indices_dirs;
+    const io::FileSystemSPtr _fs;
+    const std::string _segment_file_path;
+    const std::string _segment_file_name;
 };
 
 class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
@@ -244,4 +269,5 @@ public:
                                                 const io::FileSystemSPtr& cfs_fs = nullptr,
                                                 const char* cfs_file = nullptr);
 };
-} // namespace doris::segment_v2
+} // namespace segment_v2
+} // namespace doris

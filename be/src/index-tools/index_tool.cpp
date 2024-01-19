@@ -20,7 +20,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gflags/gflags.h>
 
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -32,14 +31,18 @@
 #include <vector>
 
 #include "io/fs/file_reader.h"
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisCompoundDirectoryFactory;
+using doris::segment_v2::DorisMultiIndexCompoundWriter;
+using doris::segment_v2::InvertedIndexDescriptor;
+using doris::segment_v2::DorisMultiIndexCompoundReader;
 using doris::io::FileInfo;
 using namespace doris::segment_v2;
 using namespace lucene::analysis;
@@ -53,6 +56,7 @@ DEFINE_string(operation, "",
 DEFINE_string(directory, "./", "inverted index file directory");
 DEFINE_string(idx_file_name, "", "inverted index file name");
 DEFINE_string(idx_file_path, "", "inverted index file path");
+DEFINE_string(data_file_path, "", "inverted index data path");
 DEFINE_string(term, "", "inverted index term to query");
 DEFINE_string(column_name, "", "inverted index column_name to query");
 DEFINE_string(pred_type, "", "inverted index term query predicate, eq/lt/gt/le/ge/match etc.");
@@ -82,6 +86,8 @@ std::string get_usage(const std::string& progname) {
           "--src_idx_dirs_file=path/to/file --dest_idx_dirs_file=path/to/file "
           "--dest_seg_num_rows_file=path/to/file --tablet_path=path/to/tablet "
           "--trans_vec_file=path/to/file\n";
+    ss << "./index_tool --operation=write_index_v2 --idx_file_path=path/to/index "
+          "--data_file_path=data/to/index\n";
     return ss.str();
 }
 
@@ -148,9 +154,9 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         std::vector<std::string> terms = split(token, '|');
 
         doris::TQueryOptions queryOptions;
-        ConjunctionQuery query(s, queryOptions);
-        query.add(field_ws, terms);
-        query.search(result);
+        ConjunctionQuery conjunct_query(s, queryOptions);
+        conjunct_query.add(field_ws, terms);
+        conjunct_query.search(result);
 
         total += result.cardinality();
     } else {
@@ -331,7 +337,7 @@ int main(int argc, char** argv) {
                     std::cerr << "file " << file_path << " not found" << std::endl;
                     return -1;
                 }
-                auto reader = std::make_unique<DorisCompoundReader>(
+                reader = std::make_unique<DorisCompoundReader>(
                         DorisCompoundDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
                         FLAGS_idx_file_name.c_str(), 4096);
                 std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
@@ -466,6 +472,154 @@ int main(int argc, char** argv) {
             std::cout << "delete temporary index writer path: " << index_writer_path << " failed."
                       << std::endl;
             return -1;
+        }
+    } else if (FLAGS_operation == "write_index_v2") {
+        if (FLAGS_idx_file_path == "") {
+            std::cout << "no index path flag for check " << std::endl;
+            return -1;
+        }
+        if (FLAGS_data_file_path == "") {
+            std::cout << "no data file flag for check " << std::endl;
+            return -1;
+        }
+        std::string name = "test";
+        std::string file_dir = FLAGS_idx_file_path;
+        std::string file_name = "test_index_0.dat";
+        int64_t index_id = 1;
+        std::string index_suffix = "";
+        auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                file_dir + "/" + file_name, index_id, index_suffix);
+        std::vector<std::string> datas;
+        {
+            if (std::filesystem::exists(FLAGS_data_file_path) &&
+                std::filesystem::file_size(FLAGS_data_file_path) == 0) {
+                std::cerr << "Error: File '" << FLAGS_data_file_path << "' is empty." << std::endl;
+                return -1;
+            } else {
+                std::ifstream ifs;
+                std::cout << "prepare to load " << FLAGS_data_file_path << std::endl;
+
+                ifs.open(FLAGS_data_file_path);
+                if (!ifs) {
+                    std::cerr << "Error: Unable to open file '" << FLAGS_data_file_path << "'."
+                              << std::endl;
+                    return -1;
+                } else {
+                    std::string line;
+                    while (std::getline(ifs, line)) {
+                        datas.emplace_back(line);
+                    }
+                    ifs.close();
+                }
+            }
+        }
+
+        auto fs = doris::io::global_local_filesystem();
+        auto dir = std::unique_ptr<lucene::store::Directory>(
+                DorisCompoundDirectoryFactory::getDirectory(fs, index_path.c_str()));
+
+        auto analyzer = _CLNEW lucene::analysis::standard95::StandardAnalyzer();
+        // auto analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<char>();
+        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir.get(), analyzer, true, true);
+        indexwriter->setRAMBufferSizeMB(512);
+        indexwriter->setMaxFieldLength(0x7FFFFFFFL);
+        indexwriter->setMergeFactor(100000000);
+        indexwriter->setUseCompoundFile(false);
+
+        auto char_string_reader = _CLNEW lucene::util::SStringReader<char>;
+
+        auto doc = _CLNEW lucene::document::Document();
+        auto field_config = (int32_t)(lucene::document::Field::STORE_NO);
+        field_config |= (int32_t)(lucene::document::Field::INDEX_NONORMS);
+        field_config |= lucene::document::Field::INDEX_TOKENIZED;
+        auto field_name = std::wstring(name.begin(), name.end());
+        auto field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
+        field->setOmitTermFreqAndPositions(false);
+        doc->add(*field);
+
+        for (int32_t j = 0; j < 1; j++) {
+            for (auto& str : datas) {
+                char_string_reader->init(str.data(), str.size(), false);
+                auto stream = analyzer->reusableTokenStream(field->name(), char_string_reader);
+                field->setValue(stream);
+
+                // field->setValue(str.data(), str.size());
+
+                indexwriter->addDocument(doc);
+            }
+        }
+        indexwriter->close();
+
+        _CLLDELETE(indexwriter);
+        _CLLDELETE(doc);
+        _CLLDELETE(analyzer);
+        _CLLDELETE(char_string_reader);
+
+        auto index_compound_writer =
+                std::make_unique<DorisMultiIndexCompoundWriter>(fs, file_dir, file_name);
+        std::vector<std::pair<int64_t, std::string>> index_ids;
+        index_ids.emplace_back(index_id, index_suffix);
+        auto st = index_compound_writer->initialize(index_ids);
+        if (!st.ok()) {
+            std::cerr << "DorisMultiIndexCompoundWriter init error:" << st.msg() << std::endl;
+            return -1;
+        }
+        index_compound_writer->writeCompoundFile();
+    } else if (FLAGS_operation == "show_nested_files_v2") {
+        if (FLAGS_idx_file_path == "") {
+            std::cout << "no file flag for show " << std::endl;
+            return -1;
+        }
+        std::filesystem::path p(FLAGS_idx_file_path);
+        std::string dir_str = p.parent_path().string();
+        std::string file_str = p.filename().string();
+        auto fs = doris::io::global_local_filesystem();
+        try {
+            std::unique_ptr<lucene::store::Directory> dir =
+                    std::unique_ptr<lucene::store::Directory>(
+                            DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()));
+            auto compound_reader = std::make_unique<DorisMultiIndexCompoundReader>(
+                    dir.get(), file_str.c_str(), 4096);
+            std::vector<std::string> files;
+            int64_t index_id = 1;
+
+            std::cout << "Nested files for " << file_str << std::endl;
+            std::cout << "==================================" << std::endl;
+            CLuceneError err;
+            auto reader = compound_reader->open(index_id, err);
+            reader->list(&files);
+            for (auto& file : files) {
+                std::cout << file << std::endl;
+            }
+        } catch (CLuceneError& err) {
+            std::cerr << "error occurred when show files: " << err.what() << std::endl;
+        }
+    } else if (FLAGS_operation == "check_terms_stats_v2") {
+        if (FLAGS_idx_file_path == "") {
+            std::cout << "no file flag for check " << std::endl;
+            return -1;
+        }
+        std::filesystem::path p(FLAGS_idx_file_path);
+        std::string dir_str = p.parent_path().string();
+        std::string file_str = p.filename().string();
+        auto fs = doris::io::global_local_filesystem();
+        int64_t index_id = 1;
+        try {
+            auto dir = std::unique_ptr<lucene::store::Directory>(
+                    DorisCompoundDirectoryFactory::getDirectory(fs, dir_str.c_str()));
+            auto compound_reader = std::make_unique<DorisMultiIndexCompoundReader>(
+                    dir.get(), file_str.c_str(), 4096);
+            CLuceneError err;
+
+            auto reader =
+                    std::unique_ptr<DorisCompoundReader>(compound_reader->open(index_id, err));
+            compound_reader->debug_file_entries();
+            std::cout << "Term statistics for " << file_str << std::endl;
+            std::cout << "==================================" << std::endl;
+            check_terms_stats(reader.get());
+            reader->close();
+        } catch (CLuceneError& err) {
+            std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
         }
     } else {
         std::cerr << "invalid operation: " << FLAGS_operation << "\n" << usage << std::endl;

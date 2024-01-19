@@ -75,6 +75,7 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
             request.time_series_compaction_level_threshold);
+            request.inverted_index_storage_format);
 }
 
 TabletMeta::TabletMeta()
@@ -94,7 +95,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_file_count_threshold,
                        int64_t time_series_compaction_time_threshold_seconds,
                        int64_t time_series_compaction_empty_rowsets_threshold,
-                       int64_t time_series_compaction_level_threshold)
+                       int64_t time_series_compaction_level_threshold,
+                       TInvertedIndexStorageFormat::type inverted_index_storage_format)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -169,6 +171,18 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         break;
     default:
         schema->set_compression_type(segment_v2::LZ4F);
+        break;
+    }
+
+    switch (inverted_index_storage_format) {
+    case TInvertedIndexStorageFormat::V1:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        break;
+    case TInvertedIndexStorageFormat::V2:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        break;
+    default:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
     }
 

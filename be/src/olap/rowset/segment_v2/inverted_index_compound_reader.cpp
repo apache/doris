@@ -50,19 +50,6 @@ using FileWriterPtr = std::unique_ptr<doris::io::FileWriter>;
 namespace doris {
 namespace segment_v2 {
 
-class DorisCompoundReader::ReaderFileEntry : LUCENE_BASE {
-public:
-    std::string file_name {};
-    int64_t offset;
-    int64_t length;
-    ReaderFileEntry() {
-        //file_name = nullptr;
-        offset = 0;
-        length = 0;
-    }
-    ~ReaderFileEntry() override = default;
-};
-
 /** Implementation of an IndexInput that reads from a portion of the
  *  compound file.
  */
@@ -210,7 +197,9 @@ void DorisCompoundReader::copyFile(const char* file, int64_t file_length, uint8_
 }
 
 DorisCompoundReader::~DorisCompoundReader() {
-    _CLDELETE(entries)
+    if (_own_index_input) {
+        _CLDELETE(entries)
+    }
 }
 
 const char* DorisCompoundReader::getClassName() {
@@ -282,7 +271,7 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
     }
 
     // If file is in RAM, just return.
-    if (ram_dir->fileExists(name)) {
+    if (ram_dir && ram_dir->fileExists(name)) {
         return ram_dir->openInput(name, ret, error, bufferSize);
     }
 
@@ -296,15 +285,19 @@ bool DorisCompoundReader::openInput(const char* name, lucene::store::IndexInput*
 
 void DorisCompoundReader::close() {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    if (stream != nullptr) {
+    if (_own_index_input && stream != nullptr) {
         entries->clear();
         stream->close();
         _CLDELETE(stream)
     }
-    ram_dir->close();
-    dir->close();
-    _CLDECDELETE(dir)
-    _CLDELETE(ram_dir)
+    if (ram_dir) {
+        ram_dir->close();
+        _CLDELETE(ram_dir)
+    }
+    if (dir) {
+        dir->close();
+        _CLDECDELETE(dir)
+    }
 }
 
 bool DorisCompoundReader::doDeleteFile(const char* /*name*/) {
@@ -334,6 +327,88 @@ std::string DorisCompoundReader::toString() const {
 
 CL_NS(store)::IndexInput* DorisCompoundReader::getDorisIndexInput() {
     return stream;
+}
+
+DorisMultiIndexCompoundReader::DorisMultiIndexCompoundReader(lucene::store::Directory* dir,
+                                                             const char* name,
+                                                             int32_t readBufferSize) {
+    bool success = false;
+    try {
+        stream = std::unique_ptr<CL_NS(store)::IndexInput>(dir->openInput(name, readBufferSize));
+        int32_t version = stream->readInt(); // Read version number
+        if (version == INVERTED_INDEX_FORMAT_V2) {
+            int32_t numIndices = stream->readInt(); // Read number of indices
+            ReaderFileEntry* entry = nullptr;
+
+            for (int32_t i = 0; i < numIndices; ++i) {
+                int64_t indexId = stream->readInt();  // Read index ID
+                int32_t numFiles = stream->readInt(); // Read number of files in the index
+
+                // true, true means it will deconstruct key and value
+                auto fileEntries = std::make_unique<EntriesType>(true, true);
+
+                for (int32_t j = 0; j < numFiles; ++j) {
+                    entry = _CLNEW ReaderFileEntry();
+
+                    int32_t file_name_length = stream->readInt();
+                    // aid will destruct in EntriesType map.
+                    char* aid = (char*)malloc(file_name_length + 1);
+                    stream->readBytes(reinterpret_cast<uint8_t*>(aid), file_name_length);
+                    aid[file_name_length] = '\0';
+                    //stream->readString(tid, CL_MAX_PATH);
+                    entry->file_name = std::string(aid, file_name_length);
+                    entry->offset = stream->readLong();
+                    entry->length = stream->readLong();
+
+                    fileEntries->put(aid, entry);
+                }
+
+                _indices_entries.emplace(indexId, std::move(fileEntries));
+            }
+        }
+        success = true;
+    }
+    _CLFINALLY(if (!success && (stream != nullptr)) {
+        try {
+            stream->close();
+        } catch (CLuceneError& err) {
+            if (err.number() != CL_ERR_IO) {
+                throw err;
+            }
+        }
+    })
+}
+
+DorisCompoundReader* DorisMultiIndexCompoundReader::open(int64_t index_id, CLuceneError& error,
+                                                         int32_t bufferSize) {
+    if (stream == nullptr) {
+        error.set(CL_ERR_IO, "Stream closed");
+        return nullptr;
+    }
+
+    // Check if the specified index exists
+    auto index_it = _indices_entries.find(index_id);
+    if (index_it == _indices_entries.end()) {
+        char buf[100];
+        snprintf(buf, 100, "No index with id %ld found", index_id);
+        error.set(CL_ERR_IO, buf);
+        return nullptr;
+    }
+    bool own_index_input = false;
+    return _CLNEW DorisCompoundReader(stream.get(), index_it->second.get(), own_index_input,
+                                      bufferSize);
+}
+
+void DorisMultiIndexCompoundReader::debug_file_entries() {
+    for (auto& index : _indices_entries) {
+        LOG(INFO) << "index_id:" << index.first;
+        auto* index_entries = index.second.get();
+        for (auto& entry : (*index_entries)) {
+            ReaderFileEntry* file_entry = entry.second;
+            LOG(INFO) << "file entry name:" << file_entry->file_name
+                      << " length:" << file_entry->length << " offset:" << file_entry->offset;
+        }
+    }
 }
 
 } // namespace segment_v2

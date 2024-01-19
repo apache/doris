@@ -951,6 +951,12 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _schema_version = schema.schema_version();
+    // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
+    if (!schema.has_inverted_index_storage_format()) {
+        _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
+    } else {
+        _inverted_index_storage_format = schema.inverted_index_storage_format();
+    }
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {

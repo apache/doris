@@ -20,8 +20,10 @@
 #include "CLucene/SharedHeader.h"
 #include "CLucene/_SharedHeader.h"
 #include "common/status.h"
+#include "inverted_index_desc.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
+#include "olap/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
 
@@ -77,6 +79,132 @@ namespace doris::segment_v2 {
 
 const char* const DorisCompoundDirectory::WRITE_LOCK_FILE = "write.lock";
 const char* const DorisCompoundDirectory::COMPOUND_FILE_EXTENSION = ".idx";
+
+Status DorisMultiIndexCompoundWriter::initialize(
+        const std::vector<std::pair<int64_t, std::string>>& indices) {
+    for (const auto& index : indices) {
+        auto index_id = index.first;
+        auto index_suffix = index.second;
+        auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
+                _segment_file_path + "/" + _segment_file_name, index_id, index_suffix);
+
+        bool exists = false;
+        auto st = _fs->exists(index_path.c_str(), &exists);
+        if (!st.ok()) {
+            LOG(ERROR) << "index_path:" << index_path << " exists error:" << st;
+            return st;
+        }
+        if (!exists) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index path not found:", index_path);
+        }
+        auto dir = DorisCompoundDirectoryFactory::getDirectory(_fs, index_path.c_str());
+        _indices_dirs.insert(std::make_pair(index_id, dir));
+    }
+    return Status::OK();
+}
+
+size_t DorisMultiIndexCompoundWriter::headerLength() {
+    size_t header_size = 0;
+    header_size +=
+            sizeof(int) * 2; // Account for the size of the version number and number of indices
+    for (const auto& entry : _indices_dirs) {
+        header_size += sizeof(int); // index id
+        header_size += sizeof(int); // index file count
+        const auto& dir = entry.second;
+        std::vector<std::string> files;
+        dir->list(&files);
+
+        for (auto file : files) {
+            header_size += 4;             // file name size
+            header_size += file.length(); // file name
+            header_size += 8;             // file offset
+            header_size += 8;             // file size
+        }
+    }
+    return header_size;
+}
+
+size_t DorisMultiIndexCompoundWriter::writeCompoundFile() {
+    // Create the output stream to write the compound file
+    std::string idx_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name);
+    auto* out_dir = DorisCompoundDirectoryFactory::getDirectory(_fs, _segment_file_path.c_str());
+
+    auto compound_file_output =
+            std::unique_ptr<lucene::store::IndexOutput>(out_dir->createOutput(idx_name.c_str()));
+    int64_t current_offset = headerLength();
+
+    // Write the version number
+    compound_file_output->writeInt(INVERTED_INDEX_FORMAT_V2);
+
+    // Write the number of indices
+    const uint32_t numIndices = static_cast<uint32_t>(_indices_dirs.size());
+    compound_file_output->writeInt(numIndices);
+
+    std::vector<std::tuple<std::string, int64_t, int64_t, CL_NS(store)::Directory*>>
+            file_metadata; // Store file name, offset, file length, and corresponding directory
+
+    // First, write all index information and file metadata
+    for (const auto& entry : _indices_dirs) {
+        const int64_t indexId = entry.first;
+        const auto& dir = entry.second;
+        std::vector<std::string> files;
+        dir->list(&files);
+
+        auto it = std::find(files.begin(), files.end(), DorisCompoundDirectory::WRITE_LOCK_FILE);
+        if (it != files.end()) {
+            files.erase(it);
+        }
+        // sort file list by file length
+        std::vector<std::pair<std::string, int64_t>> sorted_files;
+        for (auto file : files) {
+            sorted_files.push_back(std::make_pair(
+                    file, ((DorisCompoundDirectory*)dir.get())->fileLength(file.c_str())));
+        }
+        std::sort(sorted_files.begin(), sorted_files.end(),
+                  [](const std::pair<std::string, int64_t>& a,
+                     const std::pair<std::string, int64_t>& b) { return (a.second < b.second); });
+
+        int32_t file_count = sorted_files.size();
+
+        // Write the index ID and the number of files
+        compound_file_output->writeInt(indexId);
+        compound_file_output->writeInt(file_count);
+
+        // Calculate the offset for each file and write the file metadata
+        for (const auto& file : sorted_files) {
+            int64_t file_length = dir->fileLength(file.first.c_str());
+            const auto* file_name = reinterpret_cast<const uint8_t*>(file.first.c_str());
+            compound_file_output->writeInt(file.first.length());
+            compound_file_output->writeBytes(file_name, file.first.length());
+            compound_file_output->writeLong(current_offset);
+            compound_file_output->writeLong(file_length);
+
+            file_metadata.emplace_back(file.first, current_offset, file_length, dir.get());
+            current_offset += file_length; // Update the data offset
+        }
+    }
+
+    const int64_t buffer_length = 16384;
+    uint8_t header_buffer[buffer_length];
+
+    // Next, write the file data
+    for (const auto& info : file_metadata) {
+        const std::string& file = std::get<0>(info);
+        CL_NS(store)::Directory* dir = std::get<3>(info);
+
+        // Write the actual file data
+        copyFile(file.c_str(), dir, compound_file_output.get(), header_buffer, buffer_length);
+    }
+
+    out_dir->close();
+    // NOTE: need to decrease ref count, but not to delete here,
+    // because index cache may get the same directory from DIRECTORIES
+    _CLDECDELETE(out_dir)
+    auto compound_file_size = compound_file_output->getFilePointer();
+    compound_file_output->close();
+    return compound_file_size;
+}
 
 DorisCompoundFileWriter::DorisCompoundFileWriter(CL_NS(store)::Directory* dir) {
     if (dir == nullptr) {
@@ -153,7 +281,7 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
         ram_output->writeLong(file.filesize);   // file length
         header_file_length += file.filesize;
         if (header_file_length <= DorisCompoundDirectory::MAX_HEADER_DATA_SIZE) {
-            copyFile(file.filename.c_str(), ram_output.get(), ram_buffer, buffer_length);
+            copyFile(file.filename.c_str(), directory, ram_output.get(), ram_buffer, buffer_length);
             header_file_count++;
         }
     }
@@ -189,7 +317,7 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
         output->writeLong(file.filesize); // FileLength
         if (i < header_file_count) {
             // append data
-            copyFile(file.filename.c_str(), output.get(), header_buffer, buffer_length);
+            copyFile(file.filename.c_str(), directory, output.get(), header_buffer, buffer_length);
         } else {
             data_offset += file.filesize;
         }
@@ -198,7 +326,7 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
     uint8_t data_buffer[buffer_length];
     for (int i = header_file_count; i < sorted_files.size(); ++i) {
         auto file = sorted_files[i];
-        copyFile(file.filename.c_str(), output.get(), data_buffer, buffer_length);
+        copyFile(file.filename.c_str(), directory, output.get(), data_buffer, buffer_length);
     }
     out_dir->close();
     // NOTE: need to decrease ref count, but not to delete here,
@@ -210,11 +338,12 @@ size_t DorisCompoundFileWriter::writeCompoundFile() {
     return compound_file_size;
 }
 
-void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::IndexOutput* output,
-                                       uint8_t* buffer, int64_t bufferLength) {
+void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::Directory* dir,
+                                       lucene::store::IndexOutput* output, uint8_t* buffer,
+                                       int64_t bufferLength) {
     lucene::store::IndexInput* tmp = nullptr;
     CLuceneError err;
-    if (!directory->openInput(fileName, tmp, err)) {
+    if (!dir->openInput(fileName, tmp, err)) {
         throw err;
     }
 
