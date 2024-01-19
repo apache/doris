@@ -281,8 +281,10 @@ public class PhysicalHashJoin<
                 .sorted().collect(Collectors.joining(" and ", " hashCondition=(", ")")));
         builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
                 .sorted().collect(Collectors.joining(" and ", " otherCondition=(", ")")));
-        builder.append(markJoinConjuncts.stream().map(cond -> cond.shapeInfo())
-                .sorted().collect(Collectors.joining(" and ", " markCondition=(", ")")));
+        if (!markJoinConjuncts.isEmpty()) {
+            builder.append(markJoinConjuncts.stream().map(cond -> cond.shapeInfo()).sorted()
+                    .collect(Collectors.joining(" and ", " markCondition=(", ")")));
+        }
         if (!runtimeFilters.isEmpty()) {
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
