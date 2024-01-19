@@ -4928,6 +4928,10 @@ kill_stmt ::=
     {:
         RESULT = new KillStmt(false, value.intValue());
     :}
+    | KW_KILL KW_QUERY STRING_LITERAL:value
+    {:
+        RESULT = new KillStmt(value);
+    :}
     ;
 
 kill_analysis_job_stmt ::=
