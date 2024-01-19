@@ -209,7 +209,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        // Skip tables that are too width.
+        // Skip tables that are too wide.
         if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
             return null;
         }
