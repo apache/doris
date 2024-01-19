@@ -69,6 +69,7 @@ import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
@@ -131,6 +132,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -250,7 +252,6 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
-import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
@@ -362,6 +363,7 @@ public class Env {
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
+    private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private ExportTaskRegister exportTaskRegister;
@@ -621,7 +623,7 @@ public class Env {
     }
 
     private static class SingletonHolder {
-        private static final Env INSTANCE = new Env();
+        private static final Env INSTANCE = EnvFactory.getInstance().createEnv(false);
     }
 
     private Env() {
@@ -629,7 +631,7 @@ public class Env {
     }
 
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
-    private Env(boolean isCheckpointCatalog) {
+    public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
@@ -649,6 +651,7 @@ public class Env {
         if (Config.enable_storage_policy) {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
+        this.externalMetaIdMgr = new ExternalMetaIdMgr();
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
@@ -670,7 +673,7 @@ public class Env {
         this.journalObservable = new JournalObservable();
         this.masterInfo = new MasterInfo();
 
-        this.systemInfo = new SystemInfoService();
+        this.systemInfo = EnvFactory.getInstance().createSystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
@@ -770,7 +773,7 @@ public class Env {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = new Env(true);
+                CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
         } else {
@@ -842,6 +845,14 @@ public class Env {
 
     public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
         return workloadRuntimeStatusMgr;
+    }
+
+    public ExternalMetaIdMgr getExternalMetaIdMgr() {
+        return externalMetaIdMgr;
+    }
+
+    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
+        return metastoreEventsProcessor;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1638,9 +1649,6 @@ public class Env {
         streamLoadRecordMgr.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
         getRefreshManager().start();
 
         // binlog gcer
@@ -1662,6 +1670,9 @@ public class Env {
         domainResolver.start();
         // fe disk updater
         feDiskUpdater.start();
+        if (Config.enable_hms_events_incremental_sync) {
+            metastoreEventsProcessor.start();
+        }
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -2451,6 +2462,7 @@ public class Env {
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
                 deleteHandler.removeOldDeleteInfos();
+                loadManager.removeOverLimitLoadJob();
             }
         };
     }
@@ -3241,12 +3253,17 @@ public class Env {
 
             // replicationNum
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
-            sb.append(replicaAlloc.toCreateStmt()).append("\"");
+            if (Config.isCloudMode()) {
+                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTTLSeconds()).append("\"");
+            } else {
+                sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
+                sb.append(replicaAlloc.toCreateStmt()).append("\"");
 
-            // min load replica num
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
-            sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+                // min load replica num
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM).append("\" = \"");
+                sb.append(olapTable.getMinLoadReplicaNum()).append("\"");
+            }
 
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -3292,6 +3309,11 @@ public class Env {
             // only display z-order sort info
             if (olapTable.isZOrderSort()) {
                 sb.append(olapTable.getDataSortInfo().toSql());
+            }
+
+            if (olapTable.getTTLSeconds() != 0) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTTLSeconds()).append("\"");
             }
 
             // in memory
@@ -4553,7 +4575,7 @@ public class Env {
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
             // rename column is not implemented for table without column unique id.
-            if (entry.getValue().getMaxColUniqueId() < 0) {
+            if (entry.getValue().getMaxColUniqueId() <= 0) {
                 throw new DdlException("not implemented for table without column unique id,"
                         + " which are created with property 'light_schema_change'.");
             }
@@ -4968,6 +4990,27 @@ public class Env {
 
     public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
         this.alter.getClusterHandler().cancel(stmt);
+    }
+
+    public void checkCloudClusterPriv(String clusterName) throws DdlException {
+        // check resource usage privilege
+        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+                clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new DdlException("USAGE denied to user "
+                    + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
+                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        }
+
+        if (!Env.getCurrentSystemInfo().getCloudClusterNames().contains(clusterName)) {
+            LOG.debug("current instance does not have a cluster name :{}", clusterName);
+            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+                    ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
+        }
+    }
+
+    public static void waitForAutoStart(final String clusterName) throws DdlException {
+        // TODO: merge from cloud.
+        throw new DdlException("Env.waitForAutoStart unimplemented");
     }
 
     // Switch catalog of this sesseion.
@@ -5650,33 +5693,11 @@ public class Env {
             }
         }
 
-        if (!isReplay && !Env.isCheckpointThread()) {
-            // drop all replicas
-            AgentBatchTask batchTask = new AgentBatchTask();
-            for (Partition partition : olapTable.getAllPartitions()) {
-                List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
-                for (MaterializedIndex materializedIndex : allIndices) {
-                    long indexId = materializedIndex.getId();
-                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                    for (Tablet tablet : materializedIndex.getTablets()) {
-                        long tabletId = tablet.getId();
-                        List<Replica> replicas = tablet.getReplicas();
-                        for (Replica replica : replicas) {
-                            long backendId = replica.getBackendId();
-                            long replicaId = replica.getId();
-                            DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
-                                    replicaId, schemaHash, true);
-                            batchTask.addTask(dropTask);
-                        } // end for replicas
-                    } // end for tablets
-                } // end for indices
-            } // end for partitions
-            AgentTaskExecutor.submit(batchTask);
-        }
-
         // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
+
+        getInternalCatalog().eraseTableDropBackendReplicas(olapTable, isReplay);
     }
 
     public void onErasePartition(Partition partition) {
@@ -5687,6 +5708,8 @@ public class Env {
                 invertedIndex.deleteTablet(tablet.getId());
             }
         }
+
+        getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
     }
 
     public void cleanTrash(AdminCleanTrashStmt stmt) {

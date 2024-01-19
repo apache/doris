@@ -95,14 +95,14 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
-    private long nextVersion;
+    protected long nextVersion;
     @Deprecated
     @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -181,7 +181,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion) {
+    protected void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
     }
@@ -331,7 +331,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
+        Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }

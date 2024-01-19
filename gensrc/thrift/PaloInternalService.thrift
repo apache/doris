@@ -649,6 +649,9 @@ struct TCondition {
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
     5:  optional bool marked_by_runtime_filter = false
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {
@@ -715,6 +718,8 @@ struct TPipelineFragmentParams {
   35: optional map<i32, i32> bucket_seq_to_instance_idx
   36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
   37: optional i32 parallel_instances
+  38: optional i32 total_instances
+  39: optional map<i32, i32> shuffle_idx_to_instance_idx
 
   // For cloud
   1000: optional bool is_mow_table;

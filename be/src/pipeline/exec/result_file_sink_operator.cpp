@@ -173,9 +173,9 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
+    // For pipelinex engine, the writer is closed in async thread process_block
+    if (_writer) {
+        Status st = _writer->get_writer_status();
         if (!st.ok() && exec_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;

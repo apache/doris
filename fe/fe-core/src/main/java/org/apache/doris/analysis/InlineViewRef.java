@@ -200,7 +200,7 @@ public class InlineViewRef extends TableRef {
         if (view == null && !hasExplicitAlias()) {
             String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
             Dialect sqlDialect = Dialect.getByName(dialect);
-            if (Dialect.SPARK_SQL != sqlDialect) {
+            if (Dialect.SPARK != sqlDialect) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
             }
             hasExplicitAlias = true;

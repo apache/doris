@@ -693,8 +693,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        static_cast<void>(NullOrEmptyImpl::execute(context, block, arguments, result,
-                                                   input_rows_count, false));
+        RETURN_IF_ERROR(NullOrEmptyImpl::execute(context, block, arguments, result,
+                                                 input_rows_count, false));
         return Status::OK();
     }
 };
@@ -714,8 +714,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        static_cast<void>(NullOrEmptyImpl::execute(context, block, arguments, result,
-                                                   input_rows_count, true));
+        RETURN_IF_ERROR(NullOrEmptyImpl::execute(context, block, arguments, result,
+                                                 input_rows_count, true));
         return Status::OK();
     }
 };
@@ -3243,7 +3243,7 @@ private:
     void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
                           IColumn::Offsets& offsets) const {
         if (0 == *num) {
-            chars.push_back(' ');
+            chars.push_back('\0');
             offsets[line_num] = offsets[line_num - 1] + 1;
             return;
         }
@@ -3257,7 +3257,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + k + 1;
         for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #else
         int k = 0;
@@ -3268,7 +3268,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + 4 - k;
         for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #endif
     }

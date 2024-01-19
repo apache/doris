@@ -19,19 +19,21 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -69,7 +71,8 @@ class CompareOuterJoinTest extends SqlTestBase {
 
     @Test
     void testRandomQuery() {
-        Plan p1 = new HyperGraphBuilder().randomBuildPlanWith(3, 3);
+        Plan p1 = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildPlanWith(3, 3);
         p1 = PlanChecker.from(connectContext, p1)
                 .analyze()
                 .rewrite()
@@ -194,9 +197,9 @@ class CompareOuterJoinTest extends SqlTestBase {
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = AbstractMaterializedViewRule.extractStructInfo(p1,
+        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
                 null).get(0);
-        StructInfo st2 = AbstractMaterializedViewRule.extractStructInfo(p2,
+        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
                 null).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);

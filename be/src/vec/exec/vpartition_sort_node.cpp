@@ -116,7 +116,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto aggregate_data = _pool->add(new PartitionBlocks());
+                    auto* aggregate_data = _pool->add(new PartitionBlocks());
                     _value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);
                     _num_partition++;
@@ -168,8 +168,6 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             } else {
                 RETURN_IF_ERROR(_split_block_by_partition(input_block, state->batch_size()));
                 RETURN_IF_CANCELLED(state);
-                RETURN_IF_ERROR(
-                        state->check_query_state("VPartitionSortNode, while split input block."));
                 input_block->clear_column_data();
             }
         }
@@ -237,7 +235,6 @@ Status VPartitionSortNode::alloc_resource(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("VPartitionSortNode, while open."));
     return Status::OK();
 }
 

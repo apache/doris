@@ -29,6 +29,7 @@
 
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_column_convert.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
@@ -183,6 +184,7 @@ private:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
+    std::unique_ptr<ParquetConvert::ColumnConvert> _converter = nullptr;
 
     Status _skip_values(size_t num_values);
     Status _read_values(size_t num_values, ColumnPtr& doris_column, DataTypePtr& type,

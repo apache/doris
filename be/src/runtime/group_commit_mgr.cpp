@@ -61,6 +61,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     if (block->rows() > 0) {
         if (!config::group_commit_wait_replay_wal_finish) {
             _block_queue.push_back(block);
+            _data_bytes += block->bytes();
+            _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
         } else {
             LOG(INFO) << "skip adding block to queue on txn " << txn_id;
         }
@@ -71,8 +73,6 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                 return st;
             }
         }
-        _data_bytes += block->bytes();
-        _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
     }
     if (_data_bytes >= _group_commit_data_bytes) {
         VLOG_DEBUG << "group commit meets commit condition for data size, label=" << label
@@ -226,7 +226,8 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
         }
     }
-    return Status::InternalError("can not get a block queue");
+    return Status::InternalError("can not get a block queue for table_id: " +
+                                 std::to_string(_table_id));
 }
 
 Status GroupCommitTable::_create_group_commit_load(

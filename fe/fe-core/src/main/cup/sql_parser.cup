@@ -1066,6 +1066,11 @@ import_column_descs ::=
         columns.add(column);
         RESULT = columns;
     :}
+    | import_column_descs:columns COMMA LPAREN import_column_desc:column RPAREN
+    {:
+        columns.add(column);
+        RESULT = columns;
+    :}
     ;
 
 import_column_desc ::=
@@ -3989,11 +3994,11 @@ show_param ::=
     /* Database */
     | KW_DATABASES opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
-    | KW_DATABASES KW_FROM ident:catalogName
+    | KW_DATABASES KW_FROM ident:catalogName opt_wild_where
     {:
-        RESULT = new ShowDbStmt(null, null, catalogName);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
@@ -4007,7 +4012,7 @@ show_param ::=
     :}
     | KW_SCHEMAS opt_wild_where
     {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where);
+        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
     :}
     | KW_SCHEMAS KW_FROM ident:catalogName
     {:
@@ -4030,6 +4035,10 @@ show_param ::=
     :}
     /* Columns */
     | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
+    :}
+    | opt_full KW_FIELDS from_or_in table_name:table opt_db:db opt_wild_where
     {:
         RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
     :}
@@ -4469,6 +4478,10 @@ opt_full ::=
     {:
         parser.isVerbose = true;
     :}
+    | KW_EXTENDED
+    {:
+        parser.isVerbose = true;
+    :}
     ;
 
 opt_wild_where ::=
@@ -4543,27 +4556,11 @@ describe_stmt ::=
     {:
         RESULT = new DescribeStmt(table, false, partitionNames);
     :}
-    | KW_SHOW KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
-    | KW_SHOW KW_COLUMNS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, false);
-    :}
     | describe_command KW_FUNCTION table_valued_function_ref:tvf
     {:
         RESULT = new DescribeStmt(tvf);
     :}
     | describe_command table_name:table KW_ALL
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_FIELDS KW_FROM table_name:table
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | KW_SHOW KW_EXTENDED KW_COLUMNS KW_FROM table_name:table
     {:
         RESULT = new DescribeStmt(table, true);
     :}

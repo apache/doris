@@ -84,10 +84,12 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -735,8 +737,12 @@ public class StatisticsUtil {
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
-        for (FileScanTask task : tableScan.planFiles()) {
-            processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+        try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
+            for (FileScanTask task : fileScanTasks) {
+                processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+            }
+        } catch (IOException e) {
+            LOG.warn("Error to close FileScanTask.", e);
         }
         if (columnStatisticBuilder.getCount() > 0) {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()

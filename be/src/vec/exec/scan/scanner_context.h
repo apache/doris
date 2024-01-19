@@ -134,8 +134,7 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     inline bool should_be_scheduled() const {
-        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
-               (_serving_blocks_num < allowed_blocks_num());
+        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
     int get_available_thread_slot_num() {
@@ -159,6 +158,9 @@ public:
 
     virtual void reschedule_scanner_ctx();
     void stop_scanners(RuntimeState* state);
+
+    int32_t get_max_thread_num() const { return _max_thread_num; }
+    void set_max_thread_num(int32_t num) { _max_thread_num = num; }
 
     // the unique id of this context
     std::string ctx_id;

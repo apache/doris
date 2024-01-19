@@ -275,18 +275,19 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreams& st
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
+    auto idle_timeout_ms = _state->execution_timeout() * 1000;
     // get tablet schema from each backend only in the 1st stream
     for (auto& stream : streams.streams() | std::ranges::views::take(1)) {
         const std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
         RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
                                      *node_info, _txn_id, *_schema, tablets_for_schema,
-                                     _total_streams, _state->enable_profile()));
+                                     _total_streams, idle_timeout_ms, _state->enable_profile()));
     }
     // for the rest streams, open without getting tablet schema
     for (auto& stream : streams.streams() | std::ranges::views::drop(1)) {
         RETURN_IF_ERROR(stream->open(stream, _state->exec_env()->brpc_internal_client_cache(),
                                      *node_info, _txn_id, *_schema, {}, _total_streams,
-                                     _state->enable_profile()));
+                                     idle_timeout_ms, _state->enable_profile()));
     }
     return Status::OK();
 }
@@ -456,7 +457,10 @@ Status VTabletWriterV2::_cancel(Status status) {
         _delta_writer_for_tablet.reset();
     }
     for (const auto& [_, streams] : _streams_for_node) {
-        streams->release(status);
+        for (const auto& stream : streams->streams()) {
+            stream->cancel(status);
+        }
+        streams->release();
     }
     return Status::OK();
 }
@@ -513,7 +517,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // defer stream release to prevent memory leak
         Defer defer([&] {
             for (const auto& [_, streams] : _streams_for_node) {
-                streams->release(status);
+                streams->release();
             }
             _streams_for_node.clear();
         });
@@ -572,9 +576,11 @@ Status VTabletWriterV2::close(Status exec_status) {
             }
             auto backends = _location->find_tablet(tablet_id)->node_ids;
             for (auto& backend_id : backends) {
-                auto failed_tablets = _streams_for_node[backend_id]->streams()[0]->failed_tablets();
-                if (failed_tablets.contains(tablet_id)) {
-                    return failed_tablets[tablet_id];
+                for (const auto& stream : _streams_for_node[backend_id]->streams()) {
+                    const auto& failed_tablets = stream->failed_tablets();
+                    if (failed_tablets.contains(tablet_id)) {
+                        return failed_tablets.at(tablet_id);
+                    }
                 }
             }
             DCHECK(false) << "failed tablet " << tablet_id << " should have failed reason";

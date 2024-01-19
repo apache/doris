@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * decimal type literal
  */
-public class DecimalLiteral extends Literal {
+public class DecimalLiteral extends FractionalLiteral {
 
     private final BigDecimal value;
 

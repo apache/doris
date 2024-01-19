@@ -189,9 +189,15 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
-            LOG(WARNING) << "No segid mapping for src_id " << src_id
-                         << " when ADD_SEGMENT, ignored";
-            return Status::OK();
+            return Status::InternalError(
+                    "add segment failed, no segment written by this src be yet, src_id={}, "
+                    "segment_id={}",
+                    src_id, segid);
+        }
+        if (segid >= _segids_mapping[src_id]->size()) {
+            return Status::InternalError(
+                    "add segment failed, segment is never written, src_id={}, segment_id={}",
+                    src_id, segid);
         }
         new_segid = _segids_mapping[src_id]->at(segid);
     }
@@ -515,15 +521,19 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
-        PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
-        load_id.set_hi(UNKNOWN_ID_FOR_TEST);
-        load_id.set_lo(UNKNOWN_ID_FOR_TEST);
-    });
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
-        PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
-        t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
-    });
+    // CLOSE_LOAD message should not be fault injected,
+    // otherwise the message will be ignored and causing close wait timeout
+    if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
+            PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
+            load_id.set_hi(UNKNOWN_ID_FOR_TEST);
+            load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+        });
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
+            PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+            t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
+        });
+    }
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
         Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));

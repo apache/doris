@@ -17,11 +17,13 @@
 
 #include <CLucene.h>
 #include <CLucene/config/repl_wchar.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gflags/gflags.h>
 
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <roaring/roaring.hh>
 #include <sstream>
 #include <string>
@@ -29,12 +31,14 @@
 
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisCompoundDirectoryFactory;
 using doris::io::FileInfo;
+using namespace doris::segment_v2;
 using namespace lucene::analysis;
 using namespace lucene::index;
 using namespace lucene::util;
@@ -83,7 +87,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         _CLDELETE(reader);
         reader = newreader;
     }
-    IndexSearcher s(reader);
+    auto s = std::make_shared<IndexSearcher>(reader);
     std::unique_ptr<lucene::search::Query> query;
 
     std::cout << "version: " << (int32_t)(reader->getIndexVersion()) << std::endl;
@@ -124,13 +128,16 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     if (pred == "match_all") {
         roaring::Roaring result;
         std::vector<std::string> terms = split(token, '|');
-        doris::ConjunctionQuery query(s.getReader());
+
+        doris::TQueryOptions queryOptions;
+        ConjunctionQuery query(s, queryOptions);
         query.add(field_ws, terms);
         query.search(result);
+
         total += result.cardinality();
     } else {
         roaring::Roaring result;
-        s._search(query.get(), [&result](const int32_t docid, const float_t /*score*/) {
+        s->_search(query.get(), [&result](const int32_t docid, const float_t /*score*/) {
             // docid equal to rowid in segment
             result.add(docid);
             if (FLAGS_print_row_id) {
@@ -141,7 +148,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     }
     std::cout << "Term queried count:" << total << std::endl;
 
-    s.close();
+    s->close();
     reader->close();
     _CLLDELETE(reader);
 }
