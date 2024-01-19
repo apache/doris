@@ -102,26 +102,10 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
-          _hash_table_compute_timer(nullptr),
-          _hash_table_input_counter(nullptr),
-          _expr_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _is_merge(false),
-          _serialize_key_timer(nullptr),
-          _merge_timer(nullptr),
-          _get_results_timer(nullptr),
-          _serialize_data_timer(nullptr),
-          _serialize_result_timer(nullptr),
-          _deserialize_data_timer(nullptr),
-          _hash_table_iterate_timer(nullptr),
-          _insert_keys_to_column_timer(nullptr),
-          _streaming_agg_timer(nullptr),
-          _hash_table_size_counter(nullptr),
-          _max_row_size_counter(nullptr) {
+          _is_merge(false) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -534,9 +518,6 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 }
 
 void AggregationNode::release_resource(RuntimeState* state) {
-    for (auto* aggregate_evaluator : _aggregate_evaluators) {
-        aggregate_evaluator->close(state);
-    }
     if (_executor.close) {
         _executor.close();
     }
@@ -596,7 +577,7 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
     }
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        auto column = columns[i].get();
+        auto* column = columns[i].get();
         _aggregate_evaluators[i]->insert_result_info(
                 _agg_data->without_key + _offsets_of_aggregate_states[i], column);
     }
@@ -819,13 +800,13 @@ Status AggregationNode::_reset_hash_table() {
                     }
                 });
 
-                _aggregate_data_container.reset(new AggregateDataContainer(
+                _aggregate_data_container = std::make_unique<AggregateDataContainer>(
                         sizeof(typename HashTableType::key_type),
                         ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                          _align_aggregate_states) *
-                                _align_aggregate_states));
-                hash_table = HashTableType();
-                _agg_arena_pool.reset(new Arena);
+                                _align_aggregate_states);
+                agg_method.hash_table.reset(new HashTableType());
+                _agg_arena_pool = std::make_unique<Arena>();
                 return Status::OK();
             },
             _agg_data->method_variant);
@@ -848,7 +829,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                     try {
-                        HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                        HashMethodType::try_presis_key_and_origin(key, origin, *_agg_arena_pool);
                         auto mapped = _aggregate_data_container->append_data(origin);
                         auto st = _create_agg_status(mapped);
                         if (!st) {

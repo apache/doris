@@ -109,6 +109,8 @@ public:
 
     const FlushStatistic& get_flush_token_stats();
 
+    uint64_t flush_running_count() const;
+
 private:
     // push a full memtable to flush executor
     Status _flush_memtable_async();

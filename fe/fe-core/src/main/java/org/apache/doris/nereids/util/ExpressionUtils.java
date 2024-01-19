@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 
@@ -304,6 +305,22 @@ public class ExpressionUtils {
     }
 
     /**
+     * Generate replaceMap Slot -> Expression from NamedExpression[Expression as name]
+     */
+    public static Map<Slot, Expression> generateReplaceMap(List<NamedExpression> namedExpressions) {
+        return namedExpressions
+                .stream()
+                .filter(Alias.class::isInstance)
+                .collect(
+                        Collectors.toMap(
+                                NamedExpression::toSlot,
+                                // Avoid cast to alias, retrieving the first child expression.
+                                alias -> alias.child(0)
+                        )
+                );
+    }
+
+    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
@@ -343,6 +360,23 @@ public class ExpressionUtils {
         return exprs.stream()
                 .map(expr -> replace(expr, replaceMap))
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     */
+    public static List<NamedExpression> replaceNamedExpressions(List<NamedExpression> namedExpressions,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        return namedExpressions.stream()
+                .map(namedExpression -> {
+                    NamedExpression newExpr = replace(namedExpression, replaceMap);
+                    if (newExpr.getExprId().equals(namedExpression.getExprId())) {
+                        return newExpr;
+                    } else {
+                        return new Alias(namedExpression.getExprId(), newExpr, namedExpression.getName());
+                    }
+                })
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
@@ -638,5 +672,26 @@ public class ExpressionUtils {
                     return false;
                 }
         );
+    }
+
+    /**
+     * Check the expression is inferred or not, if inferred return true, nor return false
+     */
+    public static boolean isInferred(Expression expression) {
+        return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
+
+            @Override
+            public Boolean visit(Expression expr, Void context) {
+                boolean inferred = expr.isInferred();
+                if (expr.isInferred() || expr.children().isEmpty()) {
+                    return inferred;
+                }
+                inferred = true;
+                for (Expression child : expr.children()) {
+                    inferred = inferred && child.accept(this, context);
+                }
+                return inferred;
+            }
+        }, null);
     }
 }

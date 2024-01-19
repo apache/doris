@@ -27,6 +27,7 @@ import org.apache.doris.job.exception.JobException;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.RandomUtils;
 
 @Data
 @Log4j2
@@ -51,6 +52,15 @@ public abstract class AbstractTask implements Task {
 
     @SerializedName(value = "emg")
     private String errMsg;
+
+    public AbstractTask() {
+        taskId = getNextTaskId();
+    }
+
+    private static long getNextTaskId() {
+        // do not use Env.getNextId(), just generate id without logging
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
 
     @Override
     public void onFail(String msg) throws JobException {

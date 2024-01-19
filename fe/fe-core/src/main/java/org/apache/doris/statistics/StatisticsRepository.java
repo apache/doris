@@ -97,10 +97,6 @@ public class StatisticsRepository {
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
-    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + "tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}'";
-
     private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
             + " ${inPredicate}"
@@ -305,6 +301,14 @@ public class StatisticsRepository {
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
             Env.getCurrentEnv().getStatisticsCache()
                     .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
+            AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
+                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setColName("")
+                    .setColToPartitions(Maps.newHashMap())
+                    .setUserInject(true)
+                    .setJobType(AnalysisInfo.JobType.MANUAL)
+                    .build();
+            Env.getCurrentEnv().getAnalysisManager().updateTableStatsForAlterStats(mockedJobInfo, objects.table);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {
@@ -357,12 +361,11 @@ public class StatisticsRepository {
 
     public static List<ResultRow> loadColStats(long tableId, long idxId, String colName) {
         Map<String, String> params = new HashMap<>();
-        params.put("tblId", String.valueOf(tableId));
-        params.put("idxId", String.valueOf(idxId));
-        params.put("colId", StatisticsUtil.escapeSQL(colName));
+        String id = constructId(tableId, idxId, colName);
+        params.put("id", StatisticsUtil.escapeSQL(id));
 
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                .replace(QUERY_COLUMN_STATISTICS));
+                .replace(FETCH_COLUMN_STATISTIC_TEMPLATE));
     }
 
     public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {

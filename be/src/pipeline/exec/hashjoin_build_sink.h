@@ -37,7 +37,7 @@ public:
     bool is_sink() const override { return true; }
 };
 
-class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
+class HashJoinBuildSink final : public StreamingOperator<vectorized::HashJoinNode> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
@@ -94,7 +94,10 @@ protected:
     friend class HashJoinBuildSinkOperatorX;
     template <class HashTableContext, typename Parent>
     friend struct vectorized::ProcessHashTableBuild;
-    friend struct vectorized::ProcessRuntimeFilterBuild;
+    template <typename Parent>
+    friend Status vectorized::process_runtime_filter_build(RuntimeState* state,
+                                                           vectorized::Block* block, Parent* parent,
+                                                           bool is_global);
 
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
@@ -107,7 +110,6 @@ protected:
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
     bool _build_side_ignore_null = false;
-    std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;
 
@@ -163,6 +165,10 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
+    bool is_shuffled_hash_join() const override {
+        return _join_distribution == TJoinDistributionType::PARTITIONED;
+    }
+
 private:
     friend class HashJoinBuildSinkLocalState;
 
@@ -180,7 +186,7 @@ private:
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::vector<TExpr> _partition_exprs;
+    const std::vector<TExpr> _partition_exprs;
 
     const bool _use_global_rf;
 };

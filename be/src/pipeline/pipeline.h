@@ -96,10 +96,10 @@ public:
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink(OperatorBuilderPtr& sink_operator);
+    Status set_sink_builder(OperatorBuilderPtr& sink_operator_builder);
     Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
-    OperatorBuilderBase* sink() { return _sink.get(); }
+    OperatorBuilderBase* get_sink_builder() { return _sink_builder.get(); }
     DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
     OperatorXs& operator_xs() { return operatorXs; }
     DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
@@ -115,12 +115,6 @@ public:
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
     void set_is_root_pipeline() { _is_root_pipeline = true; }
     bool is_root_pipeline() const { return _is_root_pipeline; }
-    void set_collect_query_statistics_with_every_batch() {
-        _collect_query_statistics_with_every_batch = true;
-    }
-    [[nodiscard]] bool collect_query_statistics_with_every_batch() const {
-        return _collect_query_statistics_with_every_batch;
-    }
 
     static bool is_hash_exchange(ExchangeType idx) {
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
@@ -138,8 +132,9 @@ public:
                 return true;
             }
             return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type ||
-                   _data_distribution.partition_exprs != target_data_distribution.partition_exprs;
+                           target_data_distribution.distribution_type &&
+                   !(is_hash_exchange(_data_distribution.distribution_type) &&
+                     is_hash_exchange(target_data_distribution.distribution_type));
         } else {
             return _data_distribution.distribution_type !=
                            target_data_distribution.distribution_type &&
@@ -185,7 +180,7 @@ private:
     void _init_profile();
 
     OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink;            // put block to sink
+    OperatorBuilderPtr _sink_builder;    // put block to sink
 
     std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
@@ -234,7 +229,6 @@ private:
     bool _always_can_read = false;
     bool _always_can_write = false;
     bool _is_root_pipeline = false;
-    bool _collect_query_statistics_with_every_batch = false;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.

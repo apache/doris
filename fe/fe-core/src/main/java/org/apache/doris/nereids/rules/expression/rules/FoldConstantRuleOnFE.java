@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
@@ -120,7 +121,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
         String dbName = encryptKeyRef.getDbName();
-        ConnectContext connectContext = ConnectContext.get();
+        ConnectContext connectContext = context.cascadesContext.getConnectContext();
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = connectContext.getDatabase();
         }
@@ -549,7 +550,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     private Optional<Expression> preProcess(Expression expression) {
-        if (expression instanceof AggregateFunction) {
+        if (expression instanceof AggregateFunction || expression instanceof TableGeneratingFunction) {
             return Optional.of(expression);
         }
         if (expression instanceof PropagateNullable && argsHasNullLiteral(expression)) {

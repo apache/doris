@@ -170,7 +170,6 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
 
     while (columns[_child_slots.size()]->size() < state->batch_size()) {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
         if (_child_block->rows() == 0) {
             break;
@@ -218,7 +217,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
     for (auto index : _useless_slot_indexs) {
         columns[index]->insert_many_defaults(row_size - columns[index]->size());
     }
-
+    output_block->set_columns(std::move(columns));
     // 3. eval conjuncts
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
 

@@ -27,6 +27,8 @@ import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -97,7 +99,7 @@ public class DynamicPartitionProperty {
             this.reservedHistoryPeriods = properties.getOrDefault(
                     RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             this.storagePolicy = properties.getOrDefault(STORAGE_POLICY, "");
-            this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, Config.default_storage_medium);
+            this.storageMedium = properties.getOrDefault(STORAGE_MEDIUM, "");
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -215,26 +217,34 @@ public class DynamicPartitionProperty {
      * use table replication_num as dynamic_partition.replication_num default value
      */
     public String getProperties(ReplicaAllocation tableReplicaAlloc) {
-        ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
-        String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\""
-                + ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\""
-                + ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\""
-                + ",\n\"" + START + "\" = \"" + start + "\""
-                + ",\n\"" + END + "\" = \"" + end + "\""
-                + ",\n\"" + PREFIX + "\" = \"" + prefix + "\""
-                + ",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\""
-                + ",\n\"" + BUCKETS + "\" = \"" + buckets + "\""
-                + ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\""
-                + ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\""
-                + ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\""
-                + ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\""
-                + ",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\""
-                + ",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"";
-        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
-        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
+        StringBuilder sb = new StringBuilder();
+        sb.append(",\n\"" + ENABLE + "\" = \"" + enable + "\"");
+        sb.append(",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"");
+        sb.append(",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"");
+        sb.append(",\n\"" + START + "\" = \"" + start + "\"");
+        sb.append(",\n\"" + END + "\" = \"" + end + "\"");
+        sb.append(",\n\"" + PREFIX + "\" = \"" + prefix + "\"");
+        if (Config.isNotCloudMode()) {
+            ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
+            sb.append(",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\"");
         }
-        return res;
+        sb.append(",\n\"" + BUCKETS + "\" = \"" + buckets + "\"");
+        sb.append(",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"");
+        sb.append(",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"");
+        sb.append(",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"");
+        sb.append(",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"");
+        if (Config.isNotCloudMode()) {
+            sb.append(",\n\"" + STORAGE_POLICY + "\" = \"" + storagePolicy + "\"");
+            if (!Strings.isNullOrEmpty(storageMedium)) {
+                sb.append(",\n\"" + STORAGE_MEDIUM + "\" = \"" + storageMedium + "\"");
+            }
+        }
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            sb.append(",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"");
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            sb.append(",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"");
+        }
+        return sb.toString();
     }
+
 }

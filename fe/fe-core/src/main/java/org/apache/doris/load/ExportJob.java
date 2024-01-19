@@ -73,6 +73,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
@@ -198,7 +199,7 @@ public class ExportJob implements Writable {
 
     private List<ExportTaskExecutor> jobExecutorList;
 
-    private ConcurrentHashMap<Long, ExportTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<Long, TransientTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
 
     private Integer finishedTaskCount = 0;
     private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
@@ -378,6 +379,10 @@ public class ExportJob implements Writable {
         StatementBase statementBase = new LogicalPlanAdapter(outfileLogicalPlan, statementContext);
         statementBase.setOrigStmt(new OriginStatement(statementBase.toSql(), 0));
         return statementBase;
+    }
+
+    public List<? extends TransientTaskExecutor> getTaskExecutors() {
+        return jobExecutorList;
     }
 
     private void generateExportJobExecutor() {
@@ -607,7 +612,7 @@ public class ExportJob implements Writable {
         // we need cancel all task
         taskIdToExecutor.keySet().forEach(id -> {
             try {
-                Env.getCurrentEnv().getExportTaskRegister().cancelTask(id);
+                Env.getCurrentEnv().getTransientTaskManager().cancelMemoryTask(id);
             } catch (JobException e) {
                 LOG.warn("cancel export task {} exception: {}", id, e);
             }

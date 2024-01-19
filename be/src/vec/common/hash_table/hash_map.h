@@ -155,12 +155,6 @@ public:
 
     using HashTable<Key, Cell, Hash, Grower, Allocator>::HashTable;
 
-    /// Call func(const Key &, Mapped &) for each hash map element.
-    template <typename Func>
-    void for_each_value(Func&& func) {
-        for (auto& v : *this) func(v.get_first(), v.get_second());
-    }
-
     /// Call func(Mapped &) for each hash map element.
     template <typename Func>
     void for_each_mapped(Func&& func) {
@@ -210,8 +204,6 @@ public:
     using mapped_type = typename Cell::Mapped;
 
     using LookupResult = typename Base::LookupResult;
-
-    using HashMapTable<Key, Cell, Hash, Grower, Allocator>::HashMapTable;
 
     static uint32_t calc_bucket_size(size_t num_elem) {
         size_t expect_bucket_size = num_elem + (num_elem - 1) / 7;
@@ -273,15 +265,14 @@ public:
             }
         }
 
-        if constexpr (is_mark_join) {
-            return _find_batch_mark<JoinOpType, with_other_conjuncts>(
-                    keys, build_idx_map, probe_idx, probe_rows, probe_idxs, build_idxs,
-                    mark_column);
-        }
-
         if constexpr (with_other_conjuncts) {
             return _find_batch_conjunct<JoinOpType>(keys, build_idx_map, probe_idx, build_idx,
                                                     probe_rows, probe_idxs, build_idxs);
+        }
+
+        if constexpr (is_mark_join) {
+            return _find_batch_mark<JoinOpType>(keys, build_idx_map, probe_idx, probe_rows,
+                                                probe_idxs, build_idxs, mark_column);
         }
 
         if constexpr (JoinOpType == doris::TJoinOp::INNER_JOIN ||
@@ -341,7 +332,7 @@ public:
 
 private:
     // only LEFT_ANTI_JOIN/LEFT_SEMI_JOIN/NULL_AWARE_LEFT_ANTI_JOIN/CROSS_JOIN support mark join
-    template <int JoinOpType, bool with_other_conjuncts>
+    template <int JoinOpType>
     auto _find_batch_mark(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                           int probe_idx, int probe_rows, uint32_t* __restrict probe_idxs,
                           uint32_t* __restrict build_idxs,
@@ -356,18 +347,16 @@ private:
                 build_idx = next[build_idx];
             }
 
-            if constexpr (!with_other_conjuncts) {
-                if (build_idx_map[probe_idx] == bucket_size) {
-                    // mark result as null when probe row is null
+            if (build_idx_map[probe_idx] == bucket_size) {
+                // mark result as null when probe row is null
+                mark_column->insert_null();
+            } else {
+                bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
+                                                                            : build_idx == 0;
+                if (!matched && _has_null_key) {
                     mark_column->insert_null();
                 } else {
-                    bool matched = JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ? build_idx != 0
-                                                                                : build_idx == 0;
-                    if (!matched && _has_null_key) {
-                        mark_column->insert_null();
-                    } else {
-                        mark_column->insert_value(matched);
-                    }
+                    mark_column->insert_value(matched);
                 }
             }
 
@@ -472,6 +461,7 @@ private:
 
             if constexpr (JoinOpType == doris::TJoinOp::LEFT_OUTER_JOIN ||
                           JoinOpType == doris::TJoinOp::FULL_OUTER_JOIN ||
+                          JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
                           JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                           JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
                 // may over batch_size when emplace 0 into build_idxs

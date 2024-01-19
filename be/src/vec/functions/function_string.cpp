@@ -23,6 +23,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
 #include "vec/columns/column_string.h"
@@ -492,13 +493,13 @@ struct Trim1Impl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
             StringRef rhs(blank, 1);
-            static_cast<void>(TrimUtil<is_ltrim, is_rtrim>::vector(
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
                     col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                    col_res->get_offsets()));
+                    col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -530,9 +531,9 @@ struct Trim2Impl {
                 const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
                 ColumnString::Offset rhs_size = col_right->get_offsets()[0];
                 StringRef rhs(raw_rhs, rhs_size);
-                static_cast<void>(TrimUtil<is_ltrim, is_rtrim>::vector(
+                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
                         col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
-                        col_res->get_offsets()));
+                        col_res->get_offsets())));
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",

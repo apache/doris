@@ -144,7 +144,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
-    public static int default_load_parallelism = 1;
+    public static int default_load_parallelism = 8;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
@@ -514,6 +514,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交时间，单位是毫秒",
             "Default commit interval in ms for group commit"})
     public static int group_commit_interval_ms_default_value = 10000;
+
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认128M",
+            "Default commit data bytes for group commit"})
+    public static int group_commit_data_bytes_default_value = 134217728;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1017,10 +1021,22 @@ public class Config extends ConfigBase {
     public static boolean disable_balance = false;
 
     /**
+     * when be rebalancer idle, then disk balance will occurs.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_rebalancer_idle_seconds = 60;
+
+    /**
      * if set to true, TabletScheduler will not do disk balance.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_disk_balance = false;
+
+    /**
+     * if set to false, TabletScheduler will not do disk balance for replica num = 1.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_disk_balance_for_single_replica = false;
 
     // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
     // skip checking.
@@ -1549,7 +1565,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 10;
+    public static int auto_check_statistics_in_minutes = 5;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -1565,7 +1581,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean enable_pipeline_load = false;
 
     /*---------------------- JOB CONFIG START------------------------*/
@@ -1680,12 +1696,6 @@ public class Config extends ConfigBase {
     public static boolean enable_decimal_conversion = true;
 
     /**
-     * List of S3 API compatible object storage systems.
-     */
-    @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
-
-    /**
      * Support complex data type ARRAY.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1703,7 +1713,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 3;
+    public static int max_be_exec_version = 4;
 
     /**
      * Min data version of backends serialize block.
@@ -1912,13 +1922,6 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
-     * This is used whether to push down function to MYSQL in external Table with query sql
-     * like odbc, jdbc for mysql table
-     */
-    @ConfField(mutable = true)
-    public static boolean enable_func_pushdown = true;
-
-    /**
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
@@ -1930,6 +1933,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 false，开启后支持使用新优化器的load语句导入数据，失败后会降级旧的load语句。",
+            "Now default set to true, After this function is enabled, the load statement of "
+                    + "the new optimizer can be used to import data. If this function fails, "
+                    + "the old load statement will be degraded."})
+    public static boolean enable_nereids_load = false;
+
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2047,15 +2062,6 @@ public class Config extends ConfigBase {
     public static long lock_reporting_threshold_ms = 500L;
 
     /**
-     * If false, when select from tables in information_schema database,
-     * the result will not contain the information of the table in external catalog.
-     * This is to avoid query time when external catalog is not reachable.
-     * TODO: this is a temp solution, we should support external catalog in the future.
-     */
-    @ConfField(mutable = true)
-    public static boolean infodb_support_ext_catalog = false;
-
-    /**
      * If true, auth check will be disabled. The default value is false.
      * This is to solve the case that user forgot the password.
      */
@@ -2063,7 +2069,13 @@ public class Config extends ConfigBase {
     public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_round_robin_create_tablet = false;
+    public static boolean enable_round_robin_create_tablet = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "创建分区时，总是从第一个 BE 开始创建。注意：这种方式可能造成BE不均衡",
+            "When creating tablet of a partition, always start from the first BE. "
+                    + "Note: This method may cause BE imbalance"})
+    public static boolean create_tablet_round_robin_from_start = false;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
@@ -2076,17 +2088,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
-
-    /**
-     * Now we not fully support array/struct/map nesting complex type in many situation,
-     * so just disable creating nesting complex data type when create table.
-     * We can make it able after we fully support
-     */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
-            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
-                    + "when we create table, only support array type nested array"})
-    public static boolean disable_nested_complex_type  = true;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
@@ -2208,7 +2209,7 @@ public class Config extends ConfigBase {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
-    public static boolean enable_convert_light_weight_schema_change = true;
+    public static boolean enable_convert_light_weight_schema_change = false;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
@@ -2306,6 +2307,28 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int workload_action_interval_ms = 10000; // 10s
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_policy_num = 25;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_condition_num_in_policy = 5;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_action_num_in_policy = 5; // mainly used to limit set session var action
+
+    @ConfField(mutable = true)
+    public static int workload_runtime_status_thread_interval_ms = 2000;
+
+    // NOTE: it should bigger than be config report_query_statistics_interval_ms
+    @ConfField(mutable = true)
+    public static int query_audit_log_timeout_ms = 5000;
+
+    @ConfField(mutable = true)
+    public static int be_report_query_statistics_timeout_ms = 60000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_max_num = 15;
+
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
@@ -2363,12 +2386,91 @@ public class Config extends ConfigBase {
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
-    @ConfField(description = {"用于SQL方言转换的服务地址。",
-            "The service address for SQL dialect conversion."})
-    public static String sql_convertor_service = "";
-
     @ConfField(mutable = true)
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/query中sql任务的最大线程池。",
+        "The max number work threads of http sql submitter."
+    })
+    public static int http_sql_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+        "http请求处理/api/upload任务的最大线程池。",
+        "The max number work threads of http upload submitter."
+    })
+    public static int http_load_submitter_max_worker_threads = 2;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "load label个数阈值，超过该个数后，对于已经完成导入作业或者任务，其label会被删除，被删除的 label 可以被重用。",
+            "The threshold of load labels' number. After this number is exceeded, "
+                    + "the labels of the completed import jobs or tasks will be deleted, "
+                    + "and the deleted labels can be reused."
+    })
+    public static int label_num_threshold = 2000;
+
+    //==========================================================================
+    //                    begin of cloud config
+    //==========================================================================
+
+    @ConfField
+    public static String cloud_unique_id = "";
+
+    public static boolean isCloudMode() {
+        return !cloud_unique_id.isEmpty();
+    }
+
+    public static boolean isNotCloudMode() {
+        return cloud_unique_id.isEmpty();
+    }
+
+    /**
+     * MetaService endpoint, ip:port, such as meta_service_endpoint = "192.0.0.10:8866"
+     */
+    @ConfField
+    public static String meta_service_endpoint = "";
+
+    @ConfField(mutable = true)
+    public static boolean meta_service_connection_pooled = true;
+
+    @ConfField(mutable = true)
+    public static int meta_service_connection_pool_size = 20;
+
+    @ConfField(mutable = true)
+    public static int meta_service_rpc_retry_times = 200;
+
+    // A connection will expire after a random time during [base, 2*base), so that the FE
+    // has a chance to connect to a new RS. Set zero to disable it.
+    @ConfField(mutable = true)
+    public static int meta_service_connection_age_base_minutes = 5;
+
+    @ConfField(mutable = false)
+    public static boolean enable_sts_vpc = true;
+
+    @ConfField(mutable = true)
+    public static int sts_duration = 3600;
+
+    @ConfField(mutable = true)
+    public static int drop_rpc_retry_num = 200;
+
+    @ConfField
+    public static int cloud_meta_service_rpc_failed_retry_times = 200;
+
+    @ConfField
+    public static int default_get_version_from_ms_timeout_second = 3;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_multi_replica = false;
+
+    @ConfField(mutable = true)
+    public static int cloud_replica_num = 3;
+
+    @ConfField(mutable = true)
+    public static int cloud_cold_read_percent = 10; // 10%
+
+    //==========================================================================
+    //                      end of cloud config
+    //==========================================================================
 }

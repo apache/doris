@@ -19,19 +19,22 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
+import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
+import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -62,12 +65,14 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertFalse(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
+        Assertions.assertFalse(
+                HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
     void testRandomQuery() {
-        Plan p1 = new HyperGraphBuilder().randomBuildPlanWith(3, 3);
+        Plan p1 = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildPlanWith(3, 3);
         p1 = PlanChecker.from(connectContext, p1)
                 .analyze()
                 .rewrite()
@@ -79,7 +84,8 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertFalse(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
+        Assertions.assertFalse(
+                HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
@@ -104,12 +110,11 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
-        Assertions.assertEquals(1, exprList.size());
-        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, res.getQueryExpressions().size());
+        Assertions.assertEquals("(id = 0)", res.getQueryExpressions().get(0).toSql());
     }
 
-    @Disabled
     @Test
     void testInnerJoinWithFilter2() {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
@@ -132,7 +137,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
+        List<Expression> exprList = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).getQueryExpressions();
         Assertions.assertEquals(0, exprList.size());
     }
 
@@ -159,9 +164,9 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
-        Assertions.assertEquals(1, exprList.size());
-        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, res.getQueryExpressions().size());
+        Assertions.assertEquals("(id = 0)", res.getQueryExpressions().get(0).toSql());
     }
 
     @Test
@@ -187,13 +192,14 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertTrue(res.isInvalid());
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = AbstractMaterializedViewRule.extractStructInfo(p1,
+        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
                 null).get(0);
-        StructInfo st2 = AbstractMaterializedViewRule.extractStructInfo(p2,
+        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
                 null).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);

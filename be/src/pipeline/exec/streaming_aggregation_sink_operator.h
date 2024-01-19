@@ -50,7 +50,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class StreamingAggSinkOperator final : public StreamingOperator<StreamingAggSinkOperatorBuilder> {
+class StreamingAggSinkOperator final : public StreamingOperator<vectorized::AggregationNode> {
 public:
     StreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                              std::shared_ptr<DataQueue>);
@@ -121,7 +121,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
     DataDistribution required_data_distribution() const override {
-        return {ExchangeType::PASSTHROUGH};
+        return DataSinkOperatorX<StreamingAggSinkLocalState>::required_data_distribution();
     }
 };
 

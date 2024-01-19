@@ -36,43 +36,38 @@ suite("test_str_to_date") {
     sql """ INSERT INTO test_str_to_date_db VALUES(2,'20201203', 'yyyyMMdd');"""
     sql """ INSERT INTO test_str_to_date_db VALUES(3,'2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');"""
 
-    sql """ set enable_nereids_planner=true ,  enable_fallback_to_original_planner=false;"""
-
-
+sql """ set enable_nereids_planner=true ,  enable_fallback_to_original_planner=false;"""
     qt_select1 """
         select s1,s2,STR_TO_DATE(s1,s2) from test_str_to_date_db order by id;
     """
-
     qt_select2 """
         SELECT STR_TO_DATE('2019-12-01', 'yyyy-MM-dd');  
     """
-
     qt_select3 """
         SELECT STR_TO_DATE('20201203', 'yyyyMMdd');
     """
-
     qt_select4 """
         SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
     """
+    qt_add_1 " select STR_TO_DATE('2023', '%Y') "
+    qt_add_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
+    qt_add_3 " select STR_TO_DATE('2023-12', '%Y')"
 
 
- sql """ set enable_nereids_planner=false;"""
- 
+sql """ set enable_nereids_planner=false;"""
     qt_select5 """
         select s1,s2,STR_TO_DATE(s1,s2) from test_str_to_date_db order by id;
     """
-
     qt_select6 """
          SELECT STR_TO_DATE('2019-12-01', 'yyyy-MM-dd');  
     """
-
     qt_select7 """
          SELECT STR_TO_DATE('20201203', 'yyyyMMdd');
     """
-
     qt_select8 """
         SELECT STR_TO_DATE('2020-12-03 11:45:14', 'yyyy-MM-dd HH:mm:ss');
     """
-
-
+    qt_add_4 " select STR_TO_DATE('2023', '%Y') "
+    qt_add_5 " select STR_TO_DATE('2023-12', '%Y-%m') "
+    qt_add_6 " select STR_TO_DATE('2023-12', '%Y')"
 }

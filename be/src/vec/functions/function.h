@@ -60,18 +60,13 @@ template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
 
-struct NullPresence {
-    bool has_nullable = false;
-    bool has_null_constant = false;
-};
-
 template <typename T>
 concept HasGetVariadicArgumentTypesImpl = requires(T t) {
     { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
 };
 
-NullPresence get_null_presence(const Block& block, const ColumnNumbers& args);
-[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args);
+bool get_null_presence(const Block& block, const ColumnNumbers& args);
+bool get_null_presence(const ColumnsWithTypeAndName& args);
 
 /// The simplest executable object.
 /// Motivation:
@@ -85,7 +80,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run) = 0;
+                           size_t result, size_t input_rows_count, bool dry_run) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -93,7 +88,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) final;
+                   size_t result, size_t input_rows_count, bool dry_run = false) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -111,7 +106,7 @@ public:
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, size_t result,
-                                        size_t input_rows_count) {
+                                        size_t input_rows_count) const {
         return execute_impl(context, block, arguments, result, input_rows_count);
     }
 
@@ -141,17 +136,18 @@ protected:
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, size_t result,
-                                            size_t input_rows_count, bool dry_run, bool* executed);
+                                            size_t input_rows_count, bool dry_run,
+                                            bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& args, size_t result,
                                                          size_t input_rows_count, bool dry_run,
-                                                         bool* executed);
+                                                         bool* executed) const;
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
                                                    const ColumnNumbers& arguments, size_t result,
-                                                   size_t input_rows_count, bool dry_run);
+                                                   size_t input_rows_count, bool dry_run) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
                                           const ColumnNumbers& args, size_t result,
-                                          size_t input_rows_count, bool dry_run);
+                                          size_t input_rows_count, bool dry_run) const;
 };
 
 /// Function with known arguments and return type.
@@ -178,7 +174,7 @@ public:
 
     /// TODO: make const
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run = false) {
+                           size_t result, size_t input_rows_count, bool dry_run = false) const {
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
@@ -511,7 +507,7 @@ protected:
     }
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) final {
+                                size_t input_rows_count) const final {
         return function->execute_impl_dry_run(context, block, arguments, result, input_rows_count);
     }
     bool use_default_implementation_for_nulls() const final {
@@ -689,11 +685,11 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Float32, ColumnFloat32)          \
     M(Float64, ColumnFloat64)
 
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)         \
-    M(Decimal32, ColumnDecimal<Decimal32>)     \
-    M(Decimal64, ColumnDecimal<Decimal64>)     \
-    M(Decimal128, ColumnDecimal<Decimal128>)   \
-    M(Decimal128I, ColumnDecimal<Decimal128I>) \
+#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)           \
+    M(Decimal32, ColumnDecimal<Decimal32>)       \
+    M(Decimal64, ColumnDecimal<Decimal64>)       \
+    M(Decimal128V2, ColumnDecimal<Decimal128V2>) \
+    M(Decimal128V3, ColumnDecimal<Decimal128V3>) \
     M(Decimal256, ColumnDecimal<Decimal256>)
 
 #define STRING_TYPE_TO_COLUMN_TYPE(M) \

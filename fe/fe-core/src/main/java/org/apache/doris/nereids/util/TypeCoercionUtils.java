@@ -422,6 +422,14 @@ public class TypeCoercionUtils {
         }
     }
 
+    public static Expression castUnbound(Expression expression, DataType targetType) {
+        if (expression instanceof Literal) {
+            return TypeCoercionUtils.castIfNotSameType(expression, targetType);
+        } else {
+            return TypeCoercionUtils.unSafeCast(expression, targetType);
+        }
+    }
+
     /**
      * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
      */
@@ -466,11 +474,6 @@ public class TypeCoercionUtils {
                 if (promoted != null) {
                     return promoted;
                 }
-            }
-            // adapt scale when from string to datetimev2 with float
-            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
-                return recordTypeCoercionForSubQuery(input,
-                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
             }
         }
         return recordTypeCoercionForSubQuery(input, dataType);
@@ -569,7 +572,7 @@ public class TypeCoercionUtils {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("convert '{}' to type {} failed", value, dataType);
+            LOG.debug("convert '{}' to type {} failed", value, dataType);
         }
         return Optional.ofNullable(ret);
 
@@ -986,25 +989,27 @@ public class TypeCoercionUtils {
         Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
         return optionalCommonType
                 .map(commonType -> {
+                    DataType realCommonType = commonType instanceof DecimalV2Type
+                            ? DecimalV3Type.forType(commonType) : commonType;
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
                                 Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
-                                        wc.getResult(), commonType);
+                                        wc.getResult(), realCommonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
                                 // return a branch value
-                                if (!valueExpr.getDataType().equals(commonType)) {
-                                    valueExpr = new Cast(valueExpr, commonType);
+                                if (!valueExpr.getDataType().equals(realCommonType)) {
+                                    valueExpr = new Cast(valueExpr, realCommonType);
                                 }
                                 return wc.withChildren(wc.getOperand(), valueExpr);
                             })
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
-                                if (!defaultExpr.getDataType().equals(commonType)) {
-                                    defaultExpr = new Cast(defaultExpr, commonType);
+                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, realCommonType);
+                                if (!defaultExpr.getDataType().equals(realCommonType)) {
+                                    defaultExpr = new Cast(defaultExpr, realCommonType);
                                 }
                                 return defaultExpr;
                             })
@@ -1115,7 +1120,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForComparison(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));
@@ -1343,7 +1348,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForCaseWhen(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));

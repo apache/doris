@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_stream_load_err_log_limit", "p0") {
+suite("test_stream_load_err_log_limit", "p0, nonConcurrent") {
     sql "show tables"
 
     def tableName = "test_stream_load_err_log_limit_table"

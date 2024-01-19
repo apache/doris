@@ -47,8 +47,8 @@ struct ProcessHashTableProbe {
                                   int size, bool have_other_join_conjunct);
 
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, int last_probe_index, size_t probe_size,
-                                  bool all_match_one, bool have_other_join_conjunct);
+                                  int size, int last_probe_index, bool all_match_one,
+                                  bool have_other_join_conjunct);
 
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
@@ -109,6 +109,7 @@ struct ProcessHashTableProbe {
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;

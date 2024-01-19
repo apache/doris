@@ -22,6 +22,9 @@
 #include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 
+namespace doris::vectorized {
+class AsyncResultWriter;
+}
 namespace doris::pipeline {
 
 struct LocalExchangeSinkDependency;
@@ -107,6 +110,8 @@ public:
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
+    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+
 protected:
     friend class OperatorXBase;
 
@@ -118,6 +123,8 @@ protected:
     // Record this node memory size. it is expected that artificial guarantees are accurate,
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
@@ -202,6 +209,8 @@ public:
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
+
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
         return false;
@@ -271,10 +280,15 @@ public:
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 
+    [[nodiscard]] const RowDescriptor* output_row_descriptor() {
+        return _output_row_descriptor.get();
+    }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state);
+    [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
+                                                          vectorized::Block* block,
+                                                          SourceState& source_state);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -286,6 +300,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
+    friend class VScanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
@@ -395,7 +410,6 @@ public:
     RuntimeState* state() { return _state; }
     RuntimeProfile* profile() { return _profile; }
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
-    QueryStatistics* query_statistics() { return _query_statistics.get(); }
     [[nodiscard]] RuntimeProfile* faker_runtime_profile() const {
         return _faker_runtime_profile.get();
     }
@@ -412,8 +426,6 @@ protected:
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker;
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed = false;
@@ -460,14 +472,17 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(ExchangeType type, int num_buckets) {
+    [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
+                                      const bool is_shuffled_hash_join,
+                                      const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
     Status prepare(RuntimeState* state) override { return Status::OK(); }
     Status open(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
+    [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
+                                                   LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {
@@ -485,11 +500,13 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution required_data_distribution() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
     }
+
+    [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -555,6 +572,7 @@ public:
 
 protected:
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     // _operator_id : the current Operator's ID, which is not visible to the user.
     // _node_id : the plan node ID corresponding to the Operator, which is visible on the profile.
@@ -666,6 +684,7 @@ public:
 };
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
 public:
     using Base = PipelineXSinkLocalState<FakeDependency>;

@@ -42,8 +42,9 @@ import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.InitTableLog;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
@@ -57,6 +58,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.AlterMTMV;
@@ -744,19 +746,18 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_INIT_EXTERNAL_TABLE: {
-                data = InitTableLog.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_INIT_EXTERNAL_TABLE:
             case OperationType.OP_DROP_EXTERNAL_TABLE:
             case OperationType.OP_CREATE_EXTERNAL_TABLE:
             case OperationType.OP_DROP_EXTERNAL_DB:
             case OperationType.OP_CREATE_EXTERNAL_DB:
             case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
             case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
-            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS:
+            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REFRESH_EXTERNAL_DB:
             case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                 data = ExternalObjectLog.read(in);
                 isRead = true;
@@ -789,6 +790,12 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CHANGE_MTMV_TASK:
             case OperationType.OP_DROP_MTMV_TASK:
             case OperationType.OP_ALTER_MTMV_STMT: {
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_CONSTRAINT:
+            case OperationType.OP_ADD_CONSTRAINT: {
+                data = AlterConstraintLog.read(in);
                 isRead = true;
                 break;
             }
@@ -888,8 +895,18 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_INSERT_OVERWRITE: {
+                data = InsertOverwriteLog.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_ALTER_REPOSITORY: {
                 data = Repository.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_META_ID_MAPPINGS: {
+                data = MetaIdMappingsLog.read(in);
                 isRead = true;
                 break;
             }

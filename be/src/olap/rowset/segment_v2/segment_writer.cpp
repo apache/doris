@@ -468,12 +468,23 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
                                                   DeleteBitmap::TEMP_VERSION_COMMON},
                                                  segment_pos);
-            }
 
-            if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                return Status::InternalError(
-                        "the unmentioned columns should have default value or be nullable for "
-                        "newly inserted rows in non-strict mode partial update");
+            } else {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                    std::string error_column;
+                    for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
+                        const TabletColumn& col = _tablet_schema->column(cid);
+                        if (!col.has_default_value() && !col.is_nullable()) {
+                            error_column = col.name();
+                            break;
+                        }
+                    }
+                    return Status::Error<INVALID_SCHEMA, false>(
+                            "the unmentioned column `{}` should have default value or be nullable "
+                            "for "
+                            "newly inserted rows in non-strict mode partial update",
+                            error_column);
+                }
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
@@ -519,6 +530,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos));
+    full_block.set_columns(std::move(mutable_full_columns));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -586,7 +598,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
-    auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
@@ -609,6 +620,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 }
                 continue;
             }
+            auto mutable_old_columns = old_value_block.mutate_columns();
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
                 auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
@@ -619,6 +631,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     return st;
                 }
             }
+            old_value_block.set_columns(std::move(mutable_old_columns));
         }
     }
     // build default value columns

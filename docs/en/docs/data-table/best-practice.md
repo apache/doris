@@ -164,10 +164,10 @@ Database Session
 session -u data (visitorid, sessionid, visittime, city, province, ip, browser, url)
 ```
 
-In addition to visitorid analysis, there are Brower and province analysis cases, Rollup can be established separately.
+In addition to visitorid analysis, there are browser and province analysis cases, Rollup can be established separately.
 
 ```
-ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLICATE KEY(brower,province);
+ALTER TABLE session_data ADD ROLLUP rollup_browser(browser,province,ip,url) DUPLICATE KEY(browser,province);
 ```
 
 ## Schema Change

@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
@@ -1104,7 +1103,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
         if (isInputSlotsContainsNone(
                 predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
-                slotsToReplace) && isInputSlotsContainsNone(groupingExprs, slotsToReplace)) {
+                slotsToReplace)) {
             ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
                     .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap)).collect(ImmutableSet.toImmutableSet());
             return new AggRewriteResult(index, true, newRequiredSlots, exprRewriteMap);
@@ -1283,6 +1282,66 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
 
         /**
+         * bitmap_union(to_bitmap(col)) ->
+         * bitmap_union(mva_BITMAP_UNION__to_bitmap_with_check(col))
+         */
+        @Override
+        public Expression visitBitmapUnion(BitmapUnion bitmapUnion, RewriteContext context) {
+            Expression result = visitAggregateFunction(bitmapUnion, context);
+            if (result != bitmapUnion) {
+                return result;
+            }
+            if (bitmapUnion.child() instanceof ToBitmap) {
+                ToBitmap toBitmap = (ToBitmap) bitmapUnion.child();
+                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(toBitmap.child());
+                if (slotOpt.isPresent()) {
+                    String bitmapUnionColumn = normalizeName(CreateMaterializedViewStmt
+                            .mvColumnBuilder(AggregateType.BITMAP_UNION, CreateMaterializedViewStmt
+                                    .mvColumnBuilder(new ToBitmapWithCheck(toBitmap.child()).toSql())));
+
+                    Column mvColumn = context.checkContext.getColumn(bitmapUnionColumn);
+                    // has bitmap_union column
+                    if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
+
+                        Slot bitmapUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
+                                .stream().filter(s -> bitmapUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
+                                .findFirst().orElseThrow(
+                                        () -> new AnalysisException("cannot find bitmap union slot when select mv"));
+
+                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionSlot);
+                        context.exprRewriteMap.projectExprMap.put(toBitmap, bitmapUnionSlot);
+                        BitmapUnion newBitmapUnion = new BitmapUnion(bitmapUnionSlot);
+                        context.exprRewriteMap.aggFuncMap.put(bitmapUnion, newBitmapUnion);
+                        return newBitmapUnion;
+                    }
+                }
+            } else {
+                Expression child = bitmapUnion.child();
+                String bitmapUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
+                        AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(child.toSql())));
+
+                Column mvColumn = context.checkContext.getColumn(bitmapUnionColumn);
+                // has bitmap_union column
+                if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
+
+                    Slot bitmapUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
+                            .stream().filter(s -> bitmapUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
+                            .findFirst()
+                            .orElseThrow(() -> new AnalysisException("cannot find bitmap union slot when select mv"));
+                    if (child instanceof Slot) {
+                        context.exprRewriteMap.slotMap.put((Slot) child, bitmapUnionSlot);
+                    }
+                    context.exprRewriteMap.projectExprMap.put(child, bitmapUnionSlot);
+                    BitmapUnion newBitmapUnion = new BitmapUnion(bitmapUnionSlot);
+                    context.exprRewriteMap.aggFuncMap.put(bitmapUnion, newBitmapUnion);
+                    return newBitmapUnion;
+                }
+            }
+
+            return bitmapUnion;
+        }
+
+        /**
          * bitmap_union_count(to_bitmap(col)) -> bitmap_union_count(mva_BITMAP_UNION__to_bitmap_with_check(col))
          */
         @Override
@@ -1318,32 +1377,26 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         return newBitmapUnionCount;
                     }
                 }
-            } else if (bitmapUnionCount.child() instanceof BitmapHash) {
-                BitmapHash bitmapHash = (BitmapHash) bitmapUnionCount.child();
-                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(bitmapHash.child());
-                if (slotOpt.isPresent()) {
-                    String bitmapUnionCountColumn = normalizeName(
-                            CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.BITMAP_UNION,
-                                    CreateMaterializedViewStmt.mvColumnBuilder(bitmapHash.toSql())));
+            } else {
+                Expression child = bitmapUnionCount.child();
+                String bitmapUnionCountColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
+                        AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(child.toSql())));
 
-                    Column mvColumn = context.checkContext.getColumn(bitmapUnionCountColumn);
-                    // has bitmap_union_count column
-                    if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
+                Column mvColumn = context.checkContext.getColumn(bitmapUnionCountColumn);
+                // has bitmap_union_count column
+                if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
 
-                        Slot bitmapUnionCountSlot = context.checkContext.scan
-                                .getOutputByIndex(context.checkContext.index)
-                                .stream()
-                                .filter(s -> bitmapUnionCountColumn.equalsIgnoreCase(normalizeName(s.getName())))
-                                .findFirst()
-                                .orElseThrow(() -> new AnalysisException(
-                                        "cannot find bitmap union count slot when select mv"));
-
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionCountSlot);
-                        context.exprRewriteMap.projectExprMap.put(bitmapHash, bitmapUnionCountSlot);
-                        BitmapUnionCount newBitmapUnionCount = new BitmapUnionCount(bitmapUnionCountSlot);
-                        context.exprRewriteMap.aggFuncMap.put(bitmapUnionCount, newBitmapUnionCount);
-                        return newBitmapUnionCount;
+                    Slot bitmapUnionCountSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
+                            .stream().filter(s -> bitmapUnionCountColumn.equalsIgnoreCase(normalizeName(s.getName())))
+                            .findFirst().orElseThrow(
+                                    () -> new AnalysisException("cannot find bitmap union count slot when select mv"));
+                    if (child instanceof Slot) {
+                        context.exprRewriteMap.slotMap.put((Slot) child, bitmapUnionCountSlot);
                     }
+                    context.exprRewriteMap.projectExprMap.put(child, bitmapUnionCountSlot);
+                    BitmapUnionCount newBitmapUnionCount = new BitmapUnionCount(bitmapUnionCountSlot);
+                    context.exprRewriteMap.aggFuncMap.put(bitmapUnionCount, newBitmapUnionCount);
+                    return newBitmapUnionCount;
                 }
             }
 
@@ -1469,8 +1522,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             if (result != sum) {
                 return result;
             }
-            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(sum.child(0));
-            if (!sum.isDistinct() && slotOpt.isPresent()) {
+            if (!sum.isDistinct()) {
                 Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
@@ -1479,7 +1531,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Slot sumSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index).stream()
                             .filter(s -> sumColumn.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                             .orElseThrow(() -> new AnalysisException("cannot find sum slot when select mv"));
-                    context.exprRewriteMap.slotMap.put(slotOpt.get(), sumSlot);
+                    for (Slot slot : sum.child().getInputSlots()) {
+                        context.exprRewriteMap.slotMap.put(slot, sumSlot);
+                    }
                     context.exprRewriteMap.projectExprMap.put(sum.child(), sumSlot);
                     Sum newSum = new Sum(sumSlot);
                     context.exprRewriteMap.aggFuncMap.put(sum, newSum);

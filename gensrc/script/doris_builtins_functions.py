@@ -75,7 +75,7 @@ visible_functions = {
     "map": [
         [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
-        [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+        [['size', 'map_size', 'cardinality'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
         [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'CUSTOM', ['K', 'V']],
         [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'CUSTOM', ['K', 'V']],
         #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
@@ -93,7 +93,7 @@ visible_functions = {
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']]
+        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -1551,6 +1551,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
+        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1790,9 +1791,9 @@ visible_functions = {
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
         [['json_extract'], 'STRING', ['STRING', 'STRING', '...'], 'ALWAYS_NULLABLE'],
-        [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
-        [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], ''],
-        [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
+        [['json_insert'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', '...'], ''],
+        [['json_set'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', '...'], '']
     ],
 
 
@@ -1993,18 +1994,34 @@ visible_functions = {
 
     #ip functions
     "IP": [
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
-        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv4stringtonum','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv4stringtonumordefault'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv4stringtonumordefault'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['ipv4stringtonumornull'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['ipv4stringtonumornull'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],  
-        [['ipv6numtostring','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
-        [['ipv6numtostring','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],       
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_num_to_string','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4_string_to_num','inet_aton'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_string_to_num','inet_aton'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_string_to_num_or_default'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_string_to_num_or_default'], 'BIGINT', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_string_to_num_or_null'], 'BIGINT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv4_string_to_num_or_null'], 'BIGINT', ['STRING'], 'ALWAYS_NULLABLE'],  
+        [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],     
+        [['ipv6_num_to_string','inet6_ntoa'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['ipv6_num_to_string','inet6_ntoa'], 'VARCHAR', ['IPV6'], 'ALWAYS_NULLABLE'],
+        [['ipv6_num_to_string','inet6_ntoa'], 'STRING', ['IPV6'], 'ALWAYS_NULLABLE'],
+        [['ipv6_string_to_num','inet6_aton'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num','inet6_aton'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_default'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['ipv6_string_to_num_or_null'], 'STRING', ['STRING'], 'ALWAYS_NULLABLE'],  
+        [['is_ipv4_string'], 'BOOLEAN', ['VARCHAR'], ''],
+        [['is_ipv4_string'], 'BOOLEAN', ['STRING'], ''],
+        [['is_ipv6_string'], 'BOOLEAN', ['VARCHAR'], ''],
+        [['is_ipv6_string'], 'BOOLEAN', ['STRING'], ''],
+        [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], ''],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], ''],
     ],
 
     "NonNullalbe": [

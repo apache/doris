@@ -66,10 +66,16 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
     private AtomicBoolean isFinished;
 
     ExportTaskExecutor(List<StatementBase> selectStmtLists, ExportJob exportJob) {
+        this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.selectStmtLists = selectStmtLists;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
+    }
+
+    @Override
+    public Long getId() {
+        return taskId;
     }
 
     @Override

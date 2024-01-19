@@ -43,7 +43,7 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .when(topJoin -> (topJoin.left().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isLeftOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.left().hasJoinHint()
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.left().hasDistributeHint()
                                 || topJoin.left().isMarkJoin())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .then(topJoin -> {
@@ -60,7 +60,7 @@ public class LogicalJoinSemiJoinTranspose implements ExplorationRuleFactory {
                         .when(topJoin -> (topJoin.right().getJoinType().isLeftSemiOrAntiJoin()
                                 && (topJoin.getJoinType().isInnerJoin()
                                 || topJoin.getJoinType().isRightOuterJoin())))
-                        .whenNot(topJoin -> topJoin.hasJoinHint() || topJoin.right().hasJoinHint()
+                        .whenNot(topJoin -> topJoin.hasDistributeHint() || topJoin.right().hasDistributeHint()
                                 || topJoin.right().isMarkJoin())
                         .whenNot(LogicalJoin::isMarkJoin)
                         .then(topJoin -> {

@@ -174,7 +174,10 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
+            // cancel all
+            env.getJobManager().cancelLoadJob(cs);
+            env.getLoadManager().cancelLoadJob(cs);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
@@ -194,6 +197,12 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterJobStatusStmt) {
             AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
             try {
+                // drop job
+                if (stmt.isDrop()) {
+                    env.getJobManager().unregisterJob(stmt.getJobName(), stmt.isIfExists());
+                    return;
+                }
+                // alter job status
                 env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
             } catch (Exception e) {
                 throw new DdlException(e.getMessage());

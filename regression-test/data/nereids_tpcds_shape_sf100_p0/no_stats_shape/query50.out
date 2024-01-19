@@ -2,10 +2,10 @@
 -- !ds_shape_50 --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
+----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[GLOBAL]
-----------PhysicalDistribute
+----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((store_returns.sr_returned_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF5 d_date_sk->[sr_returned_date_sk]
@@ -18,13 +18,13 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3 RF4
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store_returns] apply RFs: RF5
-------------------------PhysicalDistribute
+------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalDistribute
+----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store]
-------------------PhysicalDistribute
+------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------filter((d2.d_moy = 8) and (d2.d_year = 2001))
 ------------------------PhysicalOlapScan[date_dim]

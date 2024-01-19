@@ -111,11 +111,11 @@ TEST_F(TableFunctionTest, vexplode_outer) {
 
     // explode_outer(Array<Decimal>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128};
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2};
         Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67)};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
-        InputTypeSet output_types = {TypeIndex::Decimal128};
+        InputTypeSet output_types = {TypeIndex::Decimal128V2};
         InputDataSet output_set = {{Null()},
                                    {Null()},
                                    {ut_type::DECIMAL(17014116.67)},

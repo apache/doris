@@ -49,6 +49,20 @@ namespace vectorized {
 class VExprContext;
 struct RowRefListWithFlags;
 
+using SetHashTableVariants = std::variant<
+        std::monostate, SerializedHashTableContext<RowRefListWithFlags>,
+        I8HashTableContext<RowRefListWithFlags>, I16HashTableContext<RowRefListWithFlags>,
+        I32HashTableContext<RowRefListWithFlags>, I64HashTableContext<RowRefListWithFlags>,
+        I128HashTableContext<RowRefListWithFlags>, I256HashTableContext<RowRefListWithFlags>,
+        I64FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I64FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
+        I136FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+
 template <bool is_intersect>
 class VSetOperationNode final : public ExecNode {
 public:
@@ -95,7 +109,7 @@ private:
     void create_mutable_cols(Block* output_block);
     void release_mem();
 
-    std::unique_ptr<HashTableVariants> _hash_table_variants;
+    std::unique_ptr<SetHashTableVariants> _hash_table_variants;
 
     std::vector<bool> _build_not_ignore_null;
 

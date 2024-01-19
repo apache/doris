@@ -58,11 +58,6 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
-    _query_statistics.reset(new QueryStatistics(state->query_options().query_type));
-    _sink->set_query_statistics(_query_statistics);
-    _collect_query_statistics_with_every_batch =
-            _pipeline->collect_query_statistics_with_every_batch();
-    fragment_context->set_query_statistics(_query_statistics);
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -215,14 +210,21 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable
@@ -285,10 +287,6 @@ Status PipelineTask::execute(bool* eos) {
 
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            if (_data_state == SourceState::FINISHED ||
-                _collect_query_statistics_with_every_batch) {
-                RETURN_IF_ERROR(_collect_query_statistics());
-            }
             status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
@@ -299,24 +297,10 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
-
-    return Status::OK();
-}
-
-Status PipelineTask::_collect_query_statistics() {
-    // The execnode tree of a fragment will be split into multiple pipelines, we only need to collect the root pipeline.
-    if (_pipeline->is_root_pipeline()) {
-        // If the current fragment has only one instance, we can collect all of them;
-        // otherwise, we need to collect them based on the sender_id.
-        if (_state->num_per_fragment_instances() == 1) {
-            _query_statistics->clear();
-            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get()));
-        } else {
-            _query_statistics->clear();
-            RETURN_IF_ERROR(_root->collect_query_statistics(_query_statistics.get(),
-                                                            _state->per_fragment_instance_idx()));
-        }
+    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
     }
+
     return Status::OK();
 }
 
@@ -357,7 +341,7 @@ Status PipelineTask::close(Status exec_status) {
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_context();
+    return _fragment_context->get_query_ctx();
 }
 
 // The FSM see PipelineTaskState's comment
@@ -395,10 +379,6 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::PENDING_FINISH) {
             COUNTER_UPDATE(_pending_finish_counts, 1);
         }
-    }
-
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
     }
 
     _cur_state = state;

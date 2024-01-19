@@ -299,7 +299,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 int schemaHash = targetTbl.getSchemaHashByIndexId(indexId);
 
                 List<TColumn> columnsDesc = Lists.newArrayList();
-                for (Column column : targetTbl.getSchemaByIndexId(indexId)) {
+                // using to update schema of the rowset, so full columns should be included
+                for (Column column : targetTbl.getSchemaByIndexId(indexId, true)) {
                     columnsDesc.add(column.toThrift());
                 }
 
@@ -489,6 +490,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     public static class Builder {
 
         public DeleteJob buildWith(BuildParams params) throws Exception {
+            boolean noPartitionSpecified = params.getPartitionNames().isEmpty();
             List<Partition> partitions = getSelectedPartitions(params.getTable(),
                     params.getPartitionNames(), params.getDeleteConditions());
             Map<Long, Short> partitionReplicaNum = partitions.stream()
@@ -503,8 +505,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             String label = DELETE_PREFIX + UUID.randomUUID();
             //generate jobId
             long jobId = Env.getCurrentEnv().getNextId();
+            List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
+            List<Long> partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             DeleteInfo deleteInfo = new DeleteInfo(params.getDb().getId(), params.getTable().getId(),
-                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()));
+                    params.getTable().getName(), getDeleteCondString(params.getDeleteConditions()),
+                    noPartitionSpecified, partitionIds, partitionNames);
             DeleteJob deleteJob = new DeleteJob(jobId, -1, label, partitionReplicaNum, deleteInfo);
             long replicaNum = partitions.stream().mapToLong(Partition::getAllReplicaCount).sum();
             deleteJob.setPartitions(partitions);

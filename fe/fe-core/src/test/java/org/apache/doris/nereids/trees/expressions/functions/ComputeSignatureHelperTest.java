@@ -389,17 +389,17 @@ public class ComputeSignatureHelperTest {
                 new NullLiteral(),
                 new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
-        Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertInstanceOf(MapType.class, signature.getArgType(0));
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(0)).getKeyType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(0)).getValueType());
-        Assertions.assertTrue(signature.getArgType(1) instanceof MapType);
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertInstanceOf(MapType.class, signature.getArgType(1));
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(1)).getKeyType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 ((MapType) signature.getArgType(1)).getValueType());
-        Assertions.assertEquals(DateTimeV2Type.of(6),
+        Assertions.assertEquals(DateTimeV2Type.of(4),
                 signature.getArgType(2));
     }
 

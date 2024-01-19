@@ -114,7 +114,7 @@ In some cases, the keywords in the database might be used as the field names. Fo
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
 
-2. When `enable_func_pushdown` is set to true, the function conditions after where will also be pushed down to the external data source. Currently, only MySQL and ClickHouse are supported. If you encounter a function that is not supported by MySQL or ClickHouse, you can set this parameter to false. , currently Doris will automatically identify some functions not supported by MySQL and functions supported by CLickHouse for push-down condition filtering, which can be viewed through explain sql.
+2. When variable `enable_ext_func_pred_pushdown` is set to true, the function conditions after where will also be pushed down to the external data source. Currently, only MySQL, ClickHouse, and Oracle are supported. If you encounter functions that are not supported by MySQL, ClickHouse, and Oracle, you can use this The parameter is set to false. At present, Doris will automatically identify some functions that are not supported by MySQL and functions supported by CLickHouse and Oracle for push-down condition filtering. You can view them through explain sql.
 
 Functions that are currently not pushed down include:
 
@@ -129,6 +129,10 @@ Functions that are currently pushed down include:
 |:--------------:|
 | FROM_UNIXTIME  |
 | UNIX_TIMESTAMP |
+
+| Oracle |
+|:------:|
+|  NVL   |
 
 ### Line Limit
 
@@ -299,37 +303,37 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 #### Type Mapping
 
-| MYSQL Type                                | Doris Type     | Comment                                                                       |
-|-------------------------------------------|----------------|-------------------------------------------------------------------------------|
-| BOOLEAN                                   | TINYINT        |                                                                               |
-| TINYINT                                   | TINYINT        |                                                                               |
-| SMALLINT                                  | SMALLINT       |                                                                               |
-| MEDIUMINT                                 | INT            |                                                                               |
-| INT                                       | INT            |                                                                               |
-| BIGINT                                    | BIGINT         |                                                                               |
-| UNSIGNED TINYINT                          | SMALLINT       | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED MEDIUMINT                        | INT            | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED INT                              | BIGINT         | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED BIGINT                           | LARGEINT       |                                                                               |
-| FLOAT                                     | FLOAT          |                                                                               |
-| DOUBLE                                    | DOUBLE         |                                                                               |
-| DECIMAL                                   | DECIMAL        |                                                                               |
-| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | If p+1>38, the Doris STRING type will be used.        |
-| DATE                                      | DATE           |                                                                               |
-| TIMESTAMP                                 | DATETIME       |                                                                               |
-| DATETIME                                  | DATETIME       |                                                                               |
-| YEAR                                      | SMALLINT       |                                                                               |
-| TIME                                      | STRING         |                                                                               |
-| CHAR                                      | CHAR           |                                                                               |
-| VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | JSON           |                                                                               |
-| SET                                       | STRING         |                                                                               |
-| BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
-| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
-| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING         |                                                                               |
-| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING         |                                                                               |
-| BINARY、VARBINARY                          | STRING         |                                                                               |
-| Other                                     | UNSUPPORTED    |                                                                               |
+| MYSQL Type                                | Doris Type              | Comment                                                                                |
+|-------------------------------------------|-------------------------|----------------------------------------------------------------------------------------|
+| BOOLEAN                                   | TINYINT                 |                                                                                        |
+| TINYINT                                   | TINYINT                 |                                                                                        |
+| SMALLINT                                  | SMALLINT                |                                                                                        |
+| MEDIUMINT                                 | INT                     |                                                                                        |
+| INT                                       | INT                     |                                                                                        |
+| BIGINT                                    | BIGINT                  |                                                                                        |
+| UNSIGNED TINYINT                          | SMALLINT                | Doris does not have an UNSIGNED data type, so expand by an order of magnitude          |
+| UNSIGNED MEDIUMINT                        | INT                     | Doris does not have an UNSIGNED data type, so expand by an order of magnitude          |
+| UNSIGNED INT                              | BIGINT                  | Doris does not have an UNSIGNED data type, so expand by an order of magnitude          |
+| UNSIGNED BIGINT                           | LARGEINT                |                                                                                        |
+| FLOAT                                     | FLOAT                   |                                                                                        |
+| DOUBLE                                    | DOUBLE                  |                                                                                        |
+| DECIMAL                                   | DECIMAL                 |                                                                                        |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | If p+1>38, the Doris STRING type will be used.                                         |
+| DATE                                      | DATE                    |                                                                                        |
+| TIMESTAMP                                 | DATETIME                |                                                                                        |
+| DATETIME                                  | DATETIME                |                                                                                        |
+| YEAR                                      | SMALLINT                |                                                                                        |
+| TIME                                      | STRING                  |                                                                                        |
+| CHAR                                      | CHAR                    |                                                                                        |
+| VARCHAR                                   | VARCHAR                 |                                                                                        |
+| JSON                                      | STRING                  | For better performance, map JSON from external data sources to STRING instead of JSONB |
+| SET                                       | STRING                  |                                                                                        |
+| BIT                                       | BOOLEAN/STRING          | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING              |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING                  |                                                                                        |
+| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING                  |                                                                                        |
+| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING                  |                                                                                        |
+| BINARY、VARBINARY                          | STRING                  |                                                                                        |
+| Other                                     | UNSUPPORTED             |                                                                                        |
 
 ### PostgreSQL
 
@@ -362,30 +366,30 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
 
 #### Type Mapping
 
- | POSTGRESQL Type                         | Doris Type     | Comment                                   |
- |-----------------------------------------|----------------|-------------------------------------------|
- | boolean                                 | BOOLEAN        |                                           |
- | smallint/int2                           | SMALLINT       |                                           |
- | integer/int4                            | INT            |                                           |
- | bigint/int8                             | BIGINT         |                                           |
- | decimal/numeric                         | DECIMAL        |                                           |
- | real/float4                             | FLOAT          |                                           |
- | double precision                        | DOUBLE         |                                           |
- | smallserial                             | SMALLINT       |                                           |
- | serial                                  | INT            |                                           |
- | bigserial                               | BIGINT         |                                           |
- | char                                    | CHAR           |                                           |
- | varchar/text                            | STRING         |                                           |
- | timestamp                               | DATETIME       |                                           |
- | date                                    | DATE           |                                           |
- | json/josnb                              | JSON           |                                           |
- | time                                    | STRING         |                                           |
- | interval                                | STRING         |                                           |
- | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
- | cidr/inet/macaddr                       | STRING         |                                           |
- | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid                                    | STRING         |                                           |
- | Other                                   | UNSUPPORTED    |                                           |
+ | POSTGRESQL Type                         | Doris Type     | Comment                                                                                |
+ |-----------------------------------------|----------------|----------------------------------------------------------------------------------------|
+ | boolean                                 | BOOLEAN        |                                                                                        |
+ | smallint/int2                           | SMALLINT       |                                                                                        |
+ | integer/int4                            | INT            |                                                                                        |
+ | bigint/int8                             | BIGINT         |                                                                                        |
+ | decimal/numeric                         | DECIMAL        |                                                                                        |
+ | real/float4                             | FLOAT          |                                                                                        |
+ | double precision                        | DOUBLE         |                                                                                        |
+ | smallserial                             | SMALLINT       |                                                                                        |
+ | serial                                  | INT            |                                                                                        |
+ | bigserial                               | BIGINT         |                                                                                        |
+ | char                                    | CHAR           |                                                                                        |
+ | varchar/text                            | STRING         |                                                                                        |
+ | timestamp                               | DATETIME       |                                                                                        |
+ | date                                    | DATE           |                                                                                        |
+ | json/jsonb                              | STRING         | For better performance, map JSON from external data sources to STRING instead of JSONB |
+ | time                                    | STRING         |                                                                                        |
+ | interval                                | STRING         |                                                                                        |
+ | point/line/lseg/box/path/polygon/circle | STRING         |                                                                                        |
+ | cidr/inet/macaddr                       | STRING         |                                                                                        |
+ | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING              |
+ | uuid                                    | STRING         |                                                                                        |
+ | Other                                   | UNSUPPORTED    |                                                                                        |
 
 ### Oracle
 
@@ -701,7 +705,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 ```
 
 :::tip
-When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
+When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#mysql) and [Oracle](#oracle)
 :::
 
 ## JDBC Drivers
