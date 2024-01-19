@@ -180,6 +180,14 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
         sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es6/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es6/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es7/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es7/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es8/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es8/*
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/logs
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
         sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
     fi
 fi
