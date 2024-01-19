@@ -56,7 +56,7 @@ fi
 
 lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/doris_cloud"
-if ! ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
+if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
     if ! command -v patchelf &>/dev/null; then
         echo "patchelf is needed to launch meta_service"
         exit 1
