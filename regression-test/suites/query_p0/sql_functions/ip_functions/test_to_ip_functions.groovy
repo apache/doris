@@ -31,13 +31,19 @@ suite("test_to_ip_functions") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    sql "insert into test_to_ip_functions values(0, NULL, NULL)"
-    sql "insert into test_to_ip_functions values(1, '0.0.0.0', '::')"
-    sql "insert into test_to_ip_functions values(2, '192.168.0.1', '::1')"
-    sql "insert into test_to_ip_functions values(3, '127.0.0.1', '2001:1b70:a1:610::b102:2')"
-    sql "insert into test_to_ip_functions values(4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"
+    sql """
+    insert into test_to_ip_functions values
+    (0, NULL, NULL),
+    (1, '0.0.0.0', '::'),
+    (2, '192.168.0.1', '::1'),
+    (3, '127.0.0.1', '2001:1b70:a1:610::b102:2'),
+    (4, '255.255.255.255', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'),
+    (5, '255.255.255.256', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg')
+    """
 
-    qt_sql "select to_ipv4(ip_v4), to_ipv6(ip_v6) from test_to_ip_functions order by id"
+    qt_sql "select to_ipv4(ip_v4), to_ipv6(ip_v6) from test_to_ip_functions where id in (1, 2, 3, 4) order by id"
+    qt_sql "select to_ipv4_or_default(ip_v4), to_ipv6_or_default(ip_v6) from test_to_ip_functions order by id"
+    qt_sql "select to_ipv4_or_null(ip_v4), to_ipv6_or_null(ip_v6) from test_to_ip_functions order by id"
 
     sql "DROP TABLE test_to_ip_functions"
 }
