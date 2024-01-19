@@ -134,7 +134,8 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     inline bool should_be_scheduled() const {
-        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+               (_serving_blocks_num < allowed_blocks_num());
     }
 
     int get_available_thread_slot_num() {
