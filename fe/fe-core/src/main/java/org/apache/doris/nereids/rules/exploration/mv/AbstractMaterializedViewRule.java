@@ -270,7 +270,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<NamedExpression> expressions = new ArrayList<>();
         // should add project above rewritten plan if top plan is not project, if aggregate above will nu
         if (!isOutputValid(originPlan, rewrittenPlan)) {
-            // if (!isOutputValid(rewrittenPlanBefore, rewrittenPlan)) {
             for (int i = 0; i < originPlanOutput.size(); i++) {
                 expressions.add(((NamedExpression) normalizeExpression(originPlanOutput.get(i),
                         rewrittenPlanOutput.get(i))));
