@@ -21,9 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Map;
 
 public class CloudEnvFactoryTest {
 
@@ -39,6 +42,10 @@ public class CloudEnvFactoryTest {
         Assert.assertTrue(envFactory.createPartition() instanceof CloudPartition);
         Assert.assertTrue(envFactory.createTablet() instanceof CloudTablet);
         Assert.assertTrue(envFactory.createReplica() instanceof CloudReplica);
+
+        Map<String, String> properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(
+                "catalog_not_exist", "db_not_exist", null);
+        Assert.assertEquals("1", properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
 }

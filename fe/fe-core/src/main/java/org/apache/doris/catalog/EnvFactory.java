@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
@@ -77,6 +78,10 @@ public class EnvFactory {
 
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 3);
+    }
+
+    public PropertyAnalyzer createPropertyAnalyzer() {
+        return new PropertyAnalyzer();
     }
 
     public DynamicPartitionProperty createDynamicPartitionProperty(Map<String, String> properties) {

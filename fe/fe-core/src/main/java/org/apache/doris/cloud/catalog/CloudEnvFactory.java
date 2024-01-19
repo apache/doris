@@ -24,8 +24,10 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
 
@@ -85,6 +87,11 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public ReplicaAllocation createDefReplicaAllocation() {
         return new ReplicaAllocation((short) 1);
+    }
+
+    @Override
+    public PropertyAnalyzer createPropertyAnalyzer() {
+        return new CloudPropertyAnalyzer();
     }
 
     @Override
