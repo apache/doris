@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.collect.ImmutableList;
@@ -39,10 +38,14 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-/** NormalizeToSlot */
+/**
+ * NormalizeToSlot
+ */
 public interface NormalizeToSlot {
 
-    /** NormalizeSlotContext */
+    /**
+     * NormalizeSlotContext
+     */
     class NormalizeToSlotContext {
         private final Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap;
 
@@ -52,26 +55,19 @@ public interface NormalizeToSlot {
 
         /**
          * build normalization context by follow step.
-         *   1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias
-         *   2. for all input source expressions, use existsAliasMap to construct triple:
-         *     origin expr, pushed expr and alias to replace origin expr,
-         *     see more detail in {@link NormalizeToSlotTriplet}
-         *   3. construct a map: original expr -> triple constructed by step 2
+         * 1. collect all exists alias by input parameters existsAliases build a reverted map: expr -> alias
+         * 2. for all input source expressions, use existsAliasMap to construct triple:
+         * origin expr, pushed expr and alias to replace origin expr,
+         * see more detail in {@link NormalizeToSlotTriplet}
+         * 3. construct a map: original expr -> triple constructed by step 2
          */
         public static NormalizeToSlotContext buildContext(
                 Set<Alias> existsAliases, Collection<? extends Expression> sourceExpressions) {
             Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
 
             Map<Expression, Alias> existsAliasMap = Maps.newLinkedHashMap();
-            // existsAlias maybe nullable(sum(column)) as alias_name, so should extract first aggregate function
-            // because the expression in sourceExpressions are all aggregate function
             for (Alias existsAlias : existsAliases) {
-                List<Object> aggregateFunctions = existsAlias.collectFirst(AggregateFunction.class::isInstance);
-                if (!aggregateFunctions.isEmpty()) {
-                    existsAliasMap.put((Expression) aggregateFunctions.get(0), existsAlias);
-                } else {
-                    existsAliasMap.put(existsAlias.child(), existsAlias);
-                }
+                existsAliasMap.put(existsAlias.child(), existsAlias);
             }
             for (Expression expression : sourceExpressions) {
                 if (normalizeToSlotMap.containsKey(expression)) {
@@ -193,7 +189,9 @@ public interface NormalizeToSlot {
         }
     }
 
-    /** NormalizeToSlotTriplet */
+    /**
+     * NormalizeToSlotTriplet
+     */
     class NormalizeToSlotTriplet {
         // which expression need to normalized to slot?
         // e.g. `a + 1`

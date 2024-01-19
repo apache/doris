@@ -171,7 +171,7 @@ suite("aggregate_with_roll_up") {
         }
     }
 
-    def check_rewrite_with_force_analyze = { mv_sql, query_sql, mv_name ->
+    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
         sql"""
@@ -182,16 +182,14 @@ suite("aggregate_with_roll_up") {
         AS ${mv_sql}
         """
 
-        sql "analyze table ${mv_name} with sync;"
-        sql "analyze table lineitem with sync;"
-        sql "analyze table orders with sync;"
-        sql "analyze table partsupp with sync;"
-
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
-            contains("${mv_name}(${mv_name})")
+            check {result ->
+                def splitResult = result.split("MaterializedViewRewriteSuccessButNotChose")
+                splitResult.length == 2 ? splitResult[1].contains(mv_name) : false
+            }
         }
     }
 
@@ -919,9 +917,9 @@ suite("aggregate_with_roll_up") {
             o_comment;
             """
     order_qt_query1_1_before "${query1_1}"
-    // rewrite success, for cbo chose, should force analyze
+    // rewrite success, but not chose
     // because data volume is small and mv plan is almost same to query plan
-    check_rewrite_with_force_analyze(mv1_1, query1_1, "mv1_1")
+    check_rewrite_but_not_chose(mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -953,9 +951,9 @@ suite("aggregate_with_roll_up") {
             "o_comment "
 
     order_qt_query2_0_before "${query2_0}"
-    // rewrite success, for cbo chose, should force analyze
+    // rewrite success, but not chose
     // because data volume is small and mv plan is almost same to query plan
-    check_rewrite_with_force_analyze(mv2_0, query2_0, "mv2_0")
+    check_rewrite_but_not_chose(mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 

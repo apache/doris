@@ -63,7 +63,7 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    protected static final Multimap<Expression, Expression>
+    protected static final Multimap<Function, Expression>
             AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
 
     static {
@@ -280,19 +280,20 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         }
         Expression rollupParam = null;
         Expression viewRollupFunction = null;
-        if (mvExprToMvScanExprQueryBased.containsKey(queryAggregateFunctionShuttled)) {
-            // function can rewrite by view
+        // handle simple aggregate function roll up which is not in the AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP
+        if (mvExprToMvScanExprQueryBased.containsKey(queryAggregateFunctionShuttled)
+                && AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.keySet().stream()
+                .noneMatch(aggFunction -> aggFunction.equals(queryAggregateFunction))) {
             rollupParam = mvExprToMvScanExprQueryBased.get(queryAggregateFunctionShuttled);
             viewRollupFunction = queryAggregateFunctionShuttled;
         } else {
-            // function can not rewrite by view, try to use complex roll up param
+            // handle complex functions roll up
             // eg: query is count(distinct param), mv sql is bitmap_union(to_bitmap(param))
             for (Expression mvExprShuttled : mvExprToMvScanExprQueryBased.keySet()) {
                 if (!(mvExprShuttled instanceof Function)) {
                     continue;
                 }
-                if (isAggregateFunctionEquivalent(queryAggregateFunction, queryAggregateFunctionShuttled,
-                        (Function) mvExprShuttled)) {
+                if (isAggregateFunctionEquivalent(queryAggregateFunction, (Function) mvExprShuttled)) {
                     rollupParam = mvExprToMvScanExprQueryBased.get(mvExprShuttled);
                     viewRollupFunction = mvExprShuttled;
                 }
@@ -400,13 +401,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * This will check the count(distinct a) in query is equivalent to  bitmap_union(to_bitmap(a)) in mv,
      * and then check their arguments is equivalent.
      */
-    private boolean isAggregateFunctionEquivalent(Function queryFunction, Expression queryFunctionShuttled,
-            Function viewFunction) {
+    private boolean isAggregateFunctionEquivalent(Function queryFunction, Function viewFunction) {
         if (queryFunction.equals(viewFunction)) {
             return true;
         }
         // check the argument of rollup function is equivalent to view function or not
-        for (Map.Entry<Expression, Collection<Expression>> equivalentFunctionEntry :
+        for (Map.Entry<Function, Collection<Expression>> equivalentFunctionEntry :
                 AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.asMap().entrySet()) {
             if (equivalentFunctionEntry.getKey().equals(queryFunction)) {
                 // check is have equivalent function or not
