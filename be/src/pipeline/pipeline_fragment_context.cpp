@@ -22,13 +22,15 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Planner_types.h>
 #include <pthread.h>
-#include <stdlib.h>
+
+#include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
 #include <chrono> // IWYU pragma: keep
 #include <map>
+#include <memory>
 #include <ostream>
 #include <typeinfo>
 #include <utility>
@@ -212,8 +214,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
-                                        const size_t idx) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request, size_t idx) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -299,16 +300,16 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                   << local_params.per_node_scan_ranges.size();
 
     // set scan range in ScanNode
-    for (int i = 0; i < scan_nodes.size(); ++i) {
+    for (auto& i : scan_nodes) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
-        ExecNode* node = scan_nodes[i];
+        ExecNode* node = i;
         if (typeid(*node) == typeid(vectorized::NewOlapScanNode) ||
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
             typeid(*node) == typeid(vectorized::VMetaScanNode) ||
             typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
-            auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
+            auto* scan_node = static_cast<vectorized::VScanNode*>(i);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
             const bool shared_scan =
@@ -316,7 +317,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges);
             scan_node->set_shared_scan(_runtime_state.get(), shared_scan);
         } else {
-            ScanNode* scan_node = static_cast<ScanNode*>(node);
+            auto* scan_node = static_cast<ScanNode*>(node);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);
             static_cast<void>(scan_node->set_scan_ranges(_runtime_state.get(), scan_ranges));
@@ -850,10 +851,10 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
                                       {false})
                             : sink_->row_desc();
             // 1. create the data stream sender sink
-            _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
+            _multi_cast_stream_sink_senders[i] = std::make_unique<vectorized::VDataStreamSender>(
                     _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
-                    thrift_sink.multi_cast_stream_sink.destinations[i]));
+                    thrift_sink.multi_cast_stream_sink.destinations[i]);
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
@@ -941,9 +942,10 @@ Status PipelineFragmentContext::send_report(bool done) {
              _fragment_instance_id,
              _backend_num,
              _runtime_state.get(),
-             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
-             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2),
+             [this](auto&& PH1) { return update_status(std::forward<decltype(PH1)>(PH1)); },
+             [this](auto&& PH1, auto&& PH2) {
+                 cancel(std::forward<decltype(PH1)>(PH1), std::forward<decltype(PH2)>(PH2));
+             },
              _query_ctx->get_query_statistics()},
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }

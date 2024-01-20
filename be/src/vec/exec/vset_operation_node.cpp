@@ -22,8 +22,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
-#include <array>
-#include <atomic>
 #include <ostream>
 #include <string>
 #include <type_traits>
@@ -31,12 +29,9 @@
 
 #include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "util/defer_op.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash_table_set_build.h"
 #include "vec/common/hash_table/hash_table_set_probe.h"
-#include "vec/common/uint128.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"

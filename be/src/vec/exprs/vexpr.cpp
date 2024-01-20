@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vexpr.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -27,9 +28,7 @@
 
 #include "common/config.h"
 #include "common/exception.h"
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -41,6 +40,7 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
@@ -56,6 +56,9 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,
                                  int scale) {
     TExprNode node;
@@ -147,6 +150,8 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     }
     return node;
 }
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris
 
 namespace doris::vectorized {
@@ -163,9 +168,7 @@ bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-          _type(TypeDescriptor::from_thrift(node.type)),
-          _fn_context_index(-1),
-          _prepared(false) {
+          _type(TypeDescriptor::from_thrift(node.type)) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -184,10 +187,7 @@ VExpr::VExpr(const TExprNode& node)
 VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _type(std::move(type)),
-          _fn_context_index(-1),
-          _prepared(false) {
+        : _opcode(TExprOpcode::INVALID_OPCODE), _type(std::move(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -196,8 +196,8 @@ VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
-    LOG(WARNING) << "VExpr::prepare " << state->query_id().hi << "-" << state->query_id().lo
-                 << "\n";
+    LOG(WARNING) << fmt::format("expr prepare {} {} {}", to_string(_node_type),
+                                _type.debug_string(), to_string(_opcode));
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
         return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
@@ -214,7 +214,8 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
-    LOG(WARNING) << "VExpr::open " << state->query_id().hi << "-" << state->query_id().lo << "\n";
+    LOG(WARNING) << fmt::format("expr open {} {} {}", to_string(_node_type),
+                                _type.debug_string(), to_string(_opcode));
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
@@ -225,11 +226,12 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
 }
 
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(context, scope);
+    for (auto& i : _children) {
+        i->close(context, scope);
     }
 }
 
+// NOLINTBEGIN(readability-function-size)
 Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     try {
         switch (expr_node.node_type) {
@@ -330,6 +332,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     }
     return Status::OK();
 }
+// NOLINTEND(readability-function-size)
 
 Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                       VExprSPtr& root_expr, VExprContextSPtr& ctx) {
@@ -352,7 +355,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
 
     // non-recursive traversal
     std::stack<std::pair<VExprSPtr, int>> s;
-    s.push({root, root_children});
+    s.emplace(root, root_children);
     while (!s.empty()) {
         auto& parent = s.top();
         if (parent.second > 1) {
@@ -370,14 +373,14 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
         parent.first->add_child(expr);
         int num_children = nodes[*node_idx].num_children;
         if (num_children > 0) {
-            s.push({expr, num_children});
+            s.emplace(expr, num_children);
         }
     }
     return Status::OK();
 }
 
 Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
-    if (texpr.nodes.size() == 0) {
+    if (texpr.nodes.empty()) {
         ctx = nullptr;
         return Status::OK();
     }
@@ -399,9 +402,9 @@ Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
 
 Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs) {
     ctxs.clear();
-    for (int i = 0; i < texprs.size(); ++i) {
+    for (const auto& texpr : texprs) {
         VExprContextSPtr ctx;
-        RETURN_IF_ERROR(create_expr_tree(texprs[i], ctx));
+        RETURN_IF_ERROR(create_expr_tree(texpr, ctx));
         ctxs.push_back(ctx);
     }
     return Status::OK();
@@ -427,8 +430,8 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
     if (!new_ctxs.empty()) {
         // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
         DCHECK_EQ(new_ctxs.size(), ctxs.size());
-        for (int i = 0; i < new_ctxs.size(); ++i) {
-            DCHECK(new_ctxs[i]->_is_clone);
+        for (auto& new_ctx : new_ctxs) {
+            DCHECK(new_ctx->_is_clone);
         }
         return Status::OK();
     }
@@ -465,20 +468,15 @@ std::string VExpr::debug_string(const VExprSPtrs& exprs) {
 
 std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
     VExprSPtrs exprs;
-    for (int i = 0; i < ctxs.size(); ++i) {
-        exprs.push_back(ctxs[i]->root());
+    for (const auto& ctx : ctxs) {
+        exprs.push_back(ctx->root());
     }
     return debug_string(exprs);
 }
 
 bool VExpr::is_constant() const {
-    for (int i = 0; i < _children.size(); ++i) {
-        if (!_children[i]->is_constant()) {
-            return false;
-        }
-    }
-
-    return true;
+    return std::all_of(_children.begin(), _children.end(),
+                       [](const VExprSPtr& expr) { return expr->is_constant(); });
 }
 
 Status VExpr::get_const_col(VExprContext* context,
@@ -515,8 +513,8 @@ Status VExpr::get_const_col(VExprContext* context,
 
 void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
     std::vector<TypeDescriptor> arg_types;
-    for (int i = 0; i < _children.size(); ++i) {
-        arg_types.push_back(_children[i]->type());
+    for (auto& i : _children) {
+        arg_types.push_back(i->type());
     }
 
     _fn_context_index = context->register_function_context(state, _type, arg_types);
