@@ -33,7 +33,9 @@ import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -65,6 +67,33 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
 
+    private static final String JDBC_URL = "jdbc_url";
+    private static final String JDBC_USER = "user";
+    private static final String JDBC_PASSWORD = "password";
+    private static final String JDBC_DRIVER_CLASS = "driver_class";
+    private static final String JDBC_DRIVER_URL = "driver_url";
+    private static final String MIN_POOL_SIZE = "min_pool_size";
+    public static final String MAX_POOL_SIZE = "max_pool_size";
+    private static final String MAX_IDLE_TIME = "max_idle_time";
+    private static final String MAX_WAIT_TIME = "max_wait_time";
+    private static final String KEEP_ALIVE = "keep_alive";
+    private static final ImmutableList<String> JDBC_ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
+            JDBC_URL,
+            JDBC_USER,
+            JDBC_PASSWORD,
+            JDBC_DRIVER_CLASS,
+            JDBC_DRIVER_URL,
+            KEEP_ALIVE,
+            MAX_IDLE_TIME,
+            MAX_WAIT_TIME,
+            MIN_POOL_SIZE
+    ).build();
+
+    private static final ImmutableList<String> JDBC_MANDATORY_PROPERTIES = new ImmutableList.Builder<String>().add(
+            JDBC_URL,
+            JDBC_DRIVER_CLASS
+    ).build();
+
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
     }
@@ -88,6 +117,24 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
+        }
+
+        if (catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "").equalsIgnoreCase("jdbc")) {
+            for (String name : JDBC_MANDATORY_PROPERTIES) {
+                if (catalogProperty.getOrDefault(name, null) == null) {
+                    throw new DdlException(
+                            "The parameter " + name + " is mandatory");
+                }
+            }
+
+            Map<String, String> copiedProperties = Maps.newHashMap(catalogProperty.getProperties());
+            // check properties
+            for (String propertyKey : JDBC_ALL_PROPERTIES) {
+                copiedProperties.remove(propertyKey);
+            }
+            if (!copiedProperties.isEmpty()) {
+                throw new DdlException("Unknown JDBC properties: " + copiedProperties);
+            }
         }
 
         // check the dfs.ha properties
@@ -132,11 +179,50 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
         if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
             jdbcClientConfig = new JdbcClientConfig();
-            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
-            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
-            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
-            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
-            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
+            for (String propertyKey : JDBC_ALL_PROPERTIES) {
+                if (!catalogProperty.getProperties().containsKey(propertyKey)) {
+                    continue;
+                }
+                switch (propertyKey) {
+                    case JDBC_USER:
+                        jdbcClientConfig.setUser(catalogProperty.getOrDefault(JDBC_USER, ""));
+                        break;
+                    case JDBC_URL:
+                        jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault(JDBC_URL, ""));
+                        break;
+                    case JDBC_DRIVER_CLASS:
+                        jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault(JDBC_DRIVER_CLASS, ""));
+                        break;
+                    case JDBC_DRIVER_URL:
+                        jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault(JDBC_DRIVER_URL, ""));
+                        break;
+                    case JDBC_PASSWORD:
+                        jdbcClientConfig.setPassword(catalogProperty.getOrDefault(JDBC_PASSWORD, ""));
+                        break;
+                    case KEEP_ALIVE:
+                        jdbcClientConfig.setKeepAlive(
+                                Boolean.parseBoolean(catalogProperty.getOrDefault(KEEP_ALIVE, "")));
+                        break;
+                    case MIN_POOL_SIZE:
+                        jdbcClientConfig.setMinPoolSize(
+                                Integer.parseInt(catalogProperty.getOrDefault(MIN_POOL_SIZE, "")));
+                        break;
+                    case MAX_POOL_SIZE:
+                        jdbcClientConfig.setMaxPoolSize(
+                                Integer.parseInt(catalogProperty.getOrDefault(MAX_POOL_SIZE, "")));
+                        break;
+                    case MAX_IDLE_TIME:
+                        jdbcClientConfig.setMaxIdleTime(
+                                Integer.parseInt(catalogProperty.getOrDefault(MAX_IDLE_TIME, "")));
+                        break;
+                    case MAX_WAIT_TIME:
+                        jdbcClientConfig.setMaxWaitTime(
+                                Integer.parseInt(catalogProperty.getOrDefault(MAX_WAIT_TIME, "")));
+                        break;
+                    default:
+                        //do nothing
+                }
+            }
         } else {
             hiveConf = new HiveConf();
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
