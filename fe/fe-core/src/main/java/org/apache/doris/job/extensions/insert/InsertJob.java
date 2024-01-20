@@ -244,9 +244,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
+        List<InsertTask> newTasks = new ArrayList<>();
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
             idToTasks.put(task.getTaskId(), task);
+            newTasks.add(task);
             recordTask(task.getTaskId());
         } else {
             // use for load stmt
@@ -256,11 +258,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                 }
                 InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
                 idToTasks.put(task.getTaskId(), task);
+                newTasks.add(task);
                 recordTask(task.getTaskId());
             }
         }
-        initTasks(idToTasks.values(), taskType);
-        return new ArrayList<>(idToTasks.values());
+        initTasks(newTasks, taskType);
+        return new ArrayList<>(newTasks);
     }
 
     public void recordTask(long id) {

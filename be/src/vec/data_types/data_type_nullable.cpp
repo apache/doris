@@ -49,10 +49,6 @@ DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
     }
 }
 
-bool DataTypeNullable::only_null() const {
-    return typeid_cast<const DataTypeNothing*>(nested_data_type.get());
-}
-
 std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;

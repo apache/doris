@@ -21,7 +21,6 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -610,7 +609,7 @@ public class OlapTable extends Table {
                 idx.clearTabletsForRestore();
                 for (int i = 0; i < tabletNum; i++) {
                     long newTabletId = env.getNextId();
-                    Tablet newTablet = new Tablet(newTabletId);
+                    Tablet newTablet = EnvFactory.getInstance().createTablet(newTabletId);
                     idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                     // replicas
@@ -665,6 +664,14 @@ public class OlapTable extends Table {
             if (indexId != baseIndexId) {
                 result.add(indexId);
             }
+        }
+        return result;
+    }
+
+    public List<Long> getIndexIdList() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            result.add(indexId);
         }
         return result;
     }
@@ -1194,6 +1201,9 @@ public class OlapTable extends Table {
             return true;
         }
         long rowCount = getRowCount();
+        if (rowCount > 0 && tblStats.rowCount == 0) {
+            return true;
+        }
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
@@ -1262,11 +1272,6 @@ public class OlapTable extends Table {
             dataSize += entry.getValue().getBaseIndex().getDataSize(false);
         }
         return dataSize;
-    }
-
-    @Override
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        throw new RuntimeException("Don't support anymore");
     }
 
     // Get the md5 of signature string of this table with specified partitions.
@@ -1908,6 +1913,22 @@ public class OlapTable extends Table {
         return "";
     }
 
+    public long getTTLSeconds() {
+        if (tableProperty != null) {
+            return tableProperty.getTTLSeconds();
+        }
+        return 0L;
+    }
+
+    public void setTTLSeconds(long ttlSeconds) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                                            Long.valueOf(ttlSeconds).toString());
+        tableProperty.buildTTLSeconds();
+    }
+
     public boolean getEnableLightSchemaChange() {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
@@ -2396,7 +2417,7 @@ public class OlapTable extends Table {
                 && getEnableUniqueKeyMergeOnWrite());
     }
 
-    public void initAutoIncrentGenerator(long dbId) {
+    public void initAutoIncrementGenerator(long dbId) {
         for (Column column : fullSchema) {
             if (column.isAutoInc()) {
                 autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
@@ -2498,9 +2519,7 @@ public class OlapTable extends Table {
     public List<Tablet> getAllTablets() throws AnalysisException {
         List<Tablet> tablets = Lists.newArrayList();
         for (Partition partition : getPartitions()) {
-            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
-                tablets.add(tablet);
-            }
+            tablets.addAll(partition.getBaseIndex().getTablets());
         }
         return tablets;
     }

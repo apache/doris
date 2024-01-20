@@ -65,6 +65,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -223,7 +224,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (req.query_statistics) {
         // use to report 'insert into select'
         TQueryStatistics queryStatistics;
-        DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
         params.__set_query_statistics(queryStatistics);
     }
@@ -322,11 +322,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
-        LOG(INFO) << "execute coordinator callback, query id: " << print_id(req.query_id)
-                  << ", instance id: " << print_id(req.fragment_instance_id)
-                  << ", num_rows_load_success: " << num_rows_load_success
-                  << ", num_rows_load_filtered: " << num_rows_load_filtered
-                  << ", num_rows_load_unselected: " << num_rows_load_unselected;
 
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
@@ -679,6 +674,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
+        query_ctx->register_memory_statistics();
+        query_ctx->register_cpu_statistics();
+
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
             if (params.__isset.workload_groups && !params.workload_groups.empty()) {
                 uint64_t tg_id = params.workload_groups[0].id;
@@ -705,6 +703,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                         query_ctx->use_task_group_for_cpu_limit.store(true);
                     }
                     LOG(INFO) << ss.str();
+                    _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(
+                            print_id(query_id), tg_id);
                 } else {
                     VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
                                << " no task group found, does not use task group.";

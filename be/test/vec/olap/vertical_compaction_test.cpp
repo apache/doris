@@ -92,12 +92,12 @@ protected:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = new DataDir(absolute_dir, 100000000);
-        static_cast<void>(_data_dir->init());
-
         doris::EngineOptions options;
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);
+
+        _data_dir = new DataDir(*k_engine, absolute_dir, 100000000);
+        static_cast<void>(_data_dir->init());
     }
     void TearDown() override {
         SAFE_DELETE(_data_dir);
@@ -332,7 +332,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir));
+        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir));
         static_cast<void>(tablet->init());
         bool exists = false;
         auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);

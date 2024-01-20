@@ -61,7 +61,7 @@ public class DialectPluginTest extends TestWithFeService {
 
     @Test
     public void testSparkPlugin() {
-        ConnectContext.get().getSessionVariable().setSqlDialect(Dialect.SPARK_SQL.getDialectName());
+        ConnectContext.get().getSessionVariable().setSqlDialect(Dialect.SPARK.getDialectName());
         NereidsParser parser = new NereidsParser();
         List<StatementBase> stmts = parser.parseSQL(TEST_SQL, ConnectContext.get().getSessionVariable());
         Assertions.assertEquals(1, stmts.size());

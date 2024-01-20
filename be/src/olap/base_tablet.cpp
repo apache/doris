@@ -19,6 +19,8 @@
 
 #include <fmt/format.h>
 
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
@@ -34,7 +36,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_finish_count, MetricUnit::OPERATIONS);
 
 BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move(tablet_meta)) {
-    TabletSchemaCache::instance()->insert(_tablet_meta->tablet_schema()->to_key());
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             fmt::format("Tablet.{}", tablet_id()), {{"tablet_id", std::to_string(tablet_id())}},
             MetricEntityType::kTablet);
@@ -78,6 +79,44 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
     _max_version_schema = final_schema;
     VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
     return Status::OK();
+}
+
+Status BaseTablet::capture_rs_readers_unlocked(const std::vector<Version>& version_path,
+                                               std::vector<RowSetSplits>* rs_splits) const {
+    DCHECK(rs_splits != nullptr && rs_splits->empty());
+    for (auto version : version_path) {
+        auto it = _rs_version_map.find(version);
+        if (it == _rs_version_map.end()) {
+            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << tablet_id()
+                        << ", version='" << version.first << "-" << version.second;
+
+            it = _stale_rs_version_map.find(version);
+            if (it == _stale_rs_version_map.end()) {
+                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
+                        "version={}-{}",
+                        tablet_id(), version.first, version.second);
+            }
+        }
+        RowsetReaderSharedPtr rs_reader;
+        auto res = it->second->create_reader(&rs_reader);
+        if (!res.ok()) {
+            return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                    "failed to create reader for rowset:{}", it->second->rowset_id().to_string());
+        }
+        rs_splits->push_back(RowSetSplits(std::move(rs_reader)));
+    }
+    return Status::OK();
+}
+
+bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
+    double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
+    if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+        _timestamped_version_tracker.construct_versioned_tracker(
+                _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
+        return true;
+    }
+    return false;
 }
 
 } /* namespace doris */

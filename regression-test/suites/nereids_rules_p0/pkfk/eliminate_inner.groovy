@@ -17,8 +17,9 @@
 
 suite("eliminate_inner") {
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "SET ignore_shape_nodes='PhysicalDistribute[DistributionSpecGather], PhysicalDistribute[DistributionSpecHash],PhysicalDistribute[DistributionSpecExecutionAny],PhysicalProject'"
     sql "SET disable_join_reorder=true"
 
     sql """
@@ -27,6 +28,9 @@ suite("eliminate_inner") {
 
     sql """
         DROP TABLE IF EXISTS fkt
+    """
+    sql """
+        DROP TABLE IF EXISTS fkt_not_null
     """
 
     sql """
@@ -68,7 +72,7 @@ suite("eliminate_inner") {
     INSERT INTO fkt VALUES (1, 'John'), (2, 'Alice'), (null, 'Bob');
     """
     sql """
-    INSERT INTO fkt VALUES (1, 'John'), (2, 'Alice'), (3, 'Bob');
+    INSERT INTO fkt_not_null VALUES (1, 'John'), (2, 'Alice'), (3, 'Bob');
     """
     sql """
     alter table pkt add constraint pk primary key (pk) 
@@ -76,15 +80,15 @@ suite("eliminate_inner") {
     sql """
     alter table fkt add constraint fk foreign key (fk) references pkt(pk) 
     """
+    sql """
+    alter table fkt_not_null add constraint fk foreign key (fk) references pkt(pk) 
+    """
     def check_shape_res = { sql, name -> 
         qt_name "select \"${name}\""
         qt_shape "explain shape plan ${sql}"
         order_qt_res "${sql}"
     }
-    def simple_case = """
-    select * from pkt inner join fkt on pkt.pk = fkt.fk;
-    """
-    // nullable
+    // not nullable
     check_shape_res("select fkt_not_null.* from pkt inner join fkt_not_null on pkt.pk = fkt_not_null.fk;", "simple_case")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join (select fkt_not_null1.* from fkt_not_null as fkt_not_null1 join fkt_not_null as fkt_not_null2 on fkt_not_null1.fk = fkt_not_null2.fk) fkt_not_null on pkt.pk = fkt_not_null.fk;", "with_pk_col")
@@ -97,7 +101,7 @@ suite("eliminate_inner") {
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join fkt_not_null on pkt.pk = fkt_not_null.fk where pkt.pk = 1 and fkt_not_null.fk = 1 and fkt_not_null.f = 1;", "pk with filter that included same as fk")
     check_shape_res("select fkt_not_null.*, pkt.pk from pkt inner join fkt_not_null on pkt.pk = fkt_not_null.fk where pkt.p = 1 and fkt_not_null.fk = 1 and fkt_not_null.f = 1;;", "pk with filter that not same as fk")
  
-    // not nullable
+    // nullable
     check_shape_res("select fkt.* from pkt inner join fkt on pkt.pk = fkt.fk;", "simple_case")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join fkt on pkt.pk = fkt.fk;", "with_pk_col")
     check_shape_res("select fkt.*, pkt.pk from pkt inner join (select fkt1.* from fkt as fkt1 join fkt as fkt2 on fkt1.fk = fkt2.fk) fkt on pkt.pk = fkt.fk;", "with_pk_col")

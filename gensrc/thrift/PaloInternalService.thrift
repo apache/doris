@@ -269,6 +269,9 @@ struct TQueryOptions {
   96: optional i32 parallel_scan_max_scanners_count = 0;
 
   97: optional i64 parallel_scan_min_rows_per_scanner = 0;
+
+  // For cloud, to control if the content would be written into file cache
+  1000: optional bool disable_file_cache = false
 }
 
 
@@ -479,6 +482,9 @@ struct TExecPlanFragmentParams {
   28: optional i32 num_local_sink
 
   29: optional i64 content_length
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TExecPlanFragmentParamsList {
@@ -627,6 +633,14 @@ struct TFetchDataResult {
     4: optional Status.TStatus status
 }
 
+// For cloud
+enum TCompoundType {
+    UNKNOWN = 0,
+    AND = 1,
+    OR = 2,
+    NOT = 3,
+}
+
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
@@ -635,6 +649,9 @@ struct TCondition {
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
     5:  optional bool marked_by_runtime_filter = false
+
+    // For cloud
+    1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
 }
 
 struct TExportStatusResult {
@@ -701,6 +718,11 @@ struct TPipelineFragmentParams {
   35: optional map<i32, i32> bucket_seq_to_instance_idx
   36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
   37: optional i32 parallel_instances
+  38: optional i32 total_instances
+  39: optional map<i32, i32> shuffle_idx_to_instance_idx
+
+  // For cloud
+  1000: optional bool is_mow_table;
 }
 
 struct TPipelineFragmentParamsList {

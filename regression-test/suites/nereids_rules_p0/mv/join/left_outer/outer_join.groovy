@@ -19,6 +19,8 @@ suite("outer_join") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
@@ -242,18 +244,38 @@ suite("outer_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
 
-    def mv2_2 = "select  t1.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from (select * from lineitem where L_LINENUMBER > 1) t1 " +
-            "left join orders on t1.L_ORDERKEY = orders.O_ORDERKEY "
-    def query2_2 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 1 and l_suppkey = 3"
-    // Should success but not, tmp
-//    order_qt_query2_2_before "${query2_2}"
-//    check_rewrite(mv2_2, query2_2, "mv2_2")
-//    order_qt_query2_2_after "${query2_2}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+    def mv2_2 ="""
+            select  t1.L_LINENUMBER, orders.O_CUSTKEY
+            from (select * from lineitem where L_LINENUMBER > 1) t1
+            left join orders on t1.L_ORDERKEY = orders.O_ORDERKEY;
+    """
+    def query2_2 = """
+            select lineitem.L_LINENUMBER
+            from lineitem
+            left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            where lineitem.L_LINENUMBER > 1 and l_suppkey = 3;
+    """
+    order_qt_query2_2_before "${query2_2}"
+    check_not_match(mv2_2, query2_2, "mv2_2")
+    order_qt_query2_2_after "${query2_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
+
+
+    def mv2_3 ="""
+            select  t1.L_LINENUMBER, orders.O_CUSTKEY, l_suppkey
+            from (select * from lineitem where L_LINENUMBER > 1) t1
+            left join orders on t1.L_ORDERKEY = orders.O_ORDERKEY;
+    """
+    def query2_3 = """
+            select lineitem.L_LINENUMBER
+            from lineitem
+            left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            where lineitem.L_LINENUMBER > 1 and l_suppkey = 3;
+    """
+    order_qt_query2_3_before "${query2_3}"
+    check_rewrite(mv2_3, query2_3, "mv2_3")
+    order_qt_query2_3_after "${query2_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
 
     // filter outside + right
@@ -336,6 +358,25 @@ suite("outer_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_0"""
 
 
+    def mv5_1 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from (select * from lineitem where l_shipdate = '2023-12-08' ) t1
+        left join orders
+        on t1.l_orderkey = orders.o_orderkey
+    """
+    def query5_1 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem
+        left join orders
+        on lineitem.l_orderkey = orders.o_orderkey
+        where o_orderdate = '2023-12-08'
+    """
+    order_qt_query5_1_before "${query5_1}"
+    check_not_match(mv5_1, query5_1, "mv5_1")
+    order_qt_query5_1_after "${query5_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv5_1"""
+
+
     // filter inside + right
     def mv6_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey " +
             "from lineitem " +
@@ -366,6 +407,25 @@ suite("outer_join") {
     check_rewrite(mv7_0, query7_0, "mv7_0")
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
+
+
+    def mv7_1 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from lineitem
+        left join orders
+        on lineitem.l_orderkey = orders.o_orderkey
+        where l_shipdate = '2023-12-08' and o_orderdate = '2023-12-08';
+    """
+    def query7_1 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey
+        from (select * from lineitem where l_shipdate = '2023-10-17' ) t1
+        left join orders
+        on t1.l_orderkey = orders.o_orderkey;
+    """
+    order_qt_query7_1_before "${query7_1}"
+    check_not_match(mv7_1, query7_1, "mv7_1")
+    order_qt_query7_1_after "${query7_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_1"""
 
 
     // self join test

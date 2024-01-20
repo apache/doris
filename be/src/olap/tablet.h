@@ -19,10 +19,10 @@
 
 #include <butil/macros.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <list>
@@ -87,7 +87,7 @@ static inline constexpr auto TRACE_TABLET_LOCK_THRESHOLD = std::chrono::seconds(
 
 class Tablet final : public BaseTablet {
 public:
-    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
+    Tablet(StorageEngine& engine, TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
            const std::string_view& cumulative_compaction_type = "");
 
     DataDir* data_dir() const { return _data_dir; }
@@ -123,7 +123,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
-    bool exceed_version_limit(int32_t limit) const override;
+    bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
@@ -170,9 +170,9 @@ public:
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions(const Version& spec_version,
-                                       std::vector<Version>* version_path,
-                                       bool skip_missing_version, bool quiet) const;
+    Status capture_consistent_versions_unlocked(const Version& spec_version,
+                                                std::vector<Version>* version_path,
+                                                bool skip_missing_version, bool quiet) const;
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -183,10 +183,7 @@ public:
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) const override;
-
-    Status capture_rs_readers(const std::vector<Version>& version_path,
-                              std::vector<RowSetSplits>* rs_splits) const;
+                              bool skip_missing_version) override;
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -195,7 +192,7 @@ public:
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
 
-    std::shared_mutex& get_migration_lock() { return _migration_lock; }
+    std::shared_timed_mutex& get_migration_lock() { return _migration_lock; }
 
     std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
@@ -363,14 +360,17 @@ public:
 
     RowsetSharedPtr need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
-    std::pair<int64_t, int64_t> cooldown_conf() const {
+    struct CooldownConf {
+        int64_t term = -1;
+        int64_t cooldown_replica_id = -1;
+    };
+
+    CooldownConf cooldown_conf() const {
         std::shared_lock rlock(_cooldown_conf_lock);
-        return {_cooldown_replica_id, _cooldown_term};
+        return _cooldown_conf;
     }
 
-    std::pair<int64_t, int64_t> cooldown_conf_unlocked() const {
-        return {_cooldown_replica_id, _cooldown_term};
-    }
+    CooldownConf cooldown_conf_unlocked() const { return _cooldown_conf; }
 
     // Return `true` if update success
     bool update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id);
@@ -379,8 +379,6 @@ public:
 
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
-
-    static void remove_unused_remote_files();
 
     uint32_t calc_cold_data_compaction_score() const;
 
@@ -582,9 +580,6 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
 
-    // When the proportion of empty edges in the adjacency matrix used to represent the version graph
-    // in the version tracker is greater than the threshold, rebuild the version tracker
-    bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
@@ -599,19 +594,20 @@ private:
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);
+    bool _has_data_to_cooldown();
+    int64_t _get_newest_cooldown_time(const RowsetSharedPtr& rowset);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
+    StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
-    TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
@@ -621,7 +617,7 @@ private:
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
-    std::shared_mutex _migration_lock;
+    std::shared_timed_mutex _migration_lock;
     std::mutex _build_inverted_index_lock;
 
     // In unique key table with MoW, we should guarantee that only one
@@ -630,13 +626,6 @@ private:
     // during publish_txn, which might take hundreds of milliseconds
     mutable std::mutex _rowset_update_lock;
 
-    // After version 0.13, all newly created rowsets are saved in _rs_version_map.
-    // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
-    // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
-    // These _stale rowsets are been removed when rowsets' pathVersion is expired,
-    // this policy is judged and computed by TimestampedVersionTracker.
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
@@ -676,8 +665,7 @@ private:
     int64_t _skip_base_compaction_ts;
 
     // cooldown related
-    int64_t _cooldown_replica_id = -1;
-    int64_t _cooldown_term = -1;
+    CooldownConf _cooldown_conf;
     // `_cooldown_conf_lock` is used to serialize update cooldown conf and all operations that:
     // 1. read cooldown conf
     // 2. upload rowsets to remote storage
@@ -689,8 +677,6 @@ private:
     int64_t _last_failed_follow_cooldown_time = 0;
     // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
     std::atomic<bool> _alter_failed = false;
-
-    DISALLOW_COPY_AND_ASSIGN(Tablet);
 
     int64_t _io_error_times = 0;
 };

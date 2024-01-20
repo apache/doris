@@ -82,6 +82,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -225,7 +226,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // but top-down traverse can not cover this case in one iteration, so bottom-up is more
                     // efficient because it can find the new plans and apply transform wherever it is
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                    //after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
+                    // after push down, some new filters are generated, which needs to be optimized. (example: tpch q19)
                     topDown(new ExpressionOptimization()),
                     topDown(
                             new MergeFilters(),
@@ -262,6 +263,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                     // this can help to translate plan to backend
                     topDown(new PushFilterInsideJoin()),
+                    topDown(new FindHashConditionForJoin()),
                     topDown(new ExpressionNormalization())
             ),
 
@@ -323,6 +325,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     //       generate one PhysicalLimit if current distribution is gather or two
                     //       PhysicalLimits with gather exchange
                     topDown(new LimitSortToTopN()),
+                    topDown(new MergeTopNs()),
                     topDown(new SplitLimit()),
                     topDown(
                             new PushDownLimit(),

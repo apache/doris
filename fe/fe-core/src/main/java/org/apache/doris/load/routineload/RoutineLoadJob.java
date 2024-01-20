@@ -1670,7 +1670,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract Map<String, String> getCustomProperties();
 
-    public boolean needRemove() {
+    public boolean isExpired() {
         if (!isFinal()) {
             return false;
         }

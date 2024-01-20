@@ -249,7 +249,15 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     }
 
     auto request = std::make_shared<PTabletWriteSlaveRequest>();
-    *(request->mutable_rowset_meta()) = cur_rowset->rowset_meta()->get_rowset_pb();
+    auto request_mutable_rs_meta = request->mutable_rowset_meta();
+    *request_mutable_rs_meta = cur_rowset->rowset_meta()->get_rowset_pb();
+    if (request_mutable_rs_meta != nullptr && request_mutable_rs_meta->has_partition_id() &&
+        request_mutable_rs_meta->partition_id() == 0) {
+        // TODO(dx): remove log after fix partition id eq 0 bug
+        request_mutable_rs_meta->set_partition_id(_req.partition_id);
+        LOG(WARNING) << "cant get partition id from local rs pb, get from _req, partition_id="
+                     << _req.partition_id;
+    }
     request->set_host(BackendOptions::get_localhost());
     request->set_http_port(config::webserver_port);
     string tablet_path = _rowset_builder->tablet()->tablet_path();

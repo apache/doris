@@ -40,8 +40,6 @@ constexpr int IPV4_MAX_OCTET_VALUE = 255;         //max value of octet
 constexpr size_t IPV4_OCTET_BITS = 8;
 constexpr size_t DECIMAL_BASE = 10;
 constexpr size_t IPV6_BINARY_LENGTH = 16;
-constexpr size_t UINT8_MIN_NUM_VALUE = 0;
-constexpr size_t UINT8_MAX_NUM_VALUE = 255;
 
 namespace doris::vectorized {
 

@@ -890,7 +890,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getFeConfig(String key) {
-        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+        return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }
 
     void setFeConfig(String key, Object value) {
@@ -932,5 +932,30 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals(true, !createdTableName.isEmpty())
     }
-}
 
+    String[][] deduplicate_tablets(String[][] tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    ArrayList deduplicate_tablets(ArrayList tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+}

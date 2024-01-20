@@ -84,14 +84,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    private ReentrantReadWriteLock rwLock;
+    private final ReentrantReadWriteLock rwLock;
 
     // table family group map
-    private Map<Long, Table> idToTable;
+    private final Map<Long, Table> idToTable;
     @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
     // table name lower cast -> table name
-    private Map<String, String> lowerCaseToTableName;
+    private final Map<String, String> lowerCaseToTableName;
 
     // user define function
     @SerializedName(value = "name2Function")
@@ -893,11 +893,4 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public String toString() {
         return toJson();
     }
-
-    // Return ture if database is created for mysql compatibility.
-    // Currently, we have two dbs that are created for this purpose, InformationSchemaDb and MysqlDb,
-    public boolean isMysqlCompatibleDatabase() {
-        return false;
-    }
-
 }

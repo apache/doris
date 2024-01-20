@@ -32,7 +32,6 @@ namespace doris {
 class DorisNodesInfo;
 class ObjectPool;
 class QueryStatistics;
-class QueryStatisticsRecvr;
 class RuntimeState;
 class TPlanNode;
 
@@ -55,8 +54,6 @@ public:
     Status open(RuntimeState* state) override;
     Status get_next(RuntimeState* state, Block* row_batch, bool* eos) override;
     void release_resource(RuntimeState* state) override;
-    Status collect_query_statistics(QueryStatistics* statistics) override;
-    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
     Status close(RuntimeState* state) override;
 
     void set_num_senders(int num_senders) { _num_senders = num_senders; }
@@ -67,7 +64,6 @@ private:
     bool _is_ready;
     std::shared_ptr<VDataStreamRecvr> _stream_recvr;
     RowDescriptor _input_row_desc;
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     // use in merge sort
     size_t _offset;

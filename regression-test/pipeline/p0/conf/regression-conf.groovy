@@ -55,7 +55,8 @@ testDirectories = ""
 excludeGroups = ""
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
-excludeSuites = "test_index_failure_injection,test_stream_stub_fault_injection,test_dump_image,load_stream_fault_injection,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
+
+excludeSuites = "test_index_failure_injection,test_dump_image,test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
@@ -95,6 +96,7 @@ kafka_port=19193
 
 // iceberg test config
 iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
 
 enableEsTest=false
 es_6_port=19200

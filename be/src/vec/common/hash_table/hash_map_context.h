@@ -128,19 +128,21 @@ struct MethodBase {
 
     template <typename State>
     ALWAYS_INLINE auto find(State& state, size_t i) {
-        prefetch<true>(i);
+        if constexpr (!is_string_hash_map()) {
+            prefetch<true>(i);
+        }
         return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
     }
 
     template <typename State, typename F, typename FF>
     ALWAYS_INLINE auto& lazy_emplace(State& state, size_t i, F&& creator,
                                      FF&& creator_for_null_key) {
-        prefetch<false>(i);
+        if constexpr (!is_string_hash_map()) {
+            prefetch<false>(i);
+        }
         return state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
                                       creator_for_null_key);
     }
-
-    static constexpr bool need_presis() { return std::is_same_v<Key, StringRef>; }
 
     static constexpr bool is_string_hash_map() {
         return std::is_same_v<StringHashMap<Mapped>, HashMap> ||
@@ -149,7 +151,14 @@ struct MethodBase {
 
     template <typename Key, typename Origin>
     static void try_presis_key(Key& key, Origin& origin, Arena& arena) {
-        if constexpr (need_presis()) {
+        if constexpr (std::is_same_v<Key, StringRef>) {
+            key.data = arena.insert(key.data, key.size);
+        }
+    }
+
+    template <typename Key, typename Origin>
+    static void try_presis_key_and_origin(Key& key, Origin& origin, Arena& arena) {
+        if constexpr (std::is_same_v<Origin, StringRef>) {
             origin.data = arena.insert(origin.data, origin.size);
             if constexpr (!is_string_hash_map()) {
                 key = origin;
@@ -303,7 +312,6 @@ struct MethodOneNumber : public MethodBase<TData> {
                                                     ->get_raw_data()
                                                     .data
                                           : key_columns[0]->get_raw_data().data);
-        std::string name = key_columns[0]->get_name();
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
@@ -377,12 +385,14 @@ struct MethodKeysFixed : public MethodBase<TData> {
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     for (size_t i = 0; i < row_numbers; ++i) {
                         // make sure null cell is filled by 0x0
-                        memcpy_fixed<Fixed>((char*)(&result[i]) + offset,
-                                            nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
+                        memcpy_fixed<Fixed, true>(
+                                (char*)(&result[i]) + offset,
+                                nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
                     }
                 } else {
                     for (size_t i = 0; i < row_numbers; ++i) {
-                        memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * sizeof(Fixed));
+                        memcpy_fixed<Fixed, true>((char*)(&result[i]) + offset,
+                                                  data + i * sizeof(Fixed));
                     }
                 }
             };
@@ -474,7 +484,8 @@ struct MethodKeysFixed : public MethodBase<TData> {
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 CHECK_EQ(sizeof(Fixed), size);
                 for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<Fixed>(data + j * sizeof(Fixed), (char*)(&input_keys[j]) + pos);
+                    memcpy_fixed<Fixed, true>(data + j * sizeof(Fixed),
+                                              (char*)(&input_keys[j]) + pos);
                 }
             };
 

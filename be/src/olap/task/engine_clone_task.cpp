@@ -254,7 +254,7 @@ Status EngineCloneTask::_do_clone() {
         DataDir* store = nullptr;
         RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
                 _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
-                &store));
+                &store, _clone_req.partition_id));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
@@ -816,7 +816,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     {
         std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
-        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+        if (tablet->cooldown_conf_unlocked().cooldown_replica_id == tablet->replica_id()) {
             // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
             // generated in old cooldown term which may lead to such situation:
             // Replica A is cooldown replica, cooldown_meta_id=2,

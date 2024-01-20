@@ -57,10 +57,10 @@ github:
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - performance (Performance New)
           - Build Broker
           - Build Documents
           - ShellCheck          
-          - clickbench-new (clickbench)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -93,10 +93,10 @@ github:
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
+          - performance (Performance New)
           - Build Broker
           - ShellCheck
           - Build Documents
-          - clickbench-new (clickbench)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
@@ -109,7 +109,6 @@ github:
     - LemonLiTree
     - Yukang-Lian
     - TangSiyang2001
-    - platoneko
     - Lchangliang
     - freemandealer
     - shuke987

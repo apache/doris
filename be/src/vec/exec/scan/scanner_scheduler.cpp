@@ -140,16 +140,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
-    LOG(INFO) << "yyyy submit scanner ctx " << ctx->debug_string();
     if (ctx->done()) {
-        LOG(INFO) << "yyyy ctx is done, not submit" << ctx->debug_string();
         return Status::EndOfFile("ScannerContext is done");
     }
-    //LOG(WARNING) << "yyyy " << Status::InternalError("Too many scheduled");
-    //LOG(WARNING) << "yyyy " << ctx->debug_string();
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
-        LOG(INFO) << "yyyy put to queue failed, not submit" << ctx->debug_string();
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
     return Status::OK();
@@ -183,21 +178,18 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                   << " maybe finished";
         return;
     }
-    LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string();
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
 
     if (ctx->done()) {
-        LOG(INFO) << "yyyy ctx done, " << ctx->debug_string();
         return;
     }
 
     std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
-        LOG(INFO) << "yyyy run is empty, skip, " << ctx->debug_string();
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
@@ -218,6 +210,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -225,7 +219,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 this->_scanner_scan(this, ctx, scanner_ref);
             });
             if (s.ok()) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(s);
                 break;
@@ -235,6 +229,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         while (iter != this_run.end()) {
             std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
             if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
@@ -264,7 +260,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 ret = _remote_scan_thread_pool->offer(task);
             }
             if (ret) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(
                         Status::InternalError("failed to submit scanner to scanner pool"));

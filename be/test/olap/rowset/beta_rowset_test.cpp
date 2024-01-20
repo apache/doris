@@ -78,10 +78,6 @@ static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
 public:
-    BetaRowsetTest() : _data_dir(std::make_unique<DataDir>(kTestDir)) {
-        static_cast<void>(_data_dir->update_capacity());
-    }
-
     static void SetUpTestSuite() {
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -165,7 +161,6 @@ protected:
                                       RowsetWriterContext* rowset_writer_context) {
         RowsetId rowset_id;
         rowset_id.init(10000);
-        // rowset_writer_context->data_dir = _data_dir.get();
         rowset_writer_context->rowset_id = rowset_id;
         rowset_writer_context->tablet_id = 12345;
         rowset_writer_context->tablet_schema_hash = 1111;

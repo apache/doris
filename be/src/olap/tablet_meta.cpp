@@ -31,10 +31,12 @@
 
 #include "common/config.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
@@ -400,7 +402,7 @@ std::string TabletMeta::construct_header_file_path(const string& schema_hash_pat
     return header_name_stream.str();
 }
 
-Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
+Status TabletMeta::save_as_json(const string& file_path) {
     std::string json_meta;
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
@@ -408,7 +410,7 @@ Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
     to_json(&json_meta, json_options);
     // save to file
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(dir->fs()->create_file(file_path, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
     RETURN_IF_ERROR(file_writer->append(json_meta));
     RETURN_IF_ERROR(file_writer->close());
     return Status::OK();
@@ -496,19 +498,6 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     return Status::OK();
 }
 
-void TabletMeta::init_rs_metas_fs(const io::FileSystemSPtr& fs) {
-    for (auto& rs_meta : _rs_metas) {
-        if (rs_meta->is_local()) {
-            rs_meta->set_fs(fs);
-        }
-    }
-    for (auto& rs_meta : _stale_rs_metas) {
-        if (rs_meta->is_local()) {
-            rs_meta->set_fs(fs);
-        }
-    }
-}
-
 void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _table_id = tablet_meta_pb.table_id();
     _partition_id = tablet_meta_pb.partition_id();
@@ -559,6 +548,13 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
+    }
+
+    // init _stale_rs_metas
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
     }
 
     // For mow table, delete bitmap of stale rowsets has not been persisted.
@@ -737,6 +733,12 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     }
     _rs_metas.push_back(rs_meta);
     return Status::OK();
+}
+
+void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add) {
+    for (const auto& rs : to_add) {
+        _rs_metas.push_back(rs->rowset_meta());
+    }
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,

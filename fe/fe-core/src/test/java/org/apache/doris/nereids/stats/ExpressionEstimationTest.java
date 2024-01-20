@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -25,7 +28,10 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
@@ -249,5 +255,70 @@ class ExpressionEstimationTest {
         ColumnStatistic estimated = ExpressionEstimation.estimate(divide, stat);
         Assertions.assertTrue(Precision.equals(0.1, estimated.minValue, 0.001));
         Assertions.assertEquals(2, estimated.maxValue);
+    }
+
+    // cast(str to double) = double
+    @Test
+    public void testCastStrToDouble() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("01"))
+                .setMinValue(13333333)
+                .setMaxExpr(new StringLiteral("A9"))
+                .setMaxValue(23333333);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+        Cast cast = new Cast(a, DoubleType.INSTANCE);
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, stats);
+        Assertions.assertTrue(Double.isInfinite(est.minValue));
+        Assertions.assertTrue(Double.isInfinite(est.maxValue));
+        Assertions.assertNull(est.minExpr);
+        Assertions.assertNull(est.maxExpr);
+    }
+
+    // cast(str to date) = date
+    // both min and max can be converted to date
+    @Test
+    public void testCastStrToDateSuccess() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021-01-01"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+        Cast cast = new Cast(a, DateType.INSTANCE);
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, stats);
+        Assertions.assertTrue(est.minExpr instanceof DateLiteral);
+        Assertions.assertTrue(est.maxExpr instanceof DateLiteral);
+        Assertions.assertEquals(est.minValue, 20200101000000.0);
+        Assertions.assertEquals(est.maxValue, 20210101000000.0);
+    }
+
+    // cast(str to date) = date
+    // min or max cannot be converted to date
+    @Test
+    public void testCastStrToDateFail() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+        Cast cast = new Cast(a, DateType.INSTANCE);
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, stats);
+        Assertions.assertTrue(Double.isInfinite(est.minValue));
+        Assertions.assertTrue(Double.isInfinite(est.maxValue));
+        Assertions.assertNull(est.minExpr);
+        Assertions.assertNull(est.maxExpr);
     }
 }

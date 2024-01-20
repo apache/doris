@@ -671,7 +671,7 @@ public class Replica implements Writable {
     }
 
     public static Replica read(DataInput in) throws IOException {
-        Replica replica = new Replica();
+        Replica replica = EnvFactory.getInstance().createReplica();
         replica.readFields(in);
         return replica;
     }

@@ -67,11 +67,6 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         makeSureInitialized();
         return jdbcTable.toThrift();

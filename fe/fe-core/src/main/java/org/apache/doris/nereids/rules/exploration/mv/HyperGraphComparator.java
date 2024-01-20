@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -90,14 +91,21 @@ public class HyperGraphComparator {
     }
 
     private ComparisonResult isLogicCompatible() {
-        // 1 try to construct a map which can be mapped from edge to edge
+        // 1 compare nodes
+        boolean nodeMatches = logicalCompatibilityContext.getQueryToViewNodeMapping().entrySet()
+                .stream().allMatch(e -> compareNodeWithExpr(e.getKey(), e.getValue()));
+        if (!nodeMatches) {
+            return ComparisonResult.newInvalidResWithErrorMessage("StructInfoNode are not compatible\n");
+        }
+
+        // 2 try to construct a map which can be mapped from edge to edge
         Map<Edge, Edge> queryToView = constructQueryToViewMapWithExpr();
         if (!makeViewJoinCompatible(queryToView)) {
             return ComparisonResult.newInvalidResWithErrorMessage("Join types are not compatible\n");
         }
         refreshViewEdges();
 
-        // 2. compare them by expression and nodes. Note compare edges after inferring for nodes
+        // 3. compare them by expression and nodes. Note compare edges after inferring for nodes
         boolean matchNodes = queryToView.entrySet().stream()
                 .allMatch(e -> compareEdgeWithNode(e.getKey(), e.getValue()));
         if (!matchNodes) {
@@ -105,7 +113,7 @@ public class HyperGraphComparator {
         }
         queryToView.forEach(this::compareEdgeWithExpr);
 
-        // 3. process residual edges
+        // 1. process residual edges
         Sets.difference(getQueryJoinEdgeSet(), queryToView.keySet())
                 .forEach(e -> pullUpQueryExprWithEdge.put(e, e.getExpressions()));
         Sets.difference(getQueryFilterEdgeSet(), queryToView.keySet())
@@ -116,6 +124,25 @@ public class HyperGraphComparator {
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
 
         return buildComparisonRes();
+    }
+
+    private boolean compareNodeWithExpr(StructInfoNode query, StructInfoNode view) {
+        List<Set<Expression>> queryExprSetList = query.getExprSetList();
+        List<Set<Expression>> viewExprSetList = view.getExprSetList();
+        if (queryExprSetList == null || viewExprSetList == null
+                || queryExprSetList.size() != viewExprSetList.size()) {
+            return false;
+        }
+        int size = queryExprSetList.size();
+        for (int i = 0; i < size; i++) {
+            Set<Expression> mappingQueryExprSet = queryExprSetList.get(i).stream()
+                    .map(e -> logicalCompatibilityContext.getQueryToViewEdgeExpressionMapping().get(e))
+                    .collect(Collectors.toSet());
+            if (!mappingQueryExprSet.equals(viewExprSetList.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private ComparisonResult buildComparisonRes() {
@@ -134,7 +161,7 @@ public class HyperGraphComparator {
                     .filter(expr -> !ExpressionUtils.isInferred(expr))
                     .collect(Collectors.toList());
             if (!rawFilter.isEmpty() && !canPullUp(getViewEdgeAfterInferring(e.getKey()))) {
-                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "with error edge\n" + e);
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "\nwith error edge\n" + e);
             }
             builder.addViewExpressions(rawFilter);
         }

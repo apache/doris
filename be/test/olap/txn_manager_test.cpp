@@ -103,14 +103,14 @@ public:
     void create_tablet() {
         auto tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->set_tablet_uid(_tablet_uid);
-        auto tablet = std::make_shared<Tablet>(std::move(tablet_meta), nullptr);
+        auto tablet = std::make_shared<Tablet>(*k_engine, std::move(tablet_meta), nullptr);
         auto& tablet_map = k_engine->tablet_manager()->_get_tablet_map(tablet_id);
         tablet_map[tablet_id] = std::move(tablet);
     }
 
     virtual void SetUp() {
         config::max_runnings_transactions_per_txn_map = 500;
-        _txn_mgr.reset(new TxnManager(64, 1024));
+        _txn_mgr.reset(new TxnManager(*k_engine, 64, 1024));
 
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
@@ -344,7 +344,7 @@ TEST_F(TxnManagerTest, DeleteCommittedTxn) {
 }
 
 TEST_F(TxnManagerTest, TabletVersionCache) {
-    std::unique_ptr<TxnManager> txn_mgr = std::make_unique<TxnManager>(64, 1024);
+    std::unique_ptr<TxnManager> txn_mgr = std::make_unique<TxnManager>(*k_engine, 64, 1024);
     txn_mgr->update_tablet_version_txn(123, 100, 456);
     txn_mgr->update_tablet_version_txn(124, 100, 567);
     int64_t tx1 = txn_mgr->get_txn_by_tablet_version(123, 100);
