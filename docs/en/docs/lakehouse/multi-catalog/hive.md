@@ -415,6 +415,19 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 "access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
 ```
 
+>Note:
+>
+>"access_controller.properties.ranger.service.name" It refers to the type of service, such as hive, hdfs, etc.
+> If the configuration of `ranger-hive-security.xml`is as follows, "access_controller.properties.ranger.service.name" should be set to `hive` instead of `testative`
+>
+
+```sql
+<property>
+   <name>ranger.plugin.hive.service.name</name>
+   <value>testhive</value>
+</property>
+```
+
 2. Configure all FE environments:
 
     1. Copy the configuration files ranger-hive-audit.xml, ranger-hive-security.xml, and ranger-policymgr-ssl.xml under the HMS conf directory to the FE conf directory.
