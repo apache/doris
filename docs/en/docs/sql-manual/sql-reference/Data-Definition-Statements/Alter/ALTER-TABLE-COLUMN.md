@@ -174,7 +174,9 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
   ```
 
-  Note: Whether you modify the key column or the value column, you need to declare complete column information
+  :::note
+  Whether you modify the key column or the value column, you need to declare complete column information
+  :::
 
 2. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
 
@@ -182,6 +184,7 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   ALTER TABLE example_db.my_table 
   MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
   ```
+
   :::note
   You can only modify the column's data type; other attributes of the column must remain unchanged.
   :::
