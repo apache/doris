@@ -191,5 +191,17 @@ suite("test_schema_change_agg", "p0") {
         assertEquals(2, row[1]);
         assertEquals(3, row[2]);
     }
+
+    // boolean type
+    sql """ alter table ${tableName3} add column v15 boolean replace NOT NULL default "0" after k13 """
+
+    sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.81,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
+
+    test {
+        sql """ALTER table ${tableName3} modify COLUMN v15 int replace NOT NULL default "0" after k13"""
+        exception "Can not change BOOLEAN to INT"
+    }
+
 }
 
