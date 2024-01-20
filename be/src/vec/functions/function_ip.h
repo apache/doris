@@ -501,9 +501,9 @@ class FunctionIPv6StringToNum : public IFunction {
 public:
     static constexpr auto name =
             exception_mode == IPExceptionMode::Throw
-                    ? "ipv4_string_to_num"
-                    : (exception_mode == IPExceptionMode::Default ? "ipv4_string_to_num_or_default"
-                                                                  : "ipv4_string_to_num_or_null");
+                    ? "ipv6_string_to_num"
+                    : (exception_mode == IPExceptionMode::Default ? "ipv6_string_to_num_or_default"
+                                                                  : "ipv6_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNum<exception_mode>>();
