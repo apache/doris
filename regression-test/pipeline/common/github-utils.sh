@@ -318,31 +318,6 @@ file_changed_regression_p1() {
     file_changed_regression_p0
 }
 
-file_changed_ckb() {
-    local all_files
-    all_files=$(cat all_files)
-    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
-    if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
-    for af in ${all_files}; do
-        if [[ "${af}" == 'be'* ]] ||
-            [[ "${af}" == 'bin'* ]] ||
-            [[ "${af}" == 'conf'* ]] ||
-            [[ "${af}" == 'fe'* ]] ||
-            [[ "${af}" == 'gensrc'* ]] ||
-            [[ "${af}" == 'thirdparty'* ]] ||
-            [[ "${af}" == 'build.sh' ]] ||
-            [[ "${af}" == 'env.sh' ]] ||
-            [[ "${af}" == 'regression-test/pipeline/common/github-utils.sh' ]] ||
-            [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
-            [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
-            [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
-            [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
-            echo "clickbench performance related file changed, return need" && return 0
-        fi
-    done
-    echo "return no need" && return 1
-}
-
 file_changed_performance() {
     local all_files
     all_files=$(cat all_files)

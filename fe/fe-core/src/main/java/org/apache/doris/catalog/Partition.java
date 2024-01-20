@@ -331,7 +331,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = EnvFactory.createPartition();
+        Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }

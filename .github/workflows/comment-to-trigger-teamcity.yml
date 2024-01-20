@@ -46,7 +46,6 @@ jobs:
             "${COMMENT_BODY}" == *'run p1'* ||
             "${COMMENT_BODY}" == *'run external'* ||
             "${COMMENT_BODY}" == *'run pipelinex_p0'* ||
-            "${COMMENT_BODY}" == *'run clickbench'* ||
             "${COMMENT_BODY}" == *'run arm'* ||
             "${COMMENT_BODY}" == *'run performance'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
@@ -96,11 +95,6 @@ jobs:
           else
             echo "changed_cloud_ut=false" | tee -a "$GITHUB_OUTPUT"
           fi
-          if file_changed_ckb; then
-            echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
-          else
-            echo "changed_ckb=false" | tee -a "$GITHUB_OUTPUT"
-          fi
           if file_changed_regression_p0; then
             echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
@@ -127,7 +121,6 @@ jobs:
           echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
-          echo "changed_ckb=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_pipelinex_p0=true" | tee -a "$GITHUB_OUTPUT"
@@ -260,18 +253,6 @@ jobs:
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
           "arm" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
-
-    - name: "Trigger or Skip clickbench"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["clickbench", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
-      run: |
-        source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_ckb }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "clickbench" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip performance"
