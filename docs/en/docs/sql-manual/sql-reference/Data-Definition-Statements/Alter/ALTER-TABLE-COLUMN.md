@@ -97,7 +97,7 @@ ALTER TABLE [database.]table table_name ADD COLUMN column_name column_type [KEY 
 :::note 
 - If you add a value column to the aggregation model, you need to specify agg_type
 - For non-aggregated models (such as DUPLICATE KEY), if you add a key column, you need to specify the KEY keyword
-- You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary) :::note 
+- You cannot add columns that already exist in the base index to the rollup index (you can recreate a rollup index if necessary) :::
 
 
 **2. Add multiple columns to the specified index**
