@@ -226,9 +226,9 @@ public class DorisStreamLoader {
 ></dependency>
 > ```
 
-## MySql LOAD
+## MySql Load
 <version since="dev">
-    MySql LOAD样例
+    MySql Load样例
 </version>
 
 ### 导入数据
@@ -257,7 +257,7 @@ public class DorisStreamLoader {
    INTO TABLE demo.load_local_file_test
    ```
 
-   关于 MySQL Load 命令的更多高级操作，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
+   关于 MySql Load 命令的更多高级操作，请参阅 [MySql Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
 
 3. 等待导入结果
 
@@ -269,7 +269,7 @@ public class DorisStreamLoader {
    ```
 
    - 如果出现上述结果, 则表示导入成功。导入失败, 会抛出错误,并在客户端显示错误原因
-   - 其他字段的详细介绍，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
+   - 其他字段的详细介绍，请参阅 [MySql Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令文档。
 
 ### 导入建议
 - MySql Load 只能导入本地文件(可以是客户端本地或者连接的FE节点本地), 而且支持CSV格式。

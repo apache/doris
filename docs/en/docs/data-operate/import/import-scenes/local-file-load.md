@@ -224,9 +224,9 @@ public class DorisStreamLoader {
 > </dependency>
 > ```
 
-## MySql LOAD
+## MySql Load
 <version since="dev">
-    Example of mysql load
+    Example of MySql Load
 </version>
 
 ### Import Data
@@ -255,7 +255,7 @@ public class DorisStreamLoader {
    INTO TABLE demo.load_local_file_test
    ```
 
-   For more advanced operations of the MySQL Load command, see [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) Command documentation.
+   For more advanced operations of the MySql Load command, see [MySql Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) Command documentation.
 
 3. Wait for the import result
 
@@ -267,7 +267,7 @@ public class DorisStreamLoader {
    ```
 
    - Load success if the client show the return rows. Otherwise sql statement will throw an exception and show the error message in client.
-   - For details of other fields, please refer to the [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command documentation.
+   - For details of other fields, please refer to the [MySql Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) command documentation.
 
 ### Import Suggestion
 
