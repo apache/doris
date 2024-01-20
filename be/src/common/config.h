@@ -1291,5 +1291,7 @@ Status set_fuzzy_config(const std::string& field, const std::string& value);
 
 void set_fuzzy_configs();
 
+void update_config(const std::string& field, const std::string& value);
+
 } // namespace config
 } // namespace doris
