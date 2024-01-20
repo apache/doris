@@ -95,6 +95,8 @@ Status VSetOperationNode<is_intersect>::init(const TPlanNode& tnode, RuntimeStat
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
+    // will open projections
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     // open result expr lists.
     for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
