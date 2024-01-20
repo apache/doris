@@ -30,10 +30,10 @@ import java.util.Map;
 /**
  * queries tvf
  */
-public class ActiveQueries extends TableValuedFunction {
+public class ActiveQueryStats extends TableValuedFunction {
 
-    public ActiveQueries(Properties properties) {
-        super("active_queries", properties);
+    public ActiveQueryStats(Properties properties) {
+        super("active_query_stats", properties);
     }
 
     @Override

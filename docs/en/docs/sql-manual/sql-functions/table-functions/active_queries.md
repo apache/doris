@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ACTIVE_QUERIES",
+    "title": "active_query_stats",
     "language": "en"
 }
 ---
@@ -24,28 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `active_queries`
+## `active_query_stats`
 
 ### Name
 
 <version since="dev">
 
-active_queries
+active_query_stats
 
 </version>
 
 ### description
 
-Table-Value-Function, generate a temporary table named active_queries. This tvf is used to view the information of running queries in doris cluster.
+Table-Value-Function, generate a temporary table named active_query_stats. This tvf is used to view the information of running queries in doris cluster.
 
 This function is used in FROM clauses.
 
 #### syntax
-`active_queries()`
+`active_query_stats()`
 
-active_queries() table schema：
+active_query_stats() table schema：
 ```
-mysql [(none)]> desc function active_queries();
+mysql [(none)]> desc function active_query_stats();
 +------------------------+--------+------+-------+---------+-------+
 | Field                  | Type   | Null | Key   | Default | Extra |
 +------------------------+--------+------+-------+---------+-------+
@@ -69,7 +69,7 @@ mysql [(none)]> desc function active_queries();
 
 ### example
 ```
-mysql [(none)]>select * from active_queries();
+mysql [(none)]>select * from active_query_stats();
 +------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
 | BeHost     | BePort | QueryId                          | StartTime           | QueryTimeMs | WorkloadGroupId | QueryCpuTimeMs | ScanRows | ScanBytes  | BePeakMemoryBytes | CurrentUsedMemoryBytes | Database | FrontendInstance | Sql   |
 +------------+--------+----------------------------------+---------------------+-------------+-----------------+----------------+----------+------------+-------------------+------------------------+----------+------------------+-------+
@@ -80,4 +80,4 @@ mysql [(none)]>select * from active_queries();
 
 ### keywords
 
-    active_queries
+    active_query_stats

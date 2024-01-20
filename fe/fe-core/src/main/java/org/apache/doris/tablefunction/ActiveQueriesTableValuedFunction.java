@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 public class ActiveQueriesTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "active_queries";
+    public static final String NAME = "active_query_stats";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("BeHost", ScalarType.createStringType()),

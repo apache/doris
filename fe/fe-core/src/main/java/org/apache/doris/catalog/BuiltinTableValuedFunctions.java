@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
+import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueryStats;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
@@ -54,7 +54,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
-            tableValued(ActiveQueries.class, "active_queries"),
+            tableValued(ActiveQueryStats.class, "active_query_stats"),
             tableValued(S3.class, "s3"),
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
