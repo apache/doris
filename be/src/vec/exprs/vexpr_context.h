@@ -41,7 +41,7 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(VExprSPtr  expr) : _root(std::move(expr)) {}
+    VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);

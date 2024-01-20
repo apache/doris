@@ -446,7 +446,7 @@ public:
 
 protected:
     std::shared_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state {};
+    SourceState _child_source_state {SourceState::DEPEND_ON_SOURCE};
 };
 
 } // namespace doris::pipeline

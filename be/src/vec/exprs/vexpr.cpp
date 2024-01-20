@@ -196,8 +196,6 @@ VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
-    LOG(WARNING) << fmt::format("expr prepare {} {} {}", to_string(_node_type),
-                                _type.debug_string(), to_string(_opcode));
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
         return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
@@ -214,8 +212,6 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
-    LOG(WARNING) << fmt::format("expr open {} {} {}", to_string(_node_type),
-                                _type.debug_string(), to_string(_opcode));
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }

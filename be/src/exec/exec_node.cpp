@@ -143,7 +143,6 @@ Status ExecNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
 
-    LOG(WARNING) << _id << "preparing projections";
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (auto& i : _children) {
@@ -156,7 +155,6 @@ Status ExecNode::alloc_resource(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
-    LOG(WARNING) << _id << "opening projections";
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
     return Status::OK();
 }
