@@ -15,31 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/metrics_action.h"
+#pragma once
 
-#include <string>
-
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/http_request.h"
-#include "util/metrics.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
 
-void MetricsAction::handle(HttpRequest* req) {
-    const std::string& type = req->param("type");
-    const std::string& with_tablet = req->param("with_tablet");
-    std::string str;
-    if (type == "core") {
-        str = _metric_registry->to_core_string();
-    } else if (type == "json") {
-        str = _metric_registry->to_json(with_tablet == "true");
-    } else {
-        str = _metric_registry->to_prometheus(with_tablet == "true");
-    }
+class HttpRequest;
+class BvarMetricRegistry;
 
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
-    HttpChannel::send_reply(req, str);
-}
+class BvarMetricsAction : public HttpHandlerWithAuth {
+public:
+    BvarMetricsAction(BvarMetricRegistry* bvar_metric_registry, ExecEnv* exec_env, TPrivilegeHier::type hier,
+                  TPrivilegeType::type type)
+            : HttpHandlerWithAuth(exec_env, hier, type), bvar_metric_registry_(bvar_metric_registry) {}
+
+    ~BvarMetricsAction() override = default;
+
+    void handle(HttpRequest* req) override;
+
+private:
+    BvarMetricRegistry* bvar_metric_registry_;
+};
 
 } // namespace doris

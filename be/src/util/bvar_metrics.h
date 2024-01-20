@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <map>
 
 namespace doris {
 
@@ -48,6 +49,7 @@ enum class BvarMetricUnit {
 };
 
 std::ostream& operator<<(std::ostream& os, BvarMetricType type);
+// const char* unit_name(BvarMetricUnit unit);
 
 using Labels = std::unordered_map<std::string, std::string>;
 
@@ -79,10 +81,11 @@ protected:
     std::string group_name_; // prefix
     std::string name_;
     std::string description_;
-
+    
     Labels labels_;
 };
 
+// bvar::Adder which support the operation of commutative and associative laws
 template <typename T>
 class BvarAdderMetric : public BvarMetric {
 public:
@@ -94,9 +97,11 @@ public:
         adder_ = std::make_shared<bvar::Adder<T>>(group_name, name + '_' + description);
     }
     ~BvarAdderMetric() override = default;
-
+    
+    T get_value();
     void increment(T value);
     void set_value(T value);
+    
     std::string to_prometheus(const std::string& registry_name) const override;
     std::string label_string() const;
     std::string value_string() const;
@@ -105,21 +110,58 @@ private:
     std::shared_ptr<bvar::Adder<T>> adder_;
 };
 
+
 class BvarMetricEntity {
 public:
     BvarMetricEntity() = default;
     BvarMetricEntity(std::string entity_name, BvarMetricType type)
             : entity_name_(entity_name), type_(type) {}
     BvarMetricEntity(const BvarMetricEntity& entity)
-            : entity_name_(entity.entity_name_), type_(entity.type_), map_(entity.map_) {}
+            : entity_name_(entity.entity_name_), type_(entity.type_), metrics_(entity.metrics_) {}
+    
     template <typename T>
-    void register_metric(std::string name, T metric);
-    std::string to_prometheus(const std::string& registry_name);
+    void register_metric(const std::string& name, T metric);
+
+    void deregister_metric(const std::string& name);
+
+    std::string to_prometheus(const std::string& registry_name);    
+    
+    std::shared_ptr<BvarMetric> get_metric(const std::string& name);
+
+    // Register a hook, this hook will called before get_metric is called
+    void register_hook(const std::string& name, const std::function<void()>& hook);
+    void deregister_hook(const std::string& name);
+    void trigger_hook_unlocked(bool force) const;
 
 private:
     std::string entity_name_;
+    
     BvarMetricType type_;
-    std::unordered_map<std::string, std::shared_ptr<BvarMetric>> map_;
+    
+    std::unordered_map<std::string, std::shared_ptr<BvarMetric>> metrics_;
+
+    std::map<std::string, std::function<void()>> hooks_;
+    
+    bthread::Mutex mutex_;
+};
+
+class BvarMetricRegistry {
+public:
+    BvarMetricRegistry() = default;
+    BvarMetricRegistry(const std::string& registry_name) : registry_name_(registry_name) {}
+    BvarMetricRegistry(const BvarMetricRegistry& registry)
+            : registry_name_(registry.registry_name_), entities_(registry.entities_) {}
+
+    std::shared_ptr<BvarMetricEntity> register_entity(const std::string& name, BvarMetricType type = BvarMetricType::COUNTER);
+    void deregister_entity(const std::string& name);
+
+    std::string to_prometheus() const;
+    // std::string to_json(bool with_tablet_metrics = false) const;
+    // std::string to_core_string() const;
+
+private:
+    const std::string registry_name_;
+    std::unordered_map<std::string, std::shared_ptr<BvarMetricEntity>> entities_;
     bthread::Mutex mutex_;
 };
 
