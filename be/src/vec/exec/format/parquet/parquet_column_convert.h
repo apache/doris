@@ -145,7 +145,9 @@ struct ConvertParams {
 
             // The missing parque metadata makes it impossible for us to know the time zone information,
             // so we default to UTC here.
-            ctz = const_cast<cctz::time_zone*>(&utc0);
+            if (ctz == nullptr) {
+                ctz = const_cast<cctz::time_zone*>(&utc0);
+            }
         }
     }
 
