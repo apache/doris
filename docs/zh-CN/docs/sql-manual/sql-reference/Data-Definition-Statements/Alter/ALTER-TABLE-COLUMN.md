@@ -45,7 +45,7 @@ ALTER TABLE [database.]table alter_clause;
 
 schema change 的 alter_clause 支持如下几种修改方式：
 
-**添加列，向指定的 index 位置进行列添加**
+**1. 添加列，向指定的 index 位置进行列添加**
 
 **语法**
 
