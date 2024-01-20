@@ -134,9 +134,11 @@ struct ConvertParams {
     void reset_time_scale_if_missing(int scale) {
         const auto& schema = field_schema->parquet_schema;
         if (!schema.__isset.logicalType && !schema.__isset.converted_type) {
-            int ts_scale = 6;
+            int ts_scale = 9;
             if (scale <= 3) {
                 ts_scale = 3;
+            } else if (scale <= 6) {
+                ts_scale = 6;
             }
             second_mask = common::exp10_i64(ts_scale);
             scale_to_nano_factor = common::exp10_i64(9 - ts_scale);
