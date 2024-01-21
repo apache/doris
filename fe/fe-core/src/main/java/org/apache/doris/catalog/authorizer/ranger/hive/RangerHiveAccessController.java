@@ -192,11 +192,6 @@ public class RangerHiveAccessController extends RangerAccessController {
         return false;
     }
 
-    @Override
-    public void onRefresh() {
-        hivePlugin.refreshPoliciesAndTags();
-    }
-
     // For test only, will be removed later
     public static void main(String[] args) {
         Map<String, String> properties = Maps.newHashMap();

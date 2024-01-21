@@ -73,8 +73,4 @@ public interface CatalogAccessController {
 
     void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
-
-    default void onRefresh() {
-        // do nothing
-    }
 }

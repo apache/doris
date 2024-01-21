@@ -57,7 +57,8 @@ public class ShowResourcesStmt extends ShowStmt {
     public ShowResourcesStmt() {
     }
 
-    public ShowResourcesStmt(String pattern, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+    public ShowResourcesStmt(String pattern, Expr labelExpr,
+            List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.pattern = pattern;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;

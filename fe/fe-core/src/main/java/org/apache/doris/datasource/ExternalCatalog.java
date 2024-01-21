@@ -302,8 +302,6 @@ public abstract class ExternalCatalog
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
-        // Refresh auth manager
-        Env.getCurrentEnv().getAccessManager().getAccessControllerOrDefault(name).onRefresh();
     }
 
     public void updateDbList() {

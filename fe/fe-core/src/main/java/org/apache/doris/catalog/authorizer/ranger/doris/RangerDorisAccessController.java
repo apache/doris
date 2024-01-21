@@ -166,11 +166,6 @@ public class RangerDorisAccessController extends RangerAccessController {
         return checkPrivilege(currentUser, DorisAccessType.toAccessType(wanted), resource);
     }
 
-    @Override
-    public void onRefresh() {
-        dorisPlugin.refreshPoliciesAndTags();
-    }
-
     // For test only, will be removed later
     public static void main(String[] args) {
         RangerDorisAccessController ac = new RangerDorisAccessController("doris");
