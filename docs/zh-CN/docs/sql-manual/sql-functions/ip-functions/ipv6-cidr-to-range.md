@@ -52,6 +52,13 @@ mysql> SELECT ipv6_cidr_to_range(ipv6_string_to_num('2001:0db8:0000:85a3:0000:00
 | {"min": "2001:db8::", "max": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"}                |
 +---------------------------------------------------------------------------------------+
 
+mysql> SELECT ipv6_cidr_to_range(to_ipv6('2001:0db8:0000:85a3:0000:0000:ac1f:8001'), 32);
++----------------------------------------------------------------------------+
+| ipv6_cidr_to_range(to_ipv6('2001:0db8:0000:85a3:0000:0000:ac1f:8001'), 32) |
++----------------------------------------------------------------------------+
+| {"min": "2001:db8::", "max": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"}     |
++----------------------------------------------------------------------------+
+
 mysql> SELECT ipv6_cidr_to_range(NULL, NULL);
 +--------------------------------+
 | ipv6_cidr_to_range(NULL, NULL) |
@@ -62,4 +69,4 @@ mysql> SELECT ipv6_cidr_to_range(NULL, NULL);
 
 ### keywords
 
-IS_IP_ADDRESS_IN_RANGE, IP
+IPV6_CIDR_TO_RANGE, IP

@@ -69,4 +69,4 @@ mysql> SELECT ipv6_cidr_to_range(NULL, NULL);
 
 ### keywords
 
-IS_IP_ADDRESS_IN_RANGE, IP
+IPV6_CIDR_TO_RANGE, IP
