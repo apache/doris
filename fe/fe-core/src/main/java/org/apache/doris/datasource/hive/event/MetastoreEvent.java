@@ -17,8 +17,10 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -225,6 +227,13 @@ public abstract class MetastoreEvent {
             name.append(part.get(colName));
         }
         return name.toString();
+    }
+
+    /**
+     * Create a MetaIdMapping list from the event if the event is a create/add/drop event
+     */
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        return ImmutableList.of();
     }
 
     @Override

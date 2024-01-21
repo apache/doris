@@ -128,6 +128,7 @@ public class JdbcExecutor {
             resultSet.close();
         }
         if (stmt != null) {
+            stmt.cancel();
             stmt.close();
         }
         if (conn != null) {

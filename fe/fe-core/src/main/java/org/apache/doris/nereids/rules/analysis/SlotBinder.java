@@ -262,10 +262,6 @@ public class SlotBinder extends SubExprAnalyzer {
         return new BoundStar(slots);
     }
 
-    private boolean compareDbName(String unBoundDbName, String boundedDbName) {
-        return unBoundDbName.equalsIgnoreCase(boundedDbName);
-    }
-
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
             List<String> nameParts = unboundSlot.getNameParts();
@@ -305,7 +301,11 @@ public class SlotBinder extends SubExprAnalyzer {
         }).collect(Collectors.toList());
     }
 
-    private boolean sameTableName(String boundSlot, String unboundSlot) {
+    public static boolean compareDbName(String boundedDbName, String unBoundDbName) {
+        return unBoundDbName.equalsIgnoreCase(boundedDbName);
+    }
+
+    public static boolean sameTableName(String boundSlot, String unboundSlot) {
         if (GlobalVariable.lowerCaseTableNames != 1) {
             return boundSlot.equals(unboundSlot);
         } else {

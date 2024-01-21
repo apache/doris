@@ -226,7 +226,8 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
         }
     }
-    return Status::InternalError("can not get a block queue");
+    return Status::InternalError("can not get a block queue for table_id: " +
+                                 std::to_string(_table_id));
 }
 
 Status GroupCommitTable::_create_group_commit_load(

@@ -125,15 +125,22 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         }
     }
 
-    // if not in transaction or status is in error or force close we can do close in
-    // async IO thread
-    if (!_writer_status.ok() || !in_transaction()) {
-        std::lock_guard l(_m);
-        // Using lock to make sure the writer status is not modified
-        // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
-        // maybe released. And it will core because use after free.
+    // If the last block is sent successfuly, then call finish to clear the buffer or commit
+    // transactions.
+    // Using lock to make sure the writer status is not modified
+    // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
+    // maybe released. And it will core because use after free.
+    std::lock_guard l(_m);
+    if (_writer_status.ok() && _eos) {
+        _writer_status = finish(state);
+    }
+
+    if (_writer_status.ok()) {
         _writer_status = close(_writer_status);
-        _need_normal_close = false;
+    } else {
+        // If it is already failed before, then not update the write status so that we could get
+        // the real reason.
+        static_cast<void>(close(_writer_status));
     }
     _writer_thread_closed = true;
     if (_finish_dependency) {

@@ -833,7 +833,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            RETURN_IF_ERROR(base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits));
+            RETURN_IF_ERROR(
+                    base_tablet->capture_rs_readers_unlocked(versions_to_be_changed, &rs_splits));
             if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
@@ -985,8 +986,8 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     }
     *max_rowset = rowset;
 
-    RETURN_IF_ERROR(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                                                             versions_to_be_changed, false, false));
+    RETURN_IF_ERROR(base_tablet->capture_consistent_versions_unlocked(
+            Version(0, rowset->version().second), versions_to_be_changed, false, false));
 
     return Status::OK();
 }
