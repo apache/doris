@@ -27,6 +27,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null>>();
     factory.register_alias(FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>::name,
                            "inet_aton");
+
     factory.register_function<FunctionIPv6NumToString>();
     factory.register_alias(FunctionIPv6NumToString::name, "inet6_ntoa");
     factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Throw>>();
@@ -34,6 +35,9 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv6StringToNum<IPStringToNumExceptionMode::Null>>();
     factory.register_alias(FunctionIPv6StringToNum<IPStringToNumExceptionMode::Throw>::name,
                            "inet6_aton");
+
+    factory.register_function<FunctionIsIPv4Compat>();
+    factory.register_function<FunctionIsIPv4Mapped>();
     factory.register_function<FunctionIsIPString<IPv4>>();
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
