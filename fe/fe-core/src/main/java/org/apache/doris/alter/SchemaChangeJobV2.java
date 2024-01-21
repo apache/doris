@@ -48,7 +48,6 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -602,8 +601,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void waitWalFinished() {
         // wait wal done here
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
-        LOG.info("block table {}", tableId);
+        Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
+        LOG.info("block group commit for table={} when schema change", tableId);
         List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
         long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
         while (true) {
@@ -611,21 +610,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             boolean walFinished = Env.getCurrentEnv().getGroupCommitManager()
                     .isPreviousWalFinished(tableId, aliveBeIds);
             if (walFinished) {
-                LOG.info("all wal is finished");
+                LOG.info("all wal is finished for table={}", tableId);
                 break;
             } else if (System.currentTimeMillis() > expireTime) {
-                LOG.warn("waitWalFinished time out");
+                LOG.warn("waitWalFinished time out for table={}", tableId);
                 break;
             } else {
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException ie) {
-                    LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
+                    LOG.warn("failed to wait for wal for table={} when schema change", tableId, ie);
                 }
             }
         }
-        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
-        LOG.info("release table {}", tableId);
+        Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+        LOG.info("unblock group commit for table={} when schema change", tableId);
     }
 
     private void onFinished(OlapTable tbl) {
