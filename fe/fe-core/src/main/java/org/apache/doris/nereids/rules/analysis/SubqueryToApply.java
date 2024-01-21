@@ -84,8 +84,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
                         return filter;
                     }
-                    boolean shouldOutputMarkJoinSlot = filter.getConjuncts().stream()
-                            .anyMatch(expr -> !(expr instanceof SubqueryExpr));
+                    ImmutableList<Boolean> shouldOutputMarkJoinSlot =
+                            filter.getConjuncts().stream()
+                                    .map(expr -> !(expr instanceof SubqueryExpr)
+                                            && expr.containsType(SubqueryExpr.class))
+                                    .collect(ImmutableList.toImmutableList());
 
                     List<Expression> oldConjuncts = ImmutableList.copyOf(filter.getConjuncts());
                     ImmutableList.Builder<Expression> newConjuncts = new ImmutableList.Builder<>();
@@ -103,7 +106,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         // first step: Replace the subquery of predicate in LogicalFilter
                         // second step: Replace subquery with LogicalApply
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(
-                                ctx.statementContext, shouldOutputMarkJoinSlot);
+                                ctx.statementContext, shouldOutputMarkJoinSlot.get(i));
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
