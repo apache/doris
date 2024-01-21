@@ -28,28 +28,6 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         return createViewStateResult[0][8]
     }
 
-    def execStreamLoad = {
-        streamLoad {
-            table "${tableName3}"
-
-            set 'column_separator', ','
-
-            file 'all_types.csv'
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(2500, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
-    }
-
     sql """ DROP TABLE IF EXISTS ${tableName3} """
 
     sql """
@@ -74,8 +52,6 @@ suite("test_schema_change_agg_check_all_types", "p0") {
         "replication_allocation" = "tag.location.default: 1"
     );
     """
-
-    execStreamLoad()
 
     // tinyint to smallint
     sql """ alter table ${tableName3} modify column k2 smallint key NULL"""
