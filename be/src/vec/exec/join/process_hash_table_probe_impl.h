@@ -240,6 +240,8 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
 
     constexpr bool is_anti_join = JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+    constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+                                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
 
     const auto row_count = output_block->rows();
     auto mark_column_mutable =
@@ -253,8 +255,13 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
                 assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data().data();
         auto* mark_null_map = mark_column.get_null_map_data().data();
         for (size_t i = 0; i != row_count; ++i) {
-            filter_data[i] = _build_indexs[i] != 0;
-            mark_null_map[i] = _build_indexs[i] == hash_table_bucket_size;
+            filter_data[i] = _build_indexs[i] != 0 && _build_indexs[i] != hash_table_bucket_size;
+            if constexpr (is_null_aware_join) {
+                mark_null_map[i] = _build_indexs[i] == hash_table_bucket_size;
+            }
+        }
+        if constexpr (!is_null_aware_join) {
+            memset(mark_null_map, 0, row_count);
         }
     } else {
         RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
@@ -282,7 +289,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
     auto filter_column = ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
     const bool should_be_null_if_build_side_has_null =
-            *_has_null_in_build_side & _parent->_mark_join_conjuncts.empty();
+            *_has_null_in_build_side & is_null_aware_join;
     for (size_t i = 0; i != row_count; ++i) {
         bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
         if (_build_indexs[i] == 0) {
