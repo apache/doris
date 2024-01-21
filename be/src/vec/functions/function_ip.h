@@ -888,7 +888,6 @@ private:
     }
 };
 
-template <typename Type>
 template <IPExceptionMode exception_mode, typename Type>
 inline constexpr auto to_ip_func_name() {
     if constexpr (std::is_same_v<Type, IPv4>) {
