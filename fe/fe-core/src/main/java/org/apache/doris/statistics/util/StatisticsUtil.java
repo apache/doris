@@ -166,6 +166,34 @@ public class StatisticsUtil {
         return ColumnStatistic.fromResultRow(resultBatches);
     }
 
+    public static ColumnStatistic getColumnStatsFromHiveTable(org.apache.hadoop.hive.metastore.api.Table hiveTable) {
+        Map<String, String> params = hiveTable.getParameters();
+        long numRows = getHMSParamLongParam(NUM_ROWS, params);
+        long totalSize = getHMSParamLongParam(TOTAL_SIZE, params);
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
+        builder.setCount((double) numRows);
+        builder.setDataSize((double) totalSize);
+        return builder.build();
+    }
+
+    private static long getHMSParamLongParam(String key, Map<String, String> parameters) {
+        if (parameters == null) {
+            return -1;
+        }
+
+        String value = parameters.get(key);
+        if (value == null) {
+            return -1;
+        }
+
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException exc) {
+            // ignore
+        }
+        return -1;
+    }
+
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
             throws Exception {
         return resultBatches.stream().map(Histogram::fromResultRow).collect(Collectors.toList());

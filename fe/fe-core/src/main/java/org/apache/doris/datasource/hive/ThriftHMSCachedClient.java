@@ -382,6 +382,20 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
+    @Override
+    public void alterTable(String dbName, String tableName, Table newTable) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                client.client.alter_table(dbName, tableName, newTable);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to alter table %s.%s", e, dbName, tableName);
+        }
+    }
+
     private LockResponse checkLock(long lockId) {
         try (ThriftHMSClient client = getClient()) {
             try {

@@ -474,4 +474,9 @@ public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
         throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
+
+    @Override
+    public void alterTable(String dbName, String tableName, Table newTable) {
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
+    }
 }

@@ -188,6 +188,8 @@ import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TRefreshTableCacheRequest;
+import org.apache.doris.thrift.TRefreshTableCacheResponse;
 import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -3034,6 +3036,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
         Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
         return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
+    public TRefreshTableCacheResponse refreshTableCache(TRefreshTableCacheRequest request) throws TException {
+        if (!request.isSetCatalogName()) {
+            throw new TException("catalog name is not set");
+        }
+        if (!request.isSetDbName()) {
+            throw new TException("db name is not set");
+        }
+        if (!request.isSetTableName()) {
+            throw new TException("table name is not set");
+        }
+        TRefreshTableCacheResponse response = new TRefreshTableCacheResponse();
+        String catalogName = request.getCatalogName();
+        String dbName = request.getDbName();
+        String tableName = request.getTableName();
+        List<String> partitions = request.getPartitions();
+        try {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (!(catalog instanceof ExternalCatalog)) {
+                throw new TException("Only support refresh table for external catalog");
+            }
+            if (CollectionUtils.isNotEmpty(partitions)) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache(
+                        catalog.getId(), dbName, tableName, partitions);
+            } else {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(catalog.getId(), dbName, tableName);
+            }
+            response.setStatus(new TStatus(TStatusCode.OK));
+            return response;
+        } catch (Throwable e) {
+            LOG.error("Failed to refresh table cache, {}.{}.{}.{}",
+                    catalogName, dbName, tableName, partitions, e);
+            TStatus errStatus = new TStatus(TStatusCode.INTERNAL_ERROR);
+            errStatus.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+            response.setStatus(errStatus);
+            return response;
+        }
     }
 
     @Override
