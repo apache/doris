@@ -364,44 +364,6 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         vec_null_map_to = &col_null_map_to->get_data();
     }
 
-    /// This is a special treatment for source column of type String
-    /// to preserve previous behavior when IPv6 was a domain type of String
-    if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
-        if (string_column.get_offsets()[0] - 1 == IPV6_BINARY_LENGTH) {
-            if constexpr (std::is_same_v<ToColumn, ColumnString>) {
-                auto col_res = ColumnString::create();
-
-                if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
-                    col_null_map_to = ColumnUInt8::create(column_size, false);
-                    if (null_map) {
-                        memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
-                    }
-
-                    return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
-                }
-
-                return col_res;
-            } else {
-                auto col_res = ColumnIPv6::create();
-                auto& vec_res = col_res->get_data();
-
-                vec_res.resize(column_size);
-                memcpy(vec_res.data(), string_column.get_chars().data(),
-                       column_size * IPV6_BINARY_LENGTH);
-
-                if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
-                    col_null_map_to = ColumnUInt8::create(column_size, false);
-                    if (null_map) {
-                        memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
-                    }
-                    return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
-                }
-
-                return col_res;
-            }
-        }
-    }
-
     auto column_create = [](size_t column_size) -> typename ToColumn::MutablePtr {
         if constexpr (std::is_same_v<ToColumn, ColumnString>) {
             auto column_string = ColumnString::create();
@@ -830,6 +792,96 @@ private:
             dst_lower[i] = src[i] & mask[i];
             dst_upper[i] = dst_lower[i] | ~mask[i];
         }
+    }
+};
+
+class FunctionIsIPv4Compat : public IFunction {
+public:
+    static constexpr auto name = "is_ipv4_compat";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv4Compat>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const auto* col_in = check_and_get_column<ColumnString>(column.get());
+
+        if (!col_in)
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            column->get_name(), get_name());
+        size_t col_size = col_in->size();
+        auto col_res = ColumnUInt8::create(col_size, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < col_size; ++i) {
+            auto ipv4_in = col_in->get_data_at(i);
+            if (is_ipv4_compat(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+                col_res_data[i] = 1;
+            }
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static bool is_ipv4_compat(const UInt8* address) {
+        return (unaligned_load_little_endian<UInt64>(address) == 0) &&
+               (unaligned_load_little_endian<UInt32>(address + 8) == 0) &&
+               (unaligned_load_little_endian<UInt32>(address + 12) != 0);
+    }
+};
+
+class FunctionIsIPv4Mapped : public IFunction {
+public:
+    static constexpr auto name = "is_ipv4_mapped";
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv4Mapped>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeUInt8>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const auto* col_in = check_and_get_column<ColumnString>(column.get());
+
+        if (!col_in)
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected String",
+                            column->get_name(), get_name());
+        size_t col_size = col_in->size();
+        auto col_res = ColumnUInt8::create(col_size, 0);
+        auto& col_res_data = col_res->get_data();
+
+        for (size_t i = 0; i < col_size; ++i) {
+            auto ipv4_in = col_in->get_data_at(i);
+            if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+                col_res_data[i] = 1;
+            }
+        }
+
+        block.replace_by_position(result, std::move(col_res));
+        return Status::OK();
+    }
+
+private:
+    static bool is_ipv4_mapped(const UInt8* address) {
+        return (unaligned_load_little_endian<UInt64>(address) == 0) &&
+               ((unaligned_load_little_endian<UInt64>(address + 8) & 0x00000000FFFFFFFFULL) ==
+                0x00000000FFFF0000ULL);
     }
 };
 
