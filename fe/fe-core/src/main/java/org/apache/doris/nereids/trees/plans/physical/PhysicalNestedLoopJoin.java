@@ -223,10 +223,15 @@ public class PhysicalNestedLoopJoin<
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder("NestedLoopJoin");
         builder.append("[").append(joinType).append("]");
-        builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo())
-                .sorted().collect(Collectors.joining(" and ", " otherCondition=(", ")")));
-        builder.append(markJoinConjuncts.stream().map(cond -> cond.shapeInfo())
-                .sorted().collect(Collectors.joining(" and ", " markCondition=(", ")")));
+        if (!markJoinConjuncts.isEmpty()) {
+            builder.append(otherJoinConjuncts.stream().map(cond -> cond.shapeInfo()).sorted()
+                    .collect(Collectors.joining(" and ", " otherCondition=(", ")")));
+            builder.append(markJoinConjuncts.stream().map(cond -> cond.shapeInfo()).sorted()
+                    .collect(Collectors.joining(" and ", " markCondition=(", ")")));
+        } else {
+            otherJoinConjuncts.forEach(expr -> builder.append(expr.shapeInfo()));
+        }
+
         return builder.toString();
     }
 
