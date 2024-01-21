@@ -120,12 +120,18 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
-            this.addAppliedRuntimeFilter(filter);
-            filter.addTargetSlot(scanSlot, scan);
-            filter.addTargetExpression(scanSlot);
-            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
-            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            if (!filter.hasTargetScan(scan)) {
+                // A join B on A.a1=B.b and A.a1 = A.a2
+                // RF B.b->(A.a1, A.a2)
+                // however, RF(B.b->A.a2) is implied by RF(B.a->A.a1) and A.a1=A.a2
+                // we skip RF(B.b->A.a2)
+                this.addAppliedRuntimeFilter(filter);
+                filter.addTargetSlot(scanSlot, scan);
+                filter.addTargetExpression(scanSlot);
+                ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            }
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
                     src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv, scan);
