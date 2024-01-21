@@ -40,7 +40,7 @@ IPV6_CIDR_TO_RANGE
 
 ### notice
 
-`如果入参为NULL，则返回NULL，表示无效收入`
+`如果入参为NULL，则返回NULL，表示无效输入`
 
 ### example
 
