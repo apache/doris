@@ -1,7 +1,7 @@
 ---
 {
     "title": "Integration with Apache Ranger",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
