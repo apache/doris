@@ -28,17 +28,17 @@ under the License.
 
 <version since="dev">
 
-IPv6
+IPV6
 
 </version>
 
 ### description
 
 IPV6
-IPv6 type, stored in Int128 format in 16 bytes, used to represent IPv6 addresses
-The range of values is ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']
+IPv6 type, stored in Int128 format in 16 bytes, used to represent IPv6 addresses.
+The range of values is ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'].
 
-`Inputs that exceed the value range will return NULL`
+`Inputs that exceed the value range or have invalid format will return NULL`
 
 ### example
 
@@ -76,7 +76,6 @@ mysql> select * from ipv6_test order by id;
 |    3 | ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff |
 |    4 | NULL                                    |
 +------+-----------------------------------------+
-4 rows in set (0.03 sec)
 ```
 
 ### keywords

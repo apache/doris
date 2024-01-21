@@ -28,17 +28,17 @@ under the License.
 
 <version since="dev">
 
-IPv4
+IPV4
 
 </version>
 
 ### description
 
 IPV4
-IPv4 type, stored in the form of UInt32 in 4 bytes, used to represent IPv4 addresses
-The range of values is ['0.0.0.0', '255.255.255.255']
+IPv4 type, stored in the form of UInt32 in 4 bytes, used to represent IPv4 addresses.
+The range of values is ['0.0.0.0', '255.255.255.255'].
 
-`Inputs that exceed the value range will return NULL`
+`Inputs that exceed the value range or have invalid format will return NULL`
 
 ### example
 
@@ -78,7 +78,6 @@ mysql> select * from ipv4_test order by id;
 |    4 | 255.255.255.255 |
 |    5 | NULL            |
 +------+-----------------+
-5 rows in set (0.03 sec)
 ```
 
 ### keywords
