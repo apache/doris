@@ -28,17 +28,17 @@ under the License.
 
 <version since="dev">
 
-IPv6
+IPV6
 
 </version>
 
 ### description
 
 IPV6
-IPv6类型，以Int128的形式存储在16个字节中，用于表示IPv6地址
-取值范围是 ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']
+IPv6类型，以Int128的形式存储在16个字节中，用于表示IPv6地址。
+取值范围是 ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']。
 
-`超出取值范围的输入将返回NULL`
+`超出取值范围或者格式非法的输入将返回NULL`
 
 ### example
     
@@ -76,7 +76,6 @@ mysql> select * from ipv6_test order by id;
 |    3 | ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff |
 |    4 | NULL                                    |
 +------+-----------------------------------------+
-4 rows in set (0.03 sec)
 ```
 
 ### keywords

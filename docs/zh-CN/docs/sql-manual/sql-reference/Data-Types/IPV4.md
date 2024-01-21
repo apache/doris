@@ -28,17 +28,17 @@ under the License.
 
 <version since="dev">
 
-IPv4
+IPV4
 
 </version>
 
 ### description
 
 IPV4
-IPv4类型，以UInt32的形式存储在4个字节中，用于表示IPv4地址
-取值范围是 ['0.0.0.0', '255.255.255.255']
+IPv4类型，以UInt32的形式存储在4个字节中，用于表示IPv4地址。
+取值范围是 ['0.0.0.0', '255.255.255.255']。
 
-`超出取值范围的输入将返回NULL`
+`超出取值范围或者格式非法的输入将返回NULL`
 
 ### example
     
@@ -78,7 +78,6 @@ mysql> select * from ipv4_test order by id;
 |    4 | 255.255.255.255 |
 |    5 | NULL            |
 +------+-----------------+
-5 rows in set (0.03 sec)
 ```
 
 ### keywords
