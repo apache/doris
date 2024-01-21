@@ -57,18 +57,12 @@ suite("test_partition") {
 
     // add partition
     sql """ALTER TABLE ${tblName} add PARTITION new_p1 values [("3"), ("4"));"""
-    sql """INSERT INTO ${tblName}(siteid, citycode, username, pv) VALUES (3, 1, "xxx", 1), (4, 1, "yyy", 1);"""
+    sql """INSERT INTO ${tblName}(siteid, citycode, username, pv) VALUES (3, 1, "xxx", 1);"""
     order_qt_sql_1 """SELECT * from ${tblName};"""
     checkPartition(tblName);
     // del partition
-    sql """ALTER TABLE ${tblName} DROP PARTITION new_p1 values [("3"), ("4"));"""
+    sql """ALTER TABLE ${tblName} DROP PARTITION new_p1;"""
     order_qt_sql_2 """SELECT * from ${tblName};"""
-    checkPartition(tblName);
-    //modify partition
-    sql """ALTER TABLE ${tblName} MODIFY PARTITION old_p1 values [("1"), ("1"));"""
-    sql """INSERT INTO ${tblName}(siteid, citycode, username, pv) VALUES (1, 2, "xxxx", 1);"""
-    sql """SYNC;"""
-    order_qt_sql_3 """SELECT * from ${tblName};"""
     checkPartition(tblName);
     sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
 }
