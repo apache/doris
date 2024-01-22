@@ -58,28 +58,27 @@ void WalTable::_pick_relay_wals() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     std::vector<std::string> need_replay_wals;
     std::vector<std::string> need_erase_wals;
-    for (auto it = _replay_wal_map.begin(); it != _replay_wal_map.end(); it++) {
-        auto wal_info = it->second;
+    for (const auto& [wal_path, wal_info] : _replay_wal_map) {
         if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
-                         << ", wal=" << it->first << ", retry_num=" << wal_info->get_retry_num();
-            auto st = _exec_env->wal_mgr()->rename_to_tmp_path(it->first, _table_id,
+                         << ", wal=" << wal_path << ", retry_num=" << wal_info->get_retry_num();
+            auto st = _exec_env->wal_mgr()->rename_to_tmp_path(wal_path, _table_id,
                                                                wal_info->get_wal_id());
             if (!st.ok()) {
-                LOG(WARNING) << "rename " << it->first << " fail"
+                LOG(WARNING) << "rename " << wal_path << " fail"
                              << ",st:" << st.to_string();
             }
             if (config::group_commit_wait_replay_wal_finish) {
-                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(it->second->get_wal_id());
+                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
                 if (!notify_st.ok()) {
-                    LOG(WARNING) << "notify wal " << it->second->get_wal_id() << " fail";
+                    LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
                 }
             }
-            need_erase_wals.push_back(it->first);
+            need_erase_wals.push_back(wal_path);
             continue;
         }
         if (_need_replay(wal_info)) {
-            need_replay_wals.push_back(it->first);
+            need_replay_wals.push_back(wal_path);
         }
     }
     for (const auto& wal : need_erase_wals) {
