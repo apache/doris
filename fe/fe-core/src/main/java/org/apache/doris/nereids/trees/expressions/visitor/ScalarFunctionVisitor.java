@@ -73,7 +73,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -625,6 +628,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bin, context);
     }
 
+    default R visitBitCount(BitCount bitCount, C context) {
+        return visitScalarFunction(bitCount, context);
+    }
+
     default R visitBitLength(BitLength bitLength, C context) {
         return visitScalarFunction(bitLength, context);
     }
@@ -743,6 +750,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapXorCount(BitmapXorCount bitmapXorCount, C context) {
         return visitScalarFunction(bitmapXorCount, context);
+    }
+
+    default R visitBitShiftLeft(BitShiftLeft bitShiftLeft, C context) {
+        return visitScalarFunction(bitShiftLeft, context);
+    }
+
+    default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
+        return visitScalarFunction(bitShiftRight, context);
     }
 
     default R visitCardinality(Cardinality cardinality, C context) {
