@@ -3097,7 +3097,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (tableStats == null) {
             return new TStatus(TStatusCode.OK);
         }
-        analysisManager.invalidateLocalStats(target.tableId, target.columns, tableStats);
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
         return new TStatus(TStatusCode.OK);
     }
 

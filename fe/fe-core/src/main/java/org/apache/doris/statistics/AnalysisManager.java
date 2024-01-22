@@ -653,14 +653,16 @@ public class AnalysisManager implements Writable {
         }
 
         Set<String> cols = dropStatsStmt.getColumnNames();
+        long catalogId = dropStatsStmt.getCatalogIdId();
+        long dbId = dropStatsStmt.getDbId();
         long tblId = dropStatsStmt.getTblId();
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
         if (tableStats == null) {
             return;
         }
-        invalidateLocalStats(tblId, cols, tableStats);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(tblId, cols);
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
         StatisticsRepository.dropStatistics(tblId, cols);
     }
 
@@ -669,30 +671,37 @@ public class AnalysisManager implements Writable {
         if (tableStats == null) {
             return;
         }
+        long catalogId = table.getDatabase().getCatalog().getId();
+        long dbId = table.getDatabase().getId();
+        long tableId = table.getId();
         Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
-        invalidateLocalStats(table.getId(), cols, tableStats);
+        invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
         // Drop stats ddl is master only operation.
-        invalidateRemoteStats(table.getId(), cols);
+        invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
         StatisticsRepository.dropStatistics(table.getId(), cols);
     }
 
-    public void invalidateLocalStats(long tableId, Set<String> columns, TableStatsMeta tableStats) {
+    public void invalidateLocalStats(long catalogId, long dbId, long tableId,
+                                     Set<String> columns, TableStatsMeta tableStats) {
         if (tableStats == null) {
             return;
         }
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
-        if (columns != null) {
-            for (String column : columns) {
-                tableStats.removeColumn(column);
-                statisticsCache.invalidate(tableId, -1, column);
-            }
+        if (columns == null) {
+            TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+            columns = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        }
+        for (String column : columns) {
+            tableStats.removeColumn(column);
+            statisticsCache.invalidate(tableId, -1, column);
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
     }
 
-    public void invalidateRemoteStats(long tableId, Set<String> columns) {
-        InvalidateStatsTarget target = new InvalidateStatsTarget(tableId, columns);
+    public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
+                                      Set<String> columns, boolean isAllColumns) {
+        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns, isAllColumns);
         TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
         request.key = GsonUtils.GSON.toJson(target);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
