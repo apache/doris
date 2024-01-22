@@ -17,11 +17,16 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 
 import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -89,14 +94,76 @@ public class ConsistentHash<K, N> {
         }
     }
 
-    public N getNode(K key) {
-        if (ring.isEmpty()) {
-            return null;
+    public List<N> getNode(K key, int count) {
+        int nodeCount = ring.values().size();
+        if (count > nodeCount) {
+            count = nodeCount;
         }
+
+        Set<N> uniqueNodes = new LinkedHashSet<>();
+
         Hasher hasher = hashFunction.newHasher();
         Long hashKey = hasher.putObject(key, keyFunnel).hash().asLong();
+
         SortedMap<Long, VirtualNode> tailMap = ring.tailMap(hashKey);
-        hashKey = !tailMap.isEmpty() ? tailMap.firstKey() : ring.firstKey();
-        return ring.get(hashKey).getNode();
+        // Start reading from tail
+        for (Map.Entry<Long, VirtualNode> entry : tailMap.entrySet()) {
+            uniqueNodes.add(entry.getValue().node);
+            if (uniqueNodes.size() == count) {
+                break;
+            }
+        }
+
+        if (uniqueNodes.size() < count) {
+            // Start reading from the head as we have exhausted tail
+            SortedMap<Long, VirtualNode> headMap = ring.headMap(hashKey);
+            for (Map.Entry<Long, VirtualNode> entry : headMap.entrySet()) {
+                uniqueNodes.add(entry.getValue().node);
+                if (uniqueNodes.size() == count) {
+                    break;
+                }
+            }
+        }
+
+        return ImmutableList.copyOf(uniqueNodes);
     }
+
+    // public List<N> getNode(K key, int distinctNumber) {
+    //     if (ring.isEmpty()) {
+    //         return null;
+    //     }
+    //     List<N> result = new ArrayList<>();
+    //
+    //     Hasher hasher = hashFunction.newHasher();
+    //     Long hashKey = hasher.putObject(key, keyFunnel).hash().asLong();
+    //     // SortedMap<Long, VirtualNode> tailMap = ring.tailMap(hashKey);
+    //     // hashKey = !tailMap.isEmpty() ? tailMap.firstKey() : ring.firstKey();
+    //     // return ring.get(hashKey).getNode();
+    //
+    //
+    //     // search from `hash` to end.
+    //     collectNodes(ring.tailMap(hashKey), result, distinctNumber);
+    //     if (result.size() < distinctNumber) {
+    //         // search from begin to end.
+    //         // so we walk this ring twice at most.
+    //         collectNodes(ring, result, distinctNumber);
+    //     }
+    //     return result;
+    // }
+    //
+    // private void collectNodes(SortedMap<Long, VirtualNode> map, List<N> result, int distinctNumber) {
+    //     Set<N> visited = new HashSet<>(result);
+    //     for (Map.Entry<Long, VirtualNode> entry : map.entrySet()) {
+    //         VirtualNode vnode = entry.getValue();
+    //         if (visited.contains(vnode.node)) {
+    //             continue;
+    //         }
+    //         visited.add(vnode.node);
+    //         result.add(vnode.node);
+    //         if (result.size() == distinctNumber) {
+    //             break;
+    //         }
+    //     }
+    // }
 }
+
