@@ -26,6 +26,7 @@ namespace doris {
 
 void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topic_info_list) {
     std::set<uint64_t> current_wg_ids;
+    bool is_set_cgroup_path = config::doris_cgroup_cpu_path != "";
     for (const TopicInfo& topic_info : topic_info_list) {
         if (!topic_info.__isset.workload_group_info) {
             continue;
@@ -52,7 +53,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         // 4 create and update task scheduler
         Status ret2 = _exec_env->task_group_manager()->upsert_cg_task_scheduler(&task_group_info,
                                                                                 _exec_env);
-        if (!ret2.ok()) {
+        if (is_set_cgroup_path && !ret2.ok()) {
             LOG(INFO) << "upsert task sche failed, tg_id=" << task_group_info.id
                       << ", reason=" << ret2.to_string();
         }
@@ -63,7 +64,8 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                   << ", cgroup cpu_shares=" << task_group_info.cgroup_cpu_shares
                   << ", cgroup cpu_hard_limit=" << task_group_info.cgroup_cpu_hard_limit
                   << ", enable_cgroup_cpu_soft_limit="
-                  << (config::enable_cgroup_cpu_soft_limit ? "true" : "false");
+                  << (config::enable_cgroup_cpu_soft_limit ? "true" : "false")
+                  << ", is set cgroup path=" << (is_set_cgroup_path ? "true" : "flase");
     }
 
     _exec_env->task_group_manager()->delete_task_group_by_ids(current_wg_ids);

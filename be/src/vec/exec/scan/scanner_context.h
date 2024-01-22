@@ -253,7 +253,7 @@ protected:
     const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr; // used for cpu hard limit
+    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
     // List "scanners" saves all "unfinished" scanners.
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.
