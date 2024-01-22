@@ -31,6 +31,9 @@ suite("ip_functions") {
     qt_ip10 "SELECT ipv4_string_to_num_or_null('');"
     qt_ip11 "SELECT ipv4_string_to_num_or_default('');"
     qt_ip12 "SELECT inet_aton('192.168.0.1');"
+    qt_ip12_1 "SELECT inet_aton('192.168');"
+    qt_ip12_2 "SELECT inet_aton('');"
+    qt_ip12_3 "SELECT inet_aton(NULL);"
 
     qt_ip13 "SELECT ipv6_num_to_string(unhex('0A0005091'));"
     qt_ip14 "SELECT ipv6_num_to_string(unhex('2A0206B8000000000000000000000011'));"
@@ -72,6 +75,9 @@ suite("ip_functions") {
     qt_ip49 "SELECT hex(ipv6_string_to_num_or_null('aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa'));"
     qt_ip50 "SELECT hex(inet6_aton('192.168.0.1'));"
     qt_ip51 "SELECT hex(inet6_aton('2a02:6b8::11'));"
+    qt_ip51_1 "SELECT hex(inet6_aton(''));"
+    qt_ip51_2 "SELECT hex(inet6_aton(NULL));"
+    qt_ip51_3 "SELECT hex(inet6_aton('KK'));"
 
     qt_ip52 "SELECT is_ipv4_string('255.255.255.255');"
     qt_ip53 "SELECT is_ipv4_string('255.255.255.256');"
@@ -84,9 +90,15 @@ suite("ip_functions") {
     qt_ip59 "SELECT is_ipv4_compat(inet6_aton('::c0a8:0001'));"
     qt_ip60 "SELECT is_ipv4_compat(inet6_aton('::0.0.0.0'));"
     qt_ip61 "SELECT is_ipv4_compat(inet6_aton('::255.255.255.255'));"
+    qt_ip61_1 "SELECT is_ipv4_compat(inet6_aton(''));"
+    qt_ip61_2 "SELECT is_ipv4_compat(inet6_aton(NULL));"
+    qt_ip61_3 "SELECT is_ipv4_compat(inet6_aton('KK'));"
 
     qt_ip62 "SELECT is_ipv4_mapped(inet6_aton('::10.0.5.9'));"
     qt_ip63 "SELECT is_ipv4_mapped(inet6_aton('::ffff:10.0.5.9'));"
     qt_ip64 "SELECT is_ipv4_mapped(inet6_aton('::'));"
     qt_ip65 "SELECT is_ipv4_mapped(inet6_aton('::ffff:c0a8:0001'));"
+    qt_ip65_1 "SELECT is_ipv4_mapped(inet6_aton(''));"
+    qt_ip65_2 "SELECT is_ipv4_mapped(inet6_aton(NULL));"
+    qt_ip65_3 "SELECT is_ipv4_mapped(inet6_aton('KK'));"
 }
