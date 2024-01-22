@@ -365,7 +365,6 @@ CREATE CATALOG jdbc_sqlserve PROPERTIES (
 | date                                   | DATE          |                                                              |
 | datetime/datetime2/smalldatetime       | DATETIMEV2    |                                                              |
 | char/varchar/text/nchar/nvarchar/ntext | STRING        |                                                              |
-| binary/varbinary                       | STRING        |                                                              |
 | time/datetimeoffset                    | STRING        |                                                              |
 | Other                                  | UNSUPPORTED   |                                                              |
 
