@@ -346,9 +346,11 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         // check child type
         if (!left.getDataType().isStringLikeType()
                 && !(left.getDataType() instanceof ArrayType
-                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())) {
+                && ((ArrayType) left.getDataType()).getItemType().isStringLikeType())
+                && !left.getDataType().isVariantType()) {
             throw new AnalysisException(String.format(
-                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' or 'ARRAY<STRING>' but "
+                    "left operand '%s' part of predicate "
+                            + "'%s' should return type 'STRING', 'ARRAY<STRING> or VARIANT' but "
                             + "returns type '%s'.",
                     left.toSql(), match.toSql(), left.getDataType()));
         }
@@ -358,6 +360,10 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     "right operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
                             + "returns type '%s'.",
                     right.toSql(), match.toSql(), right.getDataType()));
+        }
+
+        if (left.getDataType().isVariantType()) {
+            left = new Cast(left, right.getDataType());
         }
         return match.withChildren(left, right);
     }
