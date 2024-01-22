@@ -116,6 +116,7 @@ void MultiCastDataStreamer::_set_ready_for_read() {
     size_t i = 0;
     for (auto* dep : _dependencies) {
         if (_dependencies_release_flag[i]) {
+            i++;
             continue;
         }
         DCHECK(dep);

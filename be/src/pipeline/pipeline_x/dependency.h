@@ -623,6 +623,7 @@ public:
         size_t i = 0;
         for (auto& dep : source_dependencies) {
             if (dependencies_release_flag[i]) {
+                i++;
                 continue;
             }
             DCHECK(dep);
