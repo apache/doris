@@ -191,14 +191,14 @@ Status GroupCommitTable::get_first_block_load_queue(
         std::unique_lock l(_lock);
         for (int i = 0; i < 3; i++) {
             bool is_schema_version_match = true;
-            for (auto it = _load_block_queues.begin(); it != _load_block_queues.end(); ++it) {
-                if (!it->second->need_commit()) {
-                    if (base_schema_version == it->second->schema_version) {
-                        if (it->second->add_load_id(load_id).ok()) {
-                            load_block_queue = it->second;
+            for (const auto& [_, inner_block_queue] : _load_block_queues) {
+                if (!inner_block_queue->need_commit()) {
+                    if (base_schema_version == inner_block_queue->schema_version) {
+                        if (inner_block_queue->add_load_id(load_id).ok()) {
+                            load_block_queue = inner_block_queue;
                             return Status::OK();
                         }
-                    } else if (base_schema_version < it->second->schema_version) {
+                    } else if (base_schema_version < inner_block_queue->schema_version) {
                         is_schema_version_match = false;
                     }
                 }
