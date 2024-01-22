@@ -21,10 +21,10 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -267,7 +267,7 @@ protected:
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -303,15 +303,6 @@ protected:
 
     bool is_closed() const { return _is_closed; }
 
-    // TODO(zc)
-    /// Pointer to the containing SubplanNode or nullptr if not inside a subplan.
-    /// Set by SubplanNode::Init(). Not owned.
-    // SubplanNode* containing_subplan_;
-
-    /// Returns true if this node is inside the right-hand side plan tree of a SubplanNode.
-    /// Valid to call in or after Prepare().
-    bool is_in_subplan() const { return false; }
-
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
@@ -334,9 +325,9 @@ private:
                                      ExecNode** root);
 
     friend class pipeline::OperatorBase;
-    bool _is_closed;
+    bool _is_closed = false;
     bool _is_resource_released = false;
-    std::atomic_int _ref; // used by pipeline operator to release resource.
+    std::atomic_int _ref = 0; // used by pipeline operator to release resource.
 };
 
 } // namespace doris

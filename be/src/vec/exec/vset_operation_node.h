@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <functional>
+#include <cstdint>
 #include <iosfwd>
 #include <memory>
 #include <unordered_map>
@@ -33,8 +30,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
-#include "vec/common/hash_table/hash_map.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"

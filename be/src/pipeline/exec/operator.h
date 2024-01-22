@@ -19,20 +19,16 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "pipeline/pipeline_x/dependency.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -105,7 +101,7 @@ using OperatorBuilders = std::vector<OperatorBuilderPtr>;
 
 class OperatorBuilderBase {
 public:
-    OperatorBuilderBase(int32_t id, const std::string& name) : _id(id), _name(name) {}
+    OperatorBuilderBase(int32_t id, std::string name) : _id(id), _name(std::move(name)) {}
 
     virtual ~OperatorBuilderBase() = default;
 
@@ -333,10 +329,7 @@ public:
         return Status::OK();
     }
 
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(_node->alloc_resource(state));
-        return Status::OK();
-    }
+    Status open(RuntimeState* state) override { return _node->alloc_resource(state); }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
@@ -413,8 +406,7 @@ class StatefulOperator : public StreamingOperator<StatefulNodeType> {
 public:
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<StatefulNodeType>(builder, node),
-              _child_block(vectorized::Block::create_shared()),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
+              _child_block(vectorized::Block::create_shared()) {}
 
     virtual ~StatefulOperator() = default;
 
@@ -454,7 +446,7 @@ public:
 
 protected:
     std::shared_ptr<vectorized::Block> _child_block;
-    SourceState _child_source_state;
+    SourceState _child_source_state {SourceState::DEPEND_ON_SOURCE};
 };
 
 } // namespace doris::pipeline
