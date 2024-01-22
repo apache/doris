@@ -673,8 +673,9 @@ void DataDir::_perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths)
         auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet || tablet->data_dir() != this) {
             if (tablet) {
-                LOG(INFO) << "The tablet in path " << path << " is not same with the running one: "
-                          << tablet->data_dir()->_path << "/" << tablet->tablet_path()
+                LOG(INFO) << "The tablet in path " << path
+                          << " is not same with the running one: " << tablet->data_dir()->_path
+                          << "/" << tablet->tablet_path()
                           << ", might be the old tablet after migration, try to move it to trash";
             }
             _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
