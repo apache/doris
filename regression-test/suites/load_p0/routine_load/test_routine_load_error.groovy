@@ -91,4 +91,51 @@ suite("test_routine_load_error","p0") {
             sql "stop routine load for testTableNoExist"
         }
     }
+
+    // test out of range
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def jobName = "testOutOfRange"
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${jobName}
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_partitions" = "0",
+                    "kafka_topic" = "multi_table_load_invalid_table",
+                    "kafka_offsets" = "100"
+                );
+            """
+            sql "sync"
+
+            def count = 0
+            while (true) {
+                sleep(1000)
+                def res = sql "show routine load for ${jobName}"
+                def state = res[0][8].toString()
+                log.info("routine load state: ${res[0][8].toString()}".toString())
+                log.info("routine load statistic: ${res[0][14].toString()}".toString())
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                if (state != "PAUSED") {
+                    count++
+                    if (count > 60) {
+                        assertEquals(1, 2)
+                    } 
+                    continue;
+                }
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                assertTrue(res[0][17].toString().contains("is greater than kafka latest offset"))
+                break;
+            }
+        } finally {
+            sql "stop routine load for ${jobName}"
+        }
+    }
 }
