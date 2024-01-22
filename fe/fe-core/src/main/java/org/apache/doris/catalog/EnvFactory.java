@@ -22,14 +22,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
 import java.util.Map;
 
 public class EnvFactory {
 
-    public EnvFactory() {
-    }
+    public EnvFactory() {}
 
     private static class SingletonHolder {
         private static final EnvFactory INSTANCE =
@@ -86,6 +87,10 @@ public class EnvFactory {
 
     public DynamicPartitionProperty createDynamicPartitionProperty(Map<String, String> properties) {
         return new DynamicPartitionProperty(properties);
+    }
+
+    public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
+        return new GlobalTransactionMgr(env);
     }
 
 }

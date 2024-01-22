@@ -269,7 +269,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
-import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
 import com.google.common.base.Joiner;
@@ -441,7 +441,7 @@ public class Env {
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
 
-    private GlobalTransactionMgr globalTransactionMgr;
+    private GlobalTransactionMgrIface globalTransactionMgr;
 
     private DeployManager deployManager;
 
@@ -688,7 +688,7 @@ public class Env {
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
 
-        this.globalTransactionMgr = new GlobalTransactionMgr(this);
+        this.globalTransactionMgr = EnvFactory.getInstance().createGlobalTransactionMgr(this);
 
         this.tabletStatMgr = new TabletStatMgr();
 
@@ -795,11 +795,11 @@ public class Env {
         return resourceMgr;
     }
 
-    public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+    public static GlobalTransactionMgrIface getCurrentGlobalTransactionMgr() {
         return getCurrentEnv().globalTransactionMgr;
     }
 
-    public GlobalTransactionMgr getGlobalTransactionMgr() {
+    public GlobalTransactionMgrIface getGlobalTransactionMgr() {
         return globalTransactionMgr;
     }
 

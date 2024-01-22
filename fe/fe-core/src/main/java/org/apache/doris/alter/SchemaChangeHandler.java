@@ -2891,45 +2891,50 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
-        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
-            long originIndexId = entry.getKey();
-            for (Partition partition : olapTable.getPartitions()) {
-                // create job
-                long jobId = Env.getCurrentEnv().getNextId();
-                IndexChangeJob indexChangeJob = new IndexChangeJob(
-                        jobId, db.getId(), olapTable.getId(), olapTable.getName());
-                indexChangeJob.setOriginIndexId(originIndexId);
-                indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
-                long partitionId = partition.getId();
-                String partitionName = partition.getName();
-                boolean found = false;
-                for (Set<String> partitions : invertedIndexOnPartitions.values()) {
-                    if (partitions.contains(partitionName)) {
-                        found = true;
-                        break;
+        try {
+            for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+                long originIndexId = entry.getKey();
+                for (Partition partition : olapTable.getPartitions()) {
+                    // create job
+                    long jobId = Env.getCurrentEnv().getNextId();
+                    IndexChangeJob indexChangeJob = new IndexChangeJob(
+                            jobId, db.getId(), olapTable.getId(), olapTable.getName());
+                    indexChangeJob.setOriginIndexId(originIndexId);
+                    indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                    long partitionId = partition.getId();
+                    String partitionName = partition.getName();
+                    boolean found = false;
+                    for (Set<String> partitions : invertedIndexOnPartitions.values()) {
+                        if (partitions.contains(partitionName)) {
+                            found = true;
+                            break;
+                        }
                     }
-                }
-                if (!found) {
-                    continue;
-                }
+                    if (!found) {
+                        continue;
+                    }
 
-                if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
-                        partitionName, alterIndexes, isDropOp)) {
-                    throw new DdlException("partition " + partitionName + " has been built specified index."
-                                           + " please check your build stmt.");
-                }
+                    if (hasIndexChangeJobOnPartition(originIndexId, db.getId(), olapTable.getId(),
+                            partitionName, alterIndexes, isDropOp)) {
+                        throw new DdlException("partition " + partitionName + " has been built specified index."
+                                            + " please check your build stmt.");
+                    }
 
-                indexChangeJob.setPartitionId(partitionId);
-                indexChangeJob.setPartitionName(partitionName);
+                    indexChangeJob.setPartitionId(partitionId);
+                    indexChangeJob.setPartitionName(partitionName);
 
-                addIndexChangeJob(indexChangeJob);
+                    addIndexChangeJob(indexChangeJob);
 
-                // write edit log
-                Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
-                LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
-                        olapTable.getName(), partitionName, jobId);
-            } // end for partition
-        } // end for index
+                    // write edit log
+                    Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                    LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
+                            olapTable.getName(), partitionName, jobId);
+                } // end for partition
+            } // end for index
+        } catch (Exception e) {
+            LOG.warn("Exception:", e);
+            throw new UserException(e.getMessage());
+        }
     }
 
     public boolean hasIndexChangeJobOnPartition(
