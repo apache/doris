@@ -168,13 +168,13 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
 #endif
 }
 
-Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
+Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     TLoadTxnRollbackRequest request;
     request.__set_auth_code(0); // this is a fake, fe not check it now
     request.__set_db_id(db_id);
     // TODO should we use label, because the replay wal use the same label and different wal_id
-    request.__set_txnId(wal_id);
-    std::string reason = "relay wal " + std::to_string(wal_id);
+    request.__set_label(label);
+    std::string reason = "relay wal with label " + label;
     request.__set_reason(reason);
     TLoadTxnRollbackResult result;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -185,7 +185,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
             },
             10000L);
     auto result_status = Status::create(result.status);
-    LOG(INFO) << "abort txn " << wal_id << ",st:" << st << ",result_status:" << result_status;
+    LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
     return result_status;
 }
 
@@ -196,9 +196,9 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     RETURN_IF_ERROR(_parse_wal_path(wal, wal_id, label));
 #ifndef BE_TEST
     if (!config::group_commit_wait_replay_wal_finish) {
-        auto st = _try_abort_txn(_db_id, wal_id);
+        auto st = _try_abort_txn(_db_id, label);
         if (!st.ok()) {
-            LOG(WARNING) << "abort txn " << wal_id << " fail";
+            LOG(WARNING) << "failed to abort txn with label " << label;
         }
     }
 #endif
