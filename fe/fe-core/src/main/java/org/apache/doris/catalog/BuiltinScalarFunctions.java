@@ -393,6 +393,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv4OrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -623,6 +629,12 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(IsIpv6String.class, "is_ipv6_string"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(Ipv6CIDRToRange.class, "ipv6_cidr_to_range"),
+            scalar(ToIpv4.class, "to_ipv4"),
+            scalar(ToIpv4OrDefault.class, "to_ipv4_or_default"),
+            scalar(ToIpv4OrNull.class, "to_ipv4_or_null"),
+            scalar(ToIpv6.class, "to_ipv6"),
+            scalar(ToIpv6OrDefault.class, "to_ipv6_or_default"),
+            scalar(ToIpv6OrNull.class, "to_ipv6_or_null"),
             scalar(JsonArray.class, "json_array"),
             scalar(JsonObject.class, "json_object"),
             scalar(JsonQuote.class, "json_quote"),
