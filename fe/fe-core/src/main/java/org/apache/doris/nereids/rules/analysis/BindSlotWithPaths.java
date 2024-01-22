@@ -54,7 +54,8 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.BINDING_SLOT_WITH_PATHS.build(logicalPlan().thenApply(ctx -> {
-                    if (!ctx.connectContext.getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                    if (!ctx.connectContext.getSessionVariable().isEnableRewriteElementAtToSlot()
+                            || ctx.root instanceof Unbound) {
                         return ctx.root;
                     }
                     LogicalPlan plan = ctx.root;
@@ -62,8 +63,7 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                     if (plan instanceof LogicalAggregate) {
                         expressions.addAll(((LogicalAggregate<?>) (plan)).getGroupByExpressions());
                     }
-                    if (!(plan instanceof Unbound)
-                            && expressions.stream().anyMatch(SlotReference::containsPathsSlotReference)) {
+                    if (expressions.stream().anyMatch(SlotReference::containsPathsSlotReference)) {
                         // Indicates a missing column in schema but real slots bind with parent column.
                         // Need to combine slots withs paths and slots in computeOutput
                         Set<Slot> pathsSlots = expressions.stream()
