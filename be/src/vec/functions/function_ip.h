@@ -153,14 +153,6 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     size_t prev_offset = 0;
 
     for (size_t i = 0; i < vec_res.size(); ++i) {
-        if (null_map && (*null_map)[i]) {
-            vec_res[i] = 0;
-            prev_offset = offsets_src[i];
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
-                (*vec_null_map_to)[i] = true;
-            }
-            continue;
-        }
 
         const char* src_start = reinterpret_cast<const char*>(&vec_src[prev_offset]);
         size_t src_length = (i < vec_res.size() - 1) ? (offsets_src[i] - prev_offset)
@@ -217,7 +209,7 @@ public:
             return make_nullable(result_type);
         }
 
-        return arguments[0]->is_nullable() ? make_nullable(result_type) : result_type;
+        return result_type;
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -230,8 +222,10 @@ public:
         if (column->is_nullable()) {
             const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
             column = column_nullable->get_nested_column_ptr();
-            null_map_column = column_nullable->get_null_map_column_ptr();
-            null_map = &column_nullable->get_null_map_data();
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                null_map_column = column_nullable->get_null_map_column_ptr();
+                null_map = &column_nullable->get_null_map_data();
+            }
         }
 
         auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
