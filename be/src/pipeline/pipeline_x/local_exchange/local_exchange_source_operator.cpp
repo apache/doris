@@ -62,8 +62,8 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
 }
 
 Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::close(state));
     _shared_state->dependencies_release_flag[_channel_id] = true;
+    RETURN_IF_ERROR(Base::close(state));
     return Status::OK();
 }
 

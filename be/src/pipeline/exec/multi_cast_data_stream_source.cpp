@@ -155,9 +155,9 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
 }
 
 Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::close(state));
     _shared_state->multi_cast_data_streamer.released_dependency(
             _parent->cast<Parent>()._consumer_id);
+    RETURN_IF_ERROR(Base::close(state));
     return Status::OK();
 }
 
