@@ -200,8 +200,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             _master_info->__set_token(master_info.token);
             LOG(INFO) << "get token. token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
-            return Status::InternalError("invalid token. local_token: {}, token: {}",
-                                         _master_info->token, master_info.token);
+            return Status::InternalError("invalid token");
         }
     }
 
