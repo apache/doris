@@ -1103,7 +1103,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
         if (isInputSlotsContainsNone(
                 predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
-                slotsToReplace) && isInputSlotsContainsNone(groupingExprs, slotsToReplace)) {
+                slotsToReplace)) {
             ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
                     .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap)).collect(ImmutableSet.toImmutableSet());
             return new AggRewriteResult(index, true, newRequiredSlots, exprRewriteMap);
@@ -1522,8 +1522,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             if (result != sum) {
                 return result;
             }
-            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(sum.child(0));
-            if (!sum.isDistinct() && slotOpt.isPresent()) {
+            if (!sum.isDistinct()) {
                 Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
@@ -1532,7 +1531,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Slot sumSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index).stream()
                             .filter(s -> sumColumn.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                             .orElseThrow(() -> new AnalysisException("cannot find sum slot when select mv"));
-                    context.exprRewriteMap.slotMap.put(slotOpt.get(), sumSlot);
+                    for (Slot slot : sum.child().getInputSlots()) {
+                        context.exprRewriteMap.slotMap.put(slot, sumSlot);
+                    }
                     context.exprRewriteMap.projectExprMap.put(sum.child(), sumSlot);
                     Sum newSum = new Sum(sumSlot);
                     context.exprRewriteMap.aggFuncMap.put(sum, newSum);

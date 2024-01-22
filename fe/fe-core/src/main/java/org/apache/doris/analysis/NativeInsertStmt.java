@@ -1140,7 +1140,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
-        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        if (!isExplain() && !partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
                 && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()

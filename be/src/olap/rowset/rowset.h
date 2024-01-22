@@ -302,6 +302,8 @@ public:
     // set skip index compaction next time
     void set_skip_index_compaction(int32_t column_id) { skip_index_compaction.insert(column_id); }
 
+    std::string get_rowset_info_str();
+
 protected:
     friend class RowsetFactory;
 

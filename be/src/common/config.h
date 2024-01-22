@@ -307,8 +307,6 @@ DECLARE_mInt32(doris_max_scan_key_num);
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 DECLARE_mInt32(max_pushdown_conditions_per_column);
-// return_row / total_row
-DECLARE_mInt32(doris_max_pushdown_conjuncts_return_rate);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 
@@ -592,10 +590,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
 
-// The probing algorithm of partitioned hash table.
-// Enable quadratic probing hash table
-DECLARE_Bool(enable_quadratic_probing);
-
 // for pprof
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
@@ -608,8 +602,6 @@ DECLARE_mBool(enable_token_check);
 
 // to open/close system metrics
 DECLARE_Bool(enable_system_metrics);
-
-DECLARE_mBool(enable_prefetch);
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
@@ -1249,6 +1241,9 @@ DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
 
 DECLARE_mInt32(report_query_statistics_interval_ms);
 DECLARE_mInt32(query_statistics_reserve_timeout_ms);
+
+// create tablet in partition random robin idx lru size, default 10000
+DECLARE_Int32(partition_disk_index_lru_size);
 
 #ifdef BE_TEST
 // test s3

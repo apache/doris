@@ -236,11 +236,6 @@ public:
     // generic "Memory limit exceeded" error.
     Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
-    // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
-    // or a mem limit was exceeded). Exec nodes should check this periodically so execution
-    // doesn't continue if the query terminates abnormally.
-    Status check_query_state(const std::string& msg);
-
     std::vector<std::string>& output_files() { return _output_files; }
 
     void set_import_label(const std::string& import_label) { _import_label = import_label; }

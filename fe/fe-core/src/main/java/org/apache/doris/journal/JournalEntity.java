@@ -42,7 +42,7 @@ import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.InitTableLog;
+import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
@@ -746,19 +746,18 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_INIT_EXTERNAL_TABLE: {
-                data = InitTableLog.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_INIT_EXTERNAL_TABLE:
             case OperationType.OP_DROP_EXTERNAL_TABLE:
             case OperationType.OP_CREATE_EXTERNAL_TABLE:
             case OperationType.OP_DROP_EXTERNAL_DB:
             case OperationType.OP_CREATE_EXTERNAL_DB:
             case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
             case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
-            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS:
+            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS: {
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REFRESH_EXTERNAL_DB:
             case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                 data = ExternalObjectLog.read(in);
                 isRead = true;
@@ -903,6 +902,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_REPOSITORY: {
                 data = Repository.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_META_ID_MAPPINGS: {
+                data = MetaIdMappingsLog.read(in);
                 isRead = true;
                 break;
             }

@@ -132,6 +132,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -362,6 +363,7 @@ public class Env {
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
+    private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private ExportTaskRegister exportTaskRegister;
@@ -621,7 +623,7 @@ public class Env {
     }
 
     private static class SingletonHolder {
-        private static final Env INSTANCE = EnvFactory.createEnv(false);
+        private static final Env INSTANCE = EnvFactory.getInstance().createEnv(false);
     }
 
     private Env() {
@@ -649,6 +651,7 @@ public class Env {
         if (Config.enable_storage_policy) {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
+        this.externalMetaIdMgr = new ExternalMetaIdMgr();
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
@@ -670,7 +673,7 @@ public class Env {
         this.journalObservable = new JournalObservable();
         this.masterInfo = new MasterInfo();
 
-        this.systemInfo = new SystemInfoService();
+        this.systemInfo = EnvFactory.getInstance().createSystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
@@ -770,7 +773,7 @@ public class Env {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = EnvFactory.createEnv(true);
+                CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
         } else {
@@ -842,6 +845,14 @@ public class Env {
 
     public WorkloadRuntimeStatusMgr getWorkloadRuntimeStatusMgr() {
         return workloadRuntimeStatusMgr;
+    }
+
+    public ExternalMetaIdMgr getExternalMetaIdMgr() {
+        return externalMetaIdMgr;
+    }
+
+    public MetastoreEventsProcessor getMetastoreEventsProcessor() {
+        return metastoreEventsProcessor;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1638,9 +1649,6 @@ public class Env {
         streamLoadRecordMgr.start();
         tabletLoadIndexRecorderMgr.start();
         new InternalSchemaInitializer().start();
-        if (Config.enable_hms_events_incremental_sync) {
-            metastoreEventsProcessor.start();
-        }
         getRefreshManager().start();
 
         // binlog gcer
@@ -1662,6 +1670,9 @@ public class Env {
         domainResolver.start();
         // fe disk updater
         feDiskUpdater.start();
+        if (Config.enable_hms_events_incremental_sync) {
+            metastoreEventsProcessor.start();
+        }
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -3242,7 +3253,6 @@ public class Env {
 
             // replicationNum
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
-
             if (Config.isCloudMode()) {
                 sb.append("\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");
@@ -3301,7 +3311,7 @@ public class Env {
                 sb.append(olapTable.getDataSortInfo().toSql());
             }
 
-            if (Config.isCloudMode() && olapTable.getTTLSeconds() != 0) {
+            if (olapTable.getTTLSeconds() != 0) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTTLSeconds()).append("\"");
             }

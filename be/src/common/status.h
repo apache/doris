@@ -274,7 +274,8 @@ namespace ErrorCode {
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
-    E(ENTRY_NOT_FOUND, -7002, false);
+    E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(INVALID_TABLET_STATE, -7211, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;

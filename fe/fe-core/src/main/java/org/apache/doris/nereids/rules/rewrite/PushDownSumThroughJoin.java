@@ -53,12 +53,12 @@ import java.util.Set;
  * |    *
  * (x)
  * ->
- * aggregate: Sum(min1)
+ * aggregate: Sum(sum1)
  * |
  * join
  * |   \
  * |    *
- * aggregate: Sum(x) as min1
+ * aggregate: Sum(x) as sum1
  * </pre>
  */
 public class PushDownSumThroughJoin implements RewriteRuleFactory {

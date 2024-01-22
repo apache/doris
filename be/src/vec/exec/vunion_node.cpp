@@ -229,19 +229,15 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
                                                                                 &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
-        VLOG_ROW << "query id: " << print_id(state->query_id())
-                 << ", instance id: " << print_id(state->fragment_instance_id())
-                 << ", tmp_block rows: " << tmp_block.rows();
         if (tmp_block.rows() > 0) {
             RETURN_IF_ERROR(mblock.merge(tmp_block));
             tmp_block.clear();
         }
     }
     block->set_columns(std::move(mblock.mutable_columns()));
-    VLOG_ROW << "query id: " << print_id(state->query_id())
-             << ", instance id: " << print_id(state->fragment_instance_id())
-             << ", block rows: " << block->rows();
-
+    LOG(INFO) << "temporary log query id: " << print_id(state->query_id())
+              << ", instance id: " << print_id(state->fragment_instance_id())
+              << ", block rows: " << block->rows();
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row

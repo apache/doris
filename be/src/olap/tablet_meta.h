@@ -202,6 +202,12 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
 
+    void clear_rowsets() { _rs_metas.clear(); }
+
+    // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
+    // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
+    void add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add);
+
     bool all_beta() const;
 
     int64_t storage_policy_id() const { return _storage_policy_id; }

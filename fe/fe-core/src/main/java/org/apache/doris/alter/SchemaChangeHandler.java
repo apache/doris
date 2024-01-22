@@ -1548,7 +1548,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
 
-                    Tablet shadowTablet = EnvFactory.createTablet(shadowTabletId);
+                    Tablet shadowTablet = EnvFactory.getInstance().createTablet(shadowTabletId);
                     shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
                     addedTablets.add(shadowTablet);
 

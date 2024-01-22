@@ -15,53 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
-@Data
-public class InitTableLog implements Writable {
-    enum Type {
-        HMS,
-        ES,
-        UNKNOWN;
+public class UpdateRowsEvent implements Writable {
+
+    @SerializedName("tableIdToUpdateRows")
+    public final Map<Long, Long> tableIdToUpdateRows = new HashMap<>();
+
+    @VisibleForTesting
+    public UpdateRowsEvent() {}
+
+    // No need to be thread safe, only publish thread will call this.
+    public void addUpdateRows(long tableId, long rows) {
+        if (tableIdToUpdateRows.containsKey(tableId)) {
+            tableIdToUpdateRows.put(tableId, tableIdToUpdateRows.get(tableId) + rows);
+        } else {
+            tableIdToUpdateRows.put(tableId, rows);
+        }
     }
-
-    @SerializedName(value = "catalogId")
-    private long catalogId;
-
-    @SerializedName(value = "dbId")
-    private long dbId;
-
-    @SerializedName(value = "tableId")
-    private long tableId;
-
-    @SerializedName(value = "type")
-    private Type type;
-
-    @SerializedName(value = "schema")
-    protected volatile List<Column> schema;
-
-    public InitTableLog() {}
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public static InitTableLog read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, InitTableLog.class);
+    public static UpdateRowsEvent read(DataInput dataInput) throws IOException {
+        String json = Text.readString(dataInput);
+        UpdateRowsEvent updateRowsEvent = GsonUtils.GSON.fromJson(json, UpdateRowsEvent.class);
+        return updateRowsEvent;
     }
 }

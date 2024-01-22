@@ -932,5 +932,30 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals(true, !createdTableName.isEmpty())
     }
-}
 
+    String[][] deduplicate_tablets(String[][] tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    ArrayList deduplicate_tablets(ArrayList tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+}

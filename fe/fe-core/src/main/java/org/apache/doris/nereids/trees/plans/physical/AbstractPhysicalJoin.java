@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -250,5 +252,18 @@ public abstract class AbstractPhysicalJoin<
         }
         return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 args.toArray());
+    }
+
+    /**
+     * true if this is a broadcast join
+     */
+    public boolean isBroadCastJoin() {
+        if (child(1) instanceof PhysicalDistribute) {
+            DistributionSpec distSpec = ((PhysicalDistribute) child(1)).getDistributionSpec();
+            if (distSpec instanceof DistributionSpecReplicated) {
+                return true;
+            }
+        }
+        return false;
     }
 }

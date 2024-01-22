@@ -41,4 +41,16 @@ DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
 
+// CloudTabletMgr config
+DECLARE_Int64(tablet_cache_capacity);
+DECLARE_Int64(tablet_cache_shards);
+DECLARE_mInt64(tablet_sync_interval_seconds);
+
+// Cloud compaction config
+DECLARE_mInt64(min_compaction_failure_interval_ms);
+// For cloud read/write seperate mode
+DECLARE_mInt64(base_compaction_freeze_interval_s);
+DECLARE_mInt64(cu_compaction_freeze_interval_s);
+DECLARE_mInt64(cumu_compaction_interval_s);
+
 } // namespace doris::config

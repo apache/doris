@@ -19,15 +19,12 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.IPv6Type;
-import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.StructField;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -36,35 +33,26 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function `ipv6_cidr_to_range`
+ * scalar function is_ipv4_compat
  */
-public class IPv6CIDRToRange extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+public class IsIpv4Compat extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
-    public static final List<FunctionSignature> SIGNATURES;
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(BooleanType.INSTANCE).args(StringType.INSTANCE));
 
-    static {
-        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-        structFields.add(new StructField("min", IPv6Type.INSTANCE, false, ""));
-        structFields.add(new StructField("max", IPv6Type.INSTANCE, false, ""));
-        StructType retType = new StructType(structFields.build());
-        SIGNATURES = ImmutableList.of(
-                FunctionSignature.ret(retType).args(IPv6Type.INSTANCE, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(VarcharType.SYSTEM_DEFAULT, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(StringType.INSTANCE, SmallIntType.INSTANCE));
-    }
-
-    public IPv6CIDRToRange(Expression arg0, Expression arg1) {
-        super("ipv6_cidr_to_range", arg0, arg1);
+    public IsIpv4Compat(Expression arg0) {
+        super("is_ipv4_compat", arg0);
     }
 
     @Override
-    public IPv6CIDRToRange withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2,
-                "ipv6_cidr_to_range accept 2 args, but got %s (%s)",
+    public IsIpv4Compat withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1,
+                "is_ipv4_compat accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IPv6CIDRToRange(children.get(0), children.get(1));
+        return new IsIpv4Compat(children.get(0));
     }
 
     @Override
@@ -74,6 +62,6 @@ public class IPv6CIDRToRange extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIpv6CIDRToRange(this, context);
+        return visitor.visitIsIpv4Compat(this, context);
     }
 }

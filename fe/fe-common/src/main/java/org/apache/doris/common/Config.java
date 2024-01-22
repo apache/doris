@@ -1565,7 +1565,7 @@ public class Config extends ConfigBase {
             "This parameter controls the time interval for automatic collection jobs to check the health of table"
                     + "statistics and trigger automatic collection"
     })
-    public static int auto_check_statistics_in_minutes = 10;
+    public static int auto_check_statistics_in_minutes = 5;
 
     /**
      * If set to TRUE, the compaction slower replica will be skipped when select get queryable replicas
@@ -2088,17 +2088,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean disable_datev1  = true;
-
-    /**
-     * Now we not fully support array/struct/map nesting complex type in many situation,
-     * so just disable creating nesting complex data type when create table.
-     * We can make it able after we fully support
-     */
-    @ConfField(mutable = true, masterOnly = true, description = {
-            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
-            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
-                    + "when we create table, only support array type nested array"})
-    public static boolean disable_nested_complex_type  = true;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
