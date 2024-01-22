@@ -107,9 +107,8 @@ public:
             if (state->enable_pipeline_exec()) {
                 Status st = _writer->get_writer_status();
                 if (exec_status.ok()) {
-                    _writer->force_close(state->is_cancelled()
-                                                 ? Status::Cancelled("Cancelled")
-                                                 : Status::Cancelled("Close Cancelled"));
+                    _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                               : Status::Cancelled("force close"));
                 } else {
                     _writer->force_close(exec_status);
                 }
