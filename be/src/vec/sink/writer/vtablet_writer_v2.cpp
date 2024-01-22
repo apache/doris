@@ -431,15 +431,27 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
         };
+        bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
                 req.slots = &index->slots;
                 req.schema_hash = index->schema_hash;
+                index_not_found = false;
                 break;
             }
         }
+        if (index_not_found) {
+            LOG(WARNING) << "index " << rows.index_id
+                         << " not found in schema, load_id=" << print_id(_load_id);
+            return std::unique_ptr<DeltaWriterV2>(nullptr);
+        }
         return DeltaWriterV2::open(&req, streams, _state);
     });
+    if (delta_writer == nullptr) {
+        LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
+                     << ", load_id=" << print_id(_load_id);
+        return Status::InternalError("failed to open DeltaWriter for tablet {}", tablet_id);
+    }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
