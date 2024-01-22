@@ -58,7 +58,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -150,6 +149,8 @@ public class ExportJob implements Writable {
     private ExportFailMsg failMsg;
     @SerializedName("outfileInfo")
     private String outfileInfo;
+    @SerializedName("tabletsNum")
+    private Integer tabletsNum;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
@@ -186,7 +187,6 @@ public class ExportJob implements Writable {
 
     private ExportExportingTask task;
 
-    private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
@@ -341,6 +341,7 @@ public class ExportJob implements Writable {
         }
 
         Integer tabletsAllNum = tabletIdList.size();
+        this.tabletsNum = tabletsAllNum;
         Integer tabletsNumPerQuery = tabletsAllNum / this.parallelNum;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerQuery * this.parallelNum;
 
@@ -355,13 +356,13 @@ public class ExportJob implements Writable {
                         + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
         }
         for (int i = 0; i < outfileNum; ++i) {
-            Integer tabletsNum = tabletsNumPerQuery;
+            Integer realTabletsNum = tabletsNumPerQuery;
             if (tabletsNumPerQueryRemainder > 0) {
-                tabletsNum = tabletsNum + 1;
+                realTabletsNum = realTabletsNum + 1;
                 --tabletsNumPerQueryRemainder;
             }
-            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
-            start += tabletsNum;
+            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + realTabletsNum));
+            start += realTabletsNum;
             // Since export does not support the alias, here we pass the null value.
             // we can not use this.tableRef.getAlias(),
             // because the constructor of `Tableref` will convert this.tableRef.getAlias()
@@ -547,8 +548,8 @@ public class ExportJob implements Writable {
         return this.stmtExecutorList.get(idx);
     }
 
-    public List<TScanRangeLocations> getTabletLocations() {
-        return tabletLocations;
+    public Integer getTabletsNum() {
+        return this.tabletsNum;
     }
 
     public List<Pair<TNetworkAddress, String>> getSnapshotPaths() {
