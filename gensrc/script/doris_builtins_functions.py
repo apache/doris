@@ -2035,6 +2035,18 @@ visible_functions = {
         [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
         [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], ''],
         [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], ''],
+        [['to_ipv4'], 'IPV4', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv4'], 'IPV4', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv4_or_default'], 'IPV4', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv4_or_default'], 'IPV4', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv4_or_null'], 'IPV4', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['to_ipv4_or_null'], 'IPV4', ['STRING'], 'ALWAYS_NULLABLE'],
+        [['to_ipv6'], 'IPV6', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv6'], 'IPV6', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv6_or_default'], 'IPV6', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv6_or_default'], 'IPV6', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_ipv6_or_null'], 'IPV6', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['to_ipv6_or_null'], 'IPV6', ['STRING'], 'ALWAYS_NULLABLE'],
     ],
 
     "NonNullalbe": [
