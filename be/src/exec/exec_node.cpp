@@ -554,24 +554,22 @@ Status ExecNode::get_next_after_projects(
         RuntimeState* state, vectorized::Block* block, bool* eos,
         const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func,
         bool clear_data) {
-    Defer defer([block, this]() {
-        if (block && !block->empty()) {
-            COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
-            COUNTER_UPDATE(_block_count_counter, 1);
-        }
-    });
     if (_output_row_descriptor) {
         if (clear_data) {
             clear_origin_block();
         }
-        auto status = func(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) {
-            return status;
-        }
-        return do_projections(&_origin_block, block);
+        RETURN_IF_ERROR(func(state, &_origin_block, eos));
+        RETURN_IF_ERROR(do_projections(&_origin_block, block));
+    } else {
+        RETURN_IF_ERROR(func(state, block, eos));
     }
     _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
-    return func(state, block, eos);
+
+    if (block && !block->empty()) {
+        COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+        COUNTER_UPDATE(_block_count_counter, 1);
+    }
+    return Status::OK();
 }
 
 Status ExecNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

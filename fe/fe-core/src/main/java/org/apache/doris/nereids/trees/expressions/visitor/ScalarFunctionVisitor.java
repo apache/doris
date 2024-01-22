@@ -73,7 +73,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Bin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftLeft;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitShiftRight;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAnd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapAndNot;
@@ -199,6 +202,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Compat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
@@ -623,6 +628,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(bin, context);
     }
 
+    default R visitBitCount(BitCount bitCount, C context) {
+        return visitScalarFunction(bitCount, context);
+    }
+
     default R visitBitLength(BitLength bitLength, C context) {
         return visitScalarFunction(bitLength, context);
     }
@@ -741,6 +750,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitBitmapXorCount(BitmapXorCount bitmapXorCount, C context) {
         return visitScalarFunction(bitmapXorCount, context);
+    }
+
+    default R visitBitShiftLeft(BitShiftLeft bitShiftLeft, C context) {
+        return visitScalarFunction(bitShiftLeft, context);
+    }
+
+    default R visitBitShiftRight(BitShiftRight bitShiftRight, C context) {
+        return visitScalarFunction(bitShiftRight, context);
     }
 
     default R visitCardinality(Cardinality cardinality, C context) {
@@ -1153,6 +1170,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitIpv6StringToNumOrNull(Ipv6StringToNumOrNull ipv6StringToNumOrNull, C context) {
         return visitScalarFunction(ipv6StringToNumOrNull, context);
+    }
+
+    default R visitIsIpv4Compat(IsIpv4Compat isIpv4Compat, C context) {
+        return visitScalarFunction(isIpv4Compat, context);
+    }
+
+    default R visitIsIpv4Mapped(IsIpv4Mapped isIpv4Mapped, C context) {
+        return visitScalarFunction(isIpv4Mapped, context);
     }
 
     default R visitIsIpv4String(IsIpv4String isIpv4String, C context) {

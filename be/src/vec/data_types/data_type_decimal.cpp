@@ -25,8 +25,6 @@
 #include <streamvbyte.h>
 #include <string.h>
 
-#include <utility>
-
 #include "runtime/decimalv2_value.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"

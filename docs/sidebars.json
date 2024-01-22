@@ -811,11 +811,23 @@
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
                                 "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
                                 "sql-manual/sql-functions/ip-functions/inet6-ntoa",
-                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num",
                                 "sql-manual/sql-functions/ip-functions/inet6-aton",
                                 "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
-                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null"
-
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-compat",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-mapped",
+                                "sql-manual/sql-functions/ip-functions/ipv4-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/ipv6-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/is-ip-address-in-range",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-string",
+                                "sql-manual/sql-functions/ip-functions/is-ipv6-string",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-null",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-null"
                             ]
                         },
                         {
@@ -925,7 +937,9 @@
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
                                 "sql-manual/sql-reference/Data-Types/AGG_STATE",
-                                "sql-manual/sql-reference/Data-Types/VARIANT"
+                                "sql-manual/sql-reference/Data-Types/VARIANT",
+                                "sql-manual/sql-reference/Data-Types/IPV4",
+                                "sql-manual/sql-reference/Data-Types/IPV6"
                             ]
                         },
                         {
