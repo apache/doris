@@ -83,7 +83,10 @@ public:
         _block_reading(sender_idx);
     }
 
-    void released_dependency(int sender_idx) { _dependencies_release_flag[sender_idx] = true; }
+    void released_dependency(int sender_idx) {
+        std::unique_lock<std::mutex> lc(_release_lock);
+        _dependencies_release_flag[sender_idx] = true;
+    }
 
 private:
     void _set_ready_for_read(int sender_idx);
@@ -103,6 +106,7 @@ private:
     RuntimeProfile::Counter* _process_rows = nullptr;
     RuntimeProfile::Counter* _peak_mem_usage = nullptr;
 
+    std::mutex _release_lock;
     std::vector<std::atomic<bool>> _dependencies_release_flag;
     std::vector<MultiCastSourceDependency*> _dependencies;
 };

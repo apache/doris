@@ -62,9 +62,17 @@ struct BasicSharedState {
 
     std::atomic_bool source_released_flag {false};
     std::atomic_bool sink_released_flag {false};
+    std::mutex source_release_lock;
+    std::mutex sink_release_lock;
 
-    void release_source_dep() { source_released_flag = true; }
-    void release_sink_dep() { sink_released_flag = true; }
+    void release_source_dep() {
+        std::unique_lock<std::mutex> lc(source_release_lock);
+        source_released_flag = true;
+    }
+    void release_sink_dep() {
+        std::unique_lock<std::mutex> lc(sink_release_lock);
+        sink_released_flag = true;
+    }
     virtual ~BasicSharedState() = default;
 };
 
@@ -116,8 +124,46 @@ public:
         if (_shared_state->source_released_flag) {
             return;
         }
+        std::unique_lock<std::mutex> lc(_shared_state->source_release_lock);
+        if (_shared_state->source_released_flag) {
+            return;
+        }
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
+    }
+    void set_block_to_read() {
+        DCHECK(_is_write_dependency) << debug_string();
+        if (_shared_state->source_released_flag) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_shared_state->source_release_lock);
+        if (_shared_state->source_released_flag) {
+            return;
+        }
+        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
+        _shared_state->source_dep->block();
+    }
+    void set_ready_to_write() {
+        if (_shared_state->sink_released_flag) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_shared_state->sink_release_lock);
+        if (_shared_state->sink_released_flag) {
+            return;
+        }
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->set_ready();
+    }
+    void set_block_to_write() {
+        if (_shared_state->sink_released_flag) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_shared_state->sink_release_lock);
+        if (_shared_state->sink_released_flag) {
+            return;
+        }
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->block();
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
@@ -634,9 +680,16 @@ public:
                 i++;
                 continue;
             }
-            DCHECK(dep);
-            dep->set_ready();
-            i++;
+            {
+                std::unique_lock<std::mutex> lc(source_release_lock);
+                if (dependencies_release_flag[i]) {
+                    i++;
+                    continue;
+                }
+                DCHECK(dep);
+                dep->set_ready();
+                i++;
+            }
         }
     }
 
@@ -645,6 +698,10 @@ public:
     }
 
     void set_ready_to_read(int channel_id) {
+        if (dependencies_release_flag[channel_id]) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(source_release_lock);
         if (dependencies_release_flag[channel_id]) {
             return;
         }
