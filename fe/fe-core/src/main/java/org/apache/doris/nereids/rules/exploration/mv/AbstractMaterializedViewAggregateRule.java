@@ -101,7 +101,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Pair<Plan, LogicalAggregate<Plan>> viewTopPlanAndAggPair = splitToTopPlanAndAggregate(viewStructInfo);
         if (viewTopPlanAndAggPair == null) {
             materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                    Pair.of("Split view to top plan and agg fail, view can not contains aggregate",
+                    Pair.of("Split view to top plan and agg fail, view doesn't not contain aggregate",
                             String.format("view plan = %s\n", viewStructInfo.getOriginalPlan().treeString())));
             return null;
         }
