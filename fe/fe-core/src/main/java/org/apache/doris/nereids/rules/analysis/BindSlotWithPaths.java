@@ -23,9 +23,11 @@ import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -53,11 +55,15 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
         return ImmutableList.of(
                 RuleType.BINDING_SLOT_WITH_PATHS.build(logicalPlan().thenApply(ctx -> {
                     LogicalPlan plan = ctx.root;
+                    List<Expression> expressions = new ArrayList<>(plan.getExpressions());
+                    if (plan instanceof LogicalAggregate) {
+                        expressions.addAll(((LogicalAggregate<?>) (plan)).getGroupByExpressions());
+                    }
                     if (!(plan instanceof Unbound)
-                            && plan.getExpressions().stream().anyMatch(SlotReference::containsPathsSlotReference)) {
+                            && expressions.stream().anyMatch(SlotReference::containsPathsSlotReference)) {
                         // Indicates a missing column in schema but real slots bind with parent column.
                         // Need to combine slots withs paths and slots in computeOutput
-                        Set<Slot> pathsSlots = plan.getExpressions().stream()
+                        Set<Slot> pathsSlots = expressions.stream()
                                 .flatMap(expression -> {
                                     List<SlotReference> slotReferences =
                                             expression.collectToList(SlotReference.class::isInstance);
