@@ -219,7 +219,7 @@ public:
     ~VNodeChannel();
 
     // called before open, used to add tablet located in this backend. called by IndexChannel::init
-    void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
+    void add_tablet(const TTabletWithPartition& tablet) { _tablets_wait_open.emplace_back(tablet); }
     std::string debug_tablets() const {
         std::stringstream ss;
         for (const auto& tab : _all_tablets) {
@@ -368,6 +368,7 @@ protected:
     std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
 
     std::vector<TTabletWithPartition> _all_tablets;
+    std::vector<TTabletWithPartition> _tablets_wait_open;
     // map from tablet_id to node_id where slave replicas locate in
     std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
@@ -388,6 +389,7 @@ protected:
     // The IndexChannel is definitely accessible until the NodeChannel is closed.
     std::mutex _closed_lock;
     bool _is_closed = false;
+    bool _inited = false;
 
     RuntimeState* _state = nullptr;
     // A context lock for callbacks, the callback has to lock the ctx, to avoid
