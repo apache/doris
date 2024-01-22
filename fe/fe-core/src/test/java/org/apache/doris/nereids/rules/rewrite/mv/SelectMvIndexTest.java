@@ -1261,10 +1261,13 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 + "  `k4` int,\n"
                 + "  `k5` bigint,\n"
                 + "  `k6` bigint,\n"
-                + "  `v1` bigint SUM,\n"
+                + "  `v1` int SUM,\n"
                 + "  `v2` bigint SUM,\n"
-                + "  `v3` bigint MAX, \n"
-                + "  `v4` bigint MIN\n"
+                + "  `v3` bigint MAX,\n"
+                + "  `v4` bigint MIN,\n"
+                + "  `v5` float SUM,\n"
+                + "  `v6` double SUM,\n"
+                + "  `v7` decimal SUM\n"
                 + ") ENGINE=OLAP\n"
                 + "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`)\n"
                 + "COMMENT \"OLAP\"\n"
@@ -1272,13 +1275,15 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\"\n"
                 + ");");
-        addRollup("alter table db1.test_pre_agg_tbl add rollup test_rollup(k1, k2, k3, v1, v2, v3, v4)");
+        addRollup("alter table db1.test_pre_agg_tbl add rollup test_rollup(k1, k2, k3, v1, v2, v3, v4, v5, v6, v7)");
 
         String sql1 = "select sum(case when k1 > 0 then v1 when k1 = 0 then 0 when k1 < 0 then v2 else 0 end),"
-                + "sum(case when k1 = 1 then v2 else null end),"
-                + "sum(case when k2 = 0 then 0 else v1 end),"
-                + "sum(case when k2 = 1 then null else v2 end) "
-                + "from test_pre_agg_tbl";
+                + "sum(case when k2 = 1 then 0 else v1 end),"
+                + "sum(case when k2 = 1 then null else v2 end),"
+                + "sum(case when k2 = 1 then null else v5 end),"
+                + "sum(case when k2 = 1 then null else v6 end),"
+                + "sum(case when k2 = 1 then null else v7 end)"
+                + "from db1.test_pre_agg_tbl";
         // legacy planner
         Assertions.assertTrue(getSQLPlanOrErrorMsg(sql1).contains(
                 "TABLE: db1.test_pre_agg_tbl(test_rollup), PREAGGREGATION: ON"));

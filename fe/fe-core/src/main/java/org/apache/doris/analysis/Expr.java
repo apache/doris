@@ -2632,7 +2632,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this instanceof NullLiteral;
     }
 
-    public boolean isConstantZero() {
+    public boolean isZeroLiteral() {
         return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
     }
 }

@@ -655,6 +655,27 @@ public class SingleNodePlanner {
                 List<Column> conditionColumns = Lists.newArrayList();
                 if (!(aggExpr.getChild(0) instanceof SlotRef)) {
                     Expr child = aggExpr.getChild(0);
+
+                    // ignore cast
+                    boolean castReturnExprValidate = true;
+                    while (child instanceof CastExpr) {
+                        if (child.getChild(0) instanceof SlotRef) {
+                            if (child.getType().isNumericType() && child.getChild(0).getType().isNumericType()) {
+                                returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
+                            } else {
+                                turnOffReason = "aggExpr.getChild(0)["
+                                    + aggExpr.getChild(0).toSql()
+                                    + "] is not Numeric CastExpr";
+                                castReturnExprValidate = false;
+                                break;
+                            }
+                        }
+                        child = child.getChild(0);
+                    }
+                    if (!castReturnExprValidate) {
+                        aggExprValidate = false;
+                        break;
+                    }
                     // convert IF to CASE WHEN.
                     // For example:
                     // IF(a > 1, 1, 0) -> CASE WHEN a > 1 THEN 1 ELSE 0 END
@@ -664,18 +685,7 @@ public class SingleNodePlanner {
                         CaseWhenClause caseWhenClause = new CaseWhenClause(child.getChild(0), child.getChild(1));
                         child = new CaseExpr(ImmutableList.of(caseWhenClause), child.getChild(2));
                     }
-                    if ((child instanceof CastExpr) && (child.getChild(0) instanceof SlotRef)) {
-                        if (child.getType().isNumericType()
-                                && child.getChild(0).getType().isNumericType()) {
-                            returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
-                        } else {
-                            turnOffReason = "aggExpr.getChild(0)["
-                                    + aggExpr.getChild(0).toSql()
-                                    + "] is not Numeric CastExpr";
-                            aggExprValidate = false;
-                            break;
-                        }
-                    } else if (child instanceof CaseExpr) {
+                    if (child instanceof CaseExpr) {
                         CaseExpr caseExpr = (CaseExpr) child;
                         List<Expr> conditionExprs = caseExpr.getConditionExprs();
                         for (Expr conditionExpr : conditionExprs) {
@@ -691,9 +701,13 @@ public class SingleNodePlanner {
                         boolean caseReturnExprValidate = true;
                         List<Expr> returnExprs = caseExpr.getReturnExprs();
                         for (Expr returnExpr : returnExprs) {
+                            // ignore cast in return expr
+                            while (returnExpr instanceof CastExpr) {
+                                returnExpr = returnExpr.getChild(0);
+                            }
                             if (returnExpr instanceof SlotRef) {
                                 returnColumns.add(((SlotRef) returnExpr).getDesc().getColumn());
-                            } else if (returnExpr.isNullLiteral() || returnExpr.isConstantZero()) {
+                            } else if (returnExpr.isNullLiteral() || returnExpr.isZeroLiteral()) {
                                 // If then expr is NULL or Zero, open the preaggregation
                             } else {
                                 turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()

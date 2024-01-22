@@ -986,6 +986,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             List<Expression> conditionExps = new ArrayList<>();
             List<Expression> returnExps = new ArrayList<>();
 
+            // ignore cast
+            while (child instanceof Cast) {
+                if (!((Cast) child).getDataType().isNumericType()) {
+                    return PreAggStatus.off(String.format("[%s] is not numeric CAST.", child.toSql()));
+                }
+                child = child.child(0);
+            }
             // step 1: extract all condition exprs and return exprs
             if (child instanceof If) {
                 conditionExps.add(child.child(0));
@@ -1002,11 +1009,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 returnExps.add(caseWhen.getDefaultValue().orElse(new NullLiteral()));
             } else {
                 // currently, only IF and CASE WHEN are supported
-                return PreAggStatus.off(String.format("do not support compound expression [%s] in %s.",
-                        child.toSql(), matchingAggType));
+                returnExps.add(child);
             }
 
-            // check condition expressions
+            // step 2: check condition expressions
             for (Expression conditionExp : conditionExps) {
                 if (!containsAllColumn(conditionExp, ctx.keyNameToColumn.keySet())) {
                     return PreAggStatus.off(String.format("some columns in condition [%s] is not key.",
@@ -1014,14 +1020,19 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 }
             }
 
-            // check return expressions
+            // step 3: check return expressions
+            // NOTE: now we just support SUM, MIN, MAX and COUNT DISTINCT
             int returnExprValidateNum = 0;
             for (Expression returnExp : returnExps) {
+                // ignore cast in return expr
+                while (returnExp instanceof Cast) {
+                    returnExp = returnExp.child(0);
+                }
                 // now we only check simple return expressions
                 String exprName = returnExp.getExpressionName();
                 if (!returnExp.children().isEmpty()) {
                     return PreAggStatus.off(String.format("do not support compound expression [%s] in %s.",
-                            returnExp, matchingAggType));
+                            returnExp.toSql(), matchingAggType));
                 }
                 if (ctx.keyNameToColumn.containsKey(exprName)) {
                     if (matchingAggType != AggregateType.MAX && matchingAggType != AggregateType.MIN
@@ -1033,7 +1044,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 if (matchingAggType == AggregateType.SUM) {
                     if ((ctx.valueNameToColumn.containsKey(exprName)
                             && ctx.valueNameToColumn.get(exprName).getAggregationType() == matchingAggType)
-                            || returnExp.isConstantZero() || returnExp.isNullLiteral()) {
+                            || returnExp.isZeroLiteral() || returnExp.isNullLiteral()) {
                         returnExprValidateNum++;
                     } else {
                         return PreAggStatus.off(String.format("SUM cant preagg for [%s].", aggFunc.toSql()));
@@ -1048,7 +1059,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     }
                 } else if (aggFunc.getName().equalsIgnoreCase("COUNT") && aggFunc.isDistinct()) {
                     if (ctx.keyNameToColumn.containsKey(exprName)
-                            || returnExp.isConstantZero() || returnExp.isNullLiteral()) {
+                            || returnExp.isZeroLiteral() || returnExp.isNullLiteral()) {
                         returnExprValidateNum++;
                     } else {
                         return PreAggStatus.off(String.format("COUNT DISTINCT cant preagg for [%s].", aggFunc.toSql()));

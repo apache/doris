@@ -260,7 +260,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         }
     }
 
-    public boolean isConstantZero() {
+    public boolean isZeroLiteral() {
         return this instanceof Literal && ((Literal) this).isZero();
     }
 
