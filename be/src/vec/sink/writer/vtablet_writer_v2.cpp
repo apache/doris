@@ -443,7 +443,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         if (index_not_found) {
             LOG(WARNING) << "index " << rows.index_id
                          << " not found in schema, load_id=" << print_id(_load_id);
-            return static_cast<std::unique_ptr<DeltaWriterV2>>(nullptr);
+            return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
         return DeltaWriterV2::open(&req, streams, _state);
     });
