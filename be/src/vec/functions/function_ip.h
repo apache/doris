@@ -763,11 +763,10 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         WhichDataType first_arg_type = arguments[0];
-        if (!(first_arg_type.is_ipv4() || first_arg_type.is_native_int())) {
-            throw Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Illegal type {} of first argument of function {}, expected IPv4 or Native Int",
-                    arguments[0]->get_name(), get_name());
+        if (!(first_arg_type.is_ipv4())) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of first argument of function {}, expected IPv4",
+                            arguments[0]->get_name(), get_name());
         }
 
         WhichDataType second_arg_type = arguments[1];
@@ -785,52 +784,17 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
-        // Use int16 to represent cidr to prevent cidr value from overflowing
-        if (cidr_column.type->get_type_id() != TypeIndex::Int16) {
-            return Status::InvalidArgument(
-                    "Illegal type {} of second argument of function {}, expected Int16",
-                    cidr_column.name, get_name());
-        }
-
         ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
-        ColumnsWithTypeAndName input_column {ip_column, cidr_column};
+        ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
 
-        // RPC does not support uint type.
-        // Passed through RPC may include IPv4, int8, int16, int32, and int64.
-        switch (ip_column.type->get_type_id()) {
-        case TypeIndex::IPv4:
-            return execute_type<IPv4>(block, input_column, result, input_rows_count);
-        case TypeIndex::Int8:
-            return execute_type<Int8>(block, input_column, result, input_rows_count);
-        case TypeIndex::Int16:
-            return execute_type<Int16>(block, input_column, result, input_rows_count);
-        case TypeIndex::Int32:
-            return execute_type<Int32>(block, input_column, result, input_rows_count);
-        case TypeIndex::Int64:
-            return execute_type<Int64>(block, input_column, result, input_rows_count);
-        default:
-            break;
-        }
+        const ColumnPtr& ip_column_ptr = ip_column.column;
+        const ColumnPtr& cidr_column_ptr = cidr_column.column;
 
-        return Status::InvalidArgument(
-                "Illegal type {} of first argument of function {}, expected IPv4 or Native Int",
-                cidr_column.name, get_name());
-    }
+        const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
+        const auto* col_cidr_column =
+                check_and_get_column<ColumnVector<Int16>>(cidr_column_ptr.get());
 
-    template <typename ArgType>
-    Status execute_type(Block& block, const ColumnsWithTypeAndName& argments, size_t result,
-                        size_t input_rows_count) const {
-        auto ip_argment = argments[0];
-        auto cidr_argment = argments[1];
-        using ColumnType = ColumnVector<ArgType>;
-        const ColumnPtr& ip_column = ip_argment.column;
-        const ColumnPtr& cidr_column = cidr_argment.column;
-
-        const auto* col_ip_column = check_and_get_column<ColumnType>(ip_column.get());
-        const auto* col_cidr_column = check_and_get_column<ColumnVector<Int16>>(cidr_column.get());
-
-        const typename ColumnType::Container& vec_ip_input = col_ip_column->get_data();
+        const typename ColumnVector<IPv4>::Container& vec_ip_input = col_ip_column->get_data();
         const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
         auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
         auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
@@ -843,13 +807,12 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto ip = vec_ip_input[i];
             auto cidr = vec_cidr_input[i];
-            if (IPV4_MIN_NUM_VALUE <= ip && ip <= IPV4_MAX_NUM_VALUE && 0 <= cidr &&
-                cidr <= max_cidr_mask) {
+            if (0 <= cidr && cidr <= max_cidr_mask) {
                 auto range = apply_cidr_mask(ip, cidr);
                 vec_lower_range_output[i] = range.first;
                 vec_upper_range_output[i] = range.second;
             } else {
-                return Status::RuntimeError("Invalid row {}, IP or cidr is out of range", i);
+                return Status::InvalidArgument("Invalid row {}, cidr is out of range", i);
             }
         }
 

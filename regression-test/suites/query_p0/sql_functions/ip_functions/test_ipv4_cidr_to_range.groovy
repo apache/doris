@@ -49,43 +49,10 @@ suite("test_ipv4_cidr_to_range") {
 
     sql """ DROP TABLE IF EXISTS test_ipv4_cidr_to_range """
 
-    sql """
-        CREATE TABLE test_int_cidr_to_range (
-          `id` int,
-          `addr` int,
-          `cidr` int
-        ) ENGINE=OLAP
-        UNIQUE KEY (`id`)
-        DISTRIBUTED BY HASH(`id`) BUCKETS 4
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-        """
-    
-    // 2130706433 --> 127.0.0.1
-    sql """
-        insert into test_int_cidr_to_range values
-        (1, null, 0),
-        (2, 2130706433, null),
-        (3, 2130706433, 32),
-        (4, 2130706433, 24),
-        (5, 2130706433, 16),
-        (6, 2130706433, 8),
-        (7, 2130706433, 0)
-        """
-
-    qt_sql "select id, struct_element(ipv4_cidr_to_range(addr, cidr), 'min') as min_range, struct_element(ipv4_cidr_to_range(addr, cidr), 'max') as max_range from test_int_cidr_to_range order by id"
-
-    sql """ DROP TABLE IF EXISTS test_int_cidr_to_range """
-
     qt_sql "select ipv4_cidr_to_range(null, 0)"
     qt_sql "select ipv4_cidr_to_range('127.0.0.1', null)"
     qt_sql "select ipv4_cidr_to_range('127.0.0.1', 32)"
     qt_sql "select ipv4_cidr_to_range('127.0.0.1', 16)"
     qt_sql "select ipv4_cidr_to_range('127.0.0.1', 8)"
     qt_sql "select ipv4_cidr_to_range('127.0.0.1', 0)"
-    qt_sql "select ipv4_cidr_to_range(2130706433, 32)"
-    qt_sql "select ipv4_cidr_to_range(2130706433, 16)"
-    qt_sql "select ipv4_cidr_to_range(2130706433, 8)"
-    qt_sql "select ipv4_cidr_to_range(2130706433, 0)"
 }

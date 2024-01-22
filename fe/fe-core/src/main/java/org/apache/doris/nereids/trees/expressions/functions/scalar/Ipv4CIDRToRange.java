@@ -23,13 +23,10 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IPv4Type;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -50,11 +47,7 @@ public class Ipv4CIDRToRange extends ScalarFunction
         structFields.add(new StructField("max", IPv4Type.INSTANCE, false, ""));
         StructType retType = new StructType(structFields.build());
         SIGNATURES = ImmutableList.of(
-                FunctionSignature.ret(retType).args(IPv4Type.INSTANCE, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(TinyIntType.INSTANCE, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(IntegerType.INSTANCE, SmallIntType.INSTANCE),
-                FunctionSignature.ret(retType).args(BigIntType.INSTANCE, SmallIntType.INSTANCE));
+                FunctionSignature.ret(retType).args(IPv4Type.INSTANCE, SmallIntType.INSTANCE));
     }
 
     public Ipv4CIDRToRange(Expression arg0, Expression arg1) {
