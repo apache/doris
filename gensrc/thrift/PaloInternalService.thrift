@@ -400,6 +400,13 @@ struct TGlobalDict {
   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
 }
 
+struct TPipelineWorkloadGroup {
+  1: optional i64 id
+  2: optional string name
+  3: optional map<string, string> properties
+  4: optional i64 version
+}
+
 // ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
@@ -670,13 +677,6 @@ struct TPipelineInstanceParams {
   5: optional TRuntimeFilterParams runtime_filter_params
   6: optional i32 backend_num
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
-}
-
-struct TPipelineWorkloadGroup {
-  1: optional i64 id
-  2: optional string name
-  3: optional map<string, string> properties
-  4: optional i64 version
 }
 
 // ExecPlanFragment
