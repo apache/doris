@@ -54,6 +54,9 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 RuleType.BINDING_SLOT_WITH_PATHS.build(logicalPlan().thenApply(ctx -> {
+                    if (!ctx.connectContext.getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                        return ctx.root;
+                    }
                     LogicalPlan plan = ctx.root;
                     List<Expression> expressions = new ArrayList<>(plan.getExpressions());
                     if (plan instanceof LogicalAggregate) {
