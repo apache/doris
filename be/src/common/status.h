@@ -35,6 +35,7 @@ namespace ErrorCode {
     TStatusError(MEM_ALLOC_FAILED, true);                \
     TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
     TStatusError(INVALID_ARGUMENT, false);               \
+    TStatusError(INVALID_JSON_PATH, false);              \
     TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
     TStatusError(CORRUPTION, true);                      \
     TStatusError(IO_ERROR, true);                        \
@@ -403,6 +404,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
