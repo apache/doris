@@ -67,8 +67,6 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         if (_dependency && !_data_queue_is_available() && !_is_finished()) {
             _dependency->block();
         }
-    } else if (_eos && _data_queue.empty()) {
-        status = Status::EndOfFile("Run out of sink data");
     }
 
     _cv.notify_one();
@@ -143,6 +141,8 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
     // There is a unique ptr err_msg in Status, if it is modified, the unique ptr
     // maybe released. And it will core because use after free.
     std::lock_guard l(_m);
+    // eos only means the last block is input to the queue and there is no more block to be added,
+    // it is not sure that the block is written to stream.
     if (_writer_status.ok() && _eos) {
         _writer_status = finish(state);
     }
