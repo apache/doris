@@ -256,6 +256,7 @@ Status PipelineXTask::execute(bool* eos) {
         }
     }
 
+    Status status = Status::OK();
     set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
@@ -287,7 +288,7 @@ Status PipelineXTask::execute(bool* eos) {
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
+            status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -298,7 +299,7 @@ Status PipelineXTask::execute(bool* eos) {
         }
     }
 
-    return Status::OK();
+    return status;
 }
 
 void PipelineXTask::finalize() {

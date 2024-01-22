@@ -301,7 +301,8 @@ Status PipelineTask::execute(bool* eos) {
         _finish_p_dependency();
     }
 
-    return Status::OK();
+    // If the status is eof(sink node will return eof if downstream fragment finished), then return it.
+    return status;
 }
 
 Status PipelineTask::close(Status exec_status) {

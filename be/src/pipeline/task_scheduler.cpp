@@ -290,7 +290,12 @@ void TaskScheduler::_do_work(size_t index) {
         }
 
         task->set_previous_core_id(index);
-        if (!status.ok()) {
+
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            // Sink operator finished, just close task now.
+            _close_task(task, PipelineTaskState::FINISHED, Status::OK());
+            continue;
+        } else if (!status.ok()) {
             task->set_eos_time();
             LOG(WARNING) << fmt::format(
                     "Pipeline task failed. query_id: {} reason: {}",
@@ -317,10 +322,26 @@ void TaskScheduler::_do_work(size_t index) {
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
                     fragment_ctx->is_canceled());
-            // Only meet eos, should set task to PENDING_FINISH state
-            task->set_state(PipelineTaskState::PENDING_FINISH);
-            task->set_running(false);
-            if (!task->is_pipelineX()) {
+            if (task->is_pipelineX()) {
+                // is pending finish will add the task to dependency's blocking queue, and then the task will be
+                // added to running queue when dependency is ready.
+                if (task->is_pending_finish()) {
+                    // Only meet eos, should set task to PENDING_FINISH state
+                    task->set_state(PipelineTaskState::PENDING_FINISH);
+                    task->set_running(false);
+                } else {
+                    // Close the task directly?
+                    Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
+                    _close_task(
+                            task,
+                            canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
+                            exec_status);
+                }
+            } else {
+                // Only meet eos, should set task to PENDING_FINISH state
+                // pipeline is ok, because it will check is pending finish, and if it is ready, it will be invoked.
+                task->set_state(PipelineTaskState::PENDING_FINISH);
+                task->set_running(false);
                 // After the task is added to the block queue, it maybe run by another thread
                 // and the task maybe released in the other thread. And will core at
                 // task set running.
