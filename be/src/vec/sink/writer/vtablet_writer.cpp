@@ -1603,7 +1603,9 @@ Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     if (_state->query_options().dry_run_query) {
         return status;
     }
-
+    LOG(INFO) << "temporary log query id: " << print_id(_state->query_id())
+              << ", instance id: " << print_id(_state->fragment_instance_id())
+              << ", block rows: " << input_block.rows();
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
