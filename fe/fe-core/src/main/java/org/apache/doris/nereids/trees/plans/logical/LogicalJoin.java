@@ -385,7 +385,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 markJoinSlotReference, children);
     }
 
-    private @Nullable Pair<Set<Slot>, Set<Slot>> extractHashKeys() {
+    /**
+     * extractNullRejectHashKeys
+     */
+    public @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
         Set<Slot> leftKeys = new HashSet<>();
         Set<Slot> rightKeys = new HashSet<>();
         for (Expression expression : hashJoinConjuncts) {
@@ -428,7 +431,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
-        Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
         if (keys == null) {
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
