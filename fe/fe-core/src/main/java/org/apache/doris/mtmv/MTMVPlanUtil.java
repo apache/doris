@@ -59,6 +59,7 @@ public class MTMVPlanUtil {
         ctx.changeDefaultCatalog(catalog.getName());
         ctx.setDatabase(catalog.getDbOrAnalysisException(mtmv.getEnvInfo().getDbId()).getFullName());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        ctx.getSessionVariable().enableNereidsDML = true;
         return ctx;
     }
 
