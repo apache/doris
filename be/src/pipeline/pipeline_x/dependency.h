@@ -610,25 +610,35 @@ class Exchanger;
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<DependencySPtr> source_dependencies;
+    std::vector<Dependency*> source_dependencies;
+    std::vector<std::atomic_bool> dependencies_release_flag;
     Dependency* sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
+        size_t i = 0;
         for (auto& dep : source_dependencies) {
+            if (dependencies_release_flag[i]) {
+                continue;
+            }
             DCHECK(dep);
             dep->set_ready();
+            i++;
         }
     }
 
-    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
+    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
 
     void set_ready_to_read(int channel_id) {
+        if (dependencies_release_flag[channel_id]) {
+            return;
+        }
         auto& dep = source_dependencies[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();

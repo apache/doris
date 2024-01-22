@@ -37,7 +37,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _channel_id = info.task_idx;
-    _shared_state->set_dep_by_channel_id(info.dependency, _channel_id);
+    _shared_state->set_dep_by_channel_id(_dependency, _channel_id);
     _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
@@ -59,6 +59,12 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
                    _exchanger->_num_senders, _exchanger->_num_sources,
                    _exchanger->_running_sink_operators);
     return fmt::to_string(debug_string_buffer);
+}
+
+Status LocalExchangeSourceLocalState::close(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::close(state));
+    _shared_state->dependencies_release_flag[_channel_id] = true;
+    return Status::OK();
 }
 
 Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

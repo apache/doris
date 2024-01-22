@@ -189,4 +189,13 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     }
 }
 
+LocalExchangeSharedState::LocalExchangeSharedState(int num_instances)
+        : dependencies_release_flag(num_instances) {
+    source_dependencies.resize(num_instances, nullptr);
+    mem_trackers.resize(num_instances, nullptr);
+    for (size_t i = 0; i < num_instances; i++) {
+        dependencies_release_flag[i] = false;
+    }
+}
+
 } // namespace doris::pipeline
