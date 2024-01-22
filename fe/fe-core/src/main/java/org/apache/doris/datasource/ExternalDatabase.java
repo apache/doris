@@ -154,7 +154,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         for (int i = 0; i < log.getCreateCount(); i++) {
-            T table = getExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
+            T table = newExternalTable(log.getCreateTableNames().get(i), log.getCreateTableIds().get(i), catalog);
             tmpTableNameToId.put(table.getName(), table.getId());
             tmpIdToTbl.put(table.getId(), table);
         }
@@ -190,7 +190,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 } else {
                     tblId = Env.getCurrentEnv().getNextId();
                     tmpTableNameToId.put(tableName, tblId);
-                    T table = getExternalTable(tableName, tblId, extCatalog);
+                    T table = newExternalTable(tableName, tblId, extCatalog);
                     tmpIdToTbl.put(tblId, table);
                     initDatabaseLog.addCreateTable(tblId, tableName);
                 }
@@ -205,7 +205,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
 
-    protected abstract T getExternalTable(String tableName, long tblId, ExternalCatalog catalog);
+    protected abstract T newExternalTable(String tableName, long tblId, ExternalCatalog catalog);
 
     public T getTableForReplay(long tableId) {
         return idToTbl.get(tableId);
@@ -364,8 +364,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
-    public void dropTable(String tableName) {
-        throw new NotImplementedException("dropTable() is not implemented");
+    public void removeMemoryTable(String tableName) {
+        throw new NotImplementedException("removeMemoryTable is not implemented at external database");
     }
 
     @Override
@@ -374,8 +374,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     // Only used for sync hive metastore event
-    public void createTable(String tableName, long tableId) {
-        throw new NotImplementedException("createTable() is not implemented");
+    public void addMemoryTable(String tableName, long tableId) {
+        throw new NotImplementedException("addMemoryTable is not implemented at external database.");
     }
 
     @Override

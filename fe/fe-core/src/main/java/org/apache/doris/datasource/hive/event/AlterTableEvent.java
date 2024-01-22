@@ -98,9 +98,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unloadExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(
+                .loadExternalTableFromEvent(
                             tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
     }
 
@@ -117,9 +117,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .unloadExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTableFromEvent(
+                .loadExternalTableFromEvent(
                             tableAfter.getDbName(), tableAfter.getTableName(), catalogName, eventTime, true);
 
     }

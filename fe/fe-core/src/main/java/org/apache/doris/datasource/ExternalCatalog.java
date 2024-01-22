@@ -17,6 +17,10 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -25,6 +29,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -578,11 +583,29 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabase(String dbName) {
+    public void createDb(CreateDbStmt stmt) throws DdlException {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabase(long dbId, String dbName) {
+    public void dropDb(DropDbStmt stmt) throws DdlException {
+        throw new NotImplementedException("dropDatabase not implemented");
+    }
+
+    @Override
+    public void createTable(CreateTableStmt stmt) throws UserException {
+        throw new NotImplementedException("createTable not implemented");
+    }
+
+    @Override
+    public void dropTable(DropTableStmt stmt) throws DdlException {
+        throw new NotImplementedException("dropTable not implemented");
+    }
+
+    public void removeDatabase(String dbName) {
+        throw new NotImplementedException("dropDatabase not implemented");
+    }
+
+    public void addDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 

@@ -49,7 +49,6 @@ import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -252,13 +251,6 @@ public class CreateTableInfo {
             } else {
                 ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
-        }
-
-        // disallow external catalog
-        try {
-            Util.prohibitExternalCatalog(ctlName, this.getClass().getSimpleName());
-        } catch (Exception ex) {
-            throw new AnalysisException(ex.getMessage(), ex.getCause());
         }
 
         // analyze table name

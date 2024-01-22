@@ -416,7 +416,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
     }
 
-    public boolean createTable(Table table) {
+    public boolean addMemoryTable(Table table) {
         boolean result = true;
         table.setQualifiedDbName(fullQualifiedName);
         String tableName = table.getName();
@@ -434,7 +434,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return result;
     }
 
-    public void dropTable(String tableName) {
+    public void removeMemoryTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }

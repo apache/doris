@@ -644,7 +644,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             Table table = tableInfo.getTable();
-            db.createTable(table);
+            db.addMemoryTable(table);
             LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -739,7 +739,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
             }
 
-            db.createTable(table);
+            db.addMemoryTable(table);
             if (isReplay) {
                 iterator.remove();
             } else {

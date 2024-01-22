@@ -17,12 +17,17 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
 
@@ -33,12 +38,17 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    protected IcebergExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected IcebergExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new IcebergExternalTable(tblId, tableName, name, (IcebergExternalCatalog) extCatalog);
     }
 
+    public List<IcebergExternalTable> getTablesOnIdOrder() {
+        // Sort the name instead, because the id may change.
+        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
+    }
+
     @Override
-    public void dropTable(String tableName) {
+    public void removeMemoryTable(String tableName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("drop table [{}]", tableName);
         }
@@ -50,7 +60,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    public void createTable(String tableName, long tableId) {
+    public void addMemoryTable(String tableName, long tableId) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }

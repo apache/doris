@@ -33,12 +33,17 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     }
 
     @Override
-    protected PaimonExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected PaimonExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
         return new PaimonExternalTable(tblId, tableName, name, (PaimonExternalCatalog) extCatalog);
     }
 
+    public List<PaimonExternalTable> getTablesOnIdOrder() {
+        // Sort the name instead, because the id may change.
+        return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
+    }
+
     @Override
-    public void dropTable(String tableName) {
+    public void removeMemoryTable(String tableName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("drop table [{}]", tableName);
         }
@@ -50,7 +55,7 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     }
 
     @Override
-    public void createTable(String tableName, long tableId) {
+    public void addMemoryTable(String tableName, long tableId) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("create table [{}]", tableName);
         }

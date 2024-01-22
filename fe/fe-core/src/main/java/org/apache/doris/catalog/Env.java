@@ -4330,8 +4330,8 @@ public class Env {
                     table.setName(newTableName);
                 }
 
-                db.dropTable(oldTableName);
-                db.createTable(table);
+                db.removeMemoryTable(oldTableName);
+                db.addMemoryTable(table);
 
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
                 editLog.logTableRename(tableInfo);
@@ -4363,9 +4363,9 @@ public class Env {
             table.writeLock();
             try {
                 String tableName = table.getName();
-                db.dropTable(tableName);
+                db.removeMemoryTable(tableName);
                 table.setName(newTableName);
-                db.createTable(table);
+                db.addMemoryTable(table);
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();

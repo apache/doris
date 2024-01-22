@@ -268,22 +268,22 @@ public class OlapQueryCacheTest {
         db = ((InternalCatalog) env.getCurrentCatalog()).getDbNullable(fullDbName);
         // table and view init use analyzer, should init after analyzer build
         OlapTable tbl1 = createOrderTable();
-        db.createTable(tbl1);
+        db.addMemoryTable(tbl1);
         OlapTable tbl2 = createProfileTable();
-        db.createTable(tbl2);
+        db.addMemoryTable(tbl2);
         OlapTable tbl3 = createEventTable();
-        db.createTable(tbl3);
+        db.addMemoryTable(tbl3);
 
         // build view meta inline sql and create view directly, the originStmt from inline sql
         // should be analyzed by create view statement analyzer and then to sql
         View view1 = createEventView1();
-        db.createTable(view1);
+        db.addMemoryTable(view1);
         View view2 = createEventView2();
-        db.createTable(view2);
+        db.addMemoryTable(view2);
         View view3 = createEventView3();
-        db.createTable(view3);
+        db.addMemoryTable(view3);
         View view4 = createEventNestedView();
-        db.createTable(view4);
+        db.addMemoryTable(view4);
     }
 
     private OlapTable createOrderTable() {

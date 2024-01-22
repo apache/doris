@@ -41,7 +41,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.QueryStmt;
@@ -65,7 +64,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
-import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
@@ -177,7 +175,6 @@ import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.time.StopWatch;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -653,7 +650,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = recoverStmt.getTableName();
         String newTableName = recoverStmt.getNewTableName();
 
-        Database db = getDbOrDdlException(dbName);
+        Database db = (Database) getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             if (Strings.isNullOrEmpty(newTableName)) {
@@ -700,6 +697,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
+    }
+
+    public void replayEraseDatabase(long dbId) throws DdlException {
+        Env.getCurrentRecycleBin().replayEraseDatabase(dbId);
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
@@ -835,8 +836,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        Map<String, Long> costTimes = new TreeMap<String, Long>();
-        StopWatch watch = StopWatch.createStarted();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
@@ -848,8 +847,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         db.writeLockOrDdlException();
-        watch.split();
-        costTimes.put("1:dbWriteLock", watch.getSplitTime());
         try {
             Table table = db.getTableNullable(tableName);
             if (table == null) {
@@ -885,12 +882,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
                                     + " please use \"DROP table FORCE\".");
                 }
-                watch.split();
-                costTimes.put("2:existCommittedTxns", watch.getSplitTime());
             }
             table.writeLock();
-            watch.split();
-            costTimes.put("3:tableWriteLock", watch.getSplitTime());
             long recycleTime = 0;
             try {
                 if (table instanceof OlapTable && !stmt.isForceDrop()) {
@@ -906,12 +899,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                 }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
-                watch.split();
-                costTimes.put("4:unprotectDropTable", watch.getSplitTime());
                 if (!stmt.isForceDrop()) {
                     recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
-                    watch.split();
-                    costTimes.put("5:getRecycleTimeById", watch.getSplitTime());
                 }
             } finally {
                 table.writeUnlock();
@@ -931,10 +920,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
-        watch.stop();
-        costTimes.put("6:total", watch.getTime());
-        LOG.info("finished dropping table: {} from db: {}, is force: {} cost: {}",
-                tableName, dbName, stmt.isForceDrop(), costTimes);
+        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -949,12 +935,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
 
-        db.dropTable(table.getName());
-        StopWatch watch = StopWatch.createStarted();
+        db.removeMemoryTable(table.getName());
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
-        watch.stop();
-        LOG.info("finished dropping table[{}] in db[{}] recycleTable cost: {}ms",
-                table.getName(), db.getFullName(), watch.getTime());
+        LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
     }
 
@@ -1264,11 +1247,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                             break;
                         default:
                             throw new DdlException("Unsupported string type for ctas");
-                    }
-                    if (resultExpr.getSrcSlotRef() != null
-                            && resultExpr.getSrcSlotRef().getTable() != null
-                            && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
-                        typeDef = new TypeDef(ScalarType.createStringType());
                     }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
@@ -1813,12 +1791,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
-        long version = olapTable.getNextVersion();
-        long versionTime = System.currentTimeMillis();
-        olapTable.updateVisibleVersionAndTime(version, versionTime);
+
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop(), recycleTime, version, versionTime);
+                clause.isForceDrop(), recycleTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
@@ -1839,7 +1815,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
             }
-            olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
         } finally {
             olapTable.writeUnlock();
         }
@@ -2026,7 +2001,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
     }
 
-    public void checkAvailableCapacity(Database db) throws DdlException {
+    protected void checkAvailableCapacity(Database db) throws DdlException {
         // check cluster capacity
         Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
@@ -2497,7 +2472,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
                     throw new DdlException("Sequence type only support integer types and date types");
                 }
-                olapTable.setSequenceMapCol(col.getName());
+                olapTable.setSequenceMapCol(sequenceMapCol);
                 olapTable.setSequenceInfo(col.getType());
             }
         } catch (Exception e) {
@@ -2616,27 +2591,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     "Only support dynamic partition properties on range partition table");
                         }
                     }
-                    // check the interval same between dynamic & auto range partition
-                    DynamicPartitionProperty dynamicProperty = olapTable.getTableProperty()
-                            .getDynamicPartitionProperty();
-                    if (dynamicProperty.isExist() && dynamicProperty.getEnable()
-                            && partitionDesc.isAutoCreatePartitions()) {
-                        String dynamicUnit = dynamicProperty.getTimeUnit();
-                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
-                        for (Expr autoExpr : autoExprs) {
-                            Expr func = (FunctionCallExpr) autoExpr;
-                            for (Expr child : func.getChildren()) {
-                                if (child instanceof LiteralExpr) {
-                                    String autoUnit = ((LiteralExpr) child).getStringValue();
-                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
-                                        throw new AnalysisException(
-                                                "If support auto partition and dynamic partition at same time, "
-                                                        + "they must have the same interval unit.");
-                                    }
-                                }
-                            }
-                        }
-                    }
+
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }

@@ -17,16 +17,24 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopUGI;
+import org.apache.doris.common.util.QueryableReentrantLock;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -38,19 +46,21 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * External catalog for hive metastore compatible data sources.
  */
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
-
     private static final int MIN_CLIENT_POOL_SIZE = 8;
     protected HMSCachedClient client;
 
@@ -63,6 +73,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final int FILE_META_CACHE_NO_TTL = -1;
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
+    private QueryableReentrantLock lock = new QueryableReentrantLock(true);
 
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -213,6 +224,143 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).setNewFileCache();
+        }
+    }
+
+    private boolean tryLock(boolean mustLock) {
+        while (true) {
+            try {
+                if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                    // to see which thread held this lock for long time.
+                    Thread owner = lock.getOwner();
+                    if (owner != null) {
+                        // There are many catalog timeout during regression test
+                        // And this timeout should not happen very often, so it could be info log
+                        LOG.info("catalog lock is held by: {}", Util.dumpThread(owner, 10));
+                    }
+
+                    if (mustLock) {
+                        continue;
+                    } else {
+                        return false;
+                    }
+                }
+                return true;
+            } catch (InterruptedException e) {
+                LOG.warn("got exception while getting catalog lock", e);
+                if (mustLock) {
+                    continue;
+                } else {
+                    return lock.isHeldByCurrentThread();
+                }
+            }
+        }
+    }
+
+    private void unlock() {
+        if (lock.isHeldByCurrentThread()) {
+            this.lock.unlock();
+        }
+    }
+
+    @Override
+    public void createDb(CreateDbStmt stmt) throws DdlException {
+        String fullDbName = stmt.getFullDbName();
+        Map<String, String> properties = stmt.getProperties();
+        long id = Env.getCurrentEnv().getNextId();
+
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
+        try {
+            HiveCatalogDatabase catalogDatabase = new HiveCatalogDatabase();
+            catalogDatabase.setDbName(fullDbName);
+            catalogDatabase.setProperties(properties);
+            if (properties.containsKey("location_uri")) {
+                catalogDatabase.setLocationUri(properties.get("location_uri"));
+            }
+            catalogDatabase.setComment(properties.getOrDefault("comment", ""));
+            client.createDatabase(catalogDatabase);
+            addDatabase(id, fullDbName);
+        } finally {
+            unlock();
+        }
+        LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
+    }
+
+    public void dropDb(DropDbStmt stmt) throws DdlException {
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
+        try {
+            client.dropDatabase(stmt.getDbName());
+            removeDatabase(stmt.getDbName());
+        } finally {
+            unlock();
+        }
+    }
+
+    @Override
+    public void createTable(CreateTableStmt stmt) throws UserException {
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
+        String dbName = stmt.getDbName();
+        String tblName = stmt.getTableName();
+        ExternalDatabase<?> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + this.getName());
+        }
+        try {
+            HiveCatalogTable catalogTable = new HiveCatalogTable();
+            catalogTable.setDbName(dbName);
+            catalogTable.setTableName(tblName);
+            Map<String, String> props = stmt.getExtProperties();
+            catalogTable.setProperties(props);
+            String inputFormat = props.getOrDefault("input_format",
+                    "org.apache.hadoop.mapred.TextInputFormat");
+            String outputFormat = props.getOrDefault("output_format",
+                    "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
+            catalogTable.setInputFormat(inputFormat);
+            catalogTable.setOutputFormat(outputFormat);
+            catalogTable.setPartitionKeys(parsePartitionKeys(props));
+            client.createTable(catalogTable, stmt.isSetIfNotExists());
+            long tableId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(getId(), dbName, tblName);
+            if (tableId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
+                return;
+            }
+            db.addMemoryTable(tblName, tableId);
+        } finally {
+            unlock();
+        }
+    }
+
+    private static List<FieldSchema> parsePartitionKeys(Map<String, String> props) {
+        List<FieldSchema> parsedKeys = new ArrayList<>();
+        String pkStr = props.getOrDefault("partition_keys", "");
+        if (pkStr.isEmpty()) {
+            return parsedKeys;
+        } else {
+            // TODO: parse string to partition keys list
+            return parsedKeys;
+        }
+    }
+
+    @Override
+    public void dropTable(DropTableStmt stmt) throws DdlException {
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
+        String dbName = stmt.getDbName();
+        ExternalDatabase<?> db = getDbNullable(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + this.getName());
+        }
+        try {
+            client.dropTable(dbName, stmt.getTableName());
+            db.removeMemoryTable(stmt.getTableName());
+        } finally {
+            unlock();
         }
     }
 
