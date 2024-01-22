@@ -816,6 +816,8 @@ struct TLoadTxnRollbackRequest {
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
+    14: optional string auth_code_uuid
+    15: optional string label
 }
 
 struct TLoadTxnRollbackResult {
