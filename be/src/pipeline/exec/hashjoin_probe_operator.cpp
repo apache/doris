@@ -241,42 +241,6 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         source_state = SourceState::FINISHED;
         return Status::OK();
     }
-    if (local_state._shared_state->_has_null_in_build_side &&
-        _short_circuit_for_null_in_build_side && _is_mark_join) {
-        /// `_has_null_in_build_side` means have null value in build side.
-        /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
-        /// We need to create a column as mark with all rows set to NULL.
-        auto block_rows = local_state._probe_block.rows();
-        if (block_rows == 0) {
-            if (local_state._probe_eos) {
-                source_state = SourceState::FINISHED;
-            }
-            return Status::OK();
-        }
-
-        vectorized::Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(local_state._probe_block.get_by_position(i));
-        }
-        auto mark_column =
-                vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(block_rows, 0),
-                                                   vectorized::ColumnUInt8::create(block_rows, 1));
-        temp_block.insert({std::move(mark_column),
-                           make_nullable(std::make_shared<vectorized::DataTypeUInt8>()), ""});
-
-        {
-            SCOPED_TIMER(local_state._join_filter_timer);
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, &temp_block, temp_block.columns()));
-        }
-
-        RETURN_IF_ERROR(local_state._build_output_block(&temp_block, output_block, false));
-        temp_block.clear();
-        local_state._probe_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
-        local_state.reached_limit(output_block, source_state);
-        return Status::OK();
-    }
 
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (local_state._shared_state->empty_right_table_need_probe_dispose) {

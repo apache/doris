@@ -188,7 +188,8 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                            : false)
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join) {
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

@@ -342,39 +342,6 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         return Status::OK();
     }
 
-    /// `_has_null_in_build_side` means have null value in build side.
-    /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
-    if (_has_null_in_build_side && _short_circuit_for_null_in_build_side && _is_mark_join) {
-        /// We need to create a column as mark with all rows set to NULL.
-        auto block_rows = _probe_block.rows();
-        if (block_rows == 0) {
-            *eos = _probe_eos;
-            return Status::OK();
-        }
-
-        Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(_probe_block.get_by_position(i));
-        }
-        auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
-                                                  ColumnUInt8::create(block_rows, 1));
-        temp_block.insert(
-                {std::move(mark_column), make_nullable(std::make_shared<DataTypeUInt8>()), ""});
-
-        {
-            SCOPED_TIMER(_join_filter_timer);
-            RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
-        }
-
-        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
-        temp_block.clear();
-        release_block_memory(_probe_block);
-        reached_limit(output_block, eos);
-        return Status::OK();
-    }
-
     //TODO: this short circuit maybe could refactor, no need to check at here.
     if (_empty_right_table_need_probe_dispose) {
         // when build table rows is 0 and not have other_join_conjunct and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
@@ -957,11 +924,10 @@ bool HashJoinNode::_need_probe_null_map(Block& block, const std::vector<int>& re
 void HashJoinNode::_set_build_ignore_flag(Block& block, const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        if (!_is_null_safe_eq_join[i]) {
+        if (!_is_null_safe_eq_join[i] && !_short_circuit_for_null_in_build_side) {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<ColumnNullable>(*column)) {
-                _build_side_ignore_null |= (_join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                                            !_store_null_in_hash_table[i]);
+                _build_side_ignore_null |= !_store_null_in_hash_table[i];
             }
         }
     }

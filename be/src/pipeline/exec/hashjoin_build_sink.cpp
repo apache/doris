@@ -288,13 +288,12 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
 void HashJoinBuildSinkLocalState::_set_build_ignore_flag(vectorized::Block& block,
                                                          const std::vector<int>& res_col_ids) {
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        if (!_shared_state->is_null_safe_eq_join[i]) {
+        if (!_shared_state->is_null_safe_eq_join[i] && !p._short_circuit_for_null_in_build_side) {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                _build_side_ignore_null |= (_parent->cast<HashJoinBuildSinkOperatorX>()._join_op !=
-                                                    TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                                            !_shared_state->store_null_in_hash_table[i]);
+                _build_side_ignore_null |= !_shared_state->store_null_in_hash_table[i];
             }
         }
     }

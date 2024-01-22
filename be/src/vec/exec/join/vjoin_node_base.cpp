@@ -78,7 +78,8 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                           tnode.nested_loop_join_node.is_mark
                                 : tnode.hash_join_node.__isset.is_mark &&
                                           tnode.hash_join_node.is_mark),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join) {
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
