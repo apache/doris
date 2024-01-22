@@ -176,7 +176,7 @@ identifierOrText
     ;
 
 userIdentify
-    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 
