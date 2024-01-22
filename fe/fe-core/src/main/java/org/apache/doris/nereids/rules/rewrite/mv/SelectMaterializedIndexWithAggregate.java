@@ -1084,41 +1084,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         ExprRewriteMap exprRewriteMap = new ExprRewriteMap();
         RewriteContext context = new RewriteContext(new CheckContext(scan, index.getId()), exprRewriteMap);
         aggregateFunctions.forEach(aggFun -> AggFuncRewriter.rewrite(aggFun, context));
-
-        // has rewritten agg functions
-        Map<Slot, Slot> slotMap = exprRewriteMap.slotMap;
-        // Note that the slots in the rewritten agg functions shouldn't appear in filters or grouping expressions.
-        // For example: we have a duplicated-type table t(c1, c2) and a materialized index that has
-        // a bitmap_union column `mv_bitmap_union_c2` for the column c2.
-        // The query `select c1, count(distinct c2) from t where c2 > 0 group by c1` can't use the materialized
-        // index because we have a filter `c2 > 0` for the aggregated column c2.
-        Set<Slot> slotsToReplace = slotMap.keySet();
-        Set<String> indexConjuncts;
-        try {
-            indexConjuncts = PlanNode
-                    .splitAndCompoundPredicateToConjuncts(context.checkContext.getMeta().getWhereClause()).stream()
-                    .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
-        } catch (Exception e) {
-            return new AggRewriteResult(index, false, null, null);
-        }
-        if (isInputSlotsContainsNone(
-                predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
-                slotsToReplace)) {
-            ImmutableSet<Slot> newRequiredSlots = requiredScanOutput.stream()
-                    .map(slot -> (Slot) ExpressionUtils.replace(slot, slotMap)).collect(ImmutableSet.toImmutableSet());
-            return new AggRewriteResult(index, true, newRequiredSlots, exprRewriteMap);
-        }
-
-        return new AggRewriteResult(index, false, null, null);
+        return new AggRewriteResult(index, true, requiredScanOutput, exprRewriteMap);
     }
 
     private static class ExprRewriteMap {
-
-        /**
-         * Replace map for scan output slot.
-         */
-        public final Map<Slot, Slot> slotMap;
-
         /**
          * Replace map for expressions in project.
          */
@@ -1131,13 +1100,12 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         private Map<String, AggregateFunction> aggFuncStrMap;
 
         public ExprRewriteMap() {
-            this.slotMap = Maps.newHashMap();
             this.projectExprMap = Maps.newHashMap();
             this.aggFuncMap = Maps.newHashMap();
         }
 
         public boolean isEmpty() {
-            return slotMap.isEmpty();
+            return aggFuncMap.isEmpty();
         }
 
         private void buildStrMap() {
@@ -1238,7 +1206,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .orElseThrow(() -> new AnalysisException(
                                         "cannot find bitmap union slot when select mv"));
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionSlot);
                         context.exprRewriteMap.projectExprMap.put(slotOpt.get(), bitmapUnionSlot);
                         BitmapUnionCount bitmapUnionCount = new BitmapUnionCount(bitmapUnionSlot);
                         context.exprRewriteMap.aggFuncMap.put(count, bitmapUnionCount);
@@ -1269,9 +1236,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .filter(s -> countColumn.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                             .orElseThrow(() -> new AnalysisException("cannot find count slot when select mv"));
 
-                    if (child instanceof Slot) {
-                        context.exprRewriteMap.slotMap.put((Slot) child, countSlot);
-                    }
                     context.exprRewriteMap.projectExprMap.put(child, countSlot);
                     Sum sum = new Sum(countSlot);
                     context.exprRewriteMap.aggFuncMap.put(count, sum);
@@ -1308,7 +1272,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .findFirst().orElseThrow(
                                         () -> new AnalysisException("cannot find bitmap union slot when select mv"));
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionSlot);
                         context.exprRewriteMap.projectExprMap.put(toBitmap, bitmapUnionSlot);
                         BitmapUnion newBitmapUnion = new BitmapUnion(bitmapUnionSlot);
                         context.exprRewriteMap.aggFuncMap.put(bitmapUnion, newBitmapUnion);
@@ -1328,9 +1291,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .stream().filter(s -> bitmapUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                             .findFirst()
                             .orElseThrow(() -> new AnalysisException("cannot find bitmap union slot when select mv"));
-                    if (child instanceof Slot) {
-                        context.exprRewriteMap.slotMap.put((Slot) child, bitmapUnionSlot);
-                    }
                     context.exprRewriteMap.projectExprMap.put(child, bitmapUnionSlot);
                     BitmapUnion newBitmapUnion = new BitmapUnion(bitmapUnionSlot);
                     context.exprRewriteMap.aggFuncMap.put(bitmapUnion, newBitmapUnion);
@@ -1370,7 +1330,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .orElseThrow(() -> new AnalysisException(
                                         "cannot find bitmap union count slot when select mv"));
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), bitmapUnionCountSlot);
                         context.exprRewriteMap.projectExprMap.put(toBitmap, bitmapUnionCountSlot);
                         BitmapUnionCount newBitmapUnionCount = new BitmapUnionCount(bitmapUnionCountSlot);
                         context.exprRewriteMap.aggFuncMap.put(bitmapUnionCount, newBitmapUnionCount);
@@ -1390,9 +1349,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .stream().filter(s -> bitmapUnionCountColumn.equalsIgnoreCase(normalizeName(s.getName())))
                             .findFirst().orElseThrow(
                                     () -> new AnalysisException("cannot find bitmap union count slot when select mv"));
-                    if (child instanceof Slot) {
-                        context.exprRewriteMap.slotMap.put((Slot) child, bitmapUnionCountSlot);
-                    }
                     context.exprRewriteMap.projectExprMap.put(child, bitmapUnionCountSlot);
                     BitmapUnionCount newBitmapUnionCount = new BitmapUnionCount(bitmapUnionCountSlot);
                     context.exprRewriteMap.aggFuncMap.put(bitmapUnionCount, newBitmapUnionCount);
@@ -1429,7 +1385,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .orElseThrow(() -> new AnalysisException(
                                         "cannot find hll union slot when select mv"));
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
                         context.exprRewriteMap.projectExprMap.put(hllHash, hllUnionSlot);
                         HllUnion newHllUnion = new HllUnion(hllUnionSlot);
                         context.exprRewriteMap.aggFuncMap.put(hllUnion, newHllUnion);
@@ -1467,7 +1422,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                 .orElseThrow(() -> new AnalysisException(
                                         "cannot find hll union slot when select mv"));
 
-                        context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
                         context.exprRewriteMap.projectExprMap.put(hllHash, hllUnionSlot);
                         HllUnionAgg newHllUnionAgg = new HllUnionAgg(hllUnionSlot);
                         context.exprRewriteMap.aggFuncMap.put(hllUnionAgg, newHllUnionAgg);
@@ -1506,7 +1460,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             .orElseThrow(() -> new AnalysisException(
                                     "cannot find hll union slot when select mv"));
 
-                    context.exprRewriteMap.slotMap.put(slotOpt.get(), hllUnionSlot);
                     context.exprRewriteMap.projectExprMap.put(slotOpt.get(), hllUnionSlot);
                     HllUnionAgg hllUnionAgg = new HllUnionAgg(hllUnionSlot);
                     context.exprRewriteMap.aggFuncMap.put(ndv, hllUnionAgg);
@@ -1531,9 +1484,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Slot sumSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index).stream()
                             .filter(s -> sumColumn.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                             .orElseThrow(() -> new AnalysisException("cannot find sum slot when select mv"));
-                    for (Slot slot : sum.child().getInputSlots()) {
-                        context.exprRewriteMap.slotMap.put(slot, sumSlot);
-                    }
                     context.exprRewriteMap.projectExprMap.put(sum.child(), sumSlot);
                     Sum newSum = new Sum(sumSlot);
                     context.exprRewriteMap.aggFuncMap.put(sum, newSum);
@@ -1560,7 +1510,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 Set<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
                 for (Slot slot : slots) {
-                    context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
                     context.exprRewriteMap.projectExprMap.put(slot, aggStateSlot);
                 }
 
