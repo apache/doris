@@ -204,7 +204,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             Optional.of(project)),
                                     ExpressionUtils.replace(agg.getGroupByExpressions(),
                                             project.getAliasToProducer()),
-                                    collectRequireExprWithAggAndProject(agg.getExpressions(), project.getProjects())
+                                    collectRequireExprWithAggAndProject(agg.getExpressions(), Optional.of(project))
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
@@ -251,7 +251,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     .collect(Collectors.toSet());
                             ImmutableSet<Expression> requiredExpr = ImmutableSet.<Expression>builder()
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            agg.getExpressions(), project.getProjects()))
+                                            agg.getExpressions(), Optional.of(project)))
                                     .addAll(filter.getExpressions())
                                     .build();
                             SelectResult result = select(
@@ -320,9 +320,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             LogicalOlapScan scan = project.child();
                             ImmutableSet<Expression> requiredExpr = ImmutableSet.<Expression>builder()
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            agg.getExpressions(), project.getProjects()))
+                                            agg.getExpressions(), Optional.of(project)))
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            filter.getExpressions(), project.getProjects()))
+                                            filter.getExpressions(), Optional.of(project)))
                                     .build();
                             SelectResult result = select(
                                     scan,
@@ -482,7 +482,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                             Optional.of(project)),
                                     ExpressionUtils.replace(nonVirtualGroupByExprs(agg),
                                             project.getAliasToProducer()),
-                                    collectRequireExprWithAggAndProject(agg.getExpressions(), project.getProjects())
+                                    collectRequireExprWithAggAndProject(agg.getExpressions(), Optional.of(project))
                             );
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
@@ -536,7 +536,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                                     .collect(Collectors.toSet());
                             ImmutableSet<Expression> requiredExpr = ImmutableSet.<Expression>builder()
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            agg.getExpressions(), project.getProjects()))
+                                            agg.getExpressions(), Optional.of(project)))
                                     .addAll(filter.getExpressions())
                                     .build();
                             SelectResult result = select(
@@ -600,9 +600,9 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                             LogicalOlapScan scan = project.child();
                             ImmutableSet<Expression> requiredExpr = ImmutableSet.<Expression>builder()
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            agg.getExpressions(), project.getProjects()))
+                                            agg.getExpressions(), Optional.of(project)))
                                     .addAll(collectRequireExprWithAggAndProject(
-                                            filter.getExpressions(), project.getProjects()))
+                                            filter.getExpressions(), Optional.of(project)))
                                     .build();
                             SelectResult result = select(
                                     scan,
@@ -1624,8 +1624,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
      *          +--LogicalOlapScan()
      * t -> abs(k1#0) + 1
      */
-    private Set<Expression> collectRequireExprWithAggAndProject(
-            List<? extends Expression> aggExpressions, List<NamedExpression> projectExpressions) {
+    private Set<Expression> collectRequireExprWithAggAndProject(List<? extends Expression> aggExpressions,
+            Optional<LogicalProject<?>> project) {
+        List<NamedExpression> projectExpressions = project.isPresent() ? project.get().getProjects() : null;
+        if (projectExpressions == null) {
+            return aggExpressions.stream().collect(ImmutableSet.toImmutableSet());
+        }
+        Optional<Map<Slot, Expression>> slotToProducerOpt = project.map(Project::getAliasToProducer);
         Map<ExprId, Expression> exprIdToExpression = projectExpressions.stream()
                 .collect(Collectors.toMap(NamedExpression::getExprId, e -> {
                     if (e instanceof Alias) {
@@ -1633,13 +1638,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     }
                     return e;
                 }));
-        return aggExpressions.stream()
-                .map(e -> {
-                    if ((e instanceof NamedExpression)
-                            && exprIdToExpression.containsKey(((NamedExpression) e).getExprId())) {
-                        return exprIdToExpression.get(((NamedExpression) e).getExprId());
-                    }
-                    return e;
-                }).collect(ImmutableSet.toImmutableSet());
+        return aggExpressions.stream().map(e -> {
+            if ((e instanceof NamedExpression) && exprIdToExpression.containsKey(((NamedExpression) e).getExprId())) {
+                return exprIdToExpression.get(((NamedExpression) e).getExprId());
+            }
+            return e;
+        }).map(e -> {
+            return slotToProducerOpt.map(slotToExpressions -> ExpressionUtils.replace(e, slotToExpressions)).orElse(e);
+        }).collect(ImmutableSet.toImmutableSet());
     }
 }
