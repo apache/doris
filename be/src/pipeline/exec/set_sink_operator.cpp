@@ -93,7 +93,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
             if (_child_quantity == 1) {
-                local_state._shared_state->source_dep->set_ready();
+                local_state._dependency->set_ready_to_read();
             }
         }
     }

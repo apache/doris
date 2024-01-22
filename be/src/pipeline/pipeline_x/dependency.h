@@ -57,9 +57,14 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    DependencySPtr source_dep = nullptr;
-    DependencySPtr sink_dep = nullptr;
+    Dependency* source_dep = nullptr;
+    Dependency* sink_dep = nullptr;
 
+    std::atomic_bool source_released_flag {false};
+    std::atomic_bool sink_released_flag {false};
+
+    void release_source_dep() { source_released_flag = true; }
+    void release_sink_dep() { sink_released_flag = true; }
     virtual ~BasicSharedState() = default;
 };
 
@@ -108,6 +113,9 @@ public:
     virtual void set_ready();
     void set_ready_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
+        if (_shared_state->source_released_flag) {
+            return;
+        }
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
