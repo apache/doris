@@ -2288,12 +2288,14 @@ Status Tablet::_follow_cooldowned_data() {
                 }
             } else if (!rs->is_local()) {
                 return Status::InternalError<false>(
-                        "cooldowned version larger than that to follow");
+                        "cooldowned version larger than that to follow with cooldown version {}",
+                        cooldowned_version);
             }
         }
 
         if (!version_aligned) {
-            return Status::InternalError<false>("cooldowned version is not aligned");
+            return Status::InternalError<false>("cooldowned version is not aligned with version {}",
+                                                cooldowned_version);
         }
 
         std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
