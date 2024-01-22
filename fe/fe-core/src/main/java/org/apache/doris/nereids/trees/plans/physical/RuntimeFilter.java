@@ -148,6 +148,10 @@ public class RuntimeFilter {
         return targetScans;
     }
 
+    public boolean hasTargetScan(PhysicalRelation scan) {
+        return targetScans.contains(scan);
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

@@ -16,22 +16,22 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=()
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF16 ss_addr_sk->[ca_address_sk]
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF15 ss_addr_sk->[ca_address_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF16
+------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF15
 ----------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF14 ss_item_sk->[sr_item_sk];RF15 ss_ticket_number->[sr_ticket_number]
+--------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF13 ss_item_sk->[sr_item_sk];RF14 ss_ticket_number->[sr_ticket_number]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF14 RF15
+------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF13 RF14
 ----------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------PhysicalProject
---------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF13 ss_cdemo_sk->[cd_demo_sk]
+--------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF12 ss_cdemo_sk->[cd_demo_sk]
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF13
+--------------------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF12
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF11 i_item_sk->[ss_item_sk];RF12 i_item_sk->[cs_item_sk]
+------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF11 i_item_sk->[ss_item_sk,cs_item_sk]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
 ------------------------------------------------------PhysicalProject
@@ -53,7 +53,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------------------------hashJoin[INNER_JOIN] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF4 cr_order_number->[cs_order_number];RF5 cr_item_sk->[cs_item_sk]
 --------------------------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF12
+----------------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF4 RF5 RF11
 --------------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns]
 ------------------------------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
