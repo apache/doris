@@ -1024,7 +1024,7 @@ public class Config extends ConfigBase {
      * when be rebalancer idle, then disk balance will occurs.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int be_rebalancer_idle_seconds = 60;
+    public static int be_rebalancer_idle_seconds = 0;
 
     /**
      * if set to true, TabletScheduler will not do disk balance.
