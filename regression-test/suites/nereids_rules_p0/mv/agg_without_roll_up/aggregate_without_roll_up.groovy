@@ -830,7 +830,7 @@ suite("aggregate_without_roll_up") {
             from lineitem
             left join
             orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
-            group by 
+            group by
             l_shipmode,
             l_shipinstruct;
     """
@@ -887,7 +887,7 @@ suite("aggregate_without_roll_up") {
             avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
             from lineitem
             left join orders on l_orderkey = o_orderkey
-            left join 
+            left join
             (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
                 min(ps_availqty) qty_min,
                 avg(ps_supplycost) cost_avg
@@ -906,7 +906,7 @@ suite("aggregate_without_roll_up") {
             avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
             from lineitem
             left join orders on l_orderkey = o_orderkey
-            left join 
+            left join
             (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
                 min(ps_availqty) qty_min,
                 avg(ps_supplycost) cost_avg
@@ -931,7 +931,7 @@ suite("aggregate_without_roll_up") {
             avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
             from lineitem
             left join orders on l_orderkey = o_orderkey
-            left join 
+            left join
             (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
                 min(ps_availqty) qty_min,
                 avg(ps_supplycost) cost_avg
@@ -950,7 +950,7 @@ suite("aggregate_without_roll_up") {
             avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
             from lineitem
             left join orders on l_orderkey = o_orderkey
-            left join 
+            left join
             (select ps_suppkey, ps_partkey, ps_availqty, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
                 min(ps_availqty) qty_min,
                 avg(ps_supplycost) cost_avg
@@ -964,4 +964,49 @@ suite("aggregate_without_roll_up") {
     check_not_match(mv21_1, query21_1, "mv21_1")
     order_qt_query21_1_after "${query21_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_1"""
+
+    // should not rewritten successfully, because query has more filter
+    def mv21_2 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                where ps_partkey in (1, 2)
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    def query21_2 = """
+                       select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    order_qt_query21_2_before "${query21_2}"
+    check_not_match(mv21_2, query21_2, "mv21_2")
+    order_qt_query21_2_after "${query21_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_2"""
 }
