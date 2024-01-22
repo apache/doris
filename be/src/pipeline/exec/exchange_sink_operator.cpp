@@ -417,7 +417,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
     Status final_st = Status::OK();
     if (source_state == SourceState::FINISHED) {
-        auto& local_state = get_local_state(state);
         local_state._serializer.reset_block();
         for (int i = 0; i < local_state.channels.size(); ++i) {
             Status st = local_state.channels[i]->close(state, Status::OK());

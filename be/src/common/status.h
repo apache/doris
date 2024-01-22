@@ -44,7 +44,7 @@ namespace ErrorCode {
     TStatusError(END_OF_FILE, false);                    \
     TStatusError(INTERNAL_ERROR, true);                  \
     TStatusError(RUNTIME_ERROR, true);                   \
-    TStatusError(CANCELLED, true);                       \
+    TStatusError(CANCELLED, false);                      \
     TStatusError(MEM_LIMIT_EXCEEDED, false);             \
     TStatusError(THRIFT_RPC_ERROR, true);                \
     TStatusError(TIMEOUT, true);                         \

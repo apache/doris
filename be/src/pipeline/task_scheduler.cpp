@@ -252,7 +252,6 @@ void TaskScheduler::_do_work(size_t index) {
             DCHECK(task->is_pipelineX() || !task->is_pending_finish())
                     << "must not pending close " << task->debug_string();
             Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-            LOG(INFO) << "st " << canceled << " pending " << exec_status;
             _close_task(task, canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
                         exec_status);
             continue;
@@ -269,7 +268,6 @@ void TaskScheduler::_do_work(size_t index) {
             // errors to downstream through exchange. So, here we needn't send_report.
             // fragment_ctx->send_report(true);
             Status cancel_status = fragment_ctx->get_query_ctx()->exec_status();
-            LOG(INFO) << "st " << canceled << " pending " << cancel_status;
             _close_task(task, PipelineTaskState::CANCELED, cancel_status);
             continue;
         }
@@ -294,7 +292,6 @@ void TaskScheduler::_do_work(size_t index) {
         task->set_previous_core_id(index);
 
         if (status.is<ErrorCode::END_OF_FILE>()) {
-            LOG(INFO) << " pending " << status;
             // Sink operator finished, just close task now.
             _close_task(task, PipelineTaskState::FINISHED, Status::OK());
             continue;
@@ -335,7 +332,6 @@ void TaskScheduler::_do_work(size_t index) {
                 } else {
                     // Close the task directly?
                     Status exec_status = fragment_ctx->get_query_ctx()->exec_status();
-                    LOG(INFO) << " pending finishe is false " << exec_status;
                     _close_task(
                             task,
                             canceled ? PipelineTaskState::CANCELED : PipelineTaskState::FINISHED,
