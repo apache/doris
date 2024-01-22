@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -39,32 +40,30 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * This record the predicates which can be pulled up or some other type predicates
+ * This record the predicates which can be pulled up or some other type predicates.
+ * Also contains the necessary method for predicates process
  */
 public class Predicates {
 
     // Predicates that can be pulled up
-    private final Set<Expression> pulledUpPredicates = new HashSet<>();
+    private final Set<Expression> pulledUpPredicates;
 
-    private Predicates() {
+    public Predicates(Set<Expression> pulledUpPredicates) {
+        this.pulledUpPredicates = pulledUpPredicates;
     }
 
-    public static Predicates of() {
-        return new Predicates();
-    }
-
-    public static Predicates of(List<? extends Expression> pulledUpPredicates) {
-        Predicates predicates = new Predicates();
-        pulledUpPredicates.forEach(predicates::addPredicate);
-        return predicates;
+    public static Predicates of(Set<Expression> pulledUpPredicates) {
+        return new Predicates(pulledUpPredicates);
     }
 
     public Set<Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 
-    public void addPredicate(Expression expression) {
-        this.pulledUpPredicates.add(expression);
+    public Predicates merge(Collection<Expression> predicates) {
+        Set<Expression> mergedPredicates = new HashSet<>(predicates);
+        mergedPredicates.addAll(this.pulledUpPredicates);
+        return new Predicates(mergedPredicates);
     }
 
     public Expression composedExpression() {
@@ -98,8 +97,7 @@ public class Predicates {
         if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
             equalCompensateConjunctions.add(BooleanLiteral.TRUE);
         }
-        if (queryEquivalenceClass.isEmpty()
-                && !viewEquivalenceClass.isEmpty()) {
+        if (queryEquivalenceClass.isEmpty() && !viewEquivalenceClass.isEmpty()) {
             return null;
         }
         EquivalenceClassSetMapping queryToViewEquivalenceMapping =
