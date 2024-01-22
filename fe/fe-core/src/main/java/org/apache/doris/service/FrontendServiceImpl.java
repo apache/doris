@@ -95,9 +95,12 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsCacheKey;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -3041,8 +3044,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStatus invalidateStatsCache(TInvalidateFollowerStatsCacheRequest request) throws TException {
-        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
+        if (tableStats == null) {
+            return new TStatus(TStatusCode.OK);
+        }
+        analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
         return new TStatus(TStatusCode.OK);
     }
 
