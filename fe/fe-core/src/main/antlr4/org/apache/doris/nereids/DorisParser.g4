@@ -439,12 +439,16 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition?
+    : multipartIdentifier materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    ;
+
+materializedViewName
+    : INDEX indexName=identifier
     ;
 
 propertyClause
