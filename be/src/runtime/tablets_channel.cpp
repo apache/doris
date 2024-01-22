@@ -152,7 +152,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
 Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
     SCOPED_TIMER(_incremental_open_timer);
     if (_state == kInitialized) { // haven't opened
-        return open(params);
+        RETURN_IF_ERROR(open(params));
     }
     std::lock_guard<std::mutex> l(_lock);
     std::vector<SlotDescriptor*>* index_slots = nullptr;
