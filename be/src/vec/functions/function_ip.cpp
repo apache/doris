@@ -25,13 +25,13 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Throw>>();
     factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Default>>();
     factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Null>>();
-    factory.register_alias(FunctionIPv4StringToNum<IPExceptionMode::Throw>::name, "inet_aton");
+    factory.register_alias(FunctionIPv4StringToNum<IPExceptionMode::Null>::name, "inet_aton");
     factory.register_function<FunctionIPv6NumToString>();
     factory.register_alias(FunctionIPv6NumToString::name, "inet6_ntoa");
     factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Throw>>();
     factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Default>>();
     factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Null>>();
-    factory.register_alias(FunctionIPv6StringToNum<IPExceptionMode::Throw>::name, "inet6_aton");
+    factory.register_alias(FunctionIPv6StringToNum<IPExceptionMode::Null>::name, "inet6_aton");
     factory.register_function<FunctionIsIPv4Compat>();
     factory.register_function<FunctionIsIPv4Mapped>();
     factory.register_function<FunctionIsIPString<IPv4>>();
