@@ -90,8 +90,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         @Override
         public Expression visitNullableAggregateFunction(NullableAggregateFunction nullableAggregateFunction,
                 Boolean alwaysNullable) {
-            return nullableAggregateFunction.isDistinct() ? nullableAggregateFunction
-                    : nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
+            return nullableAggregateFunction.withAlwaysNullable(alwaysNullable);
         }
     }
 }
