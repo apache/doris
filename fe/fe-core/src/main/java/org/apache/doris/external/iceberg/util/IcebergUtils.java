@@ -36,6 +36,7 @@ import org.apache.doris.analysis.Subquery;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
@@ -45,6 +46,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Iceberg utils
@@ -58,6 +62,7 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
+    private static final Pattern PARTITION_REG = Pattern.compile("(\\w+)\\((\\d+)?,?(\\w+)\\)");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -233,5 +238,57 @@ public class IcebergUtils {
             }
         }
         return slotRef;
+    }
+
+    // "partition"="c1;day(c1);bucket(4,c3)"
+    public static PartitionSpec solveIcebergPartitionSpec(Map<String, String> properties, Schema schema) {
+        if (properties.containsKey("partition")) {
+            PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
+            String par = properties.get("partition").replaceAll(" ", "");
+            String[] pars = par.split(";");
+            for (String func : pars) {
+                if (func.contains("(")) {
+                    Matcher matcher = PARTITION_REG.matcher(func);
+                    if (matcher.matches()) {
+                        switch (matcher.group(1).toLowerCase()) {
+                            case "bucket":
+                                builder.bucket(matcher.group(3), Integer.parseInt(matcher.group(2)));
+                                break;
+                            case "year":
+                            case "years":
+                                builder.year(matcher.group(3));
+                                break;
+                            case "month":
+                            case "months":
+                                builder.month(matcher.group(3));
+                                break;
+                            case "date":
+                            case "day":
+                            case "days":
+                                builder.day(matcher.group(3));
+                                break;
+                            case "date_hour":
+                            case "hour":
+                            case "hours":
+                                builder.hour(matcher.group(3));
+                                break;
+                            case "truncate":
+                                builder.truncate(matcher.group(3), Integer.parseInt(matcher.group(2)));
+                                break;
+                            default:
+                                LOG.warn("unsupported partition for " + matcher.group(1));
+                        }
+                    } else {
+                        LOG.warn("failed to get partition info from " + func);
+                    }
+                } else {
+                    builder.identity(func);
+                }
+            }
+            properties.remove("partition");
+            return builder.build();
+        } else {
+            return PartitionSpec.unpartitioned();
+        }
     }
 }

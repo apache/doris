@@ -39,6 +39,7 @@ import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.Catalog;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
@@ -466,6 +467,21 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             }
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
+        }
+    }
+
+    @Override
+    public String getCatalogLocation(String catalogName) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                Catalog catalog = client.client.getCatalog(catalogName);
+                return catalog.getLocationUri();
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get location for %s from hms client", e, catalogName);
         }
     }
 }

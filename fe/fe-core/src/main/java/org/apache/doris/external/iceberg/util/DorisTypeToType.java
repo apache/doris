@@ -24,10 +24,12 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 
+import com.google.common.collect.Lists;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.util.List;
+
 
 /**
  * Convert Doris type to Iceberg type
@@ -54,8 +56,21 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
 
     @Override
     public Type struct(StructType struct, List<Type> types) {
-        throw new UnsupportedOperationException(
-                "Not a supported type: " + struct.toSql(0));
+        List<StructField> fields = struct.getFields();
+        List<Types.NestedField> newFields = Lists.newArrayListWithExpectedSize(fields.size());
+        boolean isRoot = root == struct;
+        for (int i = 0; i < fields.size(); i++) {
+            StructField field = fields.get(i);
+            Type type = types.get(i);
+
+            int id = isRoot ? i : getNextId();
+            if (field.getContainsNull()) {
+                newFields.add(Types.NestedField.optional(id, field.getName(), type, field.getComment()));
+            } else {
+                newFields.add(Types.NestedField.required(id, field.getName(), type, field.getComment()));
+            }
+        }
+        return Types.StructType.of(newFields);
     }
 
     @Override
@@ -65,52 +80,60 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
 
     @Override
     public Type array(ArrayType array, Type elementType) {
-        throw new UnsupportedOperationException(
-                "Not a supported type: " + array.toSql(0));
+        if (array.getContainsNull()) {
+            return Types.ListType.ofOptional(getNextId(), elementType);
+        } else {
+            return Types.ListType.ofRequired(getNextId(), elementType);
+        }
     }
 
     @Override
     public Type map(MapType map, Type keyType, Type valueType) {
-        throw new UnsupportedOperationException(
-                "Not a supported type: " + map.toSql(0));
+        if (map.getIsValueContainsNull()) {
+            return Types.MapType.ofOptional(getNextId(), getNextId(), keyType, valueType);
+        } else {
+            return Types.MapType.ofRequired(getNextId(), getNextId(), keyType, valueType);
+        }
     }
 
     @Override
     public Type atomic(org.apache.doris.catalog.Type atomic) {
-        if (atomic.getPrimitiveType().equals(PrimitiveType.BOOLEAN)) {
+        PrimitiveType primitiveType = atomic.getPrimitiveType();
+        if (primitiveType.equals(PrimitiveType.BOOLEAN)) {
             return Types.BooleanType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.TINYINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.SMALLINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.INT)) {
+        } else if (primitiveType.equals(PrimitiveType.TINYINT)
+                || primitiveType.equals(PrimitiveType.SMALLINT)
+                || primitiveType.equals(PrimitiveType.INT)) {
             return Types.IntegerType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.BIGINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.LARGEINT)) {
+        } else if (primitiveType.equals(PrimitiveType.BIGINT)
+                || primitiveType.equals(PrimitiveType.LARGEINT)) {
             return Types.LongType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.FLOAT)) {
+        } else if (primitiveType.equals(PrimitiveType.FLOAT)) {
             return Types.FloatType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DOUBLE)) {
+        } else if (primitiveType.equals(PrimitiveType.DOUBLE)) {
             return Types.DoubleType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.CHAR)
-                || atomic.getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
+        } else if (primitiveType.equals(PrimitiveType.CHAR)
+                || primitiveType.equals(PrimitiveType.VARCHAR)
+                || primitiveType.equals(PrimitiveType.STRING)) {
             return Types.StringType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATE)
-                || atomic.getPrimitiveType().equals(PrimitiveType.DATEV2)) {
+        } else if (primitiveType.equals(PrimitiveType.DATE)
+                || primitiveType.equals(PrimitiveType.DATEV2)) {
             return Types.DateType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.TIME)
-                || atomic.getPrimitiveType().equals(PrimitiveType.TIMEV2)) {
+        } else if (primitiveType.equals(PrimitiveType.TIME)
+                || primitiveType.equals(PrimitiveType.TIMEV2)) {
             return Types.TimeType.get();
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)
-                || atomic.getPrimitiveType().isDecimalV3Type()) {
+        } else if (primitiveType.equals(PrimitiveType.DECIMALV2)
+                || primitiveType.isDecimalV3Type()) {
             return Types.DecimalType.of(
                     ((ScalarType) atomic).getScalarPrecision(),
                     ((ScalarType) atomic).getScalarScale());
-        } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATETIME)
-                || atomic.getPrimitiveType().equals(PrimitiveType.DATETIMEV2)) {
-            return Types.TimestampType.withZone();
+        } else if (primitiveType.equals(PrimitiveType.DATETIME)
+                || primitiveType.equals(PrimitiveType.DATETIMEV2)) {
+            return Types.TimestampType.withoutZone();
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY
 
         throw new UnsupportedOperationException(
-                "Not a supported type: " + atomic.getPrimitiveType());
+                "Not a supported type: " + primitiveType);
     }
 }

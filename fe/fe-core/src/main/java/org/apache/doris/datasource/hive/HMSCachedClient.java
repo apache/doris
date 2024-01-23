@@ -78,4 +78,6 @@ public interface HMSCachedClient {
 
     void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
             List<String> partitionNames, long timeoutMs);
+
+    String getCatalogLocation(String catalogName);
 }
