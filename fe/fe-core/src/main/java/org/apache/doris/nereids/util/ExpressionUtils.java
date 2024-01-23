@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -59,7 +60,6 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.doris.nereids.types.coercion.NumericType;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -662,7 +662,9 @@ public class ExpressionUtils {
         return expression;
     }
 
-    // the expressions can be used as runtime filter targets
+    /**
+     * the expressions can be used as runtime filter targets
+     */
     public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
         if (expression.getInputSlots().size() == 1) {
             Slot slot = expression.getInputSlots().iterator().next();
@@ -670,6 +672,9 @@ public class ExpressionUtils {
                 return expression.getInputSlots().iterator().next();
             }
         }
+        // for other datatype, only support cast.
+        // example: T1 join T2 on subStr(T1.a, 1,4) = subStr(T2.a, 1,4)
+        // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a, 1,4)->subStr(T1.a, 1,4)
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
         }
