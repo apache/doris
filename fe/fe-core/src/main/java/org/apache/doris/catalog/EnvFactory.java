@@ -17,45 +17,75 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.CloudPartition;
-import org.apache.doris.cloud.catalog.CloudReplica;
-import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.system.SystemInfoService;
 
+import java.lang.reflect.Type;
+import java.util.Map;
 
 public class EnvFactory {
 
-    public static Env createEnv(boolean isCheckpointCatalog) {
-        if (Config.isCloudMode()) {
-            return new CloudEnv(isCheckpointCatalog);
-        } else {
-            return new Env(isCheckpointCatalog);
-        }
+    public EnvFactory() {
     }
 
-    public static InternalCatalog createInternalCatalog() {
-        if (Config.isCloudMode()) {
-            return new CloudInternalCatalog();
-        } else {
-            return new InternalCatalog();
-        }
+    private static class SingletonHolder {
+        private static final EnvFactory INSTANCE =
+                Config.isCloudMode() ? new CloudEnvFactory() : new EnvFactory();
     }
 
-    public static Partition createPartition() {
-        if (Config.isCloudMode()) {
-            return new CloudPartition();
-        } else {
-            return new Partition();
-        }
+    public static EnvFactory getInstance() {
+        return SingletonHolder.INSTANCE;
     }
 
-    public static Replica createReplica() {
-        if (Config.isCloudMode()) {
-            return new CloudReplica();
-        } else {
-            return new Replica();
-        }
+    public Env createEnv(boolean isCheckpointCatalog) {
+        return new Env(isCheckpointCatalog);
     }
+
+    public InternalCatalog createInternalCatalog() {
+        return new InternalCatalog();
+    }
+
+    public SystemInfoService createSystemInfoService() {
+        return new SystemInfoService();
+    }
+
+    public Type getPartitionClass() {
+        return Partition.class;
+    }
+
+    public Partition createPartition() {
+        return new Partition();
+    }
+
+    public Type getTabletClass() {
+        return Tablet.class;
+    }
+
+    public Tablet createTablet() {
+        return new Tablet();
+    }
+
+    public Tablet createTablet(long tabletId) {
+        return new Tablet(tabletId);
+    }
+
+    public Replica createReplica() {
+        return new Replica();
+    }
+
+    public ReplicaAllocation createDefReplicaAllocation() {
+        return new ReplicaAllocation((short) 3);
+    }
+
+    public PropertyAnalyzer createPropertyAnalyzer() {
+        return new PropertyAnalyzer();
+    }
+
+    public DynamicPartitionProperty createDynamicPartitionProperty(Map<String, String> properties) {
+        return new DynamicPartitionProperty(properties);
+    }
+
 }

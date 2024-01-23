@@ -319,6 +319,7 @@ private:
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
     RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
 
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;

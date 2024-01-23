@@ -123,7 +123,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
-    bool exceed_version_limit(int32_t limit) const override;
+    bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
@@ -170,9 +170,9 @@ public:
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions(const Version& spec_version,
-                                       std::vector<Version>* version_path,
-                                       bool skip_missing_version, bool quiet) const;
+    Status capture_consistent_versions_unlocked(const Version& spec_version,
+                                                std::vector<Version>* version_path,
+                                                bool skip_missing_version, bool quiet) const;
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -183,10 +183,7 @@ public:
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) const override;
-
-    Status capture_rs_readers(const std::vector<Version>& version_path,
-                              std::vector<RowSetSplits>* rs_splits) const;
+                              bool skip_missing_version) override;
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -583,9 +580,6 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
 
-    // When the proportion of empty edges in the adjacency matrix used to represent the version graph
-    // in the version tracker is greater than the threshold, rebuild the version tracker
-    bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
@@ -607,7 +601,6 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -615,7 +608,6 @@ public:
 private:
     StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
-    TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
@@ -634,13 +626,6 @@ private:
     // during publish_txn, which might take hundreds of milliseconds
     mutable std::mutex _rowset_update_lock;
 
-    // After version 0.13, all newly created rowsets are saved in _rs_version_map.
-    // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
-    // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
-    // These _stale rowsets are been removed when rowsets' pathVersion is expired,
-    // this policy is judged and computed by TimestampedVersionTracker.
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure

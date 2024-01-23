@@ -153,9 +153,6 @@ public class GroupCommitPlanner {
             }
         }
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                .setDbId(db.getId())
-                .setTableId(table.getId())
-                .setBaseSchemaVersion(table.getBaseSchemaVersion())
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())

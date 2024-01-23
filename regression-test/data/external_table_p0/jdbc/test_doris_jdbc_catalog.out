@@ -92,7 +92,7 @@ date_col	DATE	Yes	false	\N	NONE
 datetime_col	DATETIME(3)	Yes	false	\N	NONE
 char_col	CHAR(10)	Yes	false	\N	NONE
 varchar_col	VARCHAR(10)	Yes	false	\N	NONE
-json_col	JSON	Yes	false	\N	NONE
+json_col	TEXT	Yes	false	\N	NONE
 
 -- !desc_ctas_arr --
 int_col	INT	Yes	true	\N	

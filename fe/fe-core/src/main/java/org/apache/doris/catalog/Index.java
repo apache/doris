@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
@@ -209,6 +210,47 @@ public class Index implements Writable {
             tIndex.setProperties(properties);
         }
         return tIndex;
+    }
+
+    public OlapFile.TabletIndexPB toPb(List<Column> schemaColumns) {
+        OlapFile.TabletIndexPB.Builder builder = OlapFile.TabletIndexPB.newBuilder();
+        builder.setIndexId(indexId);
+        builder.setIndexName(indexName);
+        for (String columnName : columns) {
+            for (Column column : schemaColumns) {
+                if (column.getName().equals(columnName)) {
+                    builder.addColUniqueId(column.getUniqueId());
+                }
+            }
+        }
+
+        switch (indexType) {
+            case BITMAP:
+                builder.setIndexType(OlapFile.IndexType.BITMAP);
+                break;
+
+            case INVERTED:
+                builder.setIndexType(OlapFile.IndexType.INVERTED);
+                break;
+
+            case NGRAM_BF:
+                builder.setIndexType(OlapFile.IndexType.NGRAM_BF);
+                break;
+
+            case BLOOMFILTER:
+                builder.setIndexType(OlapFile.IndexType.BLOOMFILTER);
+                break;
+
+            default:
+                throw new RuntimeException("indexType " + indexType + " is not processed in toPb");
+        }
+
+        if (properties != null) {
+            builder.putAllProperties(properties);
+        }
+
+        OlapFile.TabletIndexPB index = builder.build();
+        return index;
     }
 
     public static void checkConflict(Collection<Index> indices, Set<String> bloomFilters) throws AnalysisException {

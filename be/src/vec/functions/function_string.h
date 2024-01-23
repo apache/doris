@@ -3551,7 +3551,7 @@ private:
     void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
                           IColumn::Offsets& offsets) const {
         if (0 == *num) {
-            chars.push_back(' ');
+            chars.push_back('\0');
             offsets[line_num] = offsets[line_num - 1] + 1;
             return;
         }
@@ -3565,7 +3565,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + k + 1;
         for (; k >= 0; --k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #else
         int k = 0;
@@ -3576,7 +3576,7 @@ private:
         }
         offsets[line_num] = offsets[line_num - 1] + 4 - k;
         for (; k < 4; ++k) {
-            chars.push_back(bytes[k] ? bytes[k] : ' ');
+            chars.push_back(bytes[k] ? bytes[k] : '\0');
         }
 #endif
     }
