@@ -34,7 +34,6 @@ IPV6
 
 ### description
 
-IPV6
 IPv6 type, stored in Int128 format in 16 bytes, used to represent IPv6 addresses.
 The range of values is ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'].
 
