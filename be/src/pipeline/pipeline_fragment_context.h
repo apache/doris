@@ -158,7 +158,6 @@ protected:
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_fragment_instance();
     void _init_next_report_time();
-    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
     TUniqueId _query_id;
