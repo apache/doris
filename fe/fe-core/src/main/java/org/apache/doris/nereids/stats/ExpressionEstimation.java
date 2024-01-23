@@ -594,13 +594,22 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (childColumnStats.minOrMaxIsInf()) {
             return columnStatisticBuilder.build();
         }
-        double minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate()
-                .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
-        double maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate()
-                .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+        double minValue;
+        double maxValue;
+        try {
+            // min/max value is infinite, but they may be too large to convert to date
+            minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+            maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate()
+                    .atStartOfDay(ZoneId.systemDefault()).toEpochSecond();
+        } catch (Exception e) {
+            // ignore DateTimeException
+            minValue = Double.NEGATIVE_INFINITY;
+            maxValue = Double.POSITIVE_INFINITY;
+        }
         return columnStatisticBuilder.setMaxValue(maxValue)
-                .setMinValue(minValue)
-                .build();
+                .setMinValue(minValue).build();
+
     }
 
     private LocalDateTime getDatetimeFromLong(long dateTime) {
@@ -616,10 +625,18 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         if (childColumnStats.minOrMaxIsInf()) {
             return columnStatisticBuilder.build();
         }
-        double minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay()
-                + (double) DAYS_FROM_0_TO_1970;
-        double maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay()
-                + (double) DAYS_FROM_0_TO_1970;
+        double minValue;
+        double maxValue;
+        try {
+            minValue = getDatetimeFromLong((long) childColumnStats.minValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
+            maxValue = getDatetimeFromLong((long) childColumnStats.maxValue).toLocalDate().toEpochDay()
+                    + (double) DAYS_FROM_0_TO_1970;
+        } catch (Exception e) {
+            // ignore DateTimeException
+            minValue = Double.NEGATIVE_INFINITY;
+            maxValue = Double.POSITIVE_INFINITY;
+        }
         return columnStatisticBuilder.setMaxValue(maxValue)
                 .setMinValue(minValue)
                 .build();
