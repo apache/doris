@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -44,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -60,6 +63,8 @@ import javax.annotation.Nullable;
 
 /**
  * StructInfo for plan, this contains necessary info for query rewrite by materialized view
+ * the struct info is used by all materialization, so it's struct info should only get, should not
+ * modify, if wanting to modify, should copy and then modify
  */
 public class StructInfo {
     public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
@@ -70,58 +75,76 @@ public class StructInfo {
     private static final PredicateCollector PREDICATE_COLLECTOR = new PredicateCollector();
     // source data
     private final Plan originalPlan;
-    private ObjectId originalPlanId;
+    private final ObjectId originalPlanId;
     private final HyperGraph hyperGraph;
-    private boolean valid = true;
+    private final boolean valid;
     // derived data following
     // top plan which may include project or filter, except for join and scan
-    private Plan topPlan;
+    private final Plan topPlan;
     // bottom plan which top plan only contain join or scan. this is needed by hyper graph
-    private Plan bottomPlan;
-    private final List<CatalogRelation> relations = new ArrayList<>();
+    private final Plan bottomPlan;
+    private final List<CatalogRelation> relations;
     // this is for LogicalCompatibilityContext later
-    private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new HashMap<>();
+    private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap;
     // this recorde the predicates which can pull up, not shuttled
     private Predicates predicates;
     // split predicates is shuttled
-    private SplitPredicate splitPredicate;
-    private EquivalenceClass equivalenceClass;
+    private final SplitPredicate splitPredicate;
+    private final EquivalenceClass equivalenceClass;
     // Key is the expression shuttled and the value is the origin expression
     // this is for building LogicalCompatibilityContext later.
-    private final Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new HashMap<>();
+    private final Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap;
     // Record the exprId and the corresponding expr map, this is used by expression shuttled
-    private final Map<ExprId, Expression> namedExprIdAndExprMapping = new HashMap<>();
+    private final Map<ExprId, Expression> namedExprIdAndExprMapping;
 
-    private StructInfo(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan, HyperGraph hyperGraph) {
+    /**
+     * The construct method for StructInfo
+     */
+    public StructInfo(Plan originalPlan, ObjectId originalPlanId, HyperGraph hyperGraph, boolean valid, Plan topPlan,
+            Plan bottomPlan, List<CatalogRelation> relations,
+            Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap,
+            @Nullable Predicates predicates,
+            Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap,
+            Map<ExprId, Expression> namedExprIdAndExprMapping) {
         this.originalPlan = originalPlan;
-        this.originalPlanId = originalPlan.getGroupExpression()
-                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
+        this.originalPlanId = originalPlanId;
         this.hyperGraph = hyperGraph;
+        this.valid = valid;
         this.topPlan = topPlan;
         this.bottomPlan = bottomPlan;
-        init();
-    }
-
-    private void init() {
-        // split the top plan to two parts by join node
-        if (topPlan == null || bottomPlan == null) {
-            PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
-            originalPlan.accept(PLAN_SPLITTER, planSplitContext);
-            this.bottomPlan = planSplitContext.getBottomPlan();
-            this.topPlan = planSplitContext.getTopPlan();
+        this.relations = relations;
+        this.relationIdStructInfoNodeMap = relationIdStructInfoNodeMap;
+        this.predicates = predicates;
+        if (predicates == null) {
+            // collect predicate from top plan which not in hyper graph
+            Set<Expression> topPlanPredicates = new HashSet<>();
+            topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
+            this.predicates = Predicates.of(topPlanPredicates);
         }
-        collectStructInfoFromGraph();
-        initPredicates();
+        Pair<SplitPredicate, EquivalenceClass> derivedPredicates = predicatesDerive(this.predicates, originalPlan);
+        this.splitPredicate = derivedPredicates.key();
+        this.equivalenceClass = derivedPredicates.value();
+        this.shuttledHashConjunctsToConjunctsMap = shuttledHashConjunctsToConjunctsMap;
+        this.namedExprIdAndExprMapping = namedExprIdAndExprMapping;
     }
 
-    public void addPredicates(List<Expression> canPulledUpExpressions) {
-        canPulledUpExpressions.forEach(this.predicates::addPredicate);
-        predicatesDerive();
+    /**
+     * Construct StructInfo with new predicates
+     */
+    public StructInfo withPredicates(Predicates predicates) {
+        return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
+                this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, predicates,
+                this.shuttledHashConjunctsToConjunctsMap, this.namedExprIdAndExprMapping);
     }
 
-    private void collectStructInfoFromGraph() {
+    private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
+            Plan topPlan,
+            Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap,
+            Map<ExprId, Expression> namedExprIdAndExprMapping,
+            ImmutableList.Builder<CatalogRelation> relationBuilder,
+            Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap) {
         // Collect expression from join condition in hyper graph
-        this.hyperGraph.getJoinEdges().forEach(edge -> {
+        for (JoinEdge edge : hyperGraph.getJoinEdges()) {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
             // shuttle expression in edge for the build of LogicalCompatibilityContext later.
             // Record the exprId to expr map in the processing to strut info
@@ -132,34 +155,31 @@ public class StructInfo {
                                 Lists.newArrayList(conjunctExpr),
                                 ImmutableSet.of(),
                                 ImmutableSet.of());
-                this.topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+                topPlan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
                 // Replace expressions by expression map
                 List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
                 shuttledHashConjunctsToConjunctsMap.put(replacedExpressions.get(0), conjunctExpr);
                 // Record this, will be used in top level expression shuttle later, see the method
                 // ExpressionLineageReplacer#visitGroupPlan
-                this.namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
+                namedExprIdAndExprMapping.putAll(replaceContext.getExprIdExpressionMap());
             });
             List<Expression> otherJoinConjuncts = edge.getOtherJoinConjuncts();
             if (!otherJoinConjuncts.isEmpty()) {
-                this.valid = false;
+                return false;
             }
-        });
-        if (!this.isValid()) {
-            return;
         }
         // Collect relations from hyper graph which in the bottom plan
-        this.hyperGraph.getNodes().forEach(node -> {
+        hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
             List<CatalogRelation> nodeRelations = new ArrayList<>();
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
-            this.relations.addAll(nodeRelations);
+            relationBuilder.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
             relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
         });
         // Collect expression from where in hyper graph
-        this.hyperGraph.getFilterEdges().forEach(filterEdge -> {
+        hyperGraph.getFilterEdges().forEach(filterEdge -> {
             List<? extends Expression> filterExpressions = filterEdge.getExpressions();
             filterExpressions.forEach(predicate -> {
                 // this is used for LogicalCompatibilityContext
@@ -168,28 +188,18 @@ public class StructInfo {
                                 ExpressionUtils.shuttleExpressionWithLineage(predicate, topPlan), predicate));
             });
         });
-    }
-
-    private void initPredicates() {
-        // Collect predicate from top plan which not in hyper graph
-        this.predicates = Predicates.of();
-        Set<Expression> topPlanPredicates = new HashSet<>();
-        topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
-        topPlanPredicates.forEach(this.predicates::addPredicate);
-        predicatesDerive();
+        return true;
     }
 
     // derive some useful predicate by predicates
-    private void predicatesDerive() {
+    private Pair<SplitPredicate, EquivalenceClass> predicatesDerive(Predicates predicates, Plan originalPlan) {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        new ArrayList<>(this.predicates.getPulledUpPredicates()), originalPlan).stream()
+                        new ArrayList<>(predicates.getPulledUpPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
-        this.splitPredicate = splitPredicate;
-
-        this.equivalenceClass = new EquivalenceClass();
+        EquivalenceClass equivalenceClass = new EquivalenceClass();
         for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicate())) {
             if (expression instanceof Literal) {
                 continue;
@@ -201,6 +211,7 @@ public class StructInfo {
                         (SlotReference) equalTo.getArguments().get(1));
             }
         }
+        return Pair.of(splitPredicate, equivalenceClass);
     }
 
     /**
@@ -214,11 +225,39 @@ public class StructInfo {
         // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
-        List<HyperGraph> structInfos = HyperGraph.toStructInfo(planSplitContext.getBottomPlan());
+        List<HyperGraph> structInfos = HyperGraph.builderForMv(planSplitContext.getBottomPlan()).buildAll();
         return structInfos.stream()
-                .map(hyperGraph -> new StructInfo(originalPlan, planSplitContext.getTopPlan(),
+                .map(hyperGraph -> StructInfo.of(originalPlan, planSplitContext.getTopPlan(),
                         planSplitContext.getBottomPlan(), hyperGraph))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * The construct method for init StructInfo
+     */
+    public static StructInfo of(Plan originalPlan, @Nullable Plan topPlan, @Nullable Plan bottomPlan,
+            HyperGraph hyperGraph) {
+        ObjectId originalPlanId = originalPlan.getGroupExpression()
+                .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1));
+        // if any of topPlan or bottomPlan is null, split the top plan to two parts by join node
+        if (topPlan == null || bottomPlan == null) {
+            PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
+            originalPlan.accept(PLAN_SPLITTER, planSplitContext);
+            bottomPlan = planSplitContext.getBottomPlan();
+            topPlan = planSplitContext.getTopPlan();
+        }
+        // collect struct info fromGraph
+        ImmutableList.Builder<CatalogRelation> relationBuilder = ImmutableList.builder();
+        Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new HashMap<>();
+        Map<Expression, Expression> shuttledHashConjunctsToConjunctsMap = new HashMap<>();
+        Map<ExprId, Expression> namedExprIdAndExprMapping = new HashMap<>();
+        boolean valid = collectStructInfoFromGraph(hyperGraph, topPlan, shuttledHashConjunctsToConjunctsMap,
+                namedExprIdAndExprMapping,
+                relationBuilder,
+                relationIdStructInfoNodeMap);
+        return new StructInfo(originalPlan, originalPlanId, hyperGraph, valid, topPlan, bottomPlan,
+                relationBuilder.build(), relationIdStructInfoNodeMap, null, shuttledHashConjunctsToConjunctsMap,
+                namedExprIdAndExprMapping);
     }
 
     /**

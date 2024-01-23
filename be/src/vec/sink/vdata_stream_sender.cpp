@@ -282,6 +282,7 @@ Status Channel<Parent>::close_internal(Status exec_status) {
                 _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
             }
         } else {
+            // Non pipeline engine will send an empty eos block
             status = send_remote_block((PBlock*)nullptr, true, exec_status);
         }
     }
@@ -632,17 +633,20 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         // 1. calculate range
         // 2. dispatch rows to channel
     }
-    return Status::OK();
-}
 
-Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
-    SCOPED_TIMER(_exec_timer);
-    _serializer.reset_block();
+    // If eos == true, then this is the last block, should close the channel in this step.
     Status final_st = Status::OK();
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state, exec_status);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
+    // For non-pipeline engine, there maybe an block in serializer, should wait for
+    if (eos && _enable_pipeline_exec) {
+        _serializer.reset_block();
+        for (int i = 0; i < _channels.size(); ++i) {
+            // For non-pipeline engine, this API maybe hang to wait last rpc.
+            // For pipeline engine, it will add block to exchange sink buffer,
+            // and then come into pending finish state.
+            Status st = _channels[i]->close(state, Status::OK());
+            if (!st.ok() && final_st.ok()) {
+                final_st = st;
+            }
         }
     }
     return final_st;

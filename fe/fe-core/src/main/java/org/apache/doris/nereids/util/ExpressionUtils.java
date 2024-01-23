@@ -231,7 +231,9 @@ public class ExpressionUtils {
             Plan plan,
             Set<TableType> targetTypes,
             Set<String> tableIdentifiers) {
-
+        if (expressions.isEmpty()) {
+            return ImmutableList.of();
+        }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                 new ExpressionLineageReplacer.ExpressionReplaceContext(
                         expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),

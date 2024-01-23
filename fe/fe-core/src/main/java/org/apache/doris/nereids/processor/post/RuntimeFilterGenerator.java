@@ -567,7 +567,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 PhysicalHashJoin<? extends Plan, ? extends Plan> join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
-                if (ctx.getSessionVariable().getEnablePipelineEngine()) {
+                if (ctx.getSessionVariable().getEnablePipelineEngine() && !join.isBroadCastJoin()) {
                     type = TRuntimeFilterType.BLOOM;
                 }
                 EqualTo newEqualTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(

@@ -151,7 +151,11 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
-    return state->get_local_state(operator_id())->close(state);
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->close(state);
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
@@ -338,15 +342,15 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
+            _shared_state->source_dep = info.dependency.get();
+            _shared_state->sink_dep = deps.front().get();
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
+            _shared_state->source_dep = info.dependency.get();
+            _shared_state->sink_dep = deps.front().get();
         }
     }
 
@@ -377,6 +381,9 @@ template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->release_source_dep();
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
@@ -541,18 +548,19 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        RETURN_IF_ERROR(_writer->get_writer_status());
+        Status st = _writer->get_writer_status();
+        if (exec_status.ok()) {
+            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                       : Status::Cancelled("force close"));
+        } else {
+            _writer->force_close(exec_status);
+        }
+        // If there is an error in process_block thread, then we should get the writer
+        // status before call force_close. For example, the thread may failed in commit
+        // transaction.
+        RETURN_IF_ERROR(st);
     }
     return Base::close(state, exec_status);
-}
-
-template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
-Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
-    if (state->is_cancelled() || !exec_status.ok()) {
-        _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
-    }
-    return Status::OK();
 }
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;

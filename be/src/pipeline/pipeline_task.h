@@ -132,9 +132,6 @@ public:
 
     virtual Status execute(bool* eos);
 
-    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
-    // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     virtual Status close(Status exec_status);
@@ -327,8 +324,6 @@ protected:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-
-    bool _try_close_flag = false;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
