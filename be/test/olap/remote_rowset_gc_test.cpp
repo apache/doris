@@ -211,8 +211,8 @@ TEST_F(RemoteRowsetGcTest, normal) {
             k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);

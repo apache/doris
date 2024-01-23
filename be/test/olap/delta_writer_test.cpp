@@ -658,8 +658,8 @@ TEST_F(TestDeltaWriter, vec_write) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -751,8 +751,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -899,8 +899,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // publish version on delta writer 1 success
     {
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -950,8 +950,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
 
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -982,7 +982,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_EQ(1, segments.size());
     }
 
-    auto cur_version = tablet->rowset_with_max_version()->end_version();
+    auto cur_version = tablet->get_rowset_with_max_version()->end_version();
     // read data from rowset 1, verify the data correct
     {
         OlapReaderStatistics stats;
