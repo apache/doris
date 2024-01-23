@@ -335,14 +335,14 @@ public class HyperGraphBuilder {
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        return HyperGraph.toDPhyperGraph(cascadesContext.getMemo().getRoot());
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
     private void injectRowcount(Group group) {

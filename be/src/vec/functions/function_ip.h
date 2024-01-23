@@ -117,13 +117,13 @@ public:
     }
 };
 
-enum class IPStringToNumExceptionMode : uint8_t { Throw, Default, Null };
+enum class IPExceptionMode : uint8_t { Throw, Default, Null };
 
 static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
     return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
 }
 
-template <IPStringToNumExceptionMode exception_mode, typename ToColumn>
+template <IPExceptionMode exception_mode, typename ToColumn>
 ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
     const ColumnString* column_string = check_and_get_column<ColumnString>(column.get());
 
@@ -138,7 +138,7 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     ColumnUInt8::MutablePtr col_null_map_to;
     ColumnUInt8::Container* vec_null_map_to = nullptr;
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+    if constexpr (exception_mode == IPExceptionMode::Null) {
         col_null_map_to = ColumnUInt8::create(column_size, false);
         vec_null_map_to = &col_null_map_to->get_data();
     }
@@ -161,11 +161,11 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
         bool parse_result = tryParseIPv4(src.c_str(), vec_res[i]);
 
         if (!parse_result) {
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Throw) {
+            if constexpr (exception_mode == IPExceptionMode::Throw) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 value");
-            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Default) {
+            } else if constexpr (exception_mode == IPExceptionMode::Default) {
                 vec_res[i] = 0;
-            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            } else if constexpr (exception_mode == IPExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
                 vec_res[i] = 0;
             }
@@ -174,20 +174,20 @@ ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
         prev_offset = offsets_src[i];
     }
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+    if constexpr (exception_mode == IPExceptionMode::Null)
         return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
 
     return col_res;
 }
 
-template <IPStringToNumExceptionMode exception_mode>
+template <IPExceptionMode exception_mode>
 class FunctionIPv4StringToNum : public IFunction {
 public:
-    static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
-                                         ? "ipv4_string_to_num"
-                                         : (exception_mode == IPStringToNumExceptionMode::Default
-                                                    ? "ipv4_string_to_num_or_default"
-                                                    : "ipv4_string_to_num_or_null");
+    static constexpr auto name =
+            exception_mode == IPExceptionMode::Throw
+                    ? "ipv4_string_to_num"
+                    : (exception_mode == IPExceptionMode::Default ? "ipv4_string_to_num_or_default"
+                                                                  : "ipv4_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
@@ -205,7 +205,7 @@ public:
         }
         auto result_type = std::make_shared<DataTypeInt64>();
 
-        if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+        if constexpr (exception_mode == IPExceptionMode::Null) {
             return make_nullable(result_type);
         }
 
@@ -337,8 +337,7 @@ public:
 };
 
 namespace detail {
-template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnIPv6,
-          typename StringColumnType>
+template <IPExceptionMode exception_mode, typename ToColumn = ColumnIPv6, typename StringColumnType>
 ColumnPtr convertToIPv6(const StringColumnType& string_column,
                         const PaddedPODArray<UInt8>* null_map = nullptr) {
     if constexpr (!std::is_same_v<ToColumn, ColumnString> &&
@@ -353,7 +352,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     ColumnUInt8::MutablePtr col_null_map_to;
     ColumnUInt8::Container* vec_null_map_to = nullptr;
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+    if constexpr (exception_mode == IPExceptionMode::Null) {
         col_null_map_to = ColumnUInt8::create(column_size, false);
         vec_null_map_to = &col_null_map_to->get_data();
     }
@@ -414,9 +413,9 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
         }
 
         if (null_map && (*null_map)[i]) {
-            if (exception_mode == IPStringToNumExceptionMode::Throw) {
+            if (exception_mode == IPExceptionMode::Throw) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
-            } else if (exception_mode == IPStringToNumExceptionMode::Default) {
+            } else if (exception_mode == IPExceptionMode::Default) {
                 std::fill_n(&vec_res[out_offset], offset_inc, 0);
             } else {
                 std::fill_n(&vec_res[out_offset], offset_inc, 0);
@@ -457,7 +456,7 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 col_res->insert_data(reinterpret_cast<const char*>(res_value), IPV6_BINARY_LENGTH);
             }
         } else {
-            if (exception_mode == IPStringToNumExceptionMode::Throw) {
+            if (exception_mode == IPExceptionMode::Throw) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value");
             }
             std::fill_n(&vec_res[out_offset], offset_inc, 0);
@@ -465,21 +464,21 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 auto* column_string = assert_cast<ColumnString*>(col_res.get());
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            if constexpr (exception_mode == IPExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
             }
         }
         src_offset = src_next_offset;
     }
 
-    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+    if constexpr (exception_mode == IPExceptionMode::Null) {
         return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
     }
     return col_res;
 }
 } // namespace detail
 
-template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
+template <IPExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
 ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
     if (const auto* column_input_string = check_and_get_column<ColumnString>(column.get())) {
         auto result =
@@ -491,14 +490,14 @@ ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map 
     }
 }
 
-template <IPStringToNumExceptionMode exception_mode>
+template <IPExceptionMode exception_mode>
 class FunctionIPv6StringToNum : public IFunction {
 public:
-    static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
-                                         ? "ipv6_string_to_num"
-                                         : (exception_mode == IPStringToNumExceptionMode::Default
-                                                    ? "ipv6_string_to_num_or_default"
-                                                    : "ipv6_string_to_num_or_null");
+    static constexpr auto name =
+            exception_mode == IPExceptionMode::Throw
+                    ? "ipv6_string_to_num"
+                    : (exception_mode == IPExceptionMode::Default ? "ipv6_string_to_num_or_default"
+                                                                  : "ipv6_string_to_num_or_null");
 
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNum<exception_mode>>();
@@ -519,7 +518,7 @@ public:
 
         auto result_type = std::make_shared<DataTypeString>();
 
-        if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+        if constexpr (exception_mode == IPExceptionMode::Null) {
             return make_nullable(result_type);
         }
 
@@ -535,7 +534,7 @@ public:
         if (column->is_nullable()) {
             const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
             column = column_nullable->get_nested_column_ptr();
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            if constexpr (exception_mode == IPExceptionMode::Null) {
                 null_map_column = column_nullable->get_null_map_column_ptr();
                 null_map = &column_nullable->get_null_map_data();
             }
@@ -634,29 +633,33 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        ColumnPtr& addr_column = block.get_by_position(arguments[0]).column;
-        ColumnPtr& cidr_column = block.get_by_position(arguments[1]).column;
+        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
+        const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
+        WhichDataType addr_type(addr_column_with_type_and_name.type);
+        WhichDataType cidr_type(cidr_column_with_type_and_name.type);
+        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
+        const ColumnPtr& cidr_column = cidr_column_with_type_and_name.column;
         const ColumnString* str_addr_column = nullptr;
         const ColumnString* str_cidr_column = nullptr;
-        const NullMap* nullmap_addr = nullptr;
-        const NullMap* nullmap_cidr = nullptr;
+        const NullMap* null_map_addr = nullptr;
+        const NullMap* null_map_cidr = nullptr;
 
-        if (addr_column->is_nullable()) {
+        if (addr_type.is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
             str_addr_column =
                     check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
-            nullmap_addr = &addr_column_nullable->get_null_map_data();
+            null_map_addr = &addr_column_nullable->get_null_map_data();
         } else {
             str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
         }
 
-        if (cidr_column->is_nullable()) {
+        if (cidr_type.is_nullable()) {
             const auto* cidr_column_nullable =
                     assert_cast<const ColumnNullable*>(cidr_column.get());
             str_cidr_column =
                     check_and_get_column<ColumnString>(cidr_column_nullable->get_nested_column());
-            nullmap_cidr = &cidr_column_nullable->get_null_map_data();
+            null_map_cidr = &cidr_column_nullable->get_null_map_data();
         } else {
             str_cidr_column = check_and_get_column<ColumnString>(cidr_column.get());
         }
@@ -677,12 +680,12 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (nullmap_addr && (*nullmap_addr)[i]) {
+            if (null_map_addr && (*null_map_addr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
             }
-            if (nullmap_cidr && (*nullmap_cidr)[i]) {
+            if (null_map_cidr && (*null_map_cidr)[i]) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "The arguments of function {} must be String, not NULL",
                                 get_name());
@@ -876,6 +879,140 @@ private:
         return (unaligned_load_little_endian<UInt64>(address) == 0) &&
                ((unaligned_load_little_endian<UInt64>(address + 8) & 0x00000000FFFFFFFFULL) ==
                 0x00000000FFFF0000ULL);
+    }
+};
+
+template <IPExceptionMode exception_mode, typename Type>
+inline constexpr auto to_ip_func_name() {
+    if constexpr (std::is_same_v<Type, IPv4>) {
+        return exception_mode == IPExceptionMode::Throw
+                       ? "to_ipv4"
+                       : (exception_mode == IPExceptionMode::Default ? "to_ipv4_or_default"
+                                                                     : "to_ipv4_or_null");
+    } else {
+        return exception_mode == IPExceptionMode::Throw
+                       ? "to_ipv6"
+                       : (exception_mode == IPExceptionMode::Default ? "to_ipv6_or_default"
+                                                                     : "to_ipv6_or_null");
+    }
+}
+
+template <IPExceptionMode exception_mode, typename Type>
+class FunctionToIP : public IFunction {
+    static_assert(std::is_same_v<Type, IPv4> || std::is_same_v<Type, IPv6>);
+
+public:
+    static constexpr auto name = to_ip_func_name<exception_mode, Type>();
+
+    static FunctionPtr create() { return std::make_shared<FunctionToIP<exception_mode, Type>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (!is_string(remove_nullable(arguments[0]))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of argument of function {}, expected String",
+                            arguments[0]->get_name(), get_name());
+        }
+
+        DataTypePtr result_type;
+
+        if constexpr (std::is_same_v<Type, IPv4>) {
+            result_type = std::make_shared<DataTypeIPv4>();
+        } else {
+            result_type = std::make_shared<DataTypeIPv6>();
+        }
+
+        if constexpr (exception_mode == IPExceptionMode::Null) {
+            return make_nullable(result_type);
+        } else {
+            return result_type;
+        }
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
+        WhichDataType addr_type(addr_column_with_type_and_name.type);
+        const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
+        const ColumnString* str_addr_column = nullptr;
+        const NullMap* addr_null_map = nullptr;
+
+        if (addr_type.is_nullable()) {
+            const auto* addr_column_nullable =
+                    assert_cast<const ColumnNullable*>(addr_column.get());
+            str_addr_column =
+                    check_and_get_column<ColumnString>(addr_column_nullable->get_nested_column());
+            addr_null_map = &addr_column_nullable->get_null_map_data();
+        } else {
+            str_addr_column = check_and_get_column<ColumnString>(addr_column.get());
+        }
+
+        auto col_res = ColumnVector<Type>::create(input_rows_count, 0);
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& col_res_data = col_res->get_data();
+        auto& res_null_map_data = res_null_map->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (addr_null_map && (*addr_null_map)[i]) {
+                if constexpr (exception_mode == IPExceptionMode::Throw) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "The arguments of function {} must be String, not NULL",
+                                    get_name());
+                } else if constexpr (exception_mode == IPExceptionMode::Default) {
+                    col_res_data[i] = 0; // '0.0.0.0' or '::'
+                    continue;
+                } else {
+                    res_null_map_data[i] = 1;
+                    continue;
+                }
+            }
+
+            if constexpr (std::is_same_v<Type, IPv4>) {
+                StringRef ipv4_str = str_addr_column->get_data_at(i);
+                IPv4 ipv4_val = 0;
+                if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {
+                    col_res_data[i] = ipv4_val;
+                } else {
+                    if constexpr (exception_mode == IPExceptionMode::Throw) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 value '{}'",
+                                        ipv4_str.to_string_view());
+                    } else if constexpr (exception_mode == IPExceptionMode::Default) {
+                        col_res_data[i] = 0; // '0.0.0.0'
+                    } else {
+                        res_null_map_data[i] = 1;
+                    }
+                }
+            } else {
+                StringRef ipv6_str = str_addr_column->get_data_at(i);
+                IPv6 ipv6_val = 0;
+                if (IPv6Value::from_string(ipv6_val, ipv6_str.data, ipv6_str.size)) {
+                    col_res_data[i] = ipv6_val;
+                } else {
+                    if constexpr (exception_mode == IPExceptionMode::Throw) {
+                        throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv6 value '{}'",
+                                        ipv6_str.to_string_view());
+                    } else if constexpr (exception_mode == IPExceptionMode::Default) {
+                        col_res_data[i] = 0; // '::'
+                    } else if constexpr (exception_mode == IPExceptionMode::Null) {
+                        res_null_map_data[i] = 1;
+                    }
+                }
+            }
+        }
+
+        if constexpr (exception_mode == IPExceptionMode::Null) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(res_null_map)));
+        } else {
+            block.replace_by_position(result, std::move(col_res));
+        }
+
+        return Status::OK();
     }
 };
 

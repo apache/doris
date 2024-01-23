@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -44,8 +43,6 @@ import javax.annotation.Nullable;
  * HyperGraph Node.
  */
 public class StructInfoNode extends AbstractNode {
-
-    private List<HyperGraph> graphs = new ArrayList<>();
     private final List<Set<Expression>> expressions;
     private final Set<CatalogRelation> relationSet;
 
@@ -57,11 +54,6 @@ public class StructInfoNode extends AbstractNode {
 
     public StructInfoNode(int index, Plan plan) {
         this(index, plan, new ArrayList<>());
-    }
-
-    public StructInfoNode(int index, List<HyperGraph> graphs) {
-        this(index, graphs.get(0).getNode(0).getPlan(), new ArrayList<>());
-        this.graphs = graphs;
     }
 
     private @Nullable List<Set<Expression>> collectExpressions(Plan plan) {
@@ -120,14 +112,6 @@ public class StructInfoNode extends AbstractNode {
                 .map(StructInfoNode::extractPlan)
                 .collect(ImmutableList.toImmutableList());
         return plan.withChildren(children);
-    }
-
-    public boolean needToFlat() {
-        return !graphs.isEmpty();
-    }
-
-    public List<HyperGraph> getGraphs() {
-        return graphs;
     }
 
     @Override

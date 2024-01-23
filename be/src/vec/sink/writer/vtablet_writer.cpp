@@ -310,6 +310,10 @@ void VNodeChannel::clear_all_blocks() {
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
+    if (_inited) {
+        return Status::OK();
+    }
+
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     _task_exec_ctx = state->get_task_execution_context();
     _tuple_desc = _parent->_output_tuple_desc;
@@ -348,6 +352,25 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
 
+    // add block closure
+    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
+    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
+        auto ctx_lock = _task_exec_ctx.lock();
+        if (ctx_lock == nullptr) {
+            return;
+        }
+        _add_block_failed_callback(is_last_rpc);
+    });
+
+    _send_block_callback->addSuccessHandler(
+            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
+                auto ctx_lock = _task_exec_ctx.lock();
+                if (ctx_lock == nullptr) {
+                    return;
+                }
+                _add_block_success_callback(result, is_last_rpc);
+            });
+
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
     // The node channel will send _batch_size rows of data each rpc. When the
     // number of tablets is large, the number of data rows received by each
@@ -356,18 +379,23 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    _inited = true;
     return Status::OK();
 }
 
 void VNodeChannel::_open_internal(bool is_incremental) {
+    if (_tablets_wait_open.empty()) {
+        return;
+    }
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto request = std::make_shared<PTabletWriterOpenRequest>();
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
+
     std::set<int64_t> deduper;
-    for (auto& tablet : _all_tablets) {
+    for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
             continue;
         }
@@ -375,7 +403,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
         deduper.insert(tablet.tablet_id);
+        _all_tablets.push_back(std::move(tablet));
     }
+    _tablets_wait_open.clear();
+
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
     request->set_load_mem_limit(_parent->_load_mem_limit);
@@ -444,24 +475,6 @@ Status VNodeChannel::open_wait() {
         }
     }
 
-    // add block closure
-    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
-        auto ctx_lock = _task_exec_ctx.lock();
-        if (ctx_lock == nullptr) {
-            return;
-        }
-        _add_block_failed_callback(is_last_rpc);
-    });
-
-    _send_block_callback->addSuccessHandler(
-            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
-                auto ctx_lock = _task_exec_ctx.lock();
-                if (ctx_lock == nullptr) {
-                    return;
-                }
-                _add_block_success_callback(result, is_last_rpc);
-            });
     return status;
 }
 

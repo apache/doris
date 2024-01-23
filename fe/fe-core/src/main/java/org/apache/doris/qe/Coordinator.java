@@ -3639,6 +3639,9 @@ public class Coordinator implements CoordInterface {
                 params.params.setPerNodeScanRanges(scanRanges);
                 params.params.setPerExchNumSenders(perExchNumSenders);
 
+                if (tWorkloadGroups != null) {
+                    params.setWorkloadGroups(tWorkloadGroups);
+                }
                 params.params.setDestinations(destinations);
                 params.params.setSenderId(i);
                 params.params.setNumSenders(instanceExecParams.size());
@@ -3982,7 +3985,9 @@ public class Coordinator implements CoordInterface {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 if (enablePipelineXEngine) {
-                    ctx.attachPipelineProfileToFragmentProfile();
+                    synchronized (this) {
+                        ctx.attachPipelineProfileToFragmentProfile();
+                    }
                 } else {
                     ctx.profileStream()
                             .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));

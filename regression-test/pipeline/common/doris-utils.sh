@@ -394,18 +394,18 @@ archive_doris_logs() {
 
 print_doris_fe_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }
 
 print_doris_be_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }
