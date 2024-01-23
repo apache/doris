@@ -58,28 +58,27 @@ void WalTable::_pick_relay_wals() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     std::vector<std::string> need_replay_wals;
     std::vector<std::string> need_erase_wals;
-    for (auto it = _replay_wal_map.begin(); it != _replay_wal_map.end(); it++) {
-        auto wal_info = it->second;
+    for (const auto& [wal_path, wal_info] : _replay_wal_map) {
         if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
-                         << ", wal=" << it->first << ", retry_num=" << wal_info->get_retry_num();
-            auto st = _exec_env->wal_mgr()->rename_to_tmp_path(it->first, _table_id,
+                         << ", wal=" << wal_path << ", retry_num=" << wal_info->get_retry_num();
+            auto st = _exec_env->wal_mgr()->rename_to_tmp_path(wal_path, _table_id,
                                                                wal_info->get_wal_id());
             if (!st.ok()) {
-                LOG(WARNING) << "rename " << it->first << " fail"
+                LOG(WARNING) << "rename " << wal_path << " fail"
                              << ",st:" << st.to_string();
             }
             if (config::group_commit_wait_replay_wal_finish) {
-                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(it->second->get_wal_id());
+                auto notify_st = _exec_env->wal_mgr()->notify_relay_wal(wal_info->get_wal_id());
                 if (!notify_st.ok()) {
-                    LOG(WARNING) << "notify wal " << it->second->get_wal_id() << " fail";
+                    LOG(WARNING) << "notify wal " << wal_info->get_wal_id() << " fail";
                 }
             }
-            need_erase_wals.push_back(it->first);
+            need_erase_wals.push_back(wal_path);
             continue;
         }
         if (_need_replay(wal_info)) {
-            need_replay_wals.push_back(it->first);
+            need_replay_wals.push_back(wal_path);
         }
     }
     for (const auto& wal : need_erase_wals) {
@@ -168,13 +167,13 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
 #endif
 }
 
-Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
+Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     TLoadTxnRollbackRequest request;
     request.__set_auth_code(0); // this is a fake, fe not check it now
     request.__set_db_id(db_id);
     // TODO should we use label, because the replay wal use the same label and different wal_id
-    request.__set_txnId(wal_id);
-    std::string reason = "relay wal " + std::to_string(wal_id);
+    request.__set_label(label);
+    std::string reason = "relay wal with label " + label;
     request.__set_reason(reason);
     TLoadTxnRollbackResult result;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
@@ -185,7 +184,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, int64_t wal_id) {
             },
             10000L);
     auto result_status = Status::create(result.status);
-    LOG(INFO) << "abort txn " << wal_id << ",st:" << st << ",result_status:" << result_status;
+    LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
     return result_status;
 }
 
@@ -196,9 +195,9 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     RETURN_IF_ERROR(_parse_wal_path(wal, wal_id, label));
 #ifndef BE_TEST
     if (!config::group_commit_wait_replay_wal_finish) {
-        auto st = _try_abort_txn(_db_id, wal_id);
+        auto st = _try_abort_txn(_db_id, label);
         if (!st.ok()) {
-            LOG(WARNING) << "abort txn " << wal_id << " fail";
+            LOG(WARNING) << "failed to abort txn with label " << label;
         }
     }
 #endif

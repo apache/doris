@@ -24,6 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Apache Doris Arm 架构编译
 
 本文档介绍如何在 ARM64 平台上编译 Doris。

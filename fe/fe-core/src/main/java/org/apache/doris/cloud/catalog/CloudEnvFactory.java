@@ -27,9 +27,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
 import java.util.Map;
@@ -99,4 +101,8 @@ public class CloudEnvFactory extends EnvFactory {
         return new CloudDynamicPartitionProperty(properties);
     }
 
+    @Override
+    public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
+        return new CloudGlobalTransactionMgr();
+    }
 }
