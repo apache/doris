@@ -107,11 +107,9 @@ Status FixLengthPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
         break;
     case TypeIndex::DateTime:
         if (_physical_type == tparquet::Type::INT96) {
-            reset_time_scale_if_missing(9);
             return _decode_datetime96<VecDateTimeValue, Int64, has_filter>(doris_column,
                                                                            select_vector);
         } else if (_physical_type == tparquet::Type::INT64) {
-            reset_time_scale_if_missing(remove_nullable(data_type)->get_scale());
             return _decode_datetime64<VecDateTimeValue, Int64, has_filter>(doris_column,
                                                                            select_vector);
         }
