@@ -350,7 +350,7 @@ relationHint
     ;
 
 aggClause
-    : GROUP BY groupingElement?
+    : GROUP BY groupingElement
     ;
 
 groupingElement
