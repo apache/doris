@@ -269,6 +269,11 @@ struct TQueryOptions {
   96: optional i32 parallel_scan_max_scanners_count = 0;
 
   97: optional i64 parallel_scan_min_rows_per_scanner = 0;
+
+  98: optional bool skip_bad_tablet = false;
+
+  // For cloud, to control if the content would be written into file cache
+  1000: optional bool disable_file_cache = false
 }
 
 

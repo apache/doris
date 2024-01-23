@@ -320,6 +320,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_MISSING_VERSION = "skip_missing_version";
 
+    public static final String SKIP_BAD_TABLET = "skip_bad_tablet";
+
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
     public static final String ENABLE_CBO_STATISTICS = "enable_cbo_statistics";
@@ -1145,6 +1147,14 @@ public class SessionVariable implements Serializable, Writable {
     // this variable will not work.
     @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
     public boolean skipMissingVersion = false;
+
+    // This variable is used to control whether to skip the bad tablet.
+    // In some scenarios, user has a huge amount of data and only a single replica was specified when creating
+    // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
+    // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
+    // load the remaining data into a new table.
+    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET)
+    public boolean skipBadTablet = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -2853,6 +2863,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+        tResult.setSkipBadTablet(skipBadTablet);
 
         return tResult;
     }
