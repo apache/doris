@@ -181,11 +181,11 @@ void Merger::vertical_split_columns(TabletSchemaSPtr tablet_schema,
     if (!key_columns.empty()) {
         column_groups->emplace_back(std::move(key_columns));
     }
-    for (auto i = num_key_cols; i < total_cols; ++i) {
+    auto&& cluster_key_idxes = tablet_schema->cluster_key_idxes();
+    for (uint32_t i = num_key_cols; i < total_cols; ++i) {
         if (i == sequence_col_idx || i == delete_sign_idx ||
-            tablet_schema->cluster_key_idxes().end() !=
-                    std::find(tablet_schema->cluster_key_idxes().begin(),
-                              tablet_schema->cluster_key_idxes().end(), i)) {
+            cluster_key_idxes.end() !=
+                    std::find(cluster_key_idxes.begin(), cluster_key_idxes.end(), i)) {
             continue;
         }
         if ((i - num_key_cols) % config::vertical_compaction_num_columns_per_group == 0) {
