@@ -561,8 +561,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool get_is_injective(const Block&) override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
             LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
