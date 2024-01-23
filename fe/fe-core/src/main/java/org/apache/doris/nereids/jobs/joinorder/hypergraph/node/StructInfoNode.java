@@ -89,7 +89,8 @@ public class StructInfoNode extends AbstractNode {
                 if (!collector.key()) {
                     return null;
                 }
-                return super.visit(groupPlan.getGroup().getLogicalExpression().getPlan(), collector);
+                Plan groupActualPlan = groupPlan.getGroup().getLogicalExpressions().get(0).getPlan();
+                return groupActualPlan.accept(this, collector);
             }
 
             @Override
@@ -131,7 +132,7 @@ public class StructInfoNode extends AbstractNode {
 
     private static Plan extractPlan(Plan plan) {
         if (plan instanceof GroupPlan) {
-            //TODO: Note mv can be in logicalExpression, how can we choose it
+            // TODO: Note mv can be in logicalExpression, how can we choose it
             plan = ((GroupPlan) plan).getGroup().getLogicalExpressions().get(0)
                     .getPlan();
         }

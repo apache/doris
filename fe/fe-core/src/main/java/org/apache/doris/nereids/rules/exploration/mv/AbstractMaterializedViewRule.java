@@ -467,21 +467,22 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         Set<Set<Slot>> requireNoNullableViewSlot = comparisonResult.getViewNoNullableSlot();
         // check query is use the null reject slot which view comparison need
         if (!requireNoNullableViewSlot.isEmpty()) {
-            Set<Expression> queryPulledUpPredicates = queryStructInfo.getPredicates().getPulledUpPredicates();
+            Set<Expression> queryPulledUpPredicates = comparisonResult.getQueryAllPulledUpExpressions().stream()
+                    .flatMap(expr -> ExpressionUtils.extractConjunction(expr).stream())
+                    .collect(Collectors.toSet());
             Set<Expression> nullRejectPredicates = ExpressionUtils.inferNotNull(queryPulledUpPredicates,
                     cascadesContext);
-            if (nullRejectPredicates.isEmpty() || queryPulledUpPredicates.containsAll(nullRejectPredicates)) {
-                // query has not null reject predicates, so return
-                return SplitPredicate.INVALID_INSTANCE;
-            }
             SlotMapping queryToViewMapping = viewToQuerySlotMapping.inverse();
             Set<Expression> queryUsedNeedRejectNullSlotsViewBased = nullRejectPredicates.stream()
                     .map(expression -> TypeUtils.isNotNull(expression).orElse(null))
                     .filter(Objects::nonNull)
                     .map(expr -> ExpressionUtils.replace((Expression) expr, queryToViewMapping.toSlotReferenceMap()))
                     .collect(Collectors.toSet());
-            if (requireNoNullableViewSlot.stream().anyMatch(
-                    set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty())) {
+            // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
+            boolean valid = !queryPulledUpPredicates.containsAll(nullRejectPredicates)
+                    && requireNoNullableViewSlot.stream().noneMatch(
+                            set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
+            if (!valid) {
                 return SplitPredicate.INVALID_INSTANCE;
             }
         }
