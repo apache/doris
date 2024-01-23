@@ -21,14 +21,25 @@
 #pragma once
 #include <glog/logging.h>
 
+#include <cstddef>
+#include <memory>
+#include <vector>
+
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/format_ip.h"
 #include "vec/common/ipv6_to_binary.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
@@ -703,6 +714,92 @@ public:
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
+    }
+};
+
+class FunctionIPv4CIDRToRange : public IFunction {
+public:
+    static constexpr auto name = "ipv4_cidr_to_range";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv4CIDRToRange>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        WhichDataType first_arg_type = arguments[0];
+        if (!(first_arg_type.is_ipv4())) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of first argument of function {}, expected IPv4",
+                            arguments[0]->get_name(), get_name());
+        }
+
+        WhichDataType second_arg_type = arguments[1];
+        if (!(second_arg_type.is_int16())) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of second argument of function {}, expected Int16",
+                            arguments[1]->get_name(), get_name());
+        }
+
+        DataTypePtr element = std::make_shared<DataTypeIPv4>();
+
+        return std::make_shared<DataTypeStruct>(DataTypes {element, element},
+                                                Strings {"min", "max"});
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
+        ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
+
+        const ColumnPtr& ip_column_ptr = ip_column.column;
+        const ColumnPtr& cidr_column_ptr = cidr_column.column;
+
+        const auto* col_ip_column = check_and_get_column<ColumnVector<IPv4>>(ip_column_ptr.get());
+        const auto* col_cidr_column =
+                check_and_get_column<ColumnVector<Int16>>(cidr_column_ptr.get());
+
+        const typename ColumnVector<IPv4>::Container& vec_ip_input = col_ip_column->get_data();
+        const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
+        auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
+        auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
+
+        ColumnIPv4::Container& vec_lower_range_output = col_lower_range_output->get_data();
+        ColumnIPv4::Container& vec_upper_range_output = col_upper_range_output->get_data();
+
+        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto ip = vec_ip_input[i];
+            auto cidr = vec_cidr_input[i];
+            if (0 <= cidr && cidr <= max_cidr_mask) {
+                auto range = apply_cidr_mask(ip, cidr);
+                vec_lower_range_output[i] = range.first;
+                vec_upper_range_output[i] = range.second;
+            } else {
+                return Status::InvalidArgument("Invalid row {}, cidr is out of range", i);
+            }
+        }
+
+        block.replace_by_position(
+                result, ColumnStruct::create(Columns {std::move(col_lower_range_output),
+                                                      std::move(col_upper_range_output)}));
+        return Status::OK();
+    }
+
+private:
+    static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
+        if (bits_to_keep >= 8 * sizeof(UInt32)) {
+            return {src, src};
+        }
+        if (bits_to_keep == 0) {
+            return {static_cast<UInt32>(0), static_cast<UInt32>(-1)};
+        }
+        UInt32 mask = static_cast<UInt32>(-1) << (8 * sizeof(UInt32) - bits_to_keep);
+        UInt32 lower = src & mask;
+        UInt32 upper = lower | ~mask;
+
+        return {lower, upper};
     }
 };
 

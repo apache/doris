@@ -2033,6 +2033,8 @@ visible_functions = {
         [['is_ipv6_string'], 'BOOLEAN', ['STRING'], ''],
         [['is_ip_address_in_range'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['is_ip_address_in_range'], 'BOOLEAN', ['STRING', 'STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['ipv4_cidr_to_range'], 'STRUCT<IPV4, IPV4>', ['IPV4', 'SMALLINT'], ''],
+        [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['IPV6', 'SMALLINT'], ''],
         [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['VARCHAR', 'SMALLINT'], ''],
         [['ipv6_cidr_to_range'], 'STRUCT<IPV6, IPV6>', ['STRING', 'SMALLINT'], ''],
         [['to_ipv4'], 'IPV4', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
