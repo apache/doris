@@ -1151,7 +1151,7 @@ public class Env {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
                     token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
-                    LOG.info("new token={}", token);
+                    LOG.info("refresh new token");
                     storage.setToken(token);
                     storage.writeClusterIdAndToken();
                 } else {
