@@ -225,7 +225,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
+        assert_cast<Self&>(*res).resize(selector.size());
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
