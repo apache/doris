@@ -1179,6 +1179,11 @@ struct TRuntimeFilterDesc {
   
   // for min/max rf
   13: optional TMinMaxRuntimeFilterType min_max_type;
+
+  // true, if bloom filter size is calculated by ndv
+  // if bloom_filter_size_calculated_by_ndv=false, BE could calculate filter size according to the actural row count, and 
+  // ignore bloom_filter_size_bytes
+  14: optional bool bloom_filter_size_calculated_by_ndv;
 }
 
 
