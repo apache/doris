@@ -685,20 +685,20 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
             auto* tg_mgr = _exec_env->task_group_manager();
-            if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
-                task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                query_ctx->set_task_group(task_group_ptr);
-                _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
-                                                                                 tg_id);
-                query_ctx->set_query_scheduler(tg_id);
+            taskgroup::TaskGroupPtr task_group_ptr = nullptr;
+            Status ret = tg_mgr->add_query_to_group(tg_id, query_ctx->query_id(), &task_group_ptr);
+            RETURN_IF_ERROR(ret);
+            task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+            // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
+            query_ctx->set_task_group(task_group_ptr);
+            _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
+                                                                             tg_id);
+            query_ctx->set_query_scheduler(tg_id);
 
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use task group: " << task_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline)
-                          << ", enable cgroup soft limit: "
-                          << ((int)config::enable_cgroup_cpu_soft_limit);
-            }
+            LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                      << ", use task group: " << task_group_ptr->debug_string()
+                      << ", is pipeline: " << ((int)is_pipeline) << ", enable cgroup soft limit: "
+                      << ((int)config::enable_cgroup_cpu_soft_limit);
         }
 
         {
