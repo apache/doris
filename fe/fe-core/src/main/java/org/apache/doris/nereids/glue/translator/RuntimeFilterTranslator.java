@@ -115,30 +115,27 @@ public class RuntimeFilterTranslator {
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
         List<ScanNode> scanNodeList = new ArrayList<>();
         boolean hasInvalidTarget = false;
-        for (int i = 0; i < filter.getTargetExprs().size(); i++) {
-            Slot curTargetExpr = filter.getTargetExprs().get(i);
+        for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
+            Slot curTargetSlot = filter.getTargetSlots().get(i);
             Expression curTargetExpression = filter.getTargetExpressions().get(i);
-            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetExpr.getExprId());
+            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
             if (target == null) {
                 context.setTargetNullCount();
                 hasInvalidTarget = true;
                 break;
             }
-            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetExpr);
+            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
             Expr targetExpr;
-            if (filter.getType() == TRuntimeFilterType.BITMAP) {
-                if (curTargetExpression.equals(curTargetExpr)) {
-                    targetExpr = target;
-                } else {
-                    RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
-                            context.getExprIdToOlapScanNodeSlotRef());
-                    targetExpr = curTargetExpression.accept(translator, ctx);
-                }
-            } else {
+            if (curTargetSlot.equals(curTargetExpression)) {
                 targetExpr = target;
+            } else {
+                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
+                        context.getExprIdToOlapScanNodeSlotRef());
+                targetExpr = curTargetExpression.accept(translator, ctx);
             }
+
             // adjust data type
-            if (!src.getType().equals(target.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+            if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                 targetExpr = new CastExpr(src.getType(), targetExpr);
             }
             SlotRef targetSlot = target.getSrcSlotRef();
