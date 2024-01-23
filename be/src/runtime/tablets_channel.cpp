@@ -135,7 +135,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
               << ", timeout(s): " << request.load_channel_timeout_s();
     _txn_id = request.txn_id();
     _index_id = request.index_id();
-    _schema = std::make_unique<OlapTableSchemaParam>();
+    _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
@@ -189,7 +189,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema.get();
+        wrequest.table_schema_param = _schema;
 
         // TODO(plat1ko): CloudDeltaWriter
         auto delta_writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest,
@@ -451,7 +451,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .load_id = request.id(),
                 .tuple_desc = _tuple_desc,
                 .slots = index_slots,
-                .table_schema_param = _schema.get(),
+                .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
         };
