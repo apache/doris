@@ -128,7 +128,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -142,7 +142,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     auto delta_writer =
             std::make_unique<DeltaWriter>(*_engine, &write_req, profile.get(), TUniqueId {});
