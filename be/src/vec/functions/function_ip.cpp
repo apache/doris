@@ -37,6 +37,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsIPString<IPv4>>();
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
+    factory.register_function<FunctionIPv4CIDRToRange>();
     factory.register_function<FunctionIPv6CIDRToRange>();
     factory.register_function<FunctionToIP<IPExceptionMode::Throw, IPv4>>();
     factory.register_function<FunctionToIP<IPExceptionMode::Default, IPv4>>();
