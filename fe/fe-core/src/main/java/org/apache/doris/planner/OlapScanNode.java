@@ -765,6 +765,9 @@ public class OlapScanNode extends ScanNode {
             // random shuffle List && only collect one copy
             List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
             if (replicas.isEmpty()) {
+                if (ConnectContext.get().getSessionVariable().skipBadTablet) {
+                    continue;
+                }
                 LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
                 StringBuilder sb = new StringBuilder(
                         "Failed to get scan range, no queryable replica found in tablet: " + tabletId);
