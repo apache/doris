@@ -243,8 +243,8 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 3. 复制新版本的  `/bin`，`/lib` 目录到原 BE 目录下
 
    ```shell
-   cp ${DORIS_NEW_HOME}/be/bin ${DORIS_OLD_HOME}/be/bin
-   cp ${DORIS_NEW_HOME}/be/lib ${DORIS_OLD_HOME}/be/lib
+   cp -r ${DORIS_NEW_HOME}/be/bin ${DORIS_OLD_HOME}/be/bin
+   cp -r ${DORIS_NEW_HOME}/be/lib ${DORIS_OLD_HOME}/be/lib
    ```
 
 4. 启动该 BE 节点
@@ -288,8 +288,8 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 3. 复制新版本的  `/bin`，`/lib`，`/mysql_ssl_default_certificate` 目录到原 FE 目录下
 
    ```shell
-   cp ${DORIS_NEW_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin
-   cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
+   cp -r ${DORIS_NEW_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin
+   cp -r ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
    cp -r ${DORIS_NEW_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate
    ```
 
