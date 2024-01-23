@@ -186,11 +186,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                         Pair.of("Predicate compensate fail",
                                 String.format("query predicates = %s,\n query equivalenceClass = %s, \n"
-                                                + "view predicates = %s,\n query equivalenceClass = %s\n",
+                                                + "view predicates = %s,\n query equivalenceClass = %s\n"
+                                                + "comparisonResult = %s ",
                                         queryStructInfo.getPredicates(),
                                         queryStructInfo.getEquivalenceClass(),
                                         viewStructInfo.getPredicates(),
-                                        viewStructInfo.getEquivalenceClass())));
+                                        viewStructInfo.getEquivalenceClass(),
+                                        comparisonResult)));
                 continue;
             }
             Plan rewrittenPlan;
