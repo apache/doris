@@ -299,10 +299,10 @@ public class DatabaseTransactionMgr {
 
     public List<List<String>> getTxnStateInfoList(String labelRegex) {
         List<List<String>> infos = Lists.newArrayList();
-        Collection<TransactionState> transactionStateCollection = null;
+        List<TransactionState> transactionStateCollection = Lists.newArrayList();
         readLock();
         try {
-            transactionStateCollection = idToFinalStatusTransactionState.values();
+            transactionStateCollection.addAll(idToFinalStatusTransactionState.values());
             transactionStateCollection.addAll(idToRunningTransactionState.values());
             // get transaction order by txn id desc
             transactionStateCollection.stream()
