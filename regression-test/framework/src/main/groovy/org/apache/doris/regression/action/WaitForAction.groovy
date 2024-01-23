@@ -23,7 +23,7 @@ import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class WaitForAction implements SuiteAction{
-    private String sqlStr;
+    private String sql;
     private long time;
     SuiteContext context
 
@@ -31,12 +31,12 @@ class WaitForAction implements SuiteAction{
         this.context = context
     }
 
-    void sqlStr(String sqlStr) {
-        this.sqlStr = sqlStr
+    void sql(String sql) {
+        this.sql = sql
     }
 
-    void sqlStr(Closure<String> sqlStr) {
-        this.sqlStr = sqlStr.call()
+    void sql(Closure<String> sql) {
+        this.sql = sql.call()
     }
 
     void time(long time) {
@@ -50,8 +50,8 @@ class WaitForAction implements SuiteAction{
     @Override
     void run() {
         while (time--) {
-
-            def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+            log.info("sql is :\n${sql}")
+            def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
             def jobStateResult = result.get(0).get(9)
             res = jobStateResult[0][9]
             if (res == "FINISHED" || res == "CANCELLED") {
