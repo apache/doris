@@ -47,6 +47,7 @@ struct HasTaskExecutionCtx {
 
 public:
     inline TaskExecutionContextSPtr task_exec_ctx() const { return task_exec_ctx_.lock(); }
+    inline Weak weak_task_exec_ctx() const { return task_exec_ctx_; }
 
 private:
     Weak task_exec_ctx_;
