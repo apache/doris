@@ -151,7 +151,11 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
-    return state->get_local_state(operator_id())->close(state);
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->close(state);
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
