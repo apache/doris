@@ -114,11 +114,11 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 
 安装完毕后，打开 Ranger WebUI，可以再 Service Manger 界面中看到 Apache Doris 插件：
 
-![](../../../../images/ranger/ranger1.png)
+![](/images/ranger/ranger1.png)
 
 点击插件旁边的 `+` 号添加一个  Doris 服务：
 
-![](../../../../images/ranger/ranger2.png)
+![](/images/ranger/ranger2.png)
 
 Config Properties 部分参数含义如下:
 
@@ -235,12 +235,12 @@ Config Properties 部分参数含义如下:
 3. 在 Ranger 中创建 `user1`。
 4. 在 Ranger 中添加一个 Policy：`show_hive_catalog`
 
-	![](../../../../images/ranger/ranger3.png)
+	![](/images/ranger/ranger3.png)
 
 5. 使用 `user1` 登录 Doris，执行 `show catalogs`，只能看到 `hive` catalog。
 6. 在 Ranger 中添加一个 Policy：`select_hive_catalog`
 
-	![](../../../../images/ranger/ranger4.png)
+	![](/images/ranger/ranger4.png)
 
 7. 使用 `user1` 登录 Doris。该用户可以查看或查询 `hive` catalog 下，所有以 `tpch` 开头的 database 下的所有表。
 

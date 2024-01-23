@@ -114,11 +114,11 @@ In version 2.1.0, Doris supports unified permission management by integrating Ap
 
 After the installation is complete, open the Ranger WebUI and you can see the Apache Doris plug-in in the Service Manger interface:
 
-![](../../../../images/ranger/ranger1.png)
+![](/images/ranger/ranger1.png)
 
 Click the `+` button next to the plugin to add a Doris service:
 
-![](../../../../images/ranger/ranger2.png)
+![](/images/ranger/ranger2.png)
 
 The meaning of some parameters of Config Properties is as follows:
 
@@ -235,12 +235,12 @@ Afterwards, you can see the created service in the Apache Doris plug-in on the S
 3. Create `user1` in Ranger.
 4. Add a Policy in Ranger: `show_hive_catalog`
 
-	![](../../../../images/ranger/ranger3.png)
+	![](/images/ranger/ranger3.png)
 
 5. Use `user1` to log in to Doris and execute `show catalogs`. Only the `hive` catalog can be seen.
 6. Add a Policy in Ranger: `select_hive_catalog`
 
-	![](../../../../images/ranger/ranger4.png)
+	![](/images/ranger/ranger4.png)
 
 7. Log in to Doris using `user1`. This user can view or query all tables under the `hive` catalog and all databases starting with `tpch`.
 
