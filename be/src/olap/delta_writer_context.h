@@ -39,7 +39,7 @@ struct WriteRequest {
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots = nullptr;
-    OlapTableSchemaParam* table_schema_param = nullptr;
+    std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
 };
