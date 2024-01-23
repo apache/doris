@@ -1344,7 +1344,7 @@ public class OlapScanNode extends ScanNode {
         if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
                 && !ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().getEnableSharedScan()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * scanBackendIds.size();
         }
         if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
