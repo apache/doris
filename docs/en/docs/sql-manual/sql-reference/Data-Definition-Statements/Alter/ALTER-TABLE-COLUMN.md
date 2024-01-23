@@ -296,10 +296,10 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   - You can adjust the key column only within the range of the key column. The same applies to the value column
 :::
   
-### Keywords
+## Keywords
 
 ```text
 ALTER, TABLE, COLUMN, ALTER TABLE
 ```
 
-### Best Practice
+## Best Practice
