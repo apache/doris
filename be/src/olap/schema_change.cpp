@@ -979,7 +979,7 @@ bool SchemaChangeHandler::tablet_in_converting(int64_t tablet_id) {
 Status SchemaChangeHandler::_get_versions_to_be_changed(
         TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed,
         RowsetSharedPtr* max_rowset) {
-    RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
+    RowsetSharedPtr rowset = base_tablet->get_rowset_with_max_version();
     if (rowset == nullptr) {
         return Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>("Tablet has no version. base_tablet={}",
                                                           base_tablet->tablet_id());

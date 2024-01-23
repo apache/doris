@@ -188,7 +188,7 @@ Status EngineCloneTask::_do_clone() {
     }
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
-    std::vector<Version> missed_versions;
+    Versions missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
@@ -218,7 +218,7 @@ Status EngineCloneTask::_do_clone() {
             }
         }
 
-        tablet->calc_missed_versions(specified_version, &missed_versions);
+        missed_versions = tablet->get_missed_versions(specified_version);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
@@ -740,8 +740,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
-    std::vector<Version> missed_versions;
-    tablet->calc_missed_versions_unlocked(version, &missed_versions);
+    Versions missed_versions = tablet->get_missed_versions_unlocked(version);
     VLOG_NOTICE << "get missed versions again when finish incremental clone. "
                 << "tablet=" << tablet->tablet_id() << ", clone version=" << version
                 << ", missed_versions_size=" << missed_versions.size();

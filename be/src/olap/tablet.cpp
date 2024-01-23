@@ -601,44 +601,6 @@ void Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool 
     }
 }
 
-// snapshot manager may call this api to check if version exists, so that
-// the version maybe not exist
-const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version,
-                                                    bool find_in_stale) const {
-    auto iter = _rs_version_map.find(version);
-    if (iter == _rs_version_map.end()) {
-        if (find_in_stale) {
-            return get_stale_rowset_by_version(version);
-        }
-        return nullptr;
-    }
-    return iter->second;
-}
-
-const RowsetSharedPtr Tablet::get_stale_rowset_by_version(const Version& version) const {
-    auto iter = _stale_rs_version_map.find(version);
-    if (iter == _stale_rs_version_map.end()) {
-        VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << tablet_id();
-        return nullptr;
-    }
-    return iter->second;
-}
-
-// Already under _meta_lock
-const RowsetSharedPtr Tablet::rowset_with_max_version() const {
-    Version max_version = _tablet_meta->max_version();
-    if (max_version.first == -1) {
-        return nullptr;
-    }
-
-    auto iter = _rs_version_map.find(max_version);
-    if (iter == _rs_version_map.end()) {
-        DCHECK(false) << "invalid version:" << max_version;
-        return nullptr;
-    }
-    return iter->second;
-}
-
 TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
@@ -729,16 +691,14 @@ void Tablet::delete_expired_stale_rowset() {
             return;
         }
 
-        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
+        const RowsetSharedPtr lastest_delta = get_rowset_with_max_version();
         if (lastest_delta == nullptr) {
             LOG(WARNING) << "lastest_delta is null " << tablet_id();
             return;
         }
 
         // fetch missing version before delete
-        std::vector<Version> missed_versions;
-        calc_missed_versions_unlocked(lastest_delta->end_version(), &missed_versions);
-
+        Versions missed_versions = get_missed_versions_unlocked(lastest_delta->end_version());
         if (!missed_versions.empty()) {
             LOG(WARNING) << "tablet:" << tablet_id()
                          << ", missed version for version:" << lastest_delta->end_version();
@@ -762,8 +722,8 @@ void Tablet::delete_expired_stale_rowset() {
             // 1. When there is no consistent versions, we must reconstruct the tracker.
             if (!status.ok()) {
                 // 2. fetch missing version after delete
-                std::vector<Version> after_missed_versions;
-                calc_missed_versions_unlocked(lastest_delta->end_version(), &after_missed_versions);
+                Versions after_missed_versions =
+                        get_missed_versions_unlocked(lastest_delta->end_version());
 
                 // 2.1 check whether missed_versions and after_missed_versions are the same.
                 // when they are the same, it means we can delete the path securely.
@@ -788,9 +748,8 @@ void Tablet::delete_expired_stale_rowset() {
 
                     // 4. double check the consistent versions
                     // fetch missing version after recover
-                    std::vector<Version> recover_missed_versions;
-                    calc_missed_versions_unlocked(lastest_delta->end_version(),
-                                                  &recover_missed_versions);
+                    Versions recover_missed_versions =
+                            get_missed_versions_unlocked(lastest_delta->end_version());
 
                     // 4.1 check whether missed_versions and recover_missed_versions are the same.
                     // when they are the same, it means we recover successfully.
@@ -869,13 +828,12 @@ void Tablet::delete_expired_stale_rowset() {
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
-                                                    std::vector<Version>* version_path,
+                                                    Versions* version_path,
                                                     bool skip_missing_version, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
-        std::vector<Version> missed_versions;
-        calc_missed_versions_unlocked(spec_version.second, &missed_versions);
+        Versions missed_versions = get_missed_versions_unlocked(spec_version.second);
         if (missed_versions.empty()) {
             // if version_path is null, it may be a compaction check logic.
             // so to avoid print too many logs.
@@ -1084,46 +1042,6 @@ uint32_t Tablet::_calc_base_compaction_score() const {
     return base_rowset_exist ? score : 0;
 }
 
-void Tablet::calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions) {
-    std::shared_lock rdlock(_meta_lock);
-    calc_missed_versions_unlocked(spec_version, missed_versions);
-}
-
-// for example:
-//     [0-4][5-5][8-8][9-9]
-// if spec_version = 6, we still return {7} other than {6, 7}
-void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
-                                           std::vector<Version>* missed_versions) const {
-    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
-    std::list<Version> existing_versions;
-    for (auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
-    }
-
-    // sort the existing versions in ascending order
-    existing_versions.sort([](const Version& a, const Version& b) {
-        // simple because 2 versions are certainly not overlapping
-        return a.first < b.first;
-    });
-
-    // From the first version(=0),  find the missing version until spec_version
-    int64_t last_version = -1;
-    for (const Version& version : existing_versions) {
-        if (version.first > last_version + 1) {
-            for (int64_t i = last_version + 1; i < version.first && i <= spec_version; ++i) {
-                missed_versions->emplace_back(Version(i, i));
-            }
-        }
-        last_version = version.second;
-        if (last_version >= spec_version) {
-            break;
-        }
-    }
-    for (int64_t i = last_version + 1; i <= spec_version; ++i) {
-        missed_versions->emplace_back(Version(i, i));
-    }
-}
-
 void Tablet::max_continuous_version_from_beginning(Version* version, Version* max_version) {
     bool has_version_cross;
     std::shared_lock rdlock(_meta_lock);
@@ -1222,16 +1140,6 @@ bool Tablet::check_path(const std::string& path_to_check) const {
         }
     }
     return false;
-}
-
-void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions) const {
-    std::stringstream ss;
-    ss << tablet_id() << " has " << missed_versions.size() << " missed version:";
-    // print at most 10 version
-    for (int i = 0; i < 10 && i < missed_versions.size(); ++i) {
-        ss << missed_versions[i] << ",";
-    }
-    LOG(WARNING) << ss.str();
 }
 
 Status Tablet::_contains_version(const Version& version) {
@@ -1984,13 +1892,12 @@ Status Tablet::create_transient_rowset_writer(RowsetWriterContext& context,
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.tablet_uid = tablet_uid();
-
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();
     context.rowset_type = tablet_meta()->preferred_rowset_type();
     // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
-    // alpah rowset, then set the newly created rowset to storage engine's default rowset.
+    // alpha rowset, then set the newly created rowset to storage engine's default rowset.
     if (context.rowset_type == ALPHA_ROWSET) {
         context.rowset_type = _engine.default_rowset_type();
     }
@@ -3132,7 +3039,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
         return Status::OK();
     }
     RowsetIdUnorderedSet cur_rowset_ids;
-    RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
+    RETURN_IF_ERROR(get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     RETURN_IF_ERROR(calc_delete_bitmap_between_segments(rowset, segments, delete_bitmap));
 
@@ -3181,7 +3088,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
     {
         std::shared_lock meta_rlock(_meta_lock);
         cur_version = max_version_unlocked().second;
-        RETURN_IF_ERROR(all_rs_id(cur_version, &cur_rowset_ids));
+        RETURN_IF_ERROR(get_all_rs_id_unlocked(cur_version, &cur_rowset_ids));
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
@@ -3227,7 +3134,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
                       << tablet_id();
             return Status::OK();
         }
-        RETURN_IF_ERROR(all_rs_id(cur_version - 1, &cur_rowset_ids));
+        RETURN_IF_ERROR(get_all_rs_id_unlocked(cur_version - 1, &cur_rowset_ids));
     }
     auto t2 = watch.get_elapse_time_us();
 
@@ -3390,27 +3297,6 @@ Status Tablet::check_rowid_conversion(
                 return Status::InternalError("failed to check rowid conversion");
             }
         }
-    }
-    return Status::OK();
-}
-
-Status Tablet::all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const {
-    //  Ensure that the obtained versions of rowsets are continuous
-    std::vector<Version> version_path;
-    RETURN_IF_ERROR(capture_consistent_versions_unlocked(Version(0, max_version), &version_path,
-                                                         false, false));
-    for (auto& ver : version_path) {
-        if (ver.second == 1) {
-            // [0-1] rowset is empty for each tablet, skip it
-            continue;
-        }
-        auto it = _rs_version_map.find(ver);
-        if (it == _rs_version_map.end()) {
-            return Status::Error<CAPTURE_ROWSET_ERROR, false>(
-                    "fail to find Rowset for version. tablet={}, version={}", tablet_id(),
-                    ver.to_string());
-        }
-        rowset_ids->emplace(it->second->rowset_id());
     }
     return Status::OK();
 }

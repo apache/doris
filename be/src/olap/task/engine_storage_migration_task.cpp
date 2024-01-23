@@ -69,7 +69,7 @@ Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t*
         return Status::NotSupported(
                 "currently not support migrate tablet with cooldowned remote data");
     }
-    const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
+    const RowsetSharedPtr last_version = _tablet->get_rowset_with_max_version();
     if (last_version == nullptr) {
         return Status::InternalError("failed to get rowset with max version, tablet={}",
                                      _tablet->tablet_id());
