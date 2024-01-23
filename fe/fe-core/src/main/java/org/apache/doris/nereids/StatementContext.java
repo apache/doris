@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -109,7 +110,7 @@ public class StatementContext {
 
     // Map slot to its relation, currently used in SlotReference to find its original
     // LogicalRelation for example LogicalOlapScan
-    private final Map<Slot, LogicalRelation> slotToRelation = Maps.newHashMap();
+    private final Map<Slot, Relation> slotToRelation = Maps.newHashMap();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -189,11 +190,11 @@ public class StatementContext {
         return pathsSlotsMap.getOrDefault(paths, null);
     }
 
-    public void addSlotToRelation(Slot slot, LogicalRelation relation) {
+    public void addSlotToRelation(Slot slot, Relation relation) {
         slotToRelation.put(slot, relation);
     }
 
-    public LogicalRelation getRelationBySlot(Slot slot) {
+    public Relation getRelationBySlot(Slot slot) {
         return slotToRelation.getOrDefault(slot, null);
     }
 

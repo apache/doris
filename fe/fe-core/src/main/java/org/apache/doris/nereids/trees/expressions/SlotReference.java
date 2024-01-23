@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -122,7 +122,7 @@ public class SlotReference extends Slot {
      * @param qualifier the qualifier of SlotReference
      * @param relation the relation which column is from
      */
-    public static SlotReference fromColumn(Column column, List<String> qualifier, LogicalRelation relation) {
+    public static SlotReference fromColumn(Column column, List<String> qualifier, Relation relation) {
         DataType dataType = DataType.fromCatalogType(column.getType());
         SlotReference slot = new SlotReference(StatementScopeIdGenerator.newExprId(), column.getName(), dataType,
                 column.isAllowNull(), qualifier, column, Optional.empty(), null);
