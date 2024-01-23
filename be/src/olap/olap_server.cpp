@@ -294,7 +294,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     uint32_t max_interval = config::max_garbage_sweep_interval;
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
-    if (!(max_interval >= min_interval && min_interval > 0)) {
+    if (max_interval < min_interval || min_interval <= 0) {
         LOG(WARNING) << "garbage sweep interval config is illegal: [max=" << max_interval
                      << " min=" << min_interval << "].";
         min_interval = 1;

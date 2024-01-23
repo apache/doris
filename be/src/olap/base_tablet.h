@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
 #include "olap/version_graph.h"
@@ -31,6 +32,8 @@ namespace doris {
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
+class CalcDeleteBitmapToken;
+class SegmentCacheHandle;
 
 // Base class for all tablet classes
 class BaseTablet {
@@ -105,6 +108,88 @@ public:
     void generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const;
     void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
 
+    virtual int64_t max_version_unlocked() const { return _tablet_meta->max_version().second; }
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin MoW functions
+    ////////////////////////////////////////////////////////////////////////////
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(
+            const RowsetIdUnorderedSet* specified_rowset_ids);
+
+    // Lookup a row with TupleDescriptor and fill Block
+    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
+                           OlapReaderStatistics& stats, std::string& values,
+                           bool write_to_cache = false);
+
+    // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
+    // NOTE: the method only works in unique key model with primary key index, you will got a
+    //       not supported error in other data model.
+    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+                          const std::vector<RowsetSharedPtr>& specified_rowsets,
+                          RowLocation* row_location, uint32_t version,
+                          std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
+
+    static void prepare_to_read(const RowLocation& row_location, size_t pos,
+                                PartialUpdateReadPlan* read_plan);
+
+    // calc delete bitmap when flush memtable, use a fake version to calc
+    // For example, cur max version is 5, and we use version 6 to calc but
+    // finally this rowset publish version with 8, we should make up data
+    // for rowset 6-7. Also, if a compaction happens between commit_txn and
+    // publish_txn, we should remove compaction input rowsets' delete_bitmap
+    // and build newly generated rowset's delete_bitmap
+    static Status calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                     const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                     DeleteBitmapPtr delete_bitmap, int64_t version,
+                                     CalcDeleteBitmapToken* token,
+                                     RowsetWriter* rowset_writer = nullptr);
+
+    Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
+                                      const segment_v2::SegmentSharedPtr& seg,
+                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      RowsetWriter* rowset_writer);
+
+    Status calc_delete_bitmap_between_segments(
+            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            DeleteBitmapPtr delete_bitmap);
+
+    static Status commit_phase_update_delete_bitmap(
+            const BaseTabletSPtr& tablet, const RowsetSharedPtr& rowset,
+            RowsetIdUnorderedSet& pre_rowset_ids, DeleteBitmapPtr delete_bitmap,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
+            CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
+
+    static void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
+                                                   const RowsetIdUnorderedSet& rowsetids);
+
+    static Status generate_new_block_for_partial_update(
+            TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
+            const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
+            const PartialUpdateReadPlan& read_plan_update,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            vectorized::Block* output_block);
+
+    // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
+    // may be outdated due to schema change. Also note that the the cids should indicate the indexes
+    // of the columns in the TabletSchema passed in.
+    static Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
+                                                 const TabletSchema& tablet_schema, uint32_t segid,
+                                                 const std::vector<uint32_t>& rowids,
+                                                 const std::vector<uint32_t>& cids,
+                                                 vectorized::Block& block);
+
+    static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
+                                        const std::vector<uint32_t>& rowids,
+                                        const TabletColumn& tablet_column,
+                                        vectorized::MutableColumnPtr& dst);
+    ////////////////////////////////////////////////////////////////////////////
+    // end MoW functions
+    ////////////////////////////////////////////////////////////////////////////
+
 protected:
     // Find the missed versions until the spec_version.
     //
@@ -115,6 +200,12 @@ protected:
 
     void _print_missed_versions(const Versions& missed_versions) const;
     bool _reconstruct_version_tracker_if_necessary();
+
+    static void _rowset_ids_difference(const RowsetIdUnorderedSet& cur,
+                                       const RowsetIdUnorderedSet& pre,
+                                       RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
+
+    void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     mutable std::shared_mutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;

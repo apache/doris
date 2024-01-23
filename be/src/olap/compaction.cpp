@@ -856,7 +856,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     int64_t cur_max_version = 0;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
-        cur_max_version = _tablet->max_version_unlocked().second;
+        cur_max_version = _tablet->max_version_unlocked();
         _tablet->save_meta();
     }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
