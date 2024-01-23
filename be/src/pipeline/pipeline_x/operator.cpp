@@ -338,15 +338,15 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
+            _shared_state->source_dep = info.dependency.get();
+            _shared_state->sink_dep = deps.front().get();
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
-            _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
+            _shared_state->source_dep = info.dependency.get();
+            _shared_state->sink_dep = deps.front().get();
         }
     }
 
@@ -377,6 +377,9 @@ template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->release_source_dep();
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());

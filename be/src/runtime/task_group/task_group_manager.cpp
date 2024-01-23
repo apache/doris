@@ -67,18 +67,25 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
-    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
+void TaskGroupManager::get_query_scheduler(uint64_t tg_id,
+                                           doris::pipeline::TaskScheduler** exec_sched,
+                                           vectorized::SimplifiedScanScheduler** scan_sched,
+                                           ThreadPool** non_pipe_thread_pool) {
+    std::shared_lock<std::shared_mutex> r_lock(_task_scheduler_lock);
     auto tg_sche_it = _tg_sche_map.find(tg_id);
     if (tg_sche_it != _tg_sche_map.end()) {
-        query_ctx_ptr->set_task_scheduler(tg_sche_it->second.get());
-        auto _tg_scan_sche_it = _tg_scan_sche_map.find(tg_id);
-        if (_tg_scan_sche_it != _tg_scan_sche_map.end()) {
-            query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_it->second.get());
-            return true;
-        }
+        *exec_sched = tg_sche_it->second.get();
     }
-    return false;
+
+    auto tg_scan_sche_it = _tg_scan_sche_map.find(tg_id);
+    if (tg_scan_sche_it != _tg_scan_sche_map.end()) {
+        *scan_sched = tg_scan_sche_it->second.get();
+    }
+
+    auto non_pipe_thread_pool_iter = _non_pipe_thread_pool_map.find(tg_id);
+    if (non_pipe_thread_pool_iter != _non_pipe_thread_pool_map.end()) {
+        *non_pipe_thread_pool = non_pipe_thread_pool_iter->second.get();
+    }
 }
 
 Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
@@ -135,7 +142,23 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         }
     }
 
-    // step 4 update cgroup cpu if needed
+    // step 4: init non-pipe scheduler
+    if (_non_pipe_thread_pool_map.find(tg_id) == _non_pipe_thread_pool_map.end()) {
+        std::unique_ptr<ThreadPool> thread_pool = nullptr;
+        auto ret = ThreadPoolBuilder("nonPip_" + tg_name)
+                           .set_min_threads(1)
+                           .set_max_threads(config::fragment_pool_thread_num_max)
+                           .set_max_queue_size(config::fragment_pool_queue_size)
+                           .set_cgroup_cpu_ctl(cg_cu_ctl_ptr)
+                           .build(&thread_pool);
+        if (!ret.ok()) {
+            LOG(INFO) << "create non-pipline thread pool failed";
+        } else {
+            _non_pipe_thread_pool_map.emplace(tg_id, std::move(thread_pool));
+        }
+    }
+
+    // step 5: update cgroup cpu if needed
     if (enable_cpu_hard_limit) {
         if (cpu_hard_limit > 0) {
             _cgroup_ctl_map.at(tg_id)->update_cpu_hard_limit(cpu_hard_limit);
@@ -160,6 +183,7 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     // stop task sche may cost some time, so it should not be locked
     std::set<doris::pipeline::TaskScheduler*> task_sche_to_del;
     std::set<vectorized::SimplifiedScanScheduler*> scan_task_sche_to_del;
+    std::set<ThreadPool*> non_pip_thread_pool_to_del;
     std::set<uint64_t> deleted_tg_ids;
     {
         std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
@@ -177,6 +201,13 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
                 scan_task_sche_to_del.insert(_tg_scan_sche_map[tg_id].get());
             }
         }
+        for (auto iter = _non_pipe_thread_pool_map.begin(); iter != _non_pipe_thread_pool_map.end();
+             iter++) {
+            uint64_t tg_id = iter->first;
+            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
+                non_pip_thread_pool_to_del.insert(_non_pipe_thread_pool_map[tg_id].get());
+            }
+        }
     }
     // 1 stop all threads
     for (auto* ptr1 : task_sche_to_del) {
@@ -184,6 +215,9 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
     }
     for (auto* ptr2 : scan_task_sche_to_del) {
         ptr2->stop();
+    }
+    for (auto& ptr3 : non_pip_thread_pool_to_del) {
+        ptr3->shutdown();
     }
     // 2 release resource in memory
     {
@@ -241,6 +275,9 @@ void TaskGroupManager::stop() {
     }
     for (auto& task_sche : _tg_scan_sche_map) {
         task_sche.second->stop();
+    }
+    for (auto& no_pip_sche : _non_pipe_thread_pool_map) {
+        no_pip_sche.second->shutdown();
     }
 }
 

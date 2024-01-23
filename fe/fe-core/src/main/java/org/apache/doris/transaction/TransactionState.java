@@ -108,7 +108,8 @@ public class TransactionState implements Writable {
         TIMEOUT,
         OFFSET_OUT_OF_RANGE,
         PAUSE,
-        NO_PARTITIONS;
+        NO_PARTITIONS,
+        INVALID_JSON_PATH;
 
         public static TxnStatusChangeReason fromString(String reasonString) {
             for (TxnStatusChangeReason txnStatusChangeReason : TxnStatusChangeReason.values()) {
@@ -336,6 +337,22 @@ public class TransactionState implements Writable {
         this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
+    }
+
+    //for TxnInfoPB convert to TransactionState
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
+            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, TransactionStatus transactionStatus,
+            String reason, long callbackId, long timeoutMs, TxnCommitAttachment txnCommitAttachment, long prepareTime,
+            long preCommitTime, long commitTime, long finishTime) {
+        this(dbId, tableIdList, transactionId, label, requestId, sourceType, txnCoordinator, callbackId, timeoutMs);
+
+        this.transactionStatus = transactionStatus;
+        this.prepareTime = prepareTime;
+        this.preCommitTime = preCommitTime;
+        this.commitTime = commitTime;
+        this.finishTime = finishTime;
+        this.reason = reason;
+        this.txnCommitAttachment = txnCommitAttachment;
     }
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {

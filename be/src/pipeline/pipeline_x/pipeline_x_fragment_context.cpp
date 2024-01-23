@@ -739,7 +739,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                             is_shuffled_hash_join, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
-    auto shared_state = LocalExchangeSharedState::create_shared();
+    auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -771,8 +771,6 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    shared_state->source_dependencies.resize(_num_instances, nullptr);
-    shared_state->mem_trackers.resize(_num_instances, nullptr);
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state);
@@ -1219,10 +1217,7 @@ Status PipelineXFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
-    auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
-        scheduler = _exec_env->pipeline_task_group_scheduler();
-    }
+    auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());

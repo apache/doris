@@ -1663,15 +1663,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
         }
         long dbId = db.getId();
-        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(dbId, request.getTxnId());
-        if (transactionState == null) {
-            throw new UserException("transaction [" + request.getTxnId() + "] not found");
+        if (request.getTxnId() != 0) { // txnId is required in thrift
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(dbId, request.getTxnId());
+            if (transactionState == null) {
+                throw new UserException("transaction [" + request.getTxnId() + "] not found");
+            }
+            List<Table> tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
+            Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
+                    request.isSetReason() ? request.getReason() : "system cancel",
+                    TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
+        } else if (request.isSetLabel()) {
+            Env.getCurrentGlobalTransactionMgr()
+                    .abortTransaction(db.getId(), request.getLabel(),
+                            request.isSetReason() ? request.getReason() : "system cancel");
+        } else {
+            throw new UserException("must set txn_id or label");
         }
-        List<Table> tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
-        Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
-                request.isSetReason() ? request.getReason() : "system cancel",
-                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()), tableList);
     }
 
     @Override

@@ -18,9 +18,13 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.io.CountingDataOutputStream;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.DataInputStream;
+import java.io.IOException;
 
 public class CloudEnv extends Env {
 
@@ -30,5 +34,15 @@ public class CloudEnv extends Env {
         super(isCheckpointCatalog);
     }
 
+    @Override
+    public long loadTransactionState(DataInputStream dis, long checksum) throws IOException {
+        // for CloudGlobalTransactionMgr do nothing.
+        return checksum;
+    }
+
+    @Override
+    public long saveTransactionState(CountingDataOutputStream dos, long checksum) throws IOException {
+        return checksum;
+    }
 }
 

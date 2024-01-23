@@ -219,7 +219,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                 ->set_ready();
     } else {
-        local_state._shared_state->source_dep->set_ready();
+        local_state._dependency->set_ready_to_read();
     }
 }
 
