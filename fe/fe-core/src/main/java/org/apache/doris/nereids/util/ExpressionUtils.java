@@ -59,6 +59,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -655,6 +656,20 @@ public class ExpressionUtils {
     }
 
     public static Expression getExpressionCoveredByCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    // the expressions can be used as runtime filter targets
+    public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
+        if (expression.getInputSlots().size() == 1) {
+            Slot slot = expression.getInputSlots().iterator().next();
+            if (slot.getDataType() instanceof NumericType) {
+                return expression.getInputSlots().iterator().next();
+            }
+        }
         while (expression instanceof Cast) {
             expression = ((Cast) expression).child();
         }

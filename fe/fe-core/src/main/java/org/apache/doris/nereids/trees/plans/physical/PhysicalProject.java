@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -198,7 +199,15 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
                 return false;
             }
-
+            if (probeExpr instanceof SlotReference) {
+                for (NamedExpression namedExpression : projects) {
+                    if (namedExpression instanceof Alias
+                            && namedExpression.getExprId() == ((SlotReference) probeExpr).getExprId()) {
+                        probeExpr = ((Alias) namedExpression).child();
+                        break;
+                    }
+                }
+            }
             AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
             return child.pushDownRuntimeFilter(context, generator, builderNode,
                     src, probeExpr, type, buildSideNdv, exprOrder);
