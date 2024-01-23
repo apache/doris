@@ -48,6 +48,7 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     std::string debug_string(int indentation_level) const override;
+    Status close(RuntimeState* state) override;
 
 private:
     friend class LocalExchangeSourceOperatorX;

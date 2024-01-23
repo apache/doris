@@ -63,6 +63,10 @@ public:
             : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status close(RuntimeState* state, Status exec_status) override {
+        _shared_state->release_sink_dep();
+        return PipelineXSinkLocalState<AnalyticSinkDependency>::close(state, exec_status);
+    }
 
 private:
     friend class AnalyticSinkOperatorX;
@@ -70,11 +74,11 @@ private:
     bool _refresh_need_more_input() {
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
-            _shared_state->source_dep->block();
+            _dependency->set_block_to_read();
             _dependency->set_ready();
         } else {
             _dependency->block();
-            _shared_state->source_dep->set_ready();
+            _dependency->set_ready_to_read();
         }
         return need_more_input;
     }
