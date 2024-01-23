@@ -73,6 +73,10 @@ suite("test_time_function") {
         select sec_to_time(time_to_sec(cast("61" as time)));
     """
 
+    qt_select """
+        select time_to_sec(timediff('2024-01-22', '2024-01-15')) as seconds;
+    """
+
     sql """
         set enable_nereids_planner=false
     """
@@ -130,4 +134,9 @@ suite("test_time_function") {
     qt_select """
         select sec_to_time(time_to_sec(cast("61" as time)));
     """
+    
+    qt_select """
+        select time_to_sec(timediff('2024-01-22', '2024-01-15')) as seconds;
+    """
+
 }
