@@ -88,7 +88,7 @@ void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profil
     // Should set to false here, to
     _writer_thread_closed = false;
     // This is a async thread, should lock the task ctx, to make sure runtimestate and profile
-    // not constructed before the thread exit.
+    // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     static_cast<void>(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, state, profile, task_ctx]() {

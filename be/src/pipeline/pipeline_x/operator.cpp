@@ -551,9 +551,7 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
         // If there is an error in process_block thread, then we should get the writer
         // status before call force_close. For example, the thread may failed in commit
         // transaction.
-        if (!st.ok()) {
-            return st;
-        }
+        RETURN_IF_ERROR(st);
     }
     return Base::close(state, exec_status);
 }
