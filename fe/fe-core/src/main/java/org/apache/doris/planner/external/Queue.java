@@ -14,39 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/resourcegroups/Queue.java
+// and modified by Doris
 
-package org.apache.doris.spi;
+package org.apache.doris.planner.external;
 
-import org.apache.doris.planner.external.SplitWeight;
+interface Queue<E> {
+    boolean contains(E element);
 
-import java.util.List;
+    boolean remove(E element);
 
-/**
- * Split interface. e.g. Tablet for Olap Table.
- */
-public interface Split {
+    E poll();
 
-    String[] getHosts();
+    E peek();
 
-    Object getInfo();
+    int size();
 
-    default SplitWeight getSplitWeight() {
-        return SplitWeight.standard();
-    }
-
-    default boolean isRemotelyAccessible() {
-        return true;
-    }
-
-    String getPathString();
-
-    long getStart();
-
-    long getLength();
-
-    List<String> getAlternativeHosts();
-
-    void setAlternativeHosts(List<String> alternativeHosts);
-
+    boolean isEmpty();
 }
 
