@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -88,32 +89,31 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     }
 
     private Plan pushTopNThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join) {
-        LogicalAggregate<?> agg = (LogicalAggregate<?>) topN.child();
-        List<Slot> groupBySlots = agg.getGroupByExpressions().stream()
+        List<Slot> groupBySlots = ((LogicalAggregate<?>) topN.child()).getGroupByExpressions().stream()
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toList());
         switch (join.getJoinType()) {
             case LEFT_OUTER_JOIN:
                 if (join.left().getOutputSet().containsAll(groupBySlots)) {
                     LogicalTopN<Plan> left = topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0,
-                            agg.withChildren(join.left()));
+                            PlanUtils.distinct(join.left()));
                     return join.withChildren(left, join.right());
                 }
                 return null;
             case RIGHT_OUTER_JOIN:
                 if (join.right().getOutputSet().containsAll(groupBySlots)) {
                     LogicalTopN<Plan> right = topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0,
-                            agg.withChildren(join.right()));
+                            PlanUtils.distinct(join.right()));
                     return join.withChildren(join.left(), right);
                 }
                 return null;
             case CROSS_JOIN:
                 if (join.left().getOutputSet().containsAll(groupBySlots)) {
                     LogicalTopN<Plan> left = topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0,
-                            agg.withChildren(join.left()));
+                            PlanUtils.distinct(join.left()));
                     return join.withChildren(left, join.right());
                 } else if (join.right().getOutputSet().containsAll(groupBySlots)) {
                     LogicalTopN<Plan> right = topN.withLimitChild(topN.getLimit() + topN.getOffset(), 0,
-                            agg.withChildren(join.right()));
+                            PlanUtils.distinct(join.right()));
                     return join.withChildren(join.left(), right);
                 } else {
                     return null;
