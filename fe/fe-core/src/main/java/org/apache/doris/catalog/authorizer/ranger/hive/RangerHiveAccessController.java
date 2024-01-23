@@ -192,12 +192,12 @@ public class RangerHiveAccessController extends RangerAccessController {
         return false;
     }
 
-    // For test only, will be removed later
+    // For test only
     public static void main(String[] args) {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("ranger.service.name", "hive");
         RangerHiveAccessController ac = new RangerHiveAccessController(properties);
-        UserIdentity user = new UserIdentity("yy1", "127.0.0.1");
+        UserIdentity user = new UserIdentity("user1", "127.0.0.1");
         user.setIsAnalyzed();
         boolean res = ac.checkDbPriv(user, "hive", "tpcds_bin_partitioned_orc_1", PrivPredicate.SHOW);
         System.out.println("res: " + res);
