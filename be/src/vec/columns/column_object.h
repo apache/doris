@@ -316,6 +316,8 @@ public:
 
     const Subcolumns& get_subcolumns() const { return subcolumns; }
 
+    const Subcolumns& get_sparse_subcolumns() const { return sparse_columns; }
+
     Subcolumns& get_subcolumns() { return subcolumns; }
 
     PathsInData getKeys() const;
@@ -338,8 +340,7 @@ public:
     void remove_subcolumns(const std::unordered_set<std::string>& keys);
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
-    void finalize(bool ignore_sparse,
-                  std::vector<TabletColumn>* sparse_subcolumns_schema = nullptr);
+    void finalize(bool ignore_sparser);
 
     /// Finalizes all subcolumns.
     void finalize() override;

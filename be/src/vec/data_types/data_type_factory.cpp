@@ -586,7 +586,7 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     DataTypePtr nested = nullptr;
     if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
         // Item subcolumn and length subcolumn
-        DCHECK_GE(pcolumn.children_columns().size(), 2) << pcolumn.DebugString();
+        DCHECK_GE(pcolumn.children_columns().size(), 1) << pcolumn.DebugString();
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
     } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_MAP)) {
         DCHECK_GE(pcolumn.children_columns().size(), 2) << pcolumn.DebugString();

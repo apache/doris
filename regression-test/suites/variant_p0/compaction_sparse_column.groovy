@@ -41,6 +41,13 @@ suite("test_compaction_sparse_column", "nonConcurrent") {
             }
         }
 
+        def set_be_config = { key, value ->
+            (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        }
+
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE ${tableName} (
@@ -67,7 +74,7 @@ suite("test_compaction_sparse_column", "nonConcurrent") {
             union  all select 2, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "ccccc"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
         
-        sql """insert into ${tableName} select 3, '{"a" : 1234, "xxxx" : "ddddd", "point" : 1}'  as json_str
+        sql """insert into ${tableName} select 3, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'  as json_str
             union  all select 3, '{"a": 1123}' as json_str union all select 3, '{"a": 11245, "b" : 42003}' as json_str from numbers("number" = "4096") limit 4096 ;"""
 
 

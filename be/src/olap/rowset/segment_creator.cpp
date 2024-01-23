@@ -102,6 +102,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
             }
         }
     } else {
+        // find positions of variant columns
         for (int i = 0; i < _context->original_tablet_schema->columns().size(); ++i) {
             if (_context->original_tablet_schema->columns()[i].is_variant_type()) {
                 variant_column_pos.push_back(i);
@@ -113,19 +114,20 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         return Status::OK();
     }
 
+<<<<<<< HEAD
     vectorized::schema_util::ParseContext ctx;
     ctx.record_raw_json_column = _context->original_tablet_schema->store_row_column();
     RETURN_IF_ERROR(vectorized::schema_util::parse_and_encode_variant_columns(
             block, variant_column_pos, ctx));
+=======
+    RETURN_IF_ERROR(
+            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
+>>>>>>> 328d1214f0 (1. Refactor sparse columns generate logic)
 
-    // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //     static     extracted
-    // | --------- | ----------- |
-    // The static ones are original _tablet_schame columns
     flush_schema = std::make_shared<TabletSchema>();
     flush_schema->copy_from(*_context->original_tablet_schema);
-
     vectorized::Block flush_block(std::move(block));
+<<<<<<< HEAD
     // If column already exist in original tablet schema, then we pick common type
     // and cast column to common type, and modify tablet column to common type,
     // otherwise it's a new column
@@ -221,6 +223,10 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     }
 
     vectorized::schema_util::inherit_tablet_index(flush_schema);
+=======
+    vectorized::schema_util::rebuild_schema_and_block(
+            _context->original_tablet_schema, variant_column_pos, flush_block, flush_schema);
+>>>>>>> 328d1214f0 (1. Refactor sparse columns generate logic)
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset

@@ -86,10 +86,10 @@ struct ParseContext {
     // record an extract json column, used for encoding row store
     bool record_raw_json_column = false;
 };
-// thread steps to parse and encode variant columns into flatterned columns
+// three steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
-// 2. encode sparse sub columns
+// 3. encode sparse sub columns
 Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos,
                                         const ParseContext& ctx);
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
@@ -118,6 +118,14 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 // inherit index info from it's parent column
 void inherit_tablet_index(TabletSchemaSPtr& schema);
+
+// Rebuild schema from original schema by extend dynamic columns generated from ColumnObject.
+// Block consists of two parts, dynamic part of columns and static part of columns.
+//     static     extracted
+// | --------- | ----------- |
+// The static ones are original tablet_schame columns
+void rebuild_schema_and_block(const TabletSchemaSPtr& original, const std::vector<int>& variant_pos,
+                              Block& flush_block, TabletSchemaSPtr& flush_schema);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);

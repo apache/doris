@@ -6,7 +6,7 @@
 12288
 
 -- !select_1_bfcompact --
-{"state":"open","code":2}
+{"code":2,"state":"open"}
 
 -- !select_b_3 --
 12288
