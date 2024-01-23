@@ -294,11 +294,11 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   - key 列只能调整 key 列的范围内进行调整，value 列同理
 :::
 
-### Keywords
+## Keywords
 
 ```text
 ALTER, TABLE, COLUMN, ALTER TABLE
 ```
 
-### Best Practice
+## Best Practice
 
