@@ -20,6 +20,7 @@ package org.apache.doris.regression.action
 import groovy.util.logging.Slf4j
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
+import org.junit.Assert
 
 @Slf4j
 class WaitForAction implements SuiteAction{
@@ -52,16 +53,16 @@ class WaitForAction implements SuiteAction{
         while (time--) {
             log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
-            res = result.get(0).get(9)
+            String res = result.get(0).get(9)
             if (res == "FINISHED" || res == "CANCELLED") {
-                assertEquals("FINISHED", res)
+                Assert.assertEquals("FINISHED", res)
                 sleep(3000)
                 break
             } else {
                 Thread.sleep(2000)
-                if (max_try_secs < 1) {
-                    log "test timeout," + "state:" + res
-                    assertEquals("FINISHED",res)
+                if (time < 1) {
+                    log.info("test timeout," + "state:" + res)
+                    Assert.assertEquals("FINISHED",res)
                 }
             }
         }
