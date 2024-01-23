@@ -1049,7 +1049,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
-                if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32, RowRefListType>(
+                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32, RowRefListType>(
                             *_hash_table_variants, _build_expr_ctxs)) {
                     _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                 }
