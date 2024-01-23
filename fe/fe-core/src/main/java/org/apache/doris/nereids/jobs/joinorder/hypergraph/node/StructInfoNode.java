@@ -65,6 +65,9 @@ public class StructInfoNode extends AbstractNode {
             @Override
             public Void visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
                     Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
                 collector.value().add(ImmutableSet.copyOf(aggregate.getExpressions()));
                 collector.value().add(ImmutableSet.copyOf(((LogicalAggregate<?>) plan).getGroupByExpressions()));
                 return super.visit(aggregate, collector);
@@ -73,6 +76,9 @@ public class StructInfoNode extends AbstractNode {
             @Override
             public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter,
                     Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
                 collector.value().add(ImmutableSet.copyOf(filter.getExpressions()));
                 return super.visit(filter, collector);
             }
@@ -80,6 +86,9 @@ public class StructInfoNode extends AbstractNode {
             @Override
             public Void visitGroupPlan(GroupPlan groupPlan,
                     Pair<Boolean, ImmutableList.Builder<Set<Expression>>> collector) {
+                if (!collector.key()) {
+                    return null;
+                }
                 return super.visit(groupPlan.getGroup().getLogicalExpression().getPlan(), collector);
             }
 
