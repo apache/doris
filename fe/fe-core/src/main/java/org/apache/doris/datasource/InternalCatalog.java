@@ -175,6 +175,7 @@ import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -836,6 +837,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     // Drop table
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        Map<String, Long> costTimes = new TreeMap<String, Long>();
+        StopWatch watch = StopWatch.createStarted();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
@@ -847,6 +850,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         db.writeLockOrDdlException();
+        watch.split();
+        costTimes.put("1:dbWriteLock", watch.getSplitTime());
         try {
             Table table = db.getTableNullable(tableName);
             if (table == null) {
@@ -882,8 +887,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
                                     + " please use \"DROP table FORCE\".");
                 }
+                watch.split();
+                costTimes.put("2:existCommittedTxns", watch.getSplitTime());
             }
             table.writeLock();
+            watch.split();
+            costTimes.put("3:tableWriteLock", watch.getSplitTime());
             long recycleTime = 0;
             try {
                 if (table instanceof OlapTable && !stmt.isForceDrop()) {
@@ -899,8 +908,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
                 }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
+                watch.split();
+                costTimes.put("4:unprotectDropTable", watch.getSplitTime());
                 if (!stmt.isForceDrop()) {
                     recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
+                    watch.split();
+                    costTimes.put("5:getRecycleTimeById", watch.getSplitTime());
                 }
             } finally {
                 table.writeUnlock();
@@ -920,7 +933,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
-        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+        watch.stop();
+        costTimes.put("6:total", watch.getTime());
+        LOG.info("finished dropping table: {} from db: {}, is force: {} cost: {}",
+                tableName, dbName, stmt.isForceDrop(), costTimes);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
@@ -936,8 +952,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         db.dropTable(table.getName());
+        StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
-        LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
+        watch.stop();
+        LOG.info("finished dropping table[{}] in db[{}] recycleTable cost: {}ms",
+                table.getName(), db.getFullName(), watch.getTime());
         return true;
     }
 
