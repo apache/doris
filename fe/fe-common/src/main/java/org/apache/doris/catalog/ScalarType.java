@@ -1081,7 +1081,13 @@ public class ScalarType extends Type {
         if ((t1.isDecimalV3() && t2.isDecimalV2()) || (t2.isDecimalV3() && t1.isDecimalV2())) {
             int scale = Math.max(t1.scale, t2.scale);
             int integerPart = Math.max(t1.precision - t1.scale, t2.precision - t2.scale);
-            return ScalarType.createDecimalV3Type(integerPart + scale, scale);
+            ScalarType finalType = ScalarType.createDecimalV3Type(integerPart + scale, scale);
+            int maxPrecision = enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION;
+            if (finalType.getPrecision() > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                finalType = ScalarType.createDecimalV3Type(maxPrecision, newScale < 0 ? 0 : newScale);
+            }
+            return finalType;
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
@@ -1137,8 +1143,11 @@ public class ScalarType extends Type {
             ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
                     t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
                     t2.decimalScale()), Math.max(t1.decimalScale(), t2.decimalScale()));
-            if (finalType.getPrecision() > MAX_PRECISION) {
-                finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
+            int maxPrecision = enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION;
+            int integerPart = finalType.precision - finalType.scale;
+            if (finalType.getPrecision() > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                finalType = ScalarType.createDecimalV3Type(maxPrecision, newScale < 0 ? 0 : newScale);
             }
             return finalType;
         }
