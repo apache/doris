@@ -743,6 +743,25 @@ public class ExpressionUtils {
     }
 
     /**
+     * the expressions can be used as runtime filter targets
+     */
+    public static Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
+        if (expression.getInputSlots().size() == 1) {
+            Slot slot = expression.getInputSlots().iterator().next();
+            if (slot.getDataType() instanceof NumericType) {
+                return expression.getInputSlots().iterator().next();
+            }
+        }
+        // for other datatype, only support cast.
+        // example: T1 join T2 on subStr(T1.a, 1,4) = subStr(T2.a, 1,4)
+        // the cost of subStr is too high, and hence we do not generate RF subStr(T2.a, 1,4)->subStr(T1.a, 1,4)
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
+
+    /**
      * To check whether a slot is constant after passing through a filter
      */
     public static boolean checkSlotConstant(Slot slot, Set<Expression> predicates) {
