@@ -33,10 +33,12 @@ import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
@@ -64,6 +66,8 @@ import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -278,6 +282,20 @@ public class GsonUtils {
             .registerSubtype(FrontendHbResponse.class, FrontendHbResponse.class.getSimpleName())
             .registerSubtype(BrokerHbResponse.class, BrokerHbResponse.class.getSimpleName());
 
+    // runtime adapter for class "CloudReplica".
+    private static RuntimeTypeAdapterFactory<Replica> replicaTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Replica.class, "clazz")
+            .registerDefaultSubtype(Replica.class)
+            .registerSubtype(Replica.class, Replica.class.getSimpleName())
+            .registerSubtype(CloudReplica.class, CloudReplica.class.getSimpleName());
+
+    // runtime adapter for class "CloudPartition".
+    private static RuntimeTypeAdapterFactory<Partition> partitionTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(Partition.class, "clazz")
+            .registerDefaultSubtype(Partition.class)
+            .registerSubtype(Partition.class, Partition.class.getSimpleName())
+            .registerSubtype(CloudPartition.class, CloudPartition.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder().addSerializationExclusionStrategy(
@@ -293,6 +311,8 @@ public class GsonUtils {
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(replicaTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionTypeAdapterFactory)
             .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
