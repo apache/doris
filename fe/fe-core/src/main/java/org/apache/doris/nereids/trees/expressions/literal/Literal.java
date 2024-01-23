@@ -366,4 +366,27 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     public boolean isStringLikeLiteral() {
         return dataType.isStringLikeType();
     }
+
+    /** whether is ZERO value **/
+    public boolean isZero() {
+        if (isNullLiteral()) {
+            return false;
+        }
+        if (dataType.isSmallIntType() || dataType.isTinyIntType() || dataType.isIntegerType()) {
+            return getValue().equals(0);
+        } else if (dataType.isBigIntType()) {
+            return getValue().equals(0L);
+        } else if (dataType.isLargeIntType()) {
+            return getValue().equals(BigInteger.ZERO);
+        } else if (dataType.isFloatType()) {
+            return getValue().equals(0.0f);
+        } else if (dataType.isDoubleType()) {
+            return getValue().equals(0.0);
+        } else if (dataType.isDecimalV2Type()) {
+            return getValue().equals(BigDecimal.ZERO);
+        } else if (dataType.isDecimalV3Type()) {
+            return getValue().equals(BigDecimal.ZERO);
+        }
+        return false;
+    }
 }
