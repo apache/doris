@@ -40,7 +40,7 @@ suite("test_alter_table_column") {
         """
 
     waitFor {
-        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1"""
+        sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }
 
