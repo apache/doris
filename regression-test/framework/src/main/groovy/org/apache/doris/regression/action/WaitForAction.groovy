@@ -52,8 +52,7 @@ class WaitForAction implements SuiteAction{
         while (time--) {
             log.info("sql is :\n${sql}")
             def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sql)
-            def jobStateResult = result.get(0).get(9)
-            res = jobStateResult[0][9]
+            res = result.get(0).get(9)
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
                 sleep(3000)
