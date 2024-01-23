@@ -24,6 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Compile with ARM
 
 This topic is about how to compile Doris on the ARM64 platform.
