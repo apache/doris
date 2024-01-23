@@ -52,7 +52,7 @@ struct BitCountImpl {
     }
 };
 
-using FunctionBitCount = FunctionUnaryArithmetic<BitCountImpl, NameBitCount, false>;
+using FunctionBitCount = FunctionUnaryArithmetic<BitCountImpl, NameBitCount>;
 
 void register_function_bit_count(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitCount>();
