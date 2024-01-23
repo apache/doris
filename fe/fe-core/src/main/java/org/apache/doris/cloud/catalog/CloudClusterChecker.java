@@ -22,6 +22,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -293,7 +294,7 @@ public class CloudClusterChecker extends MasterDaemon {
         Map<String, List<Backend>> clusterIdToBackend = Env.getCurrentSystemInfo().getCloudClusterIdToBackend();
         //rpc to ms, to get mysql user can use cluster_id
         // NOTE: rpc args all empty, use cluster_unique_id to get a instance's all cluster info.
-        Cloud.GetClusterResponse response = Env.getCurrentSystemInfo().getCloudCluster("", "", "");
+        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster("", "", "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
                 && response.getStatus().getCode() != MetaServiceCode.CLUSTER_NOT_FOUND)) {
@@ -403,7 +404,7 @@ public class CloudClusterChecker extends MasterDaemon {
     }
 
     private void getObserverFes() {
-        Cloud.GetClusterResponse response = Env.getCurrentSystemInfo()
+        Cloud.GetClusterResponse response = CloudSystemInfoService
                 .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
@@ -451,7 +452,7 @@ public class CloudClusterChecker extends MasterDaemon {
                     continue;
                 }
                 Frontend fe = new Frontend(FrontendNodeType.OBSERVER,
-                        Env.genFeNodeNameFromMeta(host, node.getEditLogPort(),
+                        CloudEnv.genFeNodeNameFromMeta(host, node.getEditLogPort(),
                         node.getCtime() * 1000), host, node.getEditLogPort());
                 nodeMap.put(endpoint, fe);
             }
@@ -464,7 +465,7 @@ public class CloudClusterChecker extends MasterDaemon {
             return;
         }
         try {
-            Env.getCurrentSystemInfo().updateFrontends(toAdd, toDel);
+            CloudSystemInfoService.updateFrontends(toAdd, toDel);
         } catch (DdlException e) {
             LOG.warn("update cloud frontends exception e: {}, msg: {}", e, e.getMessage());
         }

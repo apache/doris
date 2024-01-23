@@ -64,7 +64,7 @@ public class CloudSystemInfoService extends SystemInfoService {
      * @param clusterId cluster id
      * @return
      */
-    public Cloud.GetClusterResponse getCloudCluster(String clusterName, String clusterId, String userName) {
+    public static Cloud.GetClusterResponse getCloudCluster(String clusterName, String clusterId, String userName) {
         Cloud.GetClusterRequest.Builder builder = Cloud.GetClusterRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id)
             .setClusterName(clusterName).setClusterId(clusterId).setMysqlUserName(userName);
@@ -228,7 +228,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
 
-    public synchronized void updateFrontends(List<Frontend> toAdd,
+    public static synchronized void updateFrontends(List<Frontend> toAdd,
                                              List<Frontend> toDel) throws DdlException {
         LOG.debug("updateCloudFrontends toAdd={} toDel={}", toAdd, toDel);
         String masterIp = Env.getCurrentEnv().getMasterHost();

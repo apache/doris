@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.NodeInfoPB;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -60,11 +61,14 @@ public class CloudEnv extends Env {
         cloudClusterCheck.start();
     }
 
+    public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
+        return host + "_" + port + "_" + timeMs;
+    }
 
     private Cloud.NodeInfoPB getLocalTypeFromMetaService() {
         // get helperNodes from ms
-        Cloud.GetClusterResponse response = Env.getCurrentSystemInfo()
-                .getCloudCluster(Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
+        Cloud.GetClusterResponse response = CloudSystemInfoService.getCloudCluster(
+                Config.cloud_sql_server_cluster_name, Config.cloud_sql_server_cluster_id, "");
         if (!response.hasStatus() || !response.getStatus().hasCode()
                 || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
@@ -164,7 +168,7 @@ public class CloudEnv extends Env {
                 // For compatibility. Because this is the very first time to start, so we arbitrarily choose
                 // a new name for this node
                 role = FrontendNodeType.FOLLOWER;
-                if (Config.isCloudMode() && type == NodeInfoPB.NodeType.FE_MASTER) {
+                if (type == NodeInfoPB.NodeType.FE_MASTER) {
                     nodeName = feNodeNameFromMeta;
                 } else {
                     nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), false /* new style */);
@@ -185,7 +189,7 @@ public class CloudEnv extends Env {
                     // But we will get a empty nodeName after upgrading.
                     // So for forward compatibility, we use the "old-style" way of naming: "ip_port",
                     // and update the ROLE file.
-                    if (Config.isCloudMode() && type == NodeInfoPB.NodeType.FE_MASTER) {
+                    if (type == NodeInfoPB.NodeType.FE_MASTER) {
                         nodeName = feNodeNameFromMeta;
                     } else {
                         nodeName = genFeNodeName(selfNode.getHost(), selfNode.getPort(), true /* old style */);

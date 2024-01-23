@@ -1156,17 +1156,7 @@ public class SystemInfoService {
         this.instanceStatus = instanceStatus;
     }
 
-    public Cloud.GetClusterResponse getCloudCluster(String clusterName, String clusterId, String userName) {
-        LOG.warn("Not cloud mode, should not be here");
-        return null;
-    }
-
     public synchronized void updateCloudBackends(List<Backend> toAdd, List<Backend> toDel) {
-        LOG.warn("Not cloud mode, should not be here");
-    }
-
-    public synchronized void updateFrontends(List<Frontend> toAdd,
-                                             List<Frontend> toDel) throws DdlException {
         LOG.warn("Not cloud mode, should not be here");
     }
 }

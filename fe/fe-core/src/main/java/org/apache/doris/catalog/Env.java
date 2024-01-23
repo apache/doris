@@ -1276,14 +1276,6 @@ public class Env {
         }
     }
 
-    public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {
-        return host + "_" + port + "_" + timeMs;
-    }
-
-    public static String[] splitFeNodeName(String nodeName) {
-        return nodeName.split("_");
-    }
-
     // Get the role info and node name from helper node.
     // return false if failed.
     protected boolean getFeNodeTypeAndNameFromHelpers() {
