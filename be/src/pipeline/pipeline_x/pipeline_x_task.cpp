@@ -126,11 +126,7 @@ Status PipelineXTask::_extract_dependencies() {
         }
     }
     {
-        auto result = _state->get_sink_local_state_result(_sink->operator_id());
-        if (!result) {
-            return result.error();
-        }
-        auto* local_state = result.value();
+        auto* local_state = _state->get_sink_local_state(_sink->operator_id());
         auto* dep = local_state->dependency();
         DCHECK(dep != nullptr);
         _write_dependencies = dep;
@@ -139,13 +135,7 @@ Status PipelineXTask::_extract_dependencies() {
             _finish_dependencies.push_back(fin_dep);
         }
     }
-    {
-        auto result = _state->get_local_state_result(_source->operator_id());
-        if (!result) {
-            return result.error();
-        }
-        _filter_dependency = result.value()->filterdependency();
-    }
+    { _filter_dependency = _state->get_local_state(_source->operator_id())->filterdependency(); }
     return Status::OK();
 }
 

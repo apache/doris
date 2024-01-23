@@ -542,8 +542,12 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    virtual Status close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(operator_id())->close(state, exec_status);
+    Status close(RuntimeState* state, Status exec_status) {
+        auto result = state->get_sink_local_state_result(operator_id());
+        if (!result) {
+            return result.error();
+        }
+        return result.value()->close(state, exec_status);
     }
 
     [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
