@@ -438,7 +438,8 @@ private:
             int start_value = is_const ? start[0] : start[i];
             int len_value = is_const ? len[0] : len[i];
 
-            if (start_value > str_size || start_value < -str_size || str_size == 0) {
+            if (start_value > str_size || start_value < -str_size || str_size == 0 ||
+                len_value <= 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
                 continue;
             }
