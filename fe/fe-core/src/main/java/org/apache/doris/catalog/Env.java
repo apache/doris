@@ -330,7 +330,7 @@ public class Env {
 
     private String metaDir;
     private String bdbDir;
-    private String imageDir;
+    protected String imageDir;
 
     private MetaContext metaContext;
     private long epoch = 0;
@@ -380,8 +380,8 @@ public class Env {
 
     private ColumnIdFlushDaemon columnIdFlusher;
 
-    private boolean isFirstTimeStartUp = false;
-    private boolean isElectable;
+    protected boolean isFirstTimeStartUp = false;
+    protected boolean isElectable;
     // set to true after finished replay all meta and ready to serve
     // set to false when catalog is not ready.
     private AtomicBoolean isReady = new AtomicBoolean(false);
@@ -395,8 +395,8 @@ public class Env {
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // node name is used for bdbje NodeName.
-    private String nodeName;
-    private FrontendNodeType role;
+    protected String nodeName;
+    protected FrontendNodeType role;
     private FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
@@ -405,19 +405,19 @@ public class Env {
     private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
     private EditLog editLog;
-    private int clusterId;
-    private String token;
+    protected int clusterId;
+    protected String token;
     // For checkpoint and observer memory replayed marker
     private AtomicLong replayedJournalId;
 
     private static Env CHECKPOINT = null;
     private static long checkpointThreadId = -1;
     private Checkpoint checkpointer;
-    private List<HostInfo> helperNodes = Lists.newArrayList();
-    private HostInfo selfNode = null;
+    protected List<HostInfo> helperNodes = Lists.newArrayList();
+    protected HostInfo selfNode = null;
 
     // node name -> Frontend
-    private ConcurrentHashMap<String, Frontend> frontends;
+    protected ConcurrentHashMap<String, Frontend> frontends;
     // removed frontends' name. used for checking if name is duplicated in bdbje
     private ConcurrentLinkedQueue<String> removedFrontends;
 
@@ -1067,7 +1067,7 @@ public class Env {
         this.httpReady.set(httpReady);
     }
 
-    private void getClusterIdAndRole() throws IOException {
+    protected void getClusterIdAndRole() throws IOException {
         File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
 
@@ -1278,7 +1278,7 @@ public class Env {
 
     // Get the role info and node name from helper node.
     // return false if failed.
-    private boolean getFeNodeTypeAndNameFromHelpers() {
+    protected boolean getFeNodeTypeAndNameFromHelpers() {
         // we try to get info from helper nodes, once we get the right helper node,
         // other helper nodes will be ignored and removed.
         HostInfo rightHelperNode = null;
@@ -1584,7 +1584,7 @@ public class Env {
     }
 
     // start all daemon threads only running on Master
-    private void startMasterOnlyDaemonThreads() {
+    protected void startMasterOnlyDaemonThreads() {
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setMetaContext(metaContext);
@@ -1781,7 +1781,7 @@ public class Env {
         }
     }
 
-    private boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
+    protected boolean getVersionFileFromHelper(HostInfo helperNode) throws IOException {
         try {
             String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port)
                     + "/version";
@@ -1797,7 +1797,7 @@ public class Env {
         return false;
     }
 
-    private void getNewImage(HostInfo helperNode) throws IOException {
+    protected void getNewImage(HostInfo helperNode) throws IOException {
         long localImageVersion = 0;
         Storage storage = new Storage(this.imageDir);
         localImageVersion = storage.getLatestImageSeq();
@@ -1829,7 +1829,7 @@ public class Env {
         }
     }
 
-    private boolean isMyself() {
+    protected boolean isMyself() {
         Preconditions.checkNotNull(selfNode);
         Preconditions.checkNotNull(helperNodes);
         LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
@@ -2762,7 +2762,7 @@ public class Env {
         };
     }
 
-    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -2774,7 +2774,10 @@ public class Env {
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
             }
-            String nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+            }
 
             if (removedFrontends.contains(nodeName)) {
                 throw new DdlException("frontend name already exists " + nodeName + ". Try again");

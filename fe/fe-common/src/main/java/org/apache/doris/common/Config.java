@@ -2476,6 +2476,14 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_cloud_snapshot_version = true;
 
+    @ConfField
+    public static int cloud_cluster_check_interval_second = 10;
+
+    @ConfField
+    public static String cloud_sql_server_cluster_name = "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER";
+
+    @ConfField
+    public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
