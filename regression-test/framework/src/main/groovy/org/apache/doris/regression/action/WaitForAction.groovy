@@ -19,6 +19,7 @@ package org.apache.doris.regression.action
 
 import groovy.util.logging.Slf4j
 import org.apache.doris.regression.suite.SuiteContext
+import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class WaitForAction implements SuiteAction{
@@ -49,7 +50,9 @@ class WaitForAction implements SuiteAction{
     @Override
     void run() {
         while (time--) {
-            def jobStateResult = sql sqlStr
+
+            def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+            def jobStateResult = result.get(0).get(9)
             res = jobStateResult[0][9]
             if (res == "FINISHED" || res == "CANCELLED") {
                 assertEquals("FINISHED", res)
