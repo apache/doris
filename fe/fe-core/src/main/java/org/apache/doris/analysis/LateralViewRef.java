@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.GlobalVariable;
@@ -37,20 +38,20 @@ public class LateralViewRef extends TableRef {
 
     private Expr expr;
     private String viewName;
-    private String columnName;
+    private List<String> columnNames;
     private TableRef relatedTableRef;
 
     // after analyzed
     private FunctionCallExpr fnExpr;
     private List<SlotRef> originSlotRefList = Lists.newArrayList();
     private InlineView view;
-    private SlotRef explodeSlotRef;
+    private List<SlotRef> explodeSlotRefs = Lists.newArrayList();
 
-    public LateralViewRef(Expr expr, String viewName, String columnName) {
+    public LateralViewRef(Expr expr, String viewName, List<String> columnNames) {
         super(null, viewName);
         this.expr = expr;
         this.viewName = viewName;
-        this.columnName = columnName;
+        this.columnNames = columnNames;
     }
 
     public void setRelatedTable(TableRef relatedTableRef) {
@@ -76,17 +77,20 @@ public class LateralViewRef extends TableRef {
 
         // analyze lateral view
         desc = analyzer.registerTableRef(this);
-        explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
-        explodeSlotRef.analyze(analyzer);
-        explodeSlotRef.getDesc().setIsNullable(
-                explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
-                        .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
+        for (int i = 0; i < columnNames.size(); i++) {
+            SlotRef explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnNames.get(i));
+            explodeSlotRef.analyze(analyzer);
+            explodeSlotRef.getDesc().setIsNullable(
+                    explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
+                            .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
+            explodeSlotRefs.add(explodeSlotRef);
+        }
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
     @Override
     public TableRef clone() {
-        return new LateralViewRef(this.expr.clone(), this.viewName, this.columnName);
+        return new LateralViewRef(this.expr.clone(), this.viewName, this.columnNames);
     }
 
     private void analyzeFunctionExpr(Analyzer analyzer) throws AnalysisException {
@@ -103,8 +107,16 @@ public class LateralViewRef extends TableRef {
     public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
         // Create a fake catalog table for the lateral view
         List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
-                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
+        if (columnNames.size() == 1) {
+            columnList.add(new Column(columnNames.get(0), fnExpr.getFn().getReturnType(), false, null,
+                    fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
+        } else {
+            StructType retType = (StructType) fnExpr.getFn().getReturnType();
+            for (int i = 0; i < columnNames.size(); i++) {
+                columnList.add(new Column(columnNames.get(i), retType.getFields().get(i).getType(), false,
+                        null, fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
+            }
+        }
         view = new InlineView(viewName, columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
@@ -122,7 +134,7 @@ public class LateralViewRef extends TableRef {
         for (SlotRef originSlotRef : originSlotRefList) {
             originSlotRef.getDesc().setIsMaterialized(true);
         }
-        explodeSlotRef.getDesc().setIsMaterialized(true);
+        explodeSlotRefs.forEach(sr -> sr.getDesc().setIsMaterialized(true));
     }
 
     // The default table name must be origin table name
@@ -198,7 +210,7 @@ public class LateralViewRef extends TableRef {
 
     @Override
     public String toSql() {
-        return "lateral view " + expr.toSql() + " " + viewName + " as " + columnName;
+        return "lateral view " + expr.toSql() + " " + viewName + " as " + String.join(",", columnNames);
     }
 
     @Override
@@ -213,7 +225,7 @@ public class LateralViewRef extends TableRef {
         fnExpr = null;
         originSlotRefList = Lists.newArrayList();
         view = null;
-        explodeSlotRef = null;
+        explodeSlotRefs = null;
         // There is no need to call the reset function of @relatedTableRef here.
         // The main reason is that @lateralViewRef itself is an attribute of @relatedTableRef
         // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.

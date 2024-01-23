@@ -6048,9 +6048,9 @@ lateral_view_ref_list ::=
     ;
 
 lateral_view_ref ::=
-    KW_LATERAL KW_VIEW function_call_expr:fnExpr ident:viewName KW_AS ident:columnName
+    KW_LATERAL KW_VIEW function_call_expr:fnExpr ident:viewName KW_AS ident_list:columnNames
     {:
-        RESULT = new LateralViewRef(fnExpr, viewName, columnName);
+        RESULT = new LateralViewRef(fnExpr, viewName, columnNames);
     :}
     ;
 

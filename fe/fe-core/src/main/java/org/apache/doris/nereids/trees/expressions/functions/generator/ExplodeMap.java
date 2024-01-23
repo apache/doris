@@ -18,15 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.generator;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,14 +37,7 @@ import java.util.List;
  *      key column: amory, doris
  *      value column: 1, 2
  */
-public class ExplodeMap extends TableGeneratingFunction implements BinaryExpression, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("col1", new FollowToAnyDataType(0), true, ""),
-                        new StructField("col2", new FollowToAnyDataType(1), true, ""))))
-                        .args(MapType.of(new AnyDataType(0), new AnyDataType(1)))
-    );
+public class ExplodeMap extends TableGeneratingFunction implements UnaryExpression, AlwaysNullable {
 
     /**
      * constructor with 1 argument.
@@ -64,8 +56,21 @@ public class ExplodeMap extends TableGeneratingFunction implements BinaryExpress
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!(child().getDataType() instanceof MapType)) {
+            throw new AnalysisException("only support map type for explode_map function but got "
+                    + child().getDataType());
+        }
+    }
+
+    @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        return ImmutableList.of(
+                FunctionSignature.ret(new StructType(ImmutableList.of(
+                                new StructField("col1", ((MapType) child().getDataType()).getKeyType(), true, ""),
+                                new StructField("col2", ((MapType) child().getDataType()).getValueType(), true, ""))))
+                        .args(child().getDataType())
+        );
     }
 
     @Override

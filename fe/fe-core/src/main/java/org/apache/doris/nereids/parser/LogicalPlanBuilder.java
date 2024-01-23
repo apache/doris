@@ -1014,14 +1014,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return plan;
         }
         String generateName = ctx.tableName.getText();
-        String columnName = ctx.columnName.getText();
+        // if later view explode map type, we need to add a project to convert map to struct
+        String columnName = ctx.columnNames.get(0).getText();
+        List<String> expandColumnNames = Lists.newArrayList();
+        if (ctx.columnNames.size() > 1) {
+            columnName = "expand_cols";
+            expandColumnNames = ctx.columnNames.stream()
+                    .map(RuleContext::getText).collect(ImmutableList.toImmutableList());
+        }
         String functionName = ctx.functionName.getText();
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
-                ImmutableList.of(new UnboundSlot(generateName, columnName)), plan);
+                ImmutableList.of(new UnboundSlot(generateName, columnName)), ImmutableList.of(expandColumnNames), plan);
     }
 
     /**

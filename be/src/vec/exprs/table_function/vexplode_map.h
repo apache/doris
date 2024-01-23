@@ -41,20 +41,12 @@ public:
         map_nullmap_data = nullptr;
         map_col = nullptr;
         offsets_ptr = nullptr;
-        nested_key_nullmap_data = nullptr;
-        nested_val_nullmap_data = nullptr;
-        nested_key_col = nullptr;
-        nested_val_col = nullptr;
     }
 
 public:
     const UInt8* map_nullmap_data = nullptr;
     const ColumnMap* map_col = nullptr;
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
-    const UInt8* nested_key_nullmap_data = nullptr;
-    const UInt8* nested_val_nullmap_data = nullptr;
-    const IColumn* nested_key_col = nullptr;
-    const IColumn* nested_val_col = nullptr;
 };
 
 

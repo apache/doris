@@ -45,17 +45,25 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;
+    // mapping with function.
+    private final List<List<String>> expandColumnAlias;
 
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, CHILD_TYPE child) {
-        this(generators, generatorOutput, Optional.empty(), Optional.empty(), child);
+        this(generators, generatorOutput, Lists.newArrayList(), Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput,
+    public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,
+            CHILD_TYPE child) {
+        this(generators, generatorOutput, expandColumnAlias, Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput, List<List<String>> expandColumnAlias,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_GENERATE, groupExpression, logicalProperties, child);
         this.generators = ImmutableList.copyOf(generators);
         this.generatorOutput = ImmutableList.copyOf(generatorOutput);
+        this.expandColumnAlias = ImmutableList.copyOf(expandColumnAlias);
     }
 
     public List<Function> getGenerators() {
@@ -66,10 +74,19 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         return generatorOutput;
     }
 
+    public List<List<String>> getExpandColumnAlias() {
+        return expandColumnAlias;
+    }
+
+    public LogicalGenerate<Plan> withExpandColumnAlias(List<List<String>> expandColumnAlias) {
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
+                Optional.empty(), Optional.of(getLogicalProperties()), child());
+    }
+
     @Override
     public LogicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, children.get(0));
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, children.get(0));
     }
 
     @Override
@@ -91,13 +108,13 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         for (int i = 0; i < generators.size(); i++) {
             newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
         }
-        return new LogicalGenerate<>(generators, newGeneratorOutput,
+        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias,
                 Optional.empty(), Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public LogicalGenerate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalGenerate<>(generators, generatorOutput,
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
                 groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
@@ -105,7 +122,8 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, groupExpression, logicalProperties, children.get(0));
+        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias,
+                groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

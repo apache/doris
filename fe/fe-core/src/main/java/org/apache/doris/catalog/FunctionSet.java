@@ -1739,6 +1739,7 @@ public class FunctionSet<T> {
     public static final String EXPLODE_JSON_ARRAY_JSON = "explode_json_array_json";
     public static final String EXPLODE_NUMBERS = "explode_numbers";
     public static final String EXPLODE = "explode";
+    public static final String EXPLODE_MAP = "explode_map";
 
     private void addTableFunction(String name, Type retType, NullableMode nullableMode, ArrayList<Type> argTypes,
             boolean hasVarArgs, String symbol) {
@@ -1803,6 +1804,15 @@ public class FunctionSet<T> {
         addTableFunctionWithCombinator(EXPLODE, Type.WILDCARD_DECIMAL, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.WILDCARD_DECIMAL)), false,
                 "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+
+        initTableFunctionListWithCombinator(EXPLODE_MAP);
+        for (Type keyType : Type.getMapSubTypes()) {
+            for (Type valueType : Type.getMapSubTypes()) {
+                addTableFunctionWithCombinator(EXPLODE_MAP, new StructType(keyType, valueType), Function.NullableMode.ALWAYS_NULLABLE,
+                        Lists.newArrayList(new MapType(keyType, valueType)), false,
+                        "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+            }
+        }
     }
 
     public boolean isAggFunctionName(String name) {

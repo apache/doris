@@ -51,21 +51,6 @@ bool extract_column_map_info(const IColumn& src, ColumnMapExecutionData& data) {
     }
 
     data.offsets_ptr = &data.map_col->get_offsets();
-    data.nested_key_col = &data.map_col->get_keys();
-    data.nested_val_col = &data.map_col->get_values();
-    // extract nested column is nullable
-    if (data.nested_key_col->is_nullable()) {
-        const auto& nested_key_null_col =
-                reinterpret_cast<const ColumnNullable&>(*data.nested_key_col);
-        data.nested_key_nullmap_data = nested_key_null_col.get_null_map_data().data();
-        data.nested_key_col = nested_key_null_col.get_nested_column_ptr().get();
-    }
-    if (data.nested_val_col->is_nullable()) {
-        const auto& nested_val_null_col =
-                reinterpret_cast<const ColumnNullable&>(*data.nested_val_col);
-        data.nested_val_nullmap_data = nested_val_null_col.get_null_map_data().data();
-        data.nested_val_col = nested_val_null_col.get_nested_column_ptr().get();
-    }
     return true;
 }
 
@@ -121,6 +106,9 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
         // make map kv value into struct
         ret = assert_cast<ColumnStruct*>(
                 assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
+        assert_cast<ColumnUInt8*>(
+                assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                ->insert_default();
     } else if (column->is_column_struct()) {
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
@@ -132,18 +120,8 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
                         "only support map column explode to two column, but given:  ",
                         ret->tuple_size());
     }
-
-    if (_map_detail.nested_key_nullmap_data && _map_detail.nested_key_nullmap_data[pos]) {
-        ret->get_column(0).insert_default();
-    } else {
-        ret->get_column(0).insert_from(*_map_detail.nested_key_col, pos);
-    }
-    if (_map_detail.nested_val_nullmap_data && _map_detail.nested_val_nullmap_data[pos]) {
-        ret->get_column(1).insert_default();
-    } else {
-        ret->get_column(1).insert_from(*_map_detail.nested_val_col, pos);
-    }
-
+    ret->get_column(0).insert_from(_map_detail.map_col->get_keys(), pos);
+    ret->get_column(1).insert_from(_map_detail.map_col->get_values(), pos);
 }
 
 } // namespace doris::vectorized
