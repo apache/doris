@@ -168,6 +168,10 @@ public class HyperGraphComparator {
         for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
+        builder.addQueryAllPulledUpExpressions(
+                getQueryFilterEdges().stream()
+                        .filter(this::canPullUp)
+                        .flatMap(filter -> filter.getExpressions().stream()).collect(Collectors.toList()));
         return builder.build();
     }
 
