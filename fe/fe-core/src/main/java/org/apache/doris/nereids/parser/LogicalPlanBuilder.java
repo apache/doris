@@ -1248,6 +1248,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
+        Optional<String> indexName = Optional.empty();
+        if (ctx.materializedViewName() != null) {
+            indexName = Optional.ofNullable(ctx.materializedViewName().indexName.getText());
+        }
+
         List<Long> tabletIdLists = new ArrayList<>();
         if (ctx.tabletList() != null) {
             ctx.tabletList().tabletIdList.stream().forEach(tabletToken -> {
@@ -1266,7 +1271,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
                         tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample)));
+                        Optional.ofNullable(tableSample), indexName));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
