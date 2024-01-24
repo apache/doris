@@ -219,9 +219,6 @@ public:
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(config::storage_root_path);
         ASSERT_TRUE(st.ok()) << st;
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->create_directory(get_remote_path(remote_tablet_path(kTabletId)))
-                            .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -387,6 +384,12 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
 
 void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
                   int64_t tablet_id, int64_t txn_id, int64_t partition_id, bool with_data = true) {
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(get_remote_path(remote_tablet_path(tablet_id)))
+                        .ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->create_directory(get_remote_path(remote_tablet_path(tablet_id)))
+                        .ok());
     // create tablet
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("CreateTablet");
@@ -396,6 +399,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     Status st = k_engine->create_tablet(request, profile.get());
     ASSERT_EQ(Status::OK(), st);
     if (!with_data) {
+        *tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
         return;
     }
 
@@ -442,19 +446,21 @@ TEST_F(TabletCooldownTest, normal) {
 
 TEST_F(TabletCooldownTest, cooldown_data) {
     TabletSharedPtr tablet1;
-    createTablet(&tablet1, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId, false);
+    createTablet(&tablet1, kReplicaId + 1, kSchemaHash + 1, kTabletId + 1, kTxnId + 1,
+                 kPartitionId + 1, false);
     // test cooldown
     tablet1->set_storage_policy_id(kStoragePolicyId);
     // Tablet with only rowset[0-1] will not be as suitable as cooldown candidate
     ASSERT_FALSE(tablet1->_has_data_to_cooldown());
 
     TabletSharedPtr tablet2;
-    createTablet(&tablet2, kReplicaId, kSchemaHash, kTabletId, kTxnId, kPartitionId);
+    createTablet(&tablet2, kReplicaId + 2, kSchemaHash + 2, kTabletId + 2, kTxnId + 2,
+                 kPartitionId + 2);
     // test cooldown
     tablet2->set_storage_policy_id(kStoragePolicyId);
     Status st = tablet2->cooldown(); // rowset [0-1]
     ASSERT_NE(Status::OK(), st);
-    tablet2->update_cooldown_conf(1, kReplicaId);
+    tablet2->update_cooldown_conf(1, kReplicaId + 2);
     // cooldown for upload node
     st = tablet2->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
@@ -470,8 +476,8 @@ TEST_F(TabletCooldownTest, cooldown_data) {
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_lo(1);
-    write_rowset(&tablet2, std::move(load_id), kReplicaId, kSchemaHash, kTabletId, kTxnId + 1,
-                 kPartitionId, tuple_desc, false);
+    write_rowset(&tablet2, std::move(load_id), kReplicaId + 2, kSchemaHash + 2, kTabletId + 2,
+                 kTxnId + 3, kPartitionId + 2, tuple_desc, false);
 
     st = tablet2->cooldown(); // rowset [3-3]
     ASSERT_EQ(Status::OK(), st);
