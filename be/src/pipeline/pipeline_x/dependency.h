@@ -57,22 +57,22 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep = nullptr;
-    Dependency* sink_dep = nullptr;
-
-    std::atomic_bool source_released_flag {false};
-    std::atomic_bool sink_released_flag {false};
-    std::mutex source_release_lock;
-    std::mutex sink_release_lock;
-
-    void release_source_dep() {
-        std::unique_lock<std::mutex> lc(source_release_lock);
-        source_released_flag = true;
+    template <class TARGET>
+    TARGET* cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<TARGET*>(this);
     }
-    void release_sink_dep() {
-        std::unique_lock<std::mutex> lc(sink_release_lock);
-        sink_released_flag = true;
+    template <class TARGET>
+    const TARGET* cast() const {
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<const TARGET*>(this);
     }
+    DependencySPtr source_dep = nullptr;
+    DependencySPtr sink_dep = nullptr;
     virtual ~BasicSharedState() = default;
 };
 
@@ -99,11 +99,8 @@ public:
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
-    std::shared_ptr<BasicSharedState> shared_state() { return _shared_state; }
-    void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
-        _shared_state = shared_state;
-    }
-    void clear_shared_state() { _shared_state.reset(); }
+    BasicSharedState* shared_state() { return _shared_state; }
+    void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
@@ -121,47 +118,19 @@ public:
     virtual void set_ready();
     void set_ready_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        if (_shared_state->source_released_flag) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_shared_state->source_release_lock);
-        if (_shared_state->source_released_flag) {
-            return;
-        }
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
     void set_block_to_read() {
         DCHECK(_is_write_dependency) << debug_string();
-        if (_shared_state->source_released_flag) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_shared_state->source_release_lock);
-        if (_shared_state->source_released_flag) {
-            return;
-        }
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->block();
     }
     void set_ready_to_write() {
-        if (_shared_state->sink_released_flag) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_shared_state->sink_release_lock);
-        if (_shared_state->sink_released_flag) {
-            return;
-        }
         DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
         _shared_state->sink_dep->set_ready();
     }
     void set_block_to_write() {
-        if (_shared_state->sink_released_flag) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(_shared_state->sink_release_lock);
-        if (_shared_state->sink_released_flag) {
-            return;
-        }
         DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
         _shared_state->sink_dep->block();
     }
@@ -180,7 +149,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
+    BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -524,7 +493,6 @@ public:
 
 struct SetSharedState : public BasicSharedState {
 public:
-    SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
     vectorized::Block build_block; // build to source
     //record element size in hashtable
@@ -666,45 +634,24 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<Dependency*> source_dependencies;
-    std::vector<std::atomic_bool> dependencies_release_flag;
-    Dependency* sink_dependency;
+    std::vector<DependencySPtr> source_dependencies;
+    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
-        size_t i = 0;
         for (auto& dep : source_dependencies) {
-            if (dependencies_release_flag[i]) {
-                i++;
-                continue;
-            }
-            {
-                std::unique_lock<std::mutex> lc(source_release_lock);
-                if (dependencies_release_flag[i]) {
-                    i++;
-                    continue;
-                }
-                DCHECK(dep);
-                dep->set_ready();
-                i++;
-            }
+            DCHECK(dep);
+            dep->set_ready();
         }
     }
 
-    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
+    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
 
     void set_ready_to_read(int channel_id) {
-        if (dependencies_release_flag[channel_id]) {
-            return;
-        }
-        std::unique_lock<std::mutex> lc(source_release_lock);
-        if (dependencies_release_flag[channel_id]) {
-            return;
-        }
         auto& dep = source_dependencies[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();

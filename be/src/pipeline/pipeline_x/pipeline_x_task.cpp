@@ -60,9 +60,10 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
+    _sink->get_dependency(_downstream_dependency, _shared_states, state->get_query_ctx());
     for (auto& op : _operators) {
-        _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
+        _source_dependency.insert(
+                {op->operator_id(), op->get_dependency(state->get_query_ctx(), _shared_states)});
     }
     pipeline->incr_created_tasks();
 }
@@ -94,8 +95,13 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         auto& deps = get_upstream_dependency(op->operator_id());
-        LocalStateInfo info {parent_profile, scan_ranges, deps,
-                             _le_state_map,  _task_idx,   _source_dependency[op->operator_id()]};
+        LocalStateInfo info {parent_profile,
+                             scan_ranges,
+                             deps,
+                             get_shared_state(op->operator_id()),
+                             _le_state_map,
+                             _task_idx,
+                             _source_dependency[op->operator_id()]};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
@@ -299,6 +305,7 @@ void PipelineXTask::finalize() {
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
     DependencyMap {}.swap(_upstream_dependency);
     std::map<int, DependencySPtr> {}.swap(_source_dependency);
+    std::map<int, std::shared_ptr<BasicSharedState>> {}.swap(_shared_states);
 
     _le_state_map.clear();
 }

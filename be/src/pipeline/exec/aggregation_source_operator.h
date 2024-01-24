@@ -63,7 +63,7 @@ public:
 
 private:
     bool _is_streaming_agg_state() {
-        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+        return ((SharedState*)Dependency::_shared_state)->data_queue != nullptr;
     }
 };
 
