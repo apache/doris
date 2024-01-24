@@ -117,6 +117,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SelectAuthChecker;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
@@ -379,6 +380,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
+                    custom(RuleType.RELATION_AUTHENTICATION, SelectAuthChecker::new),
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(new PushDownFilterThroughProject(), new MergeProjects()),
