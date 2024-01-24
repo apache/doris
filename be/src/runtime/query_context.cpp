@@ -161,13 +161,14 @@ void QueryContext::set_query_scheduler(uint64_t tg_id) {
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (!config::enable_cgroup_cpu_soft_limit) {
-        return _exec_env->pipeline_task_group_scheduler();
-    } else if (_task_scheduler) {
-        return _task_scheduler;
-    } else {
-        return _exec_env->pipeline_task_scheduler();
+    if (_task_group) {
+        if (!config::enable_cgroup_cpu_soft_limit) {
+            return _exec_env->pipeline_task_group_scheduler();
+        } else if (_task_scheduler) {
+            return _task_scheduler;
+        }
     }
+    return _exec_env->pipeline_task_scheduler();
 }
 
 ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
