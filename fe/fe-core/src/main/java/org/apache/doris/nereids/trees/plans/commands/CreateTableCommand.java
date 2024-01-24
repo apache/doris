@@ -30,6 +30,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -37,11 +38,15 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -109,16 +114,24 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             DataType dataType = s.getDataType().conversion();
-            if (dataType.isNullType()) {
-                dataType = TinyIntType.INSTANCE;
-            } else if (dataType.isDecimalV2Type()) {
-                dataType = DecimalV2Type.SYSTEM_DEFAULT;
-            } else if (i == 0 && dataType.isStringType()) {
+            if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
-            } else if (dataType instanceof CharacterType) {
-                // if column is not come from table, we should set varchar length to max
-                if (!s.isColumnFromTable()) {
-                    dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+            } else {
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        NullType.class, TinyIntType.INSTANCE);
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+                if (s.isColumnFromTable()) {
+                    if (!((SlotReference) s).getTable().isPresent()
+                            || !((SlotReference) s).getTable().get().isManagedTable()) {
+                        dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                                CharacterType.class, StringType.INSTANCE);
+                    }
+                } else {
+                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                            VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
+                    dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                            CharType.class, VarcharType.MAX_VARCHAR_TYPE);
                 }
             }
             // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
@@ -150,7 +163,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     void handleFallbackFailedCtas(ConnectContext ctx) {
         try {
             Env.getCurrentEnv().dropTable(new DropTableStmt(false,
-                    new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(),
+                    new TableName(createTableInfo.getCtlName(),
                             createTableInfo.getDbName(), createTableInfo.getTableName()), true));
         } catch (Exception e) {
             // TODO: refactor it with normal error process.

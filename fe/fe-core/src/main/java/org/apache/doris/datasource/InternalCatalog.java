@@ -1259,6 +1259,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                         default:
                             throw new DdlException("Unsupported string type for ctas");
                     }
+                    if (resultExpr.getSrcSlotRef() != null
+                            && resultExpr.getSrcSlotRef().getTable() != null
+                            && !resultExpr.getSrcSlotRef().getTable().isManagedTable()) {
+                        typeDef = new TypeDef(ScalarType.createStringType());
+                    }
                 } else if (resultType.isDecimalV2() && resultType.equals(ScalarType.DECIMALV2)) {
                     typeDef = new TypeDef(ScalarType.createDecimalType(27, 9));
                 } else if (resultType.isDecimalV3()) {
