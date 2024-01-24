@@ -45,7 +45,6 @@ void AsyncResultWriter::set_dependency(pipeline::AsyncWriterDependency* dep,
 
 Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
-    auto status = Status::OK();
     std::unique_ptr<Block> add_block;
     if (rows) {
         add_block = _get_free_block(block, rows);
@@ -58,7 +57,6 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
         return _writer_status;
     }
 
-    _eos = eos;
     if (_dependency && _is_finished()) {
         _dependency->set_ready();
     }
@@ -68,9 +66,10 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
             _dependency->block();
         }
     }
+    _eos = eos;
 
     _cv.notify_one();
-    return status;
+    return Status::OK();
 }
 
 std::unique_ptr<Block> AsyncResultWriter::_get_block_from_queue() {
