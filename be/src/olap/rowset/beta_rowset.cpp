@@ -100,8 +100,8 @@ Status BetaRowset::get_inverted_index_size_by_index_id(int64_t index_id, size_t*
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
         int64_t file_size = 0;
-        auto* index = _schema->get_inverted_index_with_index_id(index_id, "");
-        if (index->index_type() != IndexType::INVERTED) {
+        const auto* index = _schema->get_inverted_index_with_index_id(index_id, "");
+        if (index == nullptr || index->index_type() != IndexType::INVERTED) {
             continue;
         }
         std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_name(
