@@ -115,11 +115,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         for (auto& dep : deps) {
             dep->set_shared_state(_dependency->shared_state());
         }
-    } else {
-        auto& deps = info.upstream_dependencies;
-        DCHECK(deps.size() == 1) << " deps.size(): " << deps.size();
-        DCHECK(deps.front() == nullptr);
-        deps.front()->set_shared_state(_dependency->shared_state());
     }
     ((UnionSharedState*)_dependency->shared_state())
             ->data_queue.set_source_dependency(info.dependency);
