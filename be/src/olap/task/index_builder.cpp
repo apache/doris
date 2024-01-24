@@ -71,9 +71,22 @@ Status IndexBuilder::update_inverted_index_info() {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only remove
             // the indexes specified in this drop index request
+            size_t total_index_size = 0;
             for (auto t_inverted_index : _alter_inverted_indexes) {
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
+                auto beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+                size_t index_size = 0;
+                RETURN_IF_ERROR(beta_rowset->get_inverted_index_size_by_index_id(
+                        t_inverted_index.index_id, &index_size));
+                total_index_size += index_size;
             }
+            auto input_rowset_meta = input_rowset->rowset_meta();
+            input_rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
+                                                   total_index_size);
+            input_rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() -
+                                                  total_index_size);
+            input_rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
+                                                   total_index_size);
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
