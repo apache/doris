@@ -308,7 +308,7 @@ COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
 
 if [[ "${java_version}" -gt 16 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_17} ]]; then
-        JAVA_OPTS_FOR_JDK_17="-Xmx1024m -XX:+UseZGC ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
+        JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
 elif [[ "${java_version}" -gt 8 ]]; then
