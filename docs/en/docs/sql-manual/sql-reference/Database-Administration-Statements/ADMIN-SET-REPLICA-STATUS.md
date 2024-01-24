@@ -53,7 +53,7 @@ If the specified replica does not exist, or the status is already bad, it will b
 
 > Note:
 >
-> A replica set to Bad, it will not be able to read or write. In addition, if the actual data of the replica is correct and the replica still load data, the setting may become invalid after a while and will automatically return to the ok. This operation may delete the replica immediately, so please operate with caution.
+> A replica set to Bad, it will not be able to read or write. In addition, sometimes the setting may not working, when be report tablet ok, fe will auto change its status to ok. This operation may delete the replica immediately, so please operate with caution.
 >
 > A replica set to Drop, it can still be read and written. A healthy replica will be added to other machines first, and then this replica will be deleted. Compared with setting Bad, setting Drop is safer.
 
