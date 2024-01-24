@@ -258,17 +258,36 @@ In a regular deployment, users submit import commands via the HTTP protocol. Gen
 The actual effects of these two operations are the same. When Flink or Spark uses the official connector to submit, the write request can also be submitted to the BE Service.
 
 ### ErrorURL
-When import methods such as [Stream load](https://doris.apache.org/docs/data-operate/import/import-way/stream-load-manual) and [Routine load](https://doris.apache.org/docs/data-operate/import/import-way/routine-load-manual) 
-encounter errors such as incorrect data format, errorURL or tracking_url will be printed in the return structure or log. You can locate the cause of the import error by visiting this link. But in a Kubernetes deployed cluster, the URL is only accessible within the pod.
+When import methods such as [Stream load](https://doris.apache.org/docs/data-operate/import/import-way/stream-load-manual) and [Routine load](https://doris.apache.org/docs/data-operate/import/import-way/routine-load-manual)
+These import methods will print `errorURL` or `tracking_url` in the return structure or log when encountering errors such as incorrect data format. You can locate the cause of the import error by visiting this link.
+However, this URL is only accessible within the internal environment of a specific BE node container in a Kubernetes deployed cluster.
+
+The following scenario takes the errorURL returned by Doris as an example:
+```http://doriscluster-sample-be-2.doriscluster-sample-be-internal.doris.svc.cluster.local:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
 
 **1. Kubernetes cluster internal access**
 
 You need to obtain the access method of BE's Service or pod through the `kubectl get service` or `kubectl get pod -o wide` command, replace the domain name and port of the original URL, and then access again.
 
-**2. Kubernetes cluster external access**
+for example:
+```shell
+$ kubectl get pod -o wide
+NAME                       READY   STATUS    RESTARTS     AGE   IP           NODE                      NOMINATED NODE   READINESS GATES
+doriscluster-sample-be-0   1/1     Running   0            9h    10.0.2.105   10-0-2-47.ec2.internal    <none>           <none>
+doriscluster-sample-be-1   1/1     Running   0            9h    10.0.2.104   10-0-2-5.ec2.internal     <none>           <none>
+doriscluster-sample-be-2   1/1     Running   0            9h    10.0.2.103   10-0-2-6.ec2.internal     <none>           <none>
+doriscluster-sample-fe-0   1/1     Running   0            9h    10.0.2.102   10-0-2-47.ec2.internal    <none>           <none>
+doriscluster-sample-fe-1   1/1     Running   0            9h    10.0.2.101   10-0-2-5.ec2.internal     <none>           <none>
+doriscluster-sample-fe-2   1/1     Running   0            9h    10.0.2.100   10-0-2-6.ec2.internal     <none>           <none>
+```
+The above errorURL is changed to:
+```http://10.0.2.103:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
 
-Obtaining error report details from outside Kubernetes requires additional bridging means. Let's get the error report details through Service:
-Process the Service template be_streamload_errror_service.yaml (here, we use the `NodePort` mode as an example. If you use other modes, please modify the corresponding `spec.type` value):
+
+**2. NodePort mode for external access to Kubernetes cluster**
+
+Obtaining error report details from outside Kubernetes requires additional bridging means. The following are the processing steps for using NodePort mode Service when deploying Doris. Obtain error report details by creating a new Service:
+Handle Service template be_streamload_errror_service.yaml:
 ```yaml
 apiVersion: v1
 kind: Service
@@ -294,23 +313,65 @@ spec:
   sessionAffinity: None
   type: NodePort
 ```
+Use the following command to view the mapping of Service 8040 port on the host machine
+```shell
+$ kubectl get service -n doris doriscluster-detail-error
+NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+doriscluster-detail-error NodePort 10.152.183.35 <none> 8040:31201/TCP 32s
+```
+Use the IP of any host and the NodePort (31201) port obtained above to access and replace errorURL to obtain a detailed error report.
+The above errorURL is changed to:
+```http://10.152.183.35:31201/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
 
-If the errorURL returned by Doris is:
+**3. Access LoadBalancer mode from outside the Kubernetes cluster**
 
-```http://doriscluster-sample-be-2.doriscluster-sample-be-internal.doris.svc.cluster.local:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
-
+Obtaining error report details from outside Kubernetes requires additional bridging means. The following are the processing steps for using the LoadBalancer mode Service when deploying Doris. Obtain error report details by creating a new Service:
+Handle Service template be_streamload_errror_service.yaml:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.doris.service/role: debug
+    app.kubernetes.io/component: be
+  name: doriscluster-detail-error
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: webserver-port
+      port: 8040
+      protocol: TCP
+      targetPort: 8040
+  selector:
+    app.kubernetes.io/component: be
+    statefulset.kubernetes.io/pod-name: ${podName}
+  sessionAffinity: None
+  type: LoadBalancer
+```
 `podName` is replaced with the highest-level domain name of errorURL: `doriscluster-sample-be-2`.
 
 In the `namespace` deployed by Doris (generally the default is `doris`, use `doris` for the following operations), use the following command to deploy the service processed above:
 
 ```shell
-$ kubectl apply -n doris -f be_streamload_errror_service.yaml 
+$ kubectl apply -n doris -f be_streamload_errror_service.yaml
 ```
 
 Use the following command to view the mapping of Service 8040 port on the host machine
 ```shell
 $ kubectl get service -n doris doriscluster-detail-error
-NAME                              TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)            AGE
-doriscluster-detail-error         NodePort    10.152.183.35    <none>        8030:31201/TCP     32s
+NAME                         TYPE          CLUSTER-IP       EXTERNAL-IP                                                              PORT(S)           AGE
+doriscluster-detail-error    LoadBalancer  172.20.183.136   ac4828493dgrftb884g67wg4tb68gyut-1137856348.us-east-1.elb.amazonaws.com  8040:32003/TCP    14s
 ```
-Use the IP of any host and the NodePort (31201) port obtained above to access and replace errorURL to obtain a detailed error report.
+
+Use `EXTERNAL-IP` and Port (8040) port access to replace errorURL to obtain a detailed error report.
+The above errorURL is changed to:
+```http://ac4828493dgrftb884g67wg4tb68gyut-1137856348.us-east-1.elb.amazonaws.com:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968 e_af474190276a2e9c_49bb9d175b8e968e```
+
+Note: For the above method of setting up access outside the cluster, it is recommended to clear the current Service after use. The reference command is as follows:
+```shell
+$ kubectl delete service -n doris doriscluster-detail-error
+```

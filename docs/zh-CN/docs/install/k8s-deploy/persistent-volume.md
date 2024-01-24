@@ -39,8 +39,8 @@ PV 提供多种存储类型，主要分为两大类：网络存储、本地存�
 * CN：storage、log
 * BROKER：log
 
-Doris-Operator 同时将日志输出到 console 和 指定目录下。如果用户的 Kubernetes 系统有完整的日志收集能力，可通过 console 输出来收集doris info级别（默认）的日志信息。
-但是这里仍然推荐配置 PVC 来持久化日志文件，因为除了 info 级别日志还会有诸如 fe.out、be.out、audit.log 以及 垃圾回收日志，便于快速定位问题和审计日志回溯。
+Doris-Operator 同时将日志输出到 console 和 指定目录下。如果用户的 Kubernetes 系统有完整的日志收集能力，可通过 console 输出来收集 Doris INFO 级别（默认）的日志信息。
+但是这里仍然推荐配置 PVC 来持久化日志文件，因为除了 INFO 级别日志还会有诸如 fe.out、be.out、audit.log 以及 垃圾回收日志，便于快速定位问题和审计日志回溯。
 
 ***
 
@@ -126,7 +126,7 @@ spec:
 ```
 
 ## 定制化 ConfigMap
-Doris 在 Kubernetes 使用 `ConfigMap` 实现配置文件和服务解耦。 在部署 `doriscluster` 之前需要提前在同 namespace 下部署想要使用的 `ConfigMap`，以下样例展示了 FE 使用名称为 fe-configmap 的 `ConfigMap`， BE 使用名称为 be-configmap 的 `ConfigMap` 的集群相关yaml:  
+Doris 在 Kubernetes 使用 `ConfigMap` 实现配置文件和服务解耦。 在部署 `doriscluster` 之前需要提前在同 `namespace` 下部署想要使用的 `ConfigMap`，以下样例展示了 FE 使用名称为 fe-configmap 的 `ConfigMap`， BE 使用名称为 be-configmap 的 `ConfigMap` 的集群相关 yaml:  
 
 FE 的 ConfigMap 样例
 ```yaml
@@ -165,7 +165,7 @@ data:
     enable_fqdn_mode = true
 ```
 
-注意，使用 FE 的 configmap ，必须为 `fe.conf` 添加 `enable_fqdn_mode = true`，具体原因可参考 [此处文档](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/fqdn)
+注意，使用 FE 的 ConfigMap ，必须为 `fe.conf` 添加 `enable_fqdn_mode = true`，具体原因可参考 [此处文档](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/fqdn)
 
 BE 的 ConfigMap 样例
 ```yaml
@@ -295,8 +295,8 @@ data:
  ```
 
 ## BE 多盘配置
-Doris 的 BE 服务支持多盘挂载，在服务器时代能够很好满足一个计算资源和存储资源不匹配的问题，同时使用多盘也能够很好提高 doris 的存储效率。在 Kubernetes 上 Doris 同样可以挂载多盘来实现存储效益最大化。在 Kubernetes 上使用多盘需要配合配置文件一起使用。
-为实现服务和配置解耦，doris 采用 `ConfigMap` 来作为配置的承载，实现配置文件动态挂载给服务使用。
+Doris 的 BE 服务支持多盘挂载，在服务器时代能够很好满足一个计算资源和存储资源不匹配的问题，同时使用多盘也能够很好提高 Doris 的存储效率。在 Kubernetes 上 Doris 同样可以挂载多盘来实现存储效益最大化。在 Kubernetes 上使用多盘需要配合配置文件一起使用。
+为实现服务和配置解耦，Doris 采用 `ConfigMap` 来作为配置的承载，实现配置文件动态挂载给服务使用。
 以下为 BE 服务使用 `ConfigMap` 来承载配置文件，挂载两块盘供BE使用的 doriscluster 配置：
 ```yaml
 apiVersion: doris.selectdb.com/v1
@@ -382,7 +382,7 @@ spec:
             storage: 100Gi
 ```
 与默认样例相比增加了 `configMapInfo` 的配置，同时也增加了一个 `persistentVolumeClaimSpec` 的配置，[`persistentVolumeClaimSpec`](https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec) 完全遵循 Kubernetes 原生资源 PVC spec 的定义格式。
-样例中 `configMapInfo` 标识 BE 部署后使用同 namespace 下哪一个 ConfigMap 以及 哪一个 key 对应的内容作为配置文件启动，其中 key 为必须为 be.conf。以下为需要预先部署的配合上述 `doriscluster` ConfigMap 样例：
+样例中 `configMapInfo` 标识 BE 部署后使用同 `namespace` 下哪一个 ConfigMap 以及 哪一个 key 对应的内容作为配置文件启动，其中 key 为必须为 be.conf。以下为需要预先部署的配合上述 `doriscluster` ConfigMap 样例：
 ```yaml
 apiVersion: v1
 kind: ConfigMap

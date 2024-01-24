@@ -257,18 +257,37 @@ doriscluster-sample-be-service    NodePort    10.152.183.24    <none>        906
 在常规部署中，用户通过 HTTP 协议提交导入命令。一般用户会将请求提交到 FE，则 FE 会通过 HTTP redirect 指令将请求转发给某一个 BE。但是，在基于 Kubernetes 部署的场景下，推荐用户 **直接提交导入命令 BE 的 Srevice** ，再由 Service 依据 Kubernetes 规则负载均衡到某一 BE 的 pod 上。
 这两种操作效果的实际效果都是一样的，在 Flink 或 Spark 使用官方 connecter 提交的时候，也可以将写入请求提交给 BE Service。
 
-### ErrorURL查看
+### ErrorURL 查看
 诸如 [Stream load](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/stream-load-manual) ，[Routine load](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/routine-load-manual)
-这些导入方式，在遇到像数据格式有误等错误的时候，会在返回结构体或者日志中打印 `errorURL` 或 `tracking_url`。通过访问此链接可以定位导入错误原因。但是在 Kubernetes 部署的集群中，URL 是仅 pod 内可访问的。
+这些导入方式，在遇到像数据格式有误等错误的时候，会在返回结构体或者日志中打印 `errorURL` 或 `tracking_url`。 通过访问此链接可以定位导入错误原因。
+但是此 URL 是仅在 Kubernetes 部署的集群中某一个特定的 BE 节点容器内部环境可访问。
+
+以下方案，以 Doris 返回的 errorURL 为例展开：
+```http://doriscluster-sample-be-2.doriscluster-sample-be-internal.doris.svc.cluster.local:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
 
 **1. Kubernetes 集群内部访问**
 
 需要通过 `kubectl get service` 或 `kubectl get pod -o wide` 命令获取 BE 的 Service 或 pod 的访问方式来进行原 URL 的域名端口替换，然后再访问。
 
-**2. Kubernetes 集群外部访问**
+比如：
+```shell
+$ kubectl get pod -o wide
+NAME                       READY   STATUS    RESTARTS     AGE   IP           NODE                      NOMINATED NODE   READINESS GATES
+doriscluster-sample-be-0   1/1     Running   0            9h    10.0.2.105   10-0-2-47.ec2.internal    <none>           <none>
+doriscluster-sample-be-1   1/1     Running   0            9h    10.0.2.104   10-0-2-5.ec2.internal     <none>           <none>
+doriscluster-sample-be-2   1/1     Running   0            9h    10.0.2.103   10-0-2-6.ec2.internal     <none>           <none>
+doriscluster-sample-fe-0   1/1     Running   0            9h    10.0.2.102   10-0-2-47.ec2.internal    <none>           <none>
+doriscluster-sample-fe-1   1/1     Running   0            9h    10.0.2.101   10-0-2-5.ec2.internal     <none>           <none>
+doriscluster-sample-fe-2   1/1     Running   0            9h    10.0.2.100   10-0-2-6.ec2.internal     <none>           <none>
+```
+上述 errorURL 则改为：
+```http://10.0.2.103:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
 
-从 Kubernetes 外部获取报错详情 需要额外的桥接⼿段实现，⼀下通过 Service 的⽅式来获取报错详情：
-处理 Service 模板 be_streamload_errror_service.yaml（此处以使用 `NodePort` 模式为例，如果使用其他模式，请修改对应的 `spec.type` 值）:
+
+**2. Kubernetes 集群外部访问 NodePort 模式**
+
+从 Kubernetes 外部获取报错详情 需要额外的桥接⼿段实现，以下是在部署 Doris 时采用 NodePort 模式的 Service 的处理步骤，通过新建 Service 的⽅式来获取报错详情：
+处理 Service 模板 be_streamload_errror_service.yaml :
 ```yaml
 apiVersion: v1
 kind: Service
@@ -295,10 +314,6 @@ spec:
   type: NodePort
 ```
 
-若 Doris 返回的 errorURL 为：
-
-```http://doriscluster-sample-be-2.doriscluster-sample-be-internal.doris.svc.cluster.local:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
-
 `podName` 则替换为 errorURL 的最⾼级域名：`doriscluster-sample-be-2`。
 
 在 Doris 部署的 `namespace`（一般默认 `doris` ， 以下操作使用 `doris`） 使⽤如下命令部署上述处理过的 Service：
@@ -311,6 +326,62 @@ $ kubectl apply -n doris -f be_streamload_errror_service.yaml
 ```shell
 $ kubectl get service -n doris doriscluster-detail-error
 NAME                              TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)            AGE
-doriscluster-detail-error         NodePort    10.152.183.35    <none>        8030:31201/TCP     32s
+doriscluster-detail-error         NodePort    10.152.183.35    <none>        8040:31201/TCP     32s
 ```
 使⽤任何⼀台宿主机的 IP 和上面获得的 NodePort（31201）端⼝访问 替换 errorURL 获取详细报错报告。
+上述 errorURL 则改为：
+```http://10.152.183.35:31201/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
+
+**3. Kubernetes 集群外部访问 LoadBalancer 模式**
+
+从 Kubernetes 外部获取报错详情 需要额外的桥接⼿段实现，以下是在部署 Doris 时采用 LoadBalancer 模式的 Service 的处理步骤，通过新建 Service 的⽅式来获取报错详情：
+处理 Service 模板 be_streamload_errror_service.yaml :
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.doris.service/role: debug
+    app.kubernetes.io/component: be
+  name: doriscluster-detail-error
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+    - name: webserver-port
+      port: 8040
+      protocol: TCP
+      targetPort: 8040
+  selector:
+    app.kubernetes.io/component: be
+    statefulset.kubernetes.io/pod-name: ${podName}
+  sessionAffinity: None
+  type: LoadBalancer
+```
+
+`podName` 则替换为 errorURL 的最⾼级域名：`doriscluster-sample-be-2`。
+
+在 Doris 部署的 `namespace`（一般默认 `doris` ， 以下操作使用 `doris`） 使⽤如下命令部署上述处理过的 Service：
+
+```shell
+$ kubectl apply -n doris -f be_streamload_errror_service.yaml 
+```
+
+通过如下命令查看 Service 8040 端⼝在宿主机的映射
+```shell
+$ kubectl get service -n doris doriscluster-detail-error
+NAME                         TYPE          CLUSTER-IP       EXTERNAL-IP                                                              PORT(S)           AGE
+doriscluster-detail-error    LoadBalancer  172.20.183.136   ac4828493dgrftb884g67wg4tb68gyut-1137856348.us-east-1.elb.amazonaws.com  8040:32003/TCP    14s
+```
+
+使⽤ `EXTERNAL-IP` 和 Port（8040）端⼝访问 替换 errorURL 获取详细报错报告。
+上述 errorURL 则改为：
+```http://ac4828493dgrftb884g67wg4tb68gyut-1137856348.us-east-1.elb.amazonaws.com:8040/api/_load_error_log?file=__shard_1/error_log_insert_stmt_af474190276a2e9c-49bb9d175b8e968e_af474190276a2e9c_49bb9d175b8e968e```
+
+注意：上述设置集群外访问的方法，建议使用完毕后清除掉当前 Service，参考命令如下：
+```shell
+$ kubectl delete service -n doris doriscluster-detail-error
+```

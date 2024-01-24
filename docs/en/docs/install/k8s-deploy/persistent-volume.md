@@ -39,8 +39,8 @@ Recommended node directory type for persistent storage:
 * CN: storage, log
 * BROKER: log
 
-Doris-Operator outputs logs to the console and the specified directory at the same time. If the user's Kubernetes system has complete log collection capabilities, log information at the doris info level (default) can be collected through console output.
-However, it is still recommended to configure PVC to persist log files, because in addition to info level logs, there are also logs such as fe.out, be.out, audit.log and garbage collection logs, which facilitates quick problem location and audit log backtracking.
+Doris-Operator outputs logs to the console and the specified directory at the same time. If the user's Kubernetes system has complete log collection capabilities, log information at the Doris INFO level (default) can be collected through console output.
+However, it is still recommended to configure PVC to persist log files, because in addition to INFO level logs, there are also logs such as fe.out, be.out, audit.log and garbage collection logs, which facilitates quick problem location and audit log backtracking.
 
 ***
 
@@ -126,7 +126,7 @@ spec:
 ```
 
 ## Customized ConfigMap
-Doris uses `ConfigMap` in Kubernetes to decouple configuration files and services. Before deploying `doriscluster`, you need to deploy the `ConfigMap` you want to use under the same namespace in advance. The following example shows that FE uses `ConfigMap` named fe-configmap and BE uses `ConfigMap` named be-configmap. Cluster related yaml:
+Doris uses `ConfigMap` in Kubernetes to decouple configuration files and services. Before deploying `doriscluster`, you need to deploy the `ConfigMap` you want to use under the same `namespace` in advance. The following example shows that FE uses `ConfigMap` named fe-configmap and BE uses `ConfigMap` named be-configmap. Cluster related yaml:
 
 ConfigMap sample for FE
 ```yaml
@@ -165,7 +165,7 @@ data:
     enable_fqdn_mode = true
 ```
 
-Note that when using FE's configmap, you must add `enable_fqdn_mode = true` to `fe.conf`. For specific reasons, please refer to [document here](https://doris.apache.org/docs/admin-manual/cluster-management/fqdn)
+Note that when using FE's ConfigMap, you must add `enable_fqdn_mode = true` to `fe.conf`. For specific reasons, please refer to [document here](https://doris.apache.org/docs/admin-manual/cluster-management/fqdn)
 
 BE's ConfigMap sample
 ```yaml
@@ -382,7 +382,7 @@ spec:
             storage: 100Gi
 ```
 Compared with the default example, the configuration of `configMapInfo` is added, and a configuration of `persistentVolumeClaimSpec` is also added, [`persistentVolumeClaimSpec`](https://kubernetes.io/docs/reference/kubernetes-api/config-and-storage-resources/persistent-volume-claim-v1/#PersistentVolumeClaimSpec) fully follows the definition format of the Kubernetes native resource PVC spec.
-In the example, `configMapInfo` identifies which ConfigMap under the same namespace and which key corresponding content will be used as the configuration file after BE is deployed, where the key must be be.conf. The following is an example of the above `doriscluster` ConfigMap that needs to be pre-deployed:
+In the example, `configMapInfo` identifies which ConfigMap under the same `namespace` and which key corresponding content will be used as the configuration file after BE is deployed, where the key must be be.conf. The following is an example of the above `doriscluster` ConfigMap that needs to be pre-deployed:
 ```yaml
 apiVersion: v1
 kind: ConfigMap
