@@ -20,6 +20,7 @@
 namespace doris::vectorized {
 
 void register_function_ip(SimpleFunctionFactory& factory) {
+    /// IPv4 convert between string and num part
     factory.register_function<FunctionIPv4NumToString>();
     factory.register_alias(FunctionIPv4NumToString::name, "inet_ntoa");
     factory.register_function<FunctionIPv4StringToNum<IPConvertExceptionMode::Throw>>();
@@ -28,6 +29,7 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionIPv4StringToNum<IPConvertExceptionMode::Null>::name,
                            "inet_aton");
 
+    /// IPv6 convert between string and num part
     factory.register_function<FunctionIPv6NumToString>();
     factory.register_alias(FunctionIPv6NumToString::name, "inet6_ntoa");
     factory.register_function<FunctionIPv6StringToNum<IPConvertExceptionMode::Throw>>();
@@ -36,14 +38,17 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionIPv6StringToNum<IPConvertExceptionMode::Null>::name,
                            "inet6_aton");
 
+    /// Judge part
     factory.register_function<FunctionIsIPv4Compat>();
     factory.register_function<FunctionIsIPv4Mapped>();
     factory.register_function<FunctionIsIPString<IPv4>>();
     factory.register_function<FunctionIsIPString<IPv6>>();
     factory.register_function<FunctionIsIPAddressInRange>();
 
+    /// CIDR part
     factory.register_function<FunctionIPv6CIDRToRange>();
 
+    /// Convert to IPv4/IPv6 part
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Throw, IPv4>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Default, IPv4>>();
     factory.register_function<FunctionToIP<IPConvertExceptionMode::Null, IPv4>>();
