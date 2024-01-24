@@ -35,6 +35,7 @@ class TAgentResult;
 class TAgentTaskRequest;
 class TMasterInfo;
 class TSnapshotRequest;
+class StorageEngine;
 
 // Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
@@ -46,8 +47,10 @@ public:
     void submit_tasks(TAgentResult& agent_result, const std::vector<TAgentTaskRequest>& tasks);
 
     // TODO(lingbin): make the agent_result to be a pointer, because it will be modified.
-    void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
-    void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
+    static void make_snapshot(StorageEngine& engine, TAgentResult& agent_result,
+                              const TSnapshotRequest& snapshot_request);
+    static void release_snapshot(StorageEngine& engine, TAgentResult& agent_result,
+                                 const std::string& snapshot_path);
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
@@ -58,8 +61,6 @@ public:
 
 private:
     void start_workers(ExecEnv* exec_env);
-
-    DISALLOW_COPY_AND_ASSIGN(AgentServer);
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;

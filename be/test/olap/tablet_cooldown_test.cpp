@@ -67,7 +67,7 @@ namespace doris {
 class OlapMeta;
 struct Slice;
 
-static std::unique_ptr<StorageEngine> k_engine;
+static StorageEngine* engine_ref = nullptr;
 
 static const std::string kTestDir = "ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
@@ -227,17 +227,18 @@ public:
 
         EngineOptions options;
         options.store_paths = paths;
-        k_engine = std::make_unique<StorageEngine>(options);
-        st = k_engine->open();
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        st = engine->open();
         EXPECT_TRUE(st.ok()) << st.to_string();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(std::move(engine));
         exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-        exec_env->set_storage_engine(k_engine.get());
     }
 
     static void TearDownTestSuite() {
-        k_engine.reset();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        engine_ref = nullptr;
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
     }
@@ -315,7 +316,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
     request.__set_replica_id(replica_id);
-    Status st = k_engine->create_tablet(request, profile.get());
+    Status st = engine_ref->create_tablet(request, profile.get());
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -343,7 +344,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
 
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
-            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
+            std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -381,20 +382,20 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success
-    *tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    *tablet = engine_ref->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     OlapMeta* meta = (*tablet)->data_dir()->get_meta();
     Version version;
     version.first = (*tablet)->get_rowset_with_max_version()->end_version() + 1;
     version.second = (*tablet)->get_rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-    k_engine->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
-                                                     &tablet_related_rs);
+    engine_ref->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
+                                                       &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                  (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
-                                                  version, &stats);
+        st = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                    (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
+                                                    version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

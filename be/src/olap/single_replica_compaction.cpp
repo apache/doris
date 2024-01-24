@@ -32,6 +32,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "service/brpc.h"
 #include "task/engine_clone_task.h"
@@ -127,7 +128,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
     TReplicaInfo addr;
     std::string token;
     //  1. get peer replica info
-    if (!StorageEngine::instance()->get_peer_replica_info(_tablet->tablet_id(), &addr, &token)) {
+    if (!ExecEnv::GetInstance()->storage_engine().to_local().get_peer_replica_info(
+                _tablet->tablet_id(), &addr, &token)) {
         LOG(WARNING) << _tablet->tablet_id() << " tablet don't have peer replica";
         return Status::Aborted("tablet don't have peer replica");
     }
@@ -326,9 +328,10 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
         remote_url_prefix = ss.str();
     }
     RETURN_IF_ERROR(_download_files(_tablet->data_dir(), remote_url_prefix, local_path));
-    _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
-            local_path, _tablet->tablet_id(), _tablet->replica_id(), _tablet->partition_id(),
-            _tablet->schema_hash()));
+    _pending_rs_guards = DORIS_TRY(
+            ExecEnv::GetInstance()->storage_engine().to_local().snapshot_mgr()->convert_rowset_ids(
+                    local_path, _tablet->tablet_id(), _tablet->replica_id(),
+                    _tablet->partition_id(), _tablet->schema_hash()));
     // 4: finish_clone: create output_rowset and link file
     return _finish_clone(local_data_path, rowset_version);
 }
