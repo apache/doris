@@ -107,9 +107,11 @@ public:
             // Spark can set the timestamp precision by the following configuration:
             // spark.sql.parquet.outputTimestampType = INT96(NANOS), TIMESTAMP_MICROS, TIMESTAMP_MILLIS
             if constexpr (std::is_same_v<T, ParquetInt96>) {
+                reset_time_scale_if_missing(9);
                 return _decode_datetime96<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
                         doris_column, select_vector);
             } else if constexpr (std::is_same_v<T, Int64>) {
+                reset_time_scale_if_missing(remove_nullable(data_type)->get_scale());
                 return _decode_datetime64<DateV2Value<DateTimeV2ValueType>, UInt64, has_filter>(
                         doris_column, select_vector);
             }
