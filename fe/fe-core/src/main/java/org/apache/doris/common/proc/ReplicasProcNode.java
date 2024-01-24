@@ -42,6 +42,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ReplicaId")
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
+            .add("IsUserDrop")
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
             .add("CooldownMetaId").add("QueryHits").build();
 
@@ -103,6 +104,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
                                         String.valueOf(replica.isBad()),
+                                        String.valueOf(replica.isUserDrop()),
                                         String.valueOf(replica.getVersionCount()),
                                         String.valueOf(replica.getPathHash()),
                                         metaUrl,
