@@ -82,6 +82,7 @@ import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
@@ -735,6 +736,7 @@ public class TabletScheduler extends MasterDaemon {
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+                    && !be.isExceedCloneFailedLimit()
                     && be.isMixNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
@@ -766,7 +768,17 @@ public class TabletScheduler extends MasterDaemon {
             throws SchedException {
         stat.counterReplicaVersionMissingErr.incrementAndGet();
         try {
-            tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots);
+            Set<Long> backendsInTablet = tabletCtx.getReplicas().stream()
+                    .map(Replica::getBackendId).collect(Collectors.toSet());
+            boolean skipAlwaysCloneFail = Config.create_new_replica_in_health_backends
+                    && Env.getCurrentSystemInfo().getAllBackends().stream().anyMatch(be -> {
+                        return be.isScheduleAvailable()
+                                && !backendsInTablet.contains(be.getId())
+                                && !be.isExceedCloneFailedLimit()
+                                && be.getDisks().values().stream()
+                        .anyMatch(diskInfo -> diskInfo.getStorageMedium() == tabletCtx.getStorageMedium());
+                    });
+            tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots, skipAlwaysCloneFail);
         } catch (SchedException e) {
             // could not find dest, try add a missing.
             if (e.getStatus() == Status.UNRECOVERABLE) {
@@ -1692,6 +1704,7 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.setErrMsg(e.getMessage());
             if (e.getStatus() == Status.RUNNING_FAILED) {
                 tabletCtx.increaseFailedRunningCounter();
+                Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).updateCloneFailedWindow();
                 if (!tabletCtx.isExceedFailedRunningLimit()) {
                     stat.counterCloneTaskFailed.incrementAndGet();
                     tabletCtx.releaseResource(this);
@@ -1714,6 +1727,7 @@ public class TabletScheduler extends MasterDaemon {
             } else if (e.getStatus() == Status.FINISHED) {
                 // tablet is already healthy, just remove
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(), e.getMessage());
+                Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).clearCloneFailedWindow();
                 return true;
             }
         } catch (Exception e) {
@@ -1728,6 +1742,7 @@ public class TabletScheduler extends MasterDaemon {
         stat.counterCloneTaskSucceeded.incrementAndGet();
         gatherStatistics(tabletCtx);
         finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
+        Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).clearCloneFailedWindow();
         return true;
     }
 

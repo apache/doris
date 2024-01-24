@@ -677,7 +677,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      *
      * database lock should be held.
      */
-    public void chooseDestReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
+    public void chooseDestReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots,
+                                                      boolean skipAlwaysCloneFail)
             throws SchedException {
         List<Replica> decommissionCand = Lists.newArrayList();
         List<Replica> colocateCand = Lists.newArrayList();
@@ -694,6 +695,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (be == null || !be.isScheduleAvailable()) {
                 LOG.debug("replica's backend {} does not exist or is not scheduler available, skip. tablet: {}",
                         replica.getBackendId(), tabletId);
+                continue;
+            }
+
+            if (skipAlwaysCloneFail && Env.getCurrentSystemInfo().getBackend(replica.getBackendId())
+                    .isExceedCloneFailedLimit()) {
+                LOG.debug("replica's backend {} unhealthy, skip. tablet: {}", replica.getBackendId(), tabletId);
                 continue;
             }
 
