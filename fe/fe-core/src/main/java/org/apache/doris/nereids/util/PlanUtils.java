@@ -73,7 +73,11 @@ public class PlanUtils {
     }
 
     public static LogicalAggregate<Plan> distinct(Plan plan) {
-        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan);
+        if (plan instanceof LogicalAggregate && ((LogicalAggregate<?>) plan).isDistinct()) {
+            return (LogicalAggregate<Plan>) plan;
+        } else {
+            return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan);
+        }
     }
 
     /**
