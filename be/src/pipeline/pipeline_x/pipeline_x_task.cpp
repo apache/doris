@@ -303,10 +303,9 @@ void PipelineXTask::finalize() {
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-    DependencyMap {}.swap(_upstream_dependency);
-    std::map<int, DependencySPtr> {}.swap(_source_dependency);
-    std::map<int, std::shared_ptr<BasicSharedState>> {}.swap(_shared_states);
-
+    _upstream_dependency.clear();
+    _source_dependency.clear();
+    _shared_states.clear();
     _le_state_map.clear();
 }
 

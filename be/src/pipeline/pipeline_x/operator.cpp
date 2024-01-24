@@ -368,14 +368,14 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
             _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first.get());
-            _shared_state = _dependency->shared_state()
-                                    ->template cast<typename DependencyType::SharedState>();
+            _shared_state =
+                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
             _shared_state->source_dep = info.dependency;
         } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(info.shared_state);
-            _shared_state = _dependency->shared_state()
-                                    ->template cast<typename DependencyType::SharedState>();
+            _shared_state =
+                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
 
             _shared_state->source_dep = info.dependency;
             if (!deps.empty()) {
