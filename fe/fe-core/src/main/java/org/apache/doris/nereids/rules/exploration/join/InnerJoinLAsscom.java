@@ -94,6 +94,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM);
     }
 
+    /**
+     *
+     * check reorder
+     */
     public static boolean checkReorder(LogicalJoin<? extends Plan, GroupPlan> topJoin,
             LogicalJoin<GroupPlan, GroupPlan> bottomJoin, boolean leftZigZag) {
         if (leftZigZag) {

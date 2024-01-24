@@ -92,7 +92,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
         if (swapType == SwapType.LEFT_ZIG_ZAG) {
             double leftRows = join.left().getGroup().getStatistics().getRowCount();
             double rightRows = join.right().getGroup().getStatistics().getRowCount();
-            return leftRows < rightRows && isZigZagJoin(join);
+            return leftRows <= rightRows && isZigZagJoin(join);
         }
 
         return !join.getJoinReorderContext().hasCommute() && !join.getJoinReorderContext().hasExchange();
