@@ -112,26 +112,33 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
                 && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
+                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)
+                && !builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;
         }
         org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
-            this.addAppliedRuntimeFilter(filter);
-            filter.addTargetSlot(scanSlot, scan);
-            filter.addTargetExpression(scanSlot);
-            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
-            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            if (!filter.hasTargetScan(scan)) {
+                // A join B on A.a1=B.b and A.a1 = A.a2
+                // RF B.b->(A.a1, A.a2)
+                // however, RF(B.b->A.a2) is implied by RF(B.a->A.a1) and A.a1=A.a2
+                // we skip RF(B.b->A.a2)
+                this.addAppliedRuntimeFilter(filter);
+                filter.addTargetSlot(scanSlot, probeExpr, scan);
+                ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            }
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
-                    src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv, scan);
+                    src, ImmutableList.of(scanSlot), ImmutableList.of(probeExpr),
+                    type, exprOrder, builderNode, buildSideNdv, scan);
             this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeSlot).first, scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;

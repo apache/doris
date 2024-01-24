@@ -315,7 +315,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             if (expression.children().isEmpty()) {
                 continue;
             }
-            Expression expr = ExpressionUtils.getExpressionCoveredByCast(expression.child(0));
+            Expression expr = ExpressionUtils.getSingleNumericSlotOrExpressionCoveredByCast(expression.child(0));
             if (expr instanceof NamedExpression
                     && ctx.aliasTransferMapContains((NamedExpression) expr)) {
                 if (expression instanceof Alias) {
@@ -357,7 +357,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     public static Slot checkTargetChild(Expression leftChild) {
-        Expression expression = ExpressionUtils.getExpressionCoveredByCast(leftChild);
+        Expression expression = ExpressionUtils.getSingleNumericSlotOrExpressionCoveredByCast(leftChild);
         return expression instanceof Slot ? ((Slot) expression) : null;
     }
 
@@ -567,7 +567,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 PhysicalHashJoin<? extends Plan, ? extends Plan> join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
-                if (ctx.getSessionVariable().getEnablePipelineEngine()) {
+                if (ctx.getSessionVariable().getEnablePipelineEngine() && !join.isBroadCastJoin()) {
                     type = TRuntimeFilterType.BLOOM;
                 }
                 EqualTo newEqualTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
@@ -611,6 +611,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         (SlotReference) targetExpr, ctx);
                 if (!pushDownBasicTableInfos.isEmpty()) {
                     List<Slot> targetList = new ArrayList<>();
+                    List<Expression> targetExpressions = new ArrayList<>();
                     List<PhysicalRelation> targetNodes = new ArrayList<>();
                     for (Map.Entry<Slot, PhysicalRelation> entry : pushDownBasicTableInfos.entrySet()) {
                         Slot targetSlot = entry.getKey();
@@ -619,6 +620,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                             continue;
                         }
                         targetList.add(targetSlot);
+                        targetExpressions.add(targetSlot);
                         targetNodes.add(scan);
                         ctx.addJoinToTargetMap(join, targetSlot.getExprId());
                         ctx.setTargetsOnScanNode(scan, targetSlot);
@@ -626,7 +628,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // build multi-target runtime filter
                     // since always on different join, set the expr_order as 0
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), targetList, type, 0, join, buildSideNdv, cteNode);
+                            equalTo.right(), targetList, targetExpressions, type, 0, join, buildSideNdv, cteNode);
                     targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);

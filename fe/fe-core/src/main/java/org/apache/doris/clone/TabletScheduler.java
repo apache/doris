@@ -1126,41 +1126,36 @@ public class TabletScheduler extends MasterDaemon {
                 LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
                         replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
             }
+            try {
+                long preWatermarkTxnId = replica.getPreWatermarkTxnId();
+                if (preWatermarkTxnId == -1) {
+                    preWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
+                            .getTransactionIDGenerator().getNextTransactionId();
+                    replica.setPreWatermarkTxnId(preWatermarkTxnId);
+                    LOG.info("set decommission replica {} on backend {} of tablet {} pre watermark txn id {}",
+                            replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), preWatermarkTxnId);
+                }
 
-            long preWatermarkTxnId = replica.getPreWatermarkTxnId();
-            if (preWatermarkTxnId == -1) {
-                preWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionIDGenerator().getNextTransactionId();
-                replica.setPreWatermarkTxnId(preWatermarkTxnId);
-                LOG.info("set decommission replica {} on backend {} of tablet {} pre watermark txn id {}",
-                        replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), preWatermarkTxnId);
-            }
-
-            long postWatermarkTxnId = replica.getPostWatermarkTxnId();
-            if (postWatermarkTxnId == -1) {
-                try {
+                long postWatermarkTxnId = replica.getPostWatermarkTxnId();
+                if (postWatermarkTxnId == -1) {
                     if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(preWatermarkTxnId,
                             tabletCtx.getDbId(), tabletCtx.getTblId(), tabletCtx.getPartitionId())) {
                         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
                                 "wait txn before pre watermark txn " + preWatermarkTxnId + " to be finished");
                     }
-                } catch (AnalysisException e) {
-                    throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
-                }
-                postWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionIDGenerator().getNextTransactionId();
-                replica.setPostWatermarkTxnId(postWatermarkTxnId);
-                LOG.info("set decommission replica {} on backend {} of tablet {} post watermark txn id {}",
-                        replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), postWatermarkTxnId);
-            }
+                    postWatermarkTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
 
-            try {
+                    replica.setPostWatermarkTxnId(postWatermarkTxnId);
+                    LOG.info("set decommission replica {} on backend {} of tablet {} post watermark txn id {}",
+                            replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), postWatermarkTxnId);
+                }
+
                 if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(postWatermarkTxnId,
                         tabletCtx.getDbId(), tabletCtx.getTblId(), tabletCtx.getPartitionId())) {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
                             "wait txn before post watermark txn  " + postWatermarkTxnId + " to be finished");
                 }
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
             }
         }

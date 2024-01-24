@@ -435,7 +435,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -755,14 +754,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowConstraint(ShowConstraintContext ctx) {
-        Set<UnboundRelation> unboundRelation = visitRelation(ctx.table)
-                .collect(UnboundRelation.class::isInstance);
-        return new ShowConstraintsCommand(unboundRelation.iterator().next().getNameParts());
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        return new ShowConstraintsCommand(parts);
     }
 
     @Override
     public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
-        LogicalPlan curTable = visitRelation(ctx.table);
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
         ImmutableList<Slot> slots = visitIdentifierList(ctx.constraint().slots).stream()
                 .map(UnboundSlot::new)
                 .collect(ImmutableList.toImmutableList());
@@ -786,7 +785,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
-        LogicalPlan curTable = visitRelation(ctx.table);
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
         return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 

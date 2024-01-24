@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_wal_mem_back_pressure_time_out_fault_injection","nonConcurrent") {
+suite("test_low_wal_disk_space_fault_injection","nonConcurrent") {
 
 
     def tableName = "wal_test"

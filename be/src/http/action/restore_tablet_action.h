@@ -29,11 +29,13 @@
 namespace doris {
 
 class ExecEnv;
+class StorageEngine;
 class HttpRequest;
 
 class RestoreTabletAction : public HttpHandlerWithAuth {
 public:
-    RestoreTabletAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type);
+    RestoreTabletAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
+                        TPrivilegeType::type type);
 
     ~RestoreTabletAction() override = default;
 
@@ -63,6 +65,8 @@ private:
     // key: tablet_id + schema_hash
     // value: "" or tablet path in trash
     std::map<std::string, std::string> _tablet_path_map;
+
+    StorageEngine& _engine;
 }; // end class RestoreTabletAction
 
 } // end namespace doris

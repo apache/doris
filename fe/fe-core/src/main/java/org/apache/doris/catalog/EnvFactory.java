@@ -17,79 +17,80 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.catalog.CloudPartition;
-import org.apache.doris.cloud.catalog.CloudReplica;
-import org.apache.doris.cloud.catalog.CloudTablet;
-import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
 import java.lang.reflect.Type;
+import java.util.Map;
 
 public class EnvFactory {
 
-    public static Env createEnv(boolean isCheckpointCatalog) {
-        if (Config.isCloudMode()) {
-            return new CloudEnv(isCheckpointCatalog);
-        } else {
-            return new Env(isCheckpointCatalog);
-        }
+    public EnvFactory() {}
+
+    private static class SingletonHolder {
+        private static final EnvFactory INSTANCE =
+                Config.isCloudMode() ? new CloudEnvFactory() : new EnvFactory();
     }
 
-    public static InternalCatalog createInternalCatalog() {
-        if (Config.isCloudMode()) {
-            return new CloudInternalCatalog();
-        } else {
-            return new InternalCatalog();
-        }
+    public static EnvFactory getInstance() {
+        return SingletonHolder.INSTANCE;
     }
 
-    public static Type getPartitionClass() {
-        if (Config.isCloudMode()) {
-            return CloudPartition.class;
-        } else {
-            return Partition.class;
-        }
+    public Env createEnv(boolean isCheckpointCatalog) {
+        return new Env(isCheckpointCatalog);
     }
 
-    public static Partition createPartition() {
-        if (Config.isCloudMode()) {
-            return new CloudPartition();
-        } else {
-            return new Partition();
-        }
+    public InternalCatalog createInternalCatalog() {
+        return new InternalCatalog();
     }
 
-    public static Type getTabletClass() {
-        if (Config.isCloudMode()) {
-            return CloudTablet.class;
-        } else {
-            return Tablet.class;
-        }
+    public SystemInfoService createSystemInfoService() {
+        return new SystemInfoService();
     }
 
-    public static Tablet createTablet() {
-        if (Config.isCloudMode()) {
-            return new CloudTablet();
-        } else {
-            return new Tablet();
-        }
+    public Type getPartitionClass() {
+        return Partition.class;
     }
 
-    public static Tablet createTablet(long tabletId) {
-        if (Config.isCloudMode()) {
-            return new CloudTablet(tabletId);
-        } else {
-            return new Tablet(tabletId);
-        }
+    public Partition createPartition() {
+        return new Partition();
     }
 
-    public static Replica createReplica() {
-        if (Config.isCloudMode()) {
-            return new CloudReplica();
-        } else {
-            return new Replica();
-        }
+    public Type getTabletClass() {
+        return Tablet.class;
     }
+
+    public Tablet createTablet() {
+        return new Tablet();
+    }
+
+    public Tablet createTablet(long tabletId) {
+        return new Tablet(tabletId);
+    }
+
+    public Replica createReplica() {
+        return new Replica();
+    }
+
+    public ReplicaAllocation createDefReplicaAllocation() {
+        return new ReplicaAllocation((short) 3);
+    }
+
+    public PropertyAnalyzer createPropertyAnalyzer() {
+        return new PropertyAnalyzer();
+    }
+
+    public DynamicPartitionProperty createDynamicPartitionProperty(Map<String, String> properties) {
+        return new DynamicPartitionProperty(properties);
+    }
+
+    public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
+        return new GlobalTransactionMgr(env);
+    }
+
 }

@@ -1038,8 +1038,9 @@ Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker
 Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     uint64_t submission_time = GetCurrentTimeMicros();
-    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
-            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
+    return _seg_compaction_thread_pool->submit_func([this, worker, segments, submission_time] {
+        static_cast<void>(_handle_seg_compaction(worker, segments, submission_time));
+    });
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
@@ -1051,7 +1052,7 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
     }
 
     IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+            *this, tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1502,7 +1503,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);

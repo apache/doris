@@ -318,7 +318,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
             TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
-            Tablet tablet = EnvFactory.createTablet(Env.getCurrentEnv().getNextId());
+            Tablet tablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
 
             // add tablet to inverted index first
             index.addTablet(tablet, tabletMeta);

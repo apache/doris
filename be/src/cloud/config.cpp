@@ -30,4 +30,13 @@ DEFINE_mInt32(meta_service_idle_connection_timeout_ms, "0");
 DEFINE_mInt32(meta_service_rpc_retry_times, "200");
 DEFINE_mInt32(meta_service_brpc_timeout_ms, "10000");
 
+DEFINE_Int64(tablet_cache_capacity, "100000");
+DEFINE_Int64(tablet_cache_shards, "16");
+DEFINE_mInt64(tablet_sync_interval_seconds, "1800");
+
+DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
+DEFINE_mInt64(base_compaction_freeze_interval_s, "86400");
+DEFINE_mInt64(cu_compaction_freeze_interval_s, "1200");
+DEFINE_mInt64(cumu_compaction_interval_s, "1800");
+
 } // namespace doris::config

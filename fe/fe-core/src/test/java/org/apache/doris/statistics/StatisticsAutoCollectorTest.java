@@ -465,7 +465,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto1() throws Exception {
-        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.getInstance().createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 
@@ -493,7 +493,7 @@ public class StatisticsAutoCollectorTest {
 
     @Test
     public void testDisableAuto2() throws Exception {
-        InternalCatalog catalog1 = EnvFactory.createInternalCatalog();
+        InternalCatalog catalog1 = EnvFactory.getInstance().createInternalCatalog();
         List<CatalogIf> catalogs = Lists.newArrayList();
         catalogs.add(catalog1);
 

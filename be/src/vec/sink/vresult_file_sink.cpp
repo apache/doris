@@ -113,14 +113,21 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     }
 
     Status final_status = exec_status;
-    // close the writer
-    if (_writer && _writer->need_normal_close()) {
-        Status st = _writer->close();
-        if (!st.ok() && exec_status.ok()) {
-            // close file writer failed, should return this error to client
-            final_status = st;
+    Status writer_st = Status::OK();
+    if (_writer) {
+        // For pipeline engine, the writer is always closed in async thread process_block
+        if (state->enable_pipeline_exec()) {
+            writer_st = _writer->get_writer_status();
+        } else {
+            writer_st = _writer->close(exec_status);
         }
     }
+
+    if (!writer_st.ok() && exec_status.ok()) {
+        // close file writer failed, should return this error to client
+        final_status = writer_st;
+    }
+
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {

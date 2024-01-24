@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -56,8 +57,10 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.DBObjects;
-import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.system.Frontend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -121,9 +124,6 @@ public class AnalysisManager implements Writable {
     private final Map<Long, TableStatsMeta> idToTblStats = new ConcurrentHashMap<>();
 
     private final Map<Long, AnalysisJob> idToAnalysisJob = new ConcurrentHashMap<>();
-
-    // To be deprecated, keep it for meta compatibility now, will remove later.
-    protected SimpleQueue<AnalysisInfo> autoJobs = createSimpleQueue(null, this);
 
     private final String progressDisplayTemplate = "%d Finished  |  %d Failed  |  %d In Progress  |  %d Total";
 
@@ -548,7 +548,7 @@ public class AnalysisManager implements Writable {
         }
         TableStatsMeta tableStats = findTableStatsStatus(tbl.getId());
         if (tableStats == null) {
-            updateTableStatsStatus(new TableStatsMeta(tbl.estimatedRowCount(), jobInfo, tbl));
+            updateTableStatsStatus(new TableStatsMeta(jobInfo.emptyJob ? 0 : tbl.estimatedRowCount(), jobInfo, tbl));
         } else {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
@@ -649,23 +649,16 @@ public class AnalysisManager implements Writable {
         }
 
         Set<String> cols = dropStatsStmt.getColumnNames();
+        long catalogId = dropStatsStmt.getCatalogIdId();
+        long dbId = dropStatsStmt.getDbId();
         long tblId = dropStatsStmt.getTblId();
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
         if (tableStats == null) {
             return;
         }
-        if (cols == null) {
-            tableStats.reset();
-        } else {
-            dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
-            StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
-            for (String col : cols) {
-                statisticsCache.syncInvalidate(tblId, -1L, col);
-            }
-            tableStats.updatedTime = 0;
-        }
-        tableStats.userInjected = false;
-        logCreateTableStats(tableStats);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats);
+        // Drop stats ddl is master only operation.
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, dropStatsStmt.isAllColumns());
         StatisticsRepository.dropStatistics(tblId, cols);
     }
 
@@ -674,15 +667,55 @@ public class AnalysisManager implements Writable {
         if (tableStats == null) {
             return;
         }
+        long catalogId = table.getDatabase().getCatalog().getId();
+        long dbId = table.getDatabase().getId();
+        long tableId = table.getId();
         Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
+        // Drop stats ddl is master only operation.
+        invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
+        StatisticsRepository.dropStatistics(table.getId(), cols);
+    }
+
+    public void invalidateLocalStats(long catalogId, long dbId, long tableId,
+                                     Set<String> columns, TableStatsMeta tableStats) {
+        if (tableStats == null) {
+            return;
+        }
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
-        for (String col : cols) {
-            tableStats.removeColumn(col);
-            statisticsCache.syncInvalidate(table.getId(), -1L, col);
+        if (columns == null) {
+            TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+            columns = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        }
+        for (String column : columns) {
+            tableStats.removeColumn(column);
+            statisticsCache.invalidate(tableId, -1, column);
         }
         tableStats.updatedTime = 0;
-        logCreateTableStats(tableStats);
-        StatisticsRepository.dropStatistics(table.getId(), cols);
+        tableStats.userInjected = false;
+    }
+
+    public void invalidateRemoteStats(long catalogId, long dbId, long tableId,
+                                      Set<String> columns, boolean isAllColumns) {
+        InvalidateStatsTarget target = new InvalidateStatsTarget(catalogId, dbId, tableId, columns, isAllColumns);
+        TInvalidateFollowerStatsCacheRequest request = new TInvalidateFollowerStatsCacheRequest();
+        request.key = GsonUtils.GSON.toJson(target);
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        SystemInfoService.HostInfo selfNode = Env.getCurrentEnv().getSelfNode();
+        boolean success = true;
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(null)) {
+            // Skip master
+            if (selfNode.equals(frontend.getHost())) {
+                continue;
+            }
+            success = success && statisticsCache.invalidateStats(frontend, request);
+        }
+        if (!success) {
+            // If any rpc failed, use edit log to sync table stats to non-master FEs.
+            LOG.warn("Failed to invalidate all remote stats by rpc for table {}, use edit log.", tableId);
+            TableStatsMeta tableStats = findTableStatsStatus(tableId);
+            logCreateTableStats(tableStats);
+        }
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -862,13 +895,16 @@ public class AnalysisManager implements Writable {
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
         readIdToTblStats(in, analysisManager.idToTblStats);
-        readAutoJobs(in, analysisManager);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_128) {
+            readAutoJobs(in, analysisManager);
+        }
         return analysisManager;
     }
 
     private static void readAnalysisInfo(DataInput in, Map<Long, AnalysisInfo> map, boolean job) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
+            // AnalysisInfo is compatible with AnalysisJobInfo and AnalysisTaskInfo.
             AnalysisInfo analysisInfo = AnalysisInfo.read(in);
             // Unfinished manual once job/tasks doesn't need to keep in memory anymore.
             if (needAbandon(analysisInfo)) {
@@ -882,6 +918,9 @@ public class AnalysisManager implements Writable {
     // Journal only store finished tasks and jobs.
     public static boolean needAbandon(AnalysisInfo analysisInfo) {
         if (analysisInfo == null) {
+            return true;
+        }
+        if (analysisInfo.scheduleType == null || analysisInfo.scheduleType == null || analysisInfo.jobType == null) {
             return true;
         }
         if ((AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
@@ -904,7 +943,6 @@ public class AnalysisManager implements Writable {
     private static void readAutoJobs(DataInput in, AnalysisManager analysisManager) throws IOException {
         Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
         GsonUtils.GSON.fromJson(Text.readString(in), type);
-        analysisManager.autoJobs = analysisManager.createSimpleQueue(null, null);
     }
 
     @Override
@@ -912,7 +950,6 @@ public class AnalysisManager implements Writable {
         writeJobInfo(out, analysisJobInfoMap);
         writeJobInfo(out, analysisTaskInfoMap);
         writeTableStats(out);
-        writeAutoJobsStatus(out);
     }
 
     private void writeJobInfo(DataOutput out, Map<Long, AnalysisInfo> infoMap) throws IOException {
@@ -927,12 +964,6 @@ public class AnalysisManager implements Writable {
         for (Entry<Long, TableStatsMeta> entry : idToTblStats.entrySet()) {
             entry.getValue().write(out);
         }
-    }
-
-    private void writeAutoJobsStatus(DataOutput output) throws IOException {
-        Type type = new TypeToken<LinkedList<AnalysisInfo>>() {}.getType();
-        String autoJobs = GsonUtils.GSON.toJson(this.autoJobs, type);
-        Text.writeString(output, autoJobs);
     }
 
     // For unit test use only.
@@ -978,31 +1009,6 @@ public class AnalysisManager implements Writable {
     public void registerSysJob(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> taskInfos) {
         recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, taskInfos);
-    }
-
-    protected void logAutoJob(AnalysisInfo autoJob) {
-        Env.getCurrentEnv().getEditLog().logAutoJob(autoJob);
-    }
-
-    public void replayPersistSysJob(AnalysisInfo analysisInfo) {
-        autoJobs.offer(analysisInfo);
-    }
-
-    protected SimpleQueue<AnalysisInfo> createSimpleQueue(Collection<AnalysisInfo> collection,
-            AnalysisManager analysisManager) {
-        return new SimpleQueue<>(Config.analyze_record_limit,
-                a -> {
-                    // FE is not ready when replaying log and operations triggered by replaying
-                    // shouldn't be logged again.
-                    if (Env.getCurrentEnv().isReady() && Env.getCurrentEnv().isMaster() && !Env.isCheckpointThread()) {
-                        analysisManager.logAutoJob(a);
-                    }
-                    return null;
-                },
-                a -> {
-                    // DO NOTHING
-                    return null;
-                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
