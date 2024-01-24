@@ -301,7 +301,7 @@ void TaskScheduler::_do_work(size_t index) {
                     "Pipeline task failed. query_id: {} reason: {}",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
                                               task->fragment_context()->get_fragment_instance_id()),
-                    status.msg());
+                    status.to_string());
             // Print detail informations below when you debugging here.
             //
             // LOG(WARNING)<< "task:\n"<<task->debug_string();
