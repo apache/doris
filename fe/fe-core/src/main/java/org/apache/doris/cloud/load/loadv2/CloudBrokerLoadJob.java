@@ -44,6 +44,9 @@ import java.util.UUID;
 public class CloudBrokerLoadJob extends BrokerLoadJob {
     private static final Logger LOG = LogManager.getLogger(CloudBrokerLoadJob.class);
 
+    protected static final String CLUSTER_ID = "clusterId";
+    protected String clusterId;
+
     public CloudBrokerLoadJob() {
         super();
     }
@@ -69,12 +72,12 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 LOG.warn("cluster id is empty, cluster name {}", clusterName);
                 throw new MetaNotFoundException("cluster id is empty, cluster name: " + clusterName);
             }
-            sessionVariables.put(CLUSTER_ID, clusterId);
+            sessionVariables.put(CLUSTER_ID, this.clusterId);
         }
     }
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
-        clusterId = sessionVariables.get("clusterId");
+        clusterId = sessionVariables.get(CLUSTER_ID);
         String clusterName = Env.getCurrentSystemInfo().getClusterNameByClusterId(clusterId);
         if (Strings.isNullOrEmpty(clusterName)) {
             LOG.warn("cluster name is empty, cluster id is {}", clusterId);
