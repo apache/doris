@@ -202,7 +202,7 @@ Status RowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
-    _pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
+    _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 

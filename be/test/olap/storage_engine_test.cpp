@@ -50,7 +50,6 @@ public:
         EngineOptions options;
         options.backend_uid = UniqueId::gen_uid();
         _storage_engine = std::make_unique<StorageEngine>(options);
-        ExecEnv::GetInstance()->set_storage_engine(_storage_engine.get());
         _data_dir = std::make_unique<DataDir>(*_storage_engine, _engine_data_path, 100000000);
         static_cast<void>(_data_dir->init());
     }
@@ -106,7 +105,7 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     auto st = ThreadPoolBuilder("TabletPublishTxnThreadPool")
                       .set_min_threads(config::tablet_publish_txn_max_thread)
                       .set_max_threads(config::tablet_publish_txn_max_thread)
-                      .build(&_storage_engine->tablet_publish_txn_thread_pool());
+                      .build(&_storage_engine->_tablet_publish_txn_thread_pool);
     EXPECT_EQ(st, Status::OK());
 
     int64_t partition_id = 1;

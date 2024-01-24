@@ -1655,23 +1655,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 }
 
-// should use this method to get a copy of current tablet meta
-// there are some rowset meta in local meta store and in in-memory tablet meta
-// but not in tablet meta in local meta store
-void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const {
-    std::shared_lock rdlock(_meta_lock);
-    generate_tablet_meta_copy_unlocked(new_tablet_meta);
-}
-
-// this is a unlocked version of generate_tablet_meta_copy()
-// some method already hold the _meta_lock before calling this,
-// such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
-void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    new_tablet_meta->init_from_pb(tablet_meta_pb);
-}
-
 Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                         const TabletSharedPtr& tablet,
                                                         std::shared_ptr<Compaction>& compaction,
@@ -1845,8 +1828,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterC
     context.rowset_id = _engine.next_rowset_id();
     _init_context_common_fields(context);
     std::unique_ptr<RowsetWriter> rowset_writer;
-    if (auto st = RowsetFactory::create_rowset_writer(context, vertical, &rowset_writer); !st.ok())
-            [[unlikely]] {
+    if (auto st = RowsetFactory::create_rowset_writer(_engine, context, vertical, &rowset_writer);
+        !st.ok()) [[unlikely]] {
         return unexpected(std::move(st));
     }
     return rowset_writer;
@@ -1887,7 +1870,7 @@ Status Tablet::create_transient_rowset_writer(RowsetWriterContext& context,
                                               std::unique_ptr<RowsetWriter>* rowset_writer) {
     context.rowset_id = rowset_id;
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
+    return RowsetFactory::create_rowset_writer(_engine, context, false, rowset_writer);
 }
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
