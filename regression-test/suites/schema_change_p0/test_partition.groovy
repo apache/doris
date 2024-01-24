@@ -65,4 +65,18 @@ suite("test_partition") {
     order_qt_sql_2 """SELECT * from ${tblName};"""
     checkPartition(tblName);
     sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
+
+    //modify partition storage_medium
+    sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="HDD");"""
+
+    //modify partition storage_cooldown_time
+    sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="SSD","storage_cooldown_time"="9999-12-31 23:59:59");"""
+
+    //modify partition in_memory
+    test {
+        sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("in_memory"="true");"""
+        exception "Not support set 'in_memory'='true' now!"
+    }
+
+
 }
