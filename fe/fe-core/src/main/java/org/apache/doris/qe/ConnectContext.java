@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -77,7 +78,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
+
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -1042,6 +1045,33 @@ public class ConnectContext {
     // The returned cluster is set by `use @clusterName`
     public String getCloudCluster() {
         return cloudCluster;
+    }
+
+    public void setCloudCluster() {
+        List<String> cloudClusterNames = Env.getCurrentSystemInfo().getCloudClusterNames();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            // find a cluster has more than one alive be
+            List<Backend> bes = Env.getCurrentSystemInfo().getBackendsByClusterName(cloudClusterName);
+            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                hasAliveBe.set(true);
+            });
+            if (hasAliveBe.get()) {
+                // set a cluster to context cloudCluster
+                setCloudCluster(cloudClusterName);
+                LOG.debug("set context cluster name {}", cloudClusterName);
+                break;
+            }
+        }
+        if (Strings.isNullOrEmpty(this.cloudCluster)) {
+            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                    "Cant get a Valid cluster for you to use, plz connect admin");
+            return;
+        }
+        LOG.info("finally set context cluster name {}", cloudCluster);
     }
 
     public StatsErrorEstimator getStatsErrorEstimator() {
