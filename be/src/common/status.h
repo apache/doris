@@ -315,6 +315,15 @@ class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
+    // used to convert Exception to Status
+    Status(int code, std::string msg, std::string stack) : _code(code) {
+        _err_msg = std::make_unique<ErrMsg>();
+        _err_msg->_msg = msg;
+#ifdef ENABLE_STACKTRACE
+        _err_msg->_stack = stack;
+#endif
+    }
+
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
 
