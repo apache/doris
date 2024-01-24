@@ -109,6 +109,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownMinMaxThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
@@ -334,7 +335,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushDownLimitDistinctThroughJoin(),
                             new PushDownLimitDistinctThroughUnion(),
                             new PushDownTopNDistinctThroughJoin(),
-                            // new PushDownTopNDistinctThroughUnion(),
+                            new PushDownTopNDistinctThroughUnion(),
                             new PushDownTopNThroughJoin(),
                             new PushDownTopNThroughWindow(),
                             new PushDownTopNThroughUnion()
