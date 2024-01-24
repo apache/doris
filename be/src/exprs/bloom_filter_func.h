@@ -92,12 +92,7 @@ public:
 
     void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
 
-    Status init_with_fixed_length() {
-        if (_build_bf_exactly) {
-            return Status::OK();
-        }
-        return init_with_fixed_length(_bloom_filter_length);
-    }
+    Status init_with_fixed_length() { return init_with_fixed_length(_bloom_filter_length); }
 
     Status init_with_cardinality(const size_t build_bf_cardinality) {
         if (_build_bf_exactly) {
@@ -109,10 +104,9 @@ public:
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
-            _bloom_filter_length = std::min(((int64_t)1) << log_filter_size, _bloom_filter_length);
-            return init_with_fixed_length(_bloom_filter_length);
+            _bloom_filter_length = (((int64_t)1) << log_filter_size);
         }
-        return Status::OK();
+        return init_with_fixed_length(_bloom_filter_length);
     }
 
     Status init_with_fixed_length(int64_t bloom_filter_length) {
