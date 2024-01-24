@@ -264,6 +264,7 @@ private:
     Status _append_rf_into_conjuncts(std::vector<VExpr*>& vexprs);
 
     Status _normalize_conjuncts();
+    void _close_expr_inside_stale_ctxs(VExpr* expr, VExpr* new_root);
     Status _normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr);
     Status _eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, PushDownType* pdt);
 
