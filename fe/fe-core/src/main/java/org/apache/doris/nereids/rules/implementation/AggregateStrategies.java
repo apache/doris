@@ -515,8 +515,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return canNotPush;
         }
         if (logicalScan instanceof LogicalOlapScan) {
-            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            LogicalOlapScan logicalOlapScan = (LogicalOlapScan) logicalScan;
+            KeysType keysType = logicalOlapScan.getTable().getKeysType();
             if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+            if (functionClasses.contains(Count.class) && logicalOlapScan.isDirectMvScan()) {
                 return canNotPush;
             }
         }
