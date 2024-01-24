@@ -1494,15 +1494,15 @@ visible_functions = {
 
     # String builtin functions
     "String": [
-        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],
         [['mask_first_n'], 'STRING', ['STRING'], ''],
         [['mask_first_n'], 'STRING', ['STRING', 'INT'], ''],
         [['mask_last_n'], 'STRING', ['STRING'], ''],
         [['mask_last_n'], 'STRING', ['STRING', 'INT'], ''],
-        [['strleft', 'left'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
-        [['strright', 'right'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
+        [['strleft', 'left'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['strright', 'right'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['ends_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['starts_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
@@ -1558,10 +1558,10 @@ visible_functions = {
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
 
-        [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
-        [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
-        [['strright', 'right'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
+        [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['strright', 'right'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'], ''],
         [['starts_with'], 'BOOLEAN', ['STRING', 'STRING'], ''],
         [['null_or_empty'], 'BOOLEAN', ['STRING'], 'ALWAYS_NOT_NULLABLE'],

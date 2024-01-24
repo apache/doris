@@ -59,7 +59,8 @@ private:
  *    d. elt function return type change to nullable(string)
  *    e. add repeat_max_num in repeat function
  * 3: start from doris 2.1
- *    a. aggregation function do not serialize bitmap to string
+ *    a. aggregation function do not serialize bitmap to string.
+ *    b. the right function outputs NULL when the function contains NULL, substr function returns empty if start > str.length.
 */
 inline const int BeExecVersionManager::max_be_exec_version = 3;
 inline const int BeExecVersionManager::min_be_exec_version = 0;

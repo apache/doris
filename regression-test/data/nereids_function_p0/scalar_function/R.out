@@ -406,7 +406,7 @@ string3
 string3
 
 -- !sql_right_Varchar_Integer --
-
+\N
 1
 ar11
 rchar11
@@ -435,7 +435,7 @@ varchar13
 varchar13
 
 -- !sql_right_String_Integer --
-
+\N
 1
 ing1
 string1
