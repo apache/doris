@@ -1978,7 +1978,8 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     LOG(INFO) << "Upload rowset " << old_rowset->version() << " " << new_rowset_id.to_string()
               << " to " << dest_fs->root_path().native() << ", tablet_id=" << tablet_id()
               << ", duration=" << duration.count() << ", capacity=" << old_rowset->data_disk_size()
-              << ", tp=" << old_rowset->data_disk_size() / duration.count();
+              << ", tp=" << old_rowset->data_disk_size() / duration.count()
+              << ", old rowset_id=" << old_rowset->rowset_id().to_string();
 
     // gen a new rowset
     auto new_rowset_meta = std::make_shared<RowsetMeta>();
