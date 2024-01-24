@@ -39,8 +39,8 @@ struct WasmtimeRunInstance {
 class WasmFunctionManager {
 private:
     // wasmtime
-    wasmtime::Engine* engine;
-    wasmtime::Store* store;
+    std::unique_ptr<wasmtime::Engine> engine;
+    std::unique_ptr<wasmtime::Store> store;
     std::unordered_map<std::string, WasmtimeRunInstance> funcs;
 
     WasmFunctionManager(const WasmFunctionManager&);

@@ -30,11 +30,11 @@ namespace doris {
 
 class WasmManagerTest : public ::testing::Test {
     std::string readFile(const char* name) {
-        std::ifstream watFile;
-        watFile.open(name);
-        std::stringstream strStream;
-        strStream << watFile.rdbuf();
-        return strStream.str();
+        std::ifstream wat_file;
+        wat_file.open(name);
+        std::stringstream str_stream;
+        str_stream << wat_file.rdbuf();
+        return str_stream.str();
     }
 };
 
@@ -42,16 +42,16 @@ TEST_F(WasmManagerTest, TestExecAdd) {
     std::string dir_path = GetCurrentRunningDir();
     std::string stat_path(dir_path);
     stat_path += "/util/test_data/add.wat";
-    WasmFunctionManager wasmFunctionManager;
+    WasmFunctionManager manager;
     const std::string wasm_body = readFile(stat_path.c_str());
     const std::string wasm_function_name = "add";
-    wasmFunctionManager.RegisterFunction(wasm_function_name, wasm_function_name, wasm_body);
+    manager.RegisterFunction(wasm_function_name, wasm_function_name, wasm_body);
     std::vector<wasmtime::Val> params;
     auto params_size = 2;
     params.reserve(params_size);
     params.emplace_back(10);
     params.emplace_back(20);
-    auto results = wasmFunctionManager.runElemFunc(wasm_function_name, params);
+    auto results = manager.runElemFunc(wasm_function_name, params);
     EXPECT_EQ(results[0].i32(), 30);
 }
 } // namespace doris

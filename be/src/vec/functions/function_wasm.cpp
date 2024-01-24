@@ -55,14 +55,13 @@ Status FunctionWasm::open(FunctionContext* context, FunctionContext::FunctionSta
         auto* function_cache = UserFunctionCache::instance();
         RETURN_IF_ERROR(function_cache->get_watpath(_tfn.id, _tfn.hdfs_location, _tfn.checksum,
                                                     &local_location));
-        //        ExecEnv::GetInstance()->wasm_function_manager();
         std::shared_ptr<WasmFunctionManager> manager = std::make_shared<WasmFunctionManager>();
         context->set_function_state(FunctionContext::THREAD_LOCAL, manager);
-        std::ifstream watFile;
-        watFile.open(local_location.c_str());
-        std::stringstream strStream;
-        strStream << watFile.rdbuf();
-        const std::string wasm_body = strStream.str();
+        std::ifstream wat_file;
+        wat_file.open(local_location.c_str());
+        std::stringstream str_stream;
+        str_stream << wat_file.rdbuf();
+        const std::string wasm_body = str_stream.str();
         manager->RegisterFunction(_tfn.name.function_name, _tfn.scalar_fn.symbol, wasm_body);
     }
     return Status::OK();
@@ -89,16 +88,6 @@ Status FunctionWasm::execute(FunctionContext* context, Block& block, const Colum
         null_map = ColumnUInt8::create(input_rows_count, 0);
         memset(null_map->get_data().data(), 0, input_rows_count);
     }
-
-    //    ColumnPtr nested_column = nullptr;
-    //    if (is_column_nullable(array_column.get_data())) {
-    //        const auto& nested_null_column =
-    //                reinterpret_cast<const ColumnNullable&>(array_column.get_data());
-    //        nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-    //        nested_column = nested_null_column.get_nested_column_ptr();
-    //    } else {
-    //        nested_column = array_column.get_data_ptr();
-    //    }
 
     auto result_col = return_type->create_column();
     result_col->resize(input_rows_count);
@@ -129,6 +118,7 @@ Status FunctionWasm::execute(FunctionContext* context, Block& block, const Colum
     // step1. process column value to wasm param
     // step2. call wasm function
     // step3. return wasm result to column value
+    // TODO: vec the code to call wasm fun
     int row_size = data_cols[0]->size();
     for (size_t i = 0; i < row_size; ++i) {
         std::vector<wasmtime::Val> params;

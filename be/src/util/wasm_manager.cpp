@@ -16,16 +16,17 @@
 // under the License.
 
 #include "util/wasm_manager.h"
+
 namespace doris {
 
 WasmFunctionManager::WasmFunctionManager() {
-    engine = new wasmtime::Engine;
-    store = new wasmtime::Store(*engine);
+    engine = std::unique_ptr<wasmtime::Engine>(new wasmtime::Engine);
+    store = std::unique_ptr<wasmtime::Store>(new wasmtime::Store(*engine));
 }
 
 WasmFunctionManager::~WasmFunctionManager() {
-    delete (store);
-    delete (engine);
+    engine.reset();
+    store.reset();
 }
 
 bool WasmFunctionManager::RegisterFunction(std::string functionName, std::string functionHandler,
@@ -53,8 +54,8 @@ bool WasmFunctionManager::RegisterFunction(std::string functionName, std::string
 WasmtimeRunInstance WasmFunctionManager::createInstanceAndFunction(
         const std::string& watString, const std::string& functionHandler) {
     auto module = wasmtime::Module::compile(*engine, watString).unwrap();
-    auto instance = wasmtime::Instance::create(store, module, {}).unwrap();
-    auto function_obj = instance.get(store, functionHandler);
+    auto instance = wasmtime::Instance::create(store.get(), module, {}).unwrap();
+    auto function_obj = instance.get(store.get(), functionHandler);
     wasmtime::Func* func = std::get_if<wasmtime::Func>(&*function_obj);
     return WasmtimeRunInstance(*func, instance);
 }
@@ -62,8 +63,8 @@ WasmtimeRunInstance WasmFunctionManager::createInstanceAndFunction(
 WasmtimeRunInstance WasmFunctionManager::createInstanceAndFunction(
         const wasmtime::Span<uint8_t> wasm, const std::string& functionHandler) {
     auto module = wasmtime::Module::compile(*engine, wasm).unwrap();
-    auto instance = wasmtime::Instance::create(store, module, {}).unwrap();
-    auto function_obj = instance.get(store, functionHandler);
+    auto instance = wasmtime::Instance::create(store.get(), module, {}).unwrap();
+    auto function_obj = instance.get(store.get(), functionHandler);
     wasmtime::Func* func = std::get_if<wasmtime::Func>(&*function_obj);
     return WasmtimeRunInstance(*func, instance);
 }
@@ -71,7 +72,7 @@ WasmtimeRunInstance WasmFunctionManager::createInstanceAndFunction(
 std::vector<wasmtime::Val> WasmFunctionManager::runElemFunc(const std::string functionName,
                                                             std::vector<wasmtime::Val> args) {
     auto module = funcs.at(functionName);
-    auto results = module.func.call(store, args).unwrap();
+    auto results = module.func.call(store.get(), args).unwrap();
     return results;
 }
 

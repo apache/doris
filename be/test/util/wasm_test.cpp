@@ -30,11 +30,11 @@
 namespace doris {
 class WasmtimeTest : public ::testing::Test {
     std::string readFile(const char* name) {
-        std::ifstream watFile;
-        watFile.open(name);
-        std::stringstream strStream;
-        strStream << watFile.rdbuf();
-        return strStream.str();
+        std::ifstream wat_file;
+        wat_file.open(name);
+        std::stringstream str_stream;
+        str_stream << wat_file.rdbuf();
+        return str_stream.str();
     }
 };
 

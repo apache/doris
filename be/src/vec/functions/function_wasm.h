@@ -35,8 +35,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
-namespace doris {} // namespace doris
-
 namespace doris::vectorized {
 
 class FunctionWasm : public IFunctionBase {
