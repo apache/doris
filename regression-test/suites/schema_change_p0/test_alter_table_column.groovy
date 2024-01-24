@@ -39,7 +39,7 @@ suite("test_alter_table_column") {
             MODIFY COLUMN value2 INT AFTER value3;
         """
 
-    waitFor {
+    waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }
@@ -50,7 +50,7 @@ suite("test_alter_table_column") {
             DROP COLUMN value3;
         """
 
-    waitFor {
+    waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }
@@ -78,7 +78,7 @@ suite("test_alter_table_column") {
             ADD COLUMN value2 INT SUM AFTER value1;
         """
 
-    waitFor {
+    waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName2}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }
@@ -113,7 +113,7 @@ suite("test_alter_table_column") {
             ADD COLUMN value4 ARRAY<INT> NOT NULL DEFAULT '[]' AFTER value3;
         """
 
-    waitFor {
+    waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbNameAddArray}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }
@@ -195,7 +195,7 @@ suite("test_alter_table_column") {
     sql "alter table ${tbName3} add column v2 int sum NULL"
 
 
-    waitFor {
+    waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName3}' ORDER BY createtime DESC LIMIT 1"""
         time 60
     }

@@ -475,7 +475,7 @@ class Suite implements GroovyInterceptable {
         runAction(new BenchmarkAction(context), actionSupplier)
     }
 
-    void waitFor(Closure actionSupplier) {
+    void waitForSchemaChangeDone(Closure actionSupplier) {
         runAction(new WaitForAction(context), actionSupplier)
     }
 
