@@ -22,10 +22,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -68,6 +70,10 @@ public class PlanUtils {
 
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
         return project(projects, plan).map(Plan.class::cast).orElse(plan);
+    }
+
+    public static LogicalAggregate<Plan> distinct(Plan plan) {
+        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan);
     }
 
     /**

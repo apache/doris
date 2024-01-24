@@ -157,14 +157,11 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
         _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
 
-    int64_t current_max_version;
+    int64_t current_max_version = -1;
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
-        if (max_rowset == nullptr) {
-            current_max_version = -1;
-        } else {
-            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        if (RowsetSharedPtr max_rowset = _tablet->get_rowset_with_max_version()) {
+            current_max_version = max_rowset->end_version();
         }
     }
 

@@ -323,7 +323,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     // write data
     PUniqueId load_id;
@@ -339,7 +339,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
 
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
@@ -384,8 +384,8 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     *tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     OlapMeta* meta = (*tablet)->data_dir()->get_meta();
     Version version;
-    version.first = (*tablet)->rowset_with_max_version()->end_version() + 1;
-    version.second = (*tablet)->rowset_with_max_version()->end_version() + 1;
+    version.first = (*tablet)->get_rowset_with_max_version()->end_version() + 1;
+    version.second = (*tablet)->get_rowset_with_max_version()->end_version() + 1;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     k_engine->txn_manager()->get_txn_related_tablets(write_req.txn_id, write_req.partition_id,
                                                      &tablet_related_rs);

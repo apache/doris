@@ -446,9 +446,9 @@ public:
             id.set_hi(1);
             id.set_lo(1);
 
-            OlapTableSchemaParam param;
-            construct_schema(&param);
-            *request.mutable_schema() = *param.to_protobuf();
+            auto param = std::make_shared<OlapTableSchemaParam>();
+            construct_schema(param.get());
+            *request.mutable_schema() = *param->to_protobuf();
             *request.mutable_load_id() = id;
             request.set_txn_id(NORMAL_TXN_ID);
             request.set_src_id(sender_id);

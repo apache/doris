@@ -490,7 +490,7 @@ TEST_F(TestDeltaWriter, open) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -504,7 +504,7 @@ TEST_F(TestDeltaWriter, open) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = true;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
 
     // test vec delta writer
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
@@ -536,7 +536,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -550,7 +550,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
             std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
@@ -658,8 +658,8 @@ TEST_F(TestDeltaWriter, vec_write) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -699,7 +699,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -713,7 +713,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
             std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
@@ -751,8 +751,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
     OlapMeta* meta = tablet->data_dir()->get_meta();
     Version version;
-    version.first = tablet->rowset_with_max_version()->end_version() + 1;
-    version.second = tablet->rowset_with_max_version()->end_version() + 1;
+    version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+    version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -814,7 +814,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     DescriptorTbl* desc_tbl = nullptr;
     static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    OlapTableSchemaParam param;
+    auto param = std::make_shared<OlapTableSchemaParam>();
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -828,7 +828,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = &param;
+    write_req.table_schema_param = param;
     std::unique_ptr<RuntimeProfile> profile1;
     profile1 = std::make_unique<RuntimeProfile>("LoadChannels1");
     std::unique_ptr<RuntimeProfile> profile2;
@@ -899,8 +899,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // publish version on delta writer 1 success
     {
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -950,8 +950,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
 
         Version version;
-        version.first = tablet->rowset_with_max_version()->end_version() + 1;
-        version.second = tablet->rowset_with_max_version()->end_version() + 1;
+        version.first = tablet->get_rowset_with_max_version()->end_version() + 1;
+        version.second = tablet->get_rowset_with_max_version()->end_version() + 1;
         std::cout << "start to add rowset version:" << version.first << "-" << version.second
                   << std::endl;
         std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
@@ -982,7 +982,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_EQ(1, segments.size());
     }
 
-    auto cur_version = tablet->rowset_with_max_version()->end_version();
+    auto cur_version = tablet->get_rowset_with_max_version()->end_version();
     // read data from rowset 1, verify the data correct
     {
         OlapReaderStatistics stats;

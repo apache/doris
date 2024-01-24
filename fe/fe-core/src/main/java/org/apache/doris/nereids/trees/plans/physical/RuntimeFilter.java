@@ -23,7 +23,6 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -55,10 +54,10 @@ public class RuntimeFilter {
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
-            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
                          PhysicalRelation scan) {
-        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder,
+        this(id, src, targets, targetExpressions, type, exprOrder,
                 builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
@@ -99,10 +98,6 @@ public class RuntimeFilter {
         return srcSlot;
     }
 
-    public List<Slot> getTargetExprs() {
-        return targetSlots;
-    }
-
     public RuntimeFilterId getId() {
         return id;
     }
@@ -131,17 +126,14 @@ public class RuntimeFilter {
         return buildSideNdv;
     }
 
-    public void addTargetSlot(Slot target, PhysicalRelation scan) {
+    public void addTargetSlot(Slot target, Expression targetExpression, PhysicalRelation scan) {
+        targetExpressions.add(targetExpression);
         targetSlots.add(target);
         targetScans.add(scan);
     }
 
     public List<Slot> getTargetSlots() {
         return targetSlots;
-    }
-
-    public void addTargetExpression(Expression targetExpr) {
-        targetExpressions.add(targetExpr);
     }
 
     public List<PhysicalRelation> getTargetScans() {
@@ -156,7 +148,7 @@ public class RuntimeFilter {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
-                .append("[").append(getSrcExpr()).append("->").append(targetSlots)
+                .append("[").append(getSrcExpr()).append("->").append(targetExpressions)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
@@ -171,7 +163,7 @@ public class RuntimeFilter {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
-                        targetSlots.stream().map(slot -> slot.getName()).collect(Collectors.joining(",")))
+                        targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
     }
