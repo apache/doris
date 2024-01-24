@@ -83,8 +83,8 @@ Status IndexBuilder::update_inverted_index_info() {
                 if (disk_size >= total_index_size) {
                     disk_size -= total_index_size;
                 } else {
-                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id()
-                                 << " " << size_type << " size:" << disk_size
+                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id() << " " << size_type
+                                 << " size:" << disk_size
                                  << " is less than index size:" << total_index_size;
                 }
             };
