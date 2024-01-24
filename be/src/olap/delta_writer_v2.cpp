@@ -64,17 +64,9 @@
 namespace doris {
 using namespace ErrorCode;
 
-std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-        RuntimeState* state) {
-    std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance(), state));
-    return writer;
-}
-
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeState* state)
+                             RuntimeState* state)
         : _state(state),
           _req(*req),
           _tablet_schema(new TabletSchema),
@@ -109,7 +101,7 @@ Status DeltaWriterV2::init() {
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
+    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -128,7 +120,7 @@ Status DeltaWriterV2::init() {
     context.tablet_schema_hash = _req.schema_hash;
     context.enable_unique_key_merge_on_write = _streams[0]->enable_unique_mow(_req.index_id);
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    context.rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
 

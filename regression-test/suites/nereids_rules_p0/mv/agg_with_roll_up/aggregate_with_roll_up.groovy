@@ -1121,4 +1121,50 @@ suite("aggregate_with_roll_up") {
     check_rewrite(mv29_1, query29_1, "mv29_1")
     order_qt_query29_1_after "${query29_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_1"""
+
+    // join input has simple agg, simple agg which can not contains rollup, cube
+    // can not rewrite, because avg doesn't support roll up now
+    def mv30_0 = """
+            select
+            l_linenumber,
+            l_quantity,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber, l_quantity;
+    """
+    def query30_0 = """
+            select
+            l_linenumber,
+            count(distinct l_orderkey),
+            sum(case when l_orderkey in (1,2,3) then l_suppkey * l_linenumber else 0 end),
+            max(case when l_orderkey in (4, 5) then (l_quantity *2 + part_supp_a.qty_max) * 0.88 else 100 end),
+            avg(case when l_partkey in (2, 3, 4) then l_discount + o_totalprice + part_supp_a.qty_sum else 50 end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey
+            left join 
+            (select ps_partkey, ps_suppkey, sum(ps_availqty) qty_sum, max(ps_availqty) qty_max,
+                min(ps_availqty) qty_min,
+                avg(ps_supplycost) cost_avg
+                from partsupp
+                group by ps_partkey,ps_suppkey) part_supp_a
+            on l_partkey = part_supp_a.ps_partkey
+            and l_suppkey = part_supp_a.ps_suppkey
+            group by l_linenumber;
+    """
+    order_qt_query30_0_before "${query30_0}"
+    check_not_match(mv30_0, query30_0, "mv30_0")
+    order_qt_query30_0_after "${query30_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv30_0"""
 }

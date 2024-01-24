@@ -183,6 +183,7 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
     private final Map<String, Class<?>> labelToSubtype = new LinkedHashMap<String, Class<?>>();
     private final Map<Class<?>, String> subtypeToLabel = new LinkedHashMap<Class<?>, String>();
     private final boolean maintainType;
+    private Class<? extends T> defaultType = null;
 
     private RuntimeTypeAdapterFactory(Class<?> baseType, String typeFieldName, boolean maintainType) {
         if (typeFieldName == null || baseType == null) {
@@ -251,6 +252,23 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
         return registerSubtype(type, type.getSimpleName());
     }
 
+    /**
+     * Registers {@code type} for using when label not found
+     *
+     * @throws IllegalArgumentException if {@code type}
+     *     have already been registered on this type adapter.
+     */
+    public RuntimeTypeAdapterFactory<T> registerDefaultSubtype(Class<? extends T> type) {
+        if (type == null) {
+            throw new NullPointerException();
+        }
+        if (subtypeToLabel.containsKey(type)) {
+            throw new IllegalArgumentException("types must be unique");
+        }
+        defaultType = type;
+        return this;
+    }
+
     public <R> TypeAdapter<R> create(Gson gson, TypeToken<R> type) {
         if (type.getRawType() != baseType && !subtypeToLabel.containsKey(type.getRawType())) {
             return null;
@@ -258,6 +276,8 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
 
         final Map<String, TypeAdapter<?>> labelToDelegate = new LinkedHashMap<String, TypeAdapter<?>>();
         final Map<Class<?>, TypeAdapter<?>> subtypeToDelegate = new LinkedHashMap<Class<?>, TypeAdapter<?>>();
+        final TypeAdapter<?> defaultDelegate = defaultType == null ? null :
+                gson.getDelegateAdapter(this, TypeToken.get(defaultType));
         for (Map.Entry<String, Class<?>> entry : labelToSubtype.entrySet()) {
             TypeAdapter<?> delegate = gson.getDelegateAdapter(this, TypeToken.get(entry.getValue()));
             labelToDelegate.put(entry.getKey(), delegate);
@@ -276,6 +296,11 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
                 }
 
                 if (labelJsonElement == null) {
+                    if (defaultDelegate != null) {
+                        // registration requires that subtype extends T
+                        return (R) defaultDelegate.fromJsonTree(jsonElement);
+                    }
+
                     throw new JsonParseException("cannot deserialize " + baseType
                             + " because it does not define a field named " + typeFieldName);
                 }

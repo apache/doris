@@ -114,7 +114,8 @@ Status Compaction::do_compaction(int64_t permits) {
     uint32_t checksum_before;
     uint32_t checksum_after;
     if (config::enable_compaction_checksum) {
-        EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
+        EngineChecksumTask checksum_task(ExecEnv::GetInstance()->storage_engine().to_local(),
+                                         _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
         RETURN_IF_ERROR(checksum_task.execute());
     }
@@ -126,7 +127,8 @@ Status Compaction::do_compaction(int64_t permits) {
     _tablet->data_dir()->disks_compaction_num_increment(-1);
 
     if (config::enable_compaction_checksum) {
-        EngineChecksumTask checksum_task(_tablet->tablet_id(), _tablet->schema_hash(),
+        EngineChecksumTask checksum_task(ExecEnv::GetInstance()->storage_engine().to_local(),
+                                         _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
         RETURN_IF_ERROR(checksum_task.execute());
         if (checksum_before != checksum_after) {
@@ -560,18 +562,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_full_compaction_success_time(now);
     }
 
-    int64_t current_max_version;
+    int64_t current_max_version = -1;
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
-        if (max_rowset == nullptr) {
-            current_max_version = -1;
-        } else {
-            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        current_max_version = -1;
+        if (RowsetSharedPtr max_rowset = _tablet->get_rowset_with_max_version()) {
+            current_max_version = max_rowset->end_version();
         }
     }
 
-    auto cumu_policy = _tablet->cumulative_compaction_policy();
+    auto* cumu_policy = _tablet->cumulative_compaction_policy();
     DCHECK(cumu_policy);
     LOG(INFO) << "succeed to do " << compaction_name() << " is_vertical=" << vertical_compaction
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
@@ -715,7 +715,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
         ctx.fs = std::move(resource.fs);
     }
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, is_vertical));
-    _pending_rs_guard = StorageEngine::instance()->add_pending_rowset(ctx);
+    _pending_rs_guard = ExecEnv::GetInstance()->storage_engine().to_local().add_pending_rowset(ctx);
     return Status::OK();
 }
 
@@ -778,8 +778,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // All rowsets which need to recalculate have been published so we don't need to acquire lock.
             // Step1: collect this tablet's all committed rowsets' delete bitmaps
             CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
-            StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
-                    _tablet, &commit_tablet_txn_info_vec);
+            ExecEnv::GetInstance()
+                    ->storage_engine()
+                    .to_local()
+                    .txn_manager()
+                    ->get_all_commit_tablet_txn_info_by_tablet(_tablet,
+                                                               &commit_tablet_txn_info_vec);
 
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             for (auto& it : commit_tablet_txn_info_vec) {
@@ -804,10 +808,14 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 it.delete_bitmap->merge(txn_output_delete_bitmap);
                 // Step3: write back updated delete bitmap and tablet info.
                 it.rowset_ids.insert(_output_rowset->rowset_id());
-                StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                        it.partition_id, it.transaction_id, _tablet->tablet_id(),
-                        _tablet->tablet_uid(), true, it.delete_bitmap, it.rowset_ids,
-                        it.partial_update_info);
+                ExecEnv::GetInstance()
+                        ->storage_engine()
+                        .to_local()
+                        .txn_manager()
+                        ->set_txn_related_delete_bitmap(it.partition_id, it.transaction_id,
+                                                        _tablet->tablet_id(), _tablet->tablet_uid(),
+                                                        true, it.delete_bitmap, it.rowset_ids,
+                                                        it.partial_update_info);
             }
 
             // Convert the delete bitmap of the input rowsets to output rowset for
@@ -885,7 +893,7 @@ void Compaction::gc_output_rowset() {
                                                  _output_rowset->num_segments());
             return;
         }
-        StorageEngine::instance()->add_unused_rowset(_output_rowset);
+        ExecEnv::GetInstance()->storage_engine().to_local().add_unused_rowset(_output_rowset);
     }
 }
 

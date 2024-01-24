@@ -454,7 +454,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
     vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
     auto bitmap_column = bitmap_data_type->create_column();
     std::vector<BitmapValue>& container =
-            ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
+            ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
     std::vector<std::string> expected_bitmap_str;
     for (int i = 0; i < total_rows; ++i) {
         BitmapValue bv;
@@ -487,7 +487,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
 
         EXPECT_EQ(block_read.rows(), batch_size);
         auto column = block_read.get_by_position(0).column;
-        auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
+        auto* real_column = (vectorized::ColumnBitmap*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             auto bitmap_str = convert_bitmap_to_string(real_column->get_element(j));
             EXPECT_EQ(bitmap_str, expected_bitmap_str[j + i * batch_size]);
@@ -500,7 +500,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
 
     EXPECT_EQ(block_read.rows(), 1);
     auto column = block_read.get_by_position(0).column;
-    auto* real_column = (vectorized::ColumnComplexType<BitmapValue>*)column.get();
+    auto* real_column = (vectorized::ColumnBitmap*)column.get();
     auto bitmap_str = convert_bitmap_to_string(real_column->get_element(0));
     EXPECT_EQ(bitmap_str, expected_bitmap_str[3 * batch_size]);
 }

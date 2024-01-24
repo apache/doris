@@ -71,12 +71,19 @@ public class HyperGraphComparator {
     private final Map<JoinEdge, Pair<JoinType, Set<Slot>>> inferredViewEdgeWithCond = new HashMap<>();
     private List<JoinEdge> viewJoinEdgesAfterInferring;
     private List<FilterEdge> viewFilterEdgesAfterInferring;
+    private final long eliminateViewNodesMap;
 
+    /**
+     * constructor
+     */
     public HyperGraphComparator(HyperGraph queryHyperGraph, HyperGraph viewHyperGraph,
             LogicalCompatibilityContext logicalCompatibilityContext) {
         this.queryHyperGraph = queryHyperGraph;
         this.viewHyperGraph = viewHyperGraph;
         this.logicalCompatibilityContext = logicalCompatibilityContext;
+        this.eliminateViewNodesMap = LongBitmap.newBitmapDiff(
+                viewHyperGraph.getNodesMap(),
+                LongBitmap.newBitmap(logicalCompatibilityContext.getQueryToViewNodeIDMapping().values()));
     }
 
     /**
@@ -91,21 +98,26 @@ public class HyperGraphComparator {
     }
 
     private ComparisonResult isLogicCompatible() {
-        // 1 compare nodes
+        // 1 remove unused nodes
+        if (!tryEliminateNodesAndEdge()) {
+            return ComparisonResult.newInvalidResWithErrorMessage("Query and Mv has different nodes");
+        }
+
+        // 2 compare nodes
         boolean nodeMatches = logicalCompatibilityContext.getQueryToViewNodeMapping().entrySet()
                 .stream().allMatch(e -> compareNodeWithExpr(e.getKey(), e.getValue()));
         if (!nodeMatches) {
             return ComparisonResult.newInvalidResWithErrorMessage("StructInfoNode are not compatible\n");
         }
 
-        // 2 try to construct a map which can be mapped from edge to edge
+        // 3 try to construct a map which can be mapped from edge to edge
         Map<Edge, Edge> queryToView = constructQueryToViewMapWithExpr();
         if (!makeViewJoinCompatible(queryToView)) {
             return ComparisonResult.newInvalidResWithErrorMessage("Join types are not compatible\n");
         }
         refreshViewEdges();
 
-        // 3. compare them by expression and nodes. Note compare edges after inferring for nodes
+        // 4 compare them by expression and nodes. Note compare edges after inferring for nodes
         boolean matchNodes = queryToView.entrySet().stream()
                 .allMatch(e -> compareEdgeWithNode(e.getKey(), e.getValue()));
         if (!matchNodes) {
@@ -113,17 +125,30 @@ public class HyperGraphComparator {
         }
         queryToView.forEach(this::compareEdgeWithExpr);
 
-        // 1. process residual edges
+        // 5 process residual edges
         Sets.difference(getQueryJoinEdgeSet(), queryToView.keySet())
                 .forEach(e -> pullUpQueryExprWithEdge.put(e, e.getExpressions()));
         Sets.difference(getQueryFilterEdgeSet(), queryToView.keySet())
                 .forEach(e -> pullUpQueryExprWithEdge.put(e, e.getExpressions()));
         Sets.difference(getViewJoinEdgeSet(), Sets.newHashSet(queryToView.values()))
+                .stream()
+                .filter(e -> !LongBitmap.isOverlap(e.getReferenceNodes(), eliminateViewNodesMap))
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
         Sets.difference(getViewFilterEdgeSet(), Sets.newHashSet(queryToView.values()))
+                .stream()
+                .filter(e -> !LongBitmap.isOverlap(e.getReferenceNodes(), eliminateViewNodesMap))
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
 
         return buildComparisonRes();
+    }
+
+    private boolean tryEliminateNodesAndEdge() {
+        for (int i : LongBitmap.getIterator(eliminateViewNodesMap)) {
+            if (!((StructInfoNode) viewHyperGraph.getNode(i)).canEliminate()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean compareNodeWithExpr(StructInfoNode query, StructInfoNode view) {
@@ -168,6 +193,10 @@ public class HyperGraphComparator {
         for (Pair<JoinType, Set<Slot>> inferredCond : inferredViewEdgeWithCond.values()) {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
+        builder.addQueryAllPulledUpExpressions(
+                getQueryFilterEdges().stream()
+                        .filter(this::canPullUp)
+                        .flatMap(filter -> filter.getExpressions().stream()).collect(Collectors.toList()));
         return builder.build();
     }
 
@@ -419,5 +448,4 @@ public class HyperGraphComparator {
         pullUpQueryExprWithEdge.put(query, residualQueryExpr);
         pullUpViewExprWithEdge.put(query, residualViewExpr);
     }
-
 }

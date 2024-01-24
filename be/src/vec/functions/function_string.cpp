@@ -561,8 +561,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool get_is_injective(const Block&) override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
             LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
@@ -1016,6 +1014,12 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMaskPartial<false>>();
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
+
+    /// @TEMPORARY: for be_exec_version=3
+    factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();
+    factory.register_alternative_function<FunctionSubstringOld<Substr2ImplOld>>();
+    factory.register_alternative_function<FunctionLeftOld>();
+    factory.register_alternative_function<FunctionRightOld>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
