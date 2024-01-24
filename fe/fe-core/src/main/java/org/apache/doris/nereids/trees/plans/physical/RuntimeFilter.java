@@ -57,7 +57,8 @@ public class RuntimeFilter {
      * constructor
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+                         boolean bloomFilterSizeCalculatedByNdv,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
                 builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
