@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,8 +29,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -47,15 +51,34 @@ import javax.annotation.Nullable;
 public class StructInfoNode extends AbstractNode {
     private final List<Set<Expression>> expressions;
     private final Set<CatalogRelation> relationSet;
+    private final Supplier<Boolean> eliminateSupplier;
 
     public StructInfoNode(int index, Plan plan, List<Edge> edges) {
         super(extractPlan(plan), index, edges);
         relationSet = plan.collect(CatalogRelation.class::isInstance);
         expressions = collectExpressions(plan);
+        eliminateSupplier = Suppliers.memoize(this::computeElimination);
     }
 
     public StructInfoNode(int index, Plan plan) {
         this(index, plan, new ArrayList<>());
+    }
+
+    private boolean computeElimination() {
+        if (getJoinEdges().isEmpty()) {
+            return false;
+        }
+        return getJoinEdges().stream().allMatch(e -> {
+            if (e.getRightExtendedNodes() == getNodeMap()) {
+                return JoinUtils.canEliminateByLeft(e.getJoin(), FunctionalDependencies.EMPTY_FUNC_DEPS,
+                        plan.getLogicalProperties().getFunctionalDependencies());
+            }
+            return false;
+        });
+    }
+
+    public boolean canEliminate() {
+        return eliminateSupplier.get();
     }
 
     private @Nullable List<Set<Expression>> collectExpressions(Plan plan) {
