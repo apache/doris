@@ -82,7 +82,7 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                     .collect(ImmutableSet.toImmutableSet());
             boolean containRightSlot = predicates.stream()
                     .flatMap(p -> p.getInputSlots().stream())
-                    .anyMatch(join.right().getInputSlots()::contains);
+                    .anyMatch(join.right().getOutputSet()::contains);
             if (!containRightSlot) {
                 res = join.withJoinType(JoinType.LEFT_ANTI_JOIN);
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
@@ -96,7 +96,7 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                     .collect(ImmutableSet.toImmutableSet());
             boolean containLeftSlot = predicates.stream()
                     .flatMap(p -> p.getInputSlots().stream())
-                    .anyMatch(join.left().getInputSlots()::contains);
+                    .anyMatch(join.left().getOutputSet()::contains);
             if (!containLeftSlot) {
                 res = join.withJoinType(JoinType.RIGHT_ANTI_JOIN);
                 res = predicates.isEmpty() ? res : filter.withConjuncts(predicates).withChildren(res);
