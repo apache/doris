@@ -67,6 +67,10 @@ namespace doris::vectorized {
   * Integer values are compared as usual.
   * Floating-point numbers are compared this way that NaNs always end up at the end
   *  (if you don't do this, the sort would not work at all).
+  * Due to IPv4 being a Little-Endian storage, comparing UInt32 is equivalent to comparing IPv4.
+  * However, IPv6 is a Big-Endian storage, and comparing IPv6 is not equivalent to comparing uint128_t.
+  * So we should use std::memcmp to start comparing from low bytes to high bytes.
+  *  (e.g. :: < ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)
   */
 template <typename T>
 struct CompareHelper {
@@ -125,6 +129,23 @@ template <>
 struct CompareHelper<Float32> : public FloatCompareHelper<Float32> {};
 template <>
 struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
+
+struct IPv6CompareHelper {
+    static bool less(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
+        return std::memcmp(&a, &b, sizeof(IPv6)) < 0;
+    }
+
+    static bool greater(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
+        return std::memcmp(&a, &b, sizeof(IPv6)) > 0;
+    }
+
+    static int compare(IPv6 a, IPv6 b, int /*nan_direction_hint*/) {
+        return std::memcmp(&a, &b, sizeof(IPv6));
+    }
+};
+
+template <>
+struct CompareHelper<IPv6> : public IPv6CompareHelper {};
 
 /** A template for columns that use a simple array to store.
  */

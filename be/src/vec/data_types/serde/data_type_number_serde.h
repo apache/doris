@@ -48,6 +48,8 @@ class Arena;
 //  DataTypeTime => T:Float64
 //  DataTypeDate => T:Int64
 //  DataTypeDateTime => T:Int64
+//  IPv4 => T:UInt32
+//  IPv6 => T:uint128_t
 template <typename T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(IsNumber<T>);

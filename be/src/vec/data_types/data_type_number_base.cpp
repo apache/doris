@@ -146,7 +146,7 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    if constexpr (std::is_same<T, __int128_t>::value || std::is_same<T, UInt128>::value) {
+    if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value || std::is_same<T, UInt128>::value) {
         return int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     } else if constexpr (std::is_integral<T>::value) {
         return std::to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
@@ -263,7 +263,7 @@ bool DataTypeNumberBase<T>::is_value_represented_by_unsigned_integer() const {
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberBase<UInt8>;
 template class DataTypeNumberBase<UInt16>;
-template class DataTypeNumberBase<UInt32>;
+template class DataTypeNumberBase<UInt32>; // IPv4
 template class DataTypeNumberBase<UInt64>;
 template class DataTypeNumberBase<UInt128>;
 template class DataTypeNumberBase<Int8>;
@@ -273,5 +273,6 @@ template class DataTypeNumberBase<Int64>;
 template class DataTypeNumberBase<Int128>;
 template class DataTypeNumberBase<Float32>;
 template class DataTypeNumberBase<Float64>;
+template class DataTypeNumberBase<IPv6>; // IPv6
 
 } // namespace doris::vectorized
