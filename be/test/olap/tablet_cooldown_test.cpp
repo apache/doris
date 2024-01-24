@@ -310,7 +310,6 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
                          int64_t partition_id, TupleDescriptor* tuple_desc, bool with_data = true) {
     auto profile = std::make_unique<RuntimeProfile>("LoadChannels");
 
-    OlapTableSchemaParam param;
     WriteRequest write_req;
     write_req.tablet_id = tablet_id;
     write_req.schema_hash = schema_hash;
@@ -320,7 +319,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = param;
+    write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
 
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
@@ -396,10 +395,10 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
     request.__set_replica_id(replica_id);
-    Status st = k_engine->create_tablet(request, profile.get());
+    Status st = engine_ref->create_tablet(request, profile.get());
     ASSERT_EQ(Status::OK(), st);
     if (!with_data) {
-        *tablet = k_engine->tablet_manager()->get_tablet(tablet_id);
+        *tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
         return;
     }
 
