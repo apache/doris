@@ -3,19 +3,19 @@
 PhysicalResultSink
 --PhysicalProject
 ----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecGather]
+------PhysicalDistribute
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------filter((cast(l_quantity as DECIMALV3(38, 5)) < (0.2 * avg(cast(l_quantity as DECIMALV3(17, 4))) OVER(PARTITION BY p_partkey))))
 --------------PhysicalWindow
-----------------PhysicalQuickSort[LOCAL_SORT]
+----------------PhysicalQuickSort
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF0 p_partkey->[l_partkey]
-----------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[lineitem] apply RFs: RF0
-----------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------PhysicalOlapScan[lineitem]
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((part.p_brand = 'Brand#23') and (part.p_container = 'MED BOX'))
+--------------------------filter((part.p_container = 'MED BOX')(part.p_brand = 'Brand#23'))
 ----------------------------PhysicalOlapScan[part]
 
