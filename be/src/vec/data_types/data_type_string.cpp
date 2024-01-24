@@ -22,8 +22,10 @@
 
 #include <lz4/lz4.h>
 #include <streamvbyte.h>
-#include <string.h>
 
+#include <cstring>
+
+#include "agent/be_exec_version_manager.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -77,7 +79,7 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 //  <value array> : <value1> | <value2 | ...
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         auto ptr = column.convert_to_full_column_if_const();
         const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
         int64_t size = sizeof(uint32_t) + sizeof(uint64_t);
@@ -111,7 +113,7 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
 }
 
 char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         auto ptr = column.convert_to_full_column_if_const();
         const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
@@ -169,8 +171,8 @@ char* DataTypeString::serialize(const IColumn& column, char* buf, int be_exec_ve
 
 const char* DataTypeString::deserialize(const char* buf, IColumn* column,
                                         int be_exec_version) const {
-    if (be_exec_version >= 4) {
-        ColumnString* column_string = assert_cast<ColumnString*>(column);
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto* column_string = assert_cast<ColumnString*>(column);
         ColumnString::Chars& data = column_string->get_chars();
         ColumnString::Offsets& offsets = column_string->get_offsets();
 
@@ -206,7 +208,7 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column,
         }
         return buf;
     } else {
-        ColumnString* column_string = assert_cast<ColumnString*>(column);
+        auto* column_string = assert_cast<ColumnString*>(column);
         ColumnString::Chars& data = column_string->get_chars();
         ColumnString::Offsets& offsets = column_string->get_offsets();
         // row num
