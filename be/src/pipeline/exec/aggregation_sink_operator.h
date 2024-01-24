@@ -53,9 +53,8 @@ public:
     ~AggSinkDependency() override = default;
 
     void set_ready() override {
-        std::shared_ptr<BasicSharedState> shared_state = _shared_state;
-        if (shared_state && _is_streaming_agg_state(shared_state)) {
-            if (((SharedState*)shared_state.get())->data_queue->has_enough_space_to_push()) {
+        if (_shared_state && _is_streaming_agg_state(_shared_state)) {
+            if (((SharedState*)_shared_state)->data_queue->has_enough_space_to_push()) {
                 Dependency::set_ready();
             }
         } else {
@@ -64,9 +63,8 @@ public:
     }
 
     void block() override {
-        std::shared_ptr<BasicSharedState> shared_state = _shared_state;
-        if (_is_streaming_agg_state(shared_state)) {
-            if (!((SharedState*)shared_state.get())->data_queue->has_enough_space_to_push()) {
+        if (_is_streaming_agg_state(_shared_state)) {
+            if (!((SharedState*)_shared_state)->data_queue->has_enough_space_to_push()) {
                 Dependency::block();
             }
         } else {
@@ -75,8 +73,8 @@ public:
     }
 
 private:
-    static bool _is_streaming_agg_state(const std::shared_ptr<BasicSharedState>& shared_state) {
-        return ((SharedState*)shared_state.get())->data_queue != nullptr;
+    static bool _is_streaming_agg_state(const BasicSharedState* shared_state) {
+        return ((SharedState*)shared_state)->data_queue != nullptr;
     }
 };
 
