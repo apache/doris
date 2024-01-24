@@ -29,6 +29,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
