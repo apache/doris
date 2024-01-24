@@ -219,9 +219,6 @@ public:
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(config::storage_root_path);
         ASSERT_TRUE(st.ok()) << st;
-        EXPECT_TRUE(io::global_local_filesystem()
-                            ->create_directory(get_remote_path(remote_tablet_path(kTabletId)))
-                            .ok());
 
         std::vector<StorePath> paths {{config::storage_root_path, -1}};
 
@@ -308,28 +305,10 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
     return desc_tbl_builder.desc_tbl();
 }
 
-void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
-                  int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
-    // create tablet
-    std::unique_ptr<RuntimeProfile> profile;
-    profile = std::make_unique<RuntimeProfile>("CreateTablet");
-    TCreateTabletReq request;
-    create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
-    request.__set_replica_id(replica_id);
-    Status st = engine_ref->create_tablet(request, profile.get());
-    ASSERT_EQ(Status::OK(), st);
-
-    TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
-    ObjectPool obj_pool;
-    DescriptorTbl* desc_tbl = nullptr;
-    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto param = std::make_shared<OlapTableSchemaParam>();
-
-    // write data
-    PUniqueId load_id;
-    load_id.set_hi(0);
-    load_id.set_lo(0);
+static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t replica_id,
+                         int32_t schema_hash, int64_t tablet_id, int64_t txn_id,
+                         int64_t partition_id, TupleDescriptor* tuple_desc, bool with_data = true) {
+    auto profile = std::make_unique<RuntimeProfile>("LoadChannels");
 
     WriteRequest write_req;
     write_req.tablet_id = tablet_id;
@@ -340,9 +319,8 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     write_req.tuple_desc = tuple_desc;
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
-    write_req.table_schema_param = param;
+    write_req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
 
-    profile = std::make_unique<RuntimeProfile>("LoadChannels");
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
@@ -353,9 +331,10 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
                                                        slot_desc->get_data_type_ptr(),
                                                        slot_desc->col_name()));
     }
-
+    Status st;
     auto columns = block.mutate_columns();
-    {
+
+    if (with_data) {
         int8_t c1 = 123;
         columns[0]->insert_data((const char*)&c1, sizeof(c1));
 
@@ -400,6 +379,42 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
     }
+}
+
+void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_hash,
+                  int64_t tablet_id, int64_t txn_id, int64_t partition_id, bool with_data = true) {
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->delete_directory(get_remote_path(remote_tablet_path(tablet_id)))
+                        .ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->create_directory(get_remote_path(remote_tablet_path(tablet_id)))
+                        .ok());
+    // create tablet
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
+    TCreateTabletReq request;
+    create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
+    request.__set_replica_id(replica_id);
+    Status st = engine_ref->create_tablet(request, profile.get());
+    ASSERT_EQ(Status::OK(), st);
+    if (!with_data) {
+        *tablet = engine_ref->tablet_manager()->get_tablet(tablet_id);
+        return;
+    }
+
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
+    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(0);
+
+    write_rowset(tablet, std::move(load_id), replica_id, schema_hash, tablet_id, txn_id,
+                 partition_id, tuple_desc);
+
     EXPECT_EQ(1, (*tablet)->num_rows());
 }
 
@@ -426,6 +441,45 @@ TEST_F(TabletCooldownTest, normal) {
     st = std::static_pointer_cast<BetaRowset>(rs)->load_segments(&segments);
     ASSERT_EQ(Status::OK(), st);
     ASSERT_EQ(segments.size(), 1);
+}
+
+TEST_F(TabletCooldownTest, cooldown_data) {
+    TabletSharedPtr tablet1;
+    createTablet(&tablet1, kReplicaId + 1, kSchemaHash + 1, kTabletId + 1, kTxnId + 1,
+                 kPartitionId + 1, false);
+    // test cooldown
+    tablet1->set_storage_policy_id(kStoragePolicyId);
+    // Tablet with only rowset[0-1] will not be as suitable as cooldown candidate
+    ASSERT_FALSE(tablet1->_has_data_to_cooldown());
+
+    TabletSharedPtr tablet2;
+    createTablet(&tablet2, kReplicaId + 2, kSchemaHash + 2, kTabletId + 2, kTxnId + 2,
+                 kPartitionId + 2);
+    // test cooldown
+    tablet2->set_storage_policy_id(kStoragePolicyId);
+    Status st = tablet2->cooldown(); // rowset [0-1]
+    ASSERT_NE(Status::OK(), st);
+    tablet2->update_cooldown_conf(1, kReplicaId + 2);
+    // cooldown for upload node
+    st = tablet2->cooldown(); // rowset [0-1]
+    ASSERT_EQ(Status::OK(), st);
+    st = tablet2->cooldown(); // rowset [2-2]
+    ASSERT_EQ(Status::OK(), st);
+    // Write one empty local rowset into tablet2 to test if this rowset would be uploaded or not
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
+    ObjectPool obj_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
+    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+
+    PUniqueId load_id;
+    load_id.set_hi(1);
+    load_id.set_lo(1);
+    write_rowset(&tablet2, std::move(load_id), kReplicaId + 2, kSchemaHash + 2, kTabletId + 2,
+                 kTxnId + 3, kPartitionId + 2, tuple_desc, false);
+
+    st = tablet2->cooldown(); // rowset [3-3]
+    ASSERT_EQ(Status::OK(), st);
 }
 
 } // namespace doris
