@@ -180,6 +180,12 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 #endif
 
+    if ((_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+        _have_other_join_conjunct) {
+        _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
+    }
+
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
@@ -760,6 +766,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = _arena;
             _shared_hash_table_context->block = _build_block;
+            _shared_hash_table_context->build_indexes_null = _build_indexes_null;
             _shared_hash_table_context->hash_table_variants = _hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
                     _has_null_in_build_side;
@@ -792,6 +799,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 *std::static_pointer_cast<HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
         _build_block = _shared_hash_table_context->block;
+        _build_indexes_null = _shared_hash_table_context->build_indexes_null;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -968,30 +976,33 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
 
     st = std::visit(
             Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           LOG(FATAL) << "FATAL: uninited hash table";
                           __builtin_unreachable();
                           return Status::OK();
                       },
                       [&](auto&& arg, auto&& join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
 
                           ProcessHashTableBuild<HashTableCtxType, HashJoinNode>
                                   hash_table_build_process(rows, block, raw_ptrs, this,
                                                            state->batch_size(), state);
-                          return hash_table_build_process
-                                  .template run<JoinOpType::value, has_null_value,
-                                                short_circuit_for_null_in_build_side>(
-                                          arg,
-                                          has_null_value || short_circuit_for_null_in_build_side
-                                                  ? &null_map_val->get_data()
-                                                  : nullptr,
-                                          &_has_null_in_build_side);
+                          return hash_table_build_process.template run<
+                                  JoinOpType::value, has_null_value,
+                                  short_circuit_for_null_in_build_side, with_other_conjuncts>(
+                                  arg,
+                                  has_null_value || short_circuit_for_null_in_build_side
+                                          ? &null_map_val->get_data()
+                                          : nullptr,
+                                  &_has_null_in_build_side);
                       }},
             *_hash_table_variants, _join_op_variants, make_bool_variant(_build_side_ignore_null),
-            make_bool_variant(_short_circuit_for_null_in_build_side));
+            make_bool_variant(_short_circuit_for_null_in_build_side),
+            make_bool_variant(_have_other_join_conjunct));
 
     return st;
 }

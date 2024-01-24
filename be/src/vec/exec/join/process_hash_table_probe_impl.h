@@ -179,7 +179,21 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
         mark_column = std::make_unique<ColumnFilterHelper>(*mcol[mcol.size() - 1]);
     }
 
-    {
+    /// `null_result` set which contains the probe indexes of null results.
+    std::set<uint32_t> null_result;
+    if constexpr ((JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                   JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+                  with_other_conjuncts) {
+        SCOPED_TIMER(_search_hashtable_timer);
+        auto [new_probe_idx, new_build_idx, new_current_offset] =
+                hash_table_ctx.hash_table->find_null_aware_with_other_conjuncts(
+                        hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
+                        build_index, probe_rows, _probe_indexs.data(), _build_indexs.data(),
+                        null_result, *(_parent->_build_indexes_null), _build_block->rows());
+        probe_index = new_probe_idx;
+        build_index = new_build_idx;
+        current_offset = new_current_offset;
+    } else {
         SCOPED_TIMER(_search_hashtable_timer);
         auto [new_probe_idx, new_build_idx,
               new_current_offset] = hash_table_ctx.hash_table->template find_batch < JoinOpType,
@@ -219,7 +233,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 
     if constexpr (is_mark_join) {
         return do_mark_join_conjuncts<with_other_conjuncts>(
-                output_block, hash_table_ctx.hash_table->get_bucket_size());
+                output_block, hash_table_ctx.hash_table->get_bucket_size(), null_result);
     } else if constexpr (with_other_conjuncts) {
         return do_other_join_conjuncts(output_block, is_mark_join,
                                        hash_table_ctx.hash_table->get_visited(),
@@ -232,7 +246,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_process(HashTableType& hash
 template <int JoinOpType, typename Parent>
 template <bool with_other_conjuncts>
 Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
-        Block* output_block, const size_t hash_table_bucket_size) {
+        Block* output_block, size_t hash_table_bucket_size, const std::set<uint32_t>& null_result) {
     DCHECK(JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
@@ -250,14 +264,34 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
     IColumn::Filter& filter = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
 
     if (_parent->_mark_join_conjuncts.empty()) {
+        // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
+        // the result should be null. Like:
+        // select 4 not in (2, 3, null) => null, select 4 not in (2, 3) => true
+        // select 4 in (2, 3, null) => null, select 4 in (2, 3) => false
+        const bool should_be_null_if_build_side_has_null = *_has_null_in_build_side;
+
         mark_column.resize(row_count);
         auto* filter_data =
                 assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data().data();
         auto* mark_null_map = mark_column.get_null_map_data().data();
+        int last_probe_matched = -1;
         for (size_t i = 0; i != row_count; ++i) {
             filter_data[i] = _build_indexs[i] != 0 && _build_indexs[i] != hash_table_bucket_size;
             if constexpr (is_null_aware_join) {
-                mark_null_map[i] = _build_indexs[i] == hash_table_bucket_size;
+                if constexpr (with_other_conjuncts) {
+                    mark_null_map[i] =
+                            null_result.contains(_probe_indexs[i]) && _build_indexs[i] != 0;
+                } else {
+                    if (filter_data[i]) {
+                        last_probe_matched = _probe_indexs[i];
+                        mark_null_map[i] = false;
+                    } else if (_build_indexs[i] == 0) {
+                        mark_null_map[i] = should_be_null_if_build_side_has_null &&
+                                           last_probe_matched != _probe_indexs[i];
+                    } else if (_build_indexs[i] == hash_table_bucket_size) {
+                        mark_null_map[i] = true;
+                    }
+                }
             }
         }
         if constexpr (!is_null_aware_join) {
@@ -282,21 +316,32 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_mark_join_conjuncts(
         DCHECK_EQ(filter.size(), other_conjunct_filter.size());
         const auto* other_filter_data = other_conjunct_filter.data();
         for (size_t i = 0; i != filter.size(); ++i) {
-            mark_filter_data[i] &= other_filter_data[i];
+            // null & any(true or false) => null => false
+            mark_filter_data[i] &= (!mark_null_map[i]) & other_filter_data[i];
+
+            // null & true => null
+            // null & false => false
+            mark_null_map[i] &= other_filter_data[i];
         }
     }
 
     auto filter_column = ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
+
+    /**
+     * Here need `!with_other_conjuncts` be true,
+     * because null aware join with other join conjuncts will process the `mark_null_map` after the
+     * other join conjuncts are executed.
+     */
     const bool should_be_null_if_build_side_has_null =
-            *_has_null_in_build_side & is_null_aware_join;
+            *_has_null_in_build_side && is_null_aware_join && !with_other_conjuncts;
     for (size_t i = 0; i != row_count; ++i) {
         bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
         if (_build_indexs[i] == 0) {
             bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
             if (not_matched_before) {
                 filter_map[i] = true;
-                mark_null_map[i] = has_null_mark_value | should_be_null_if_build_side_has_null;
+                mark_null_map[i] = has_null_mark_value || should_be_null_if_build_side_has_null;
                 mark_filter_data[i] = false;
             }
         } else {

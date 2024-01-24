@@ -298,7 +298,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 SubqueryExpr subqueryExpr = subqueryExprs.get(0);
                 List<Slot> correlatedSlots = subqueryExpr.getCorrelateSlots();
                 if (subqueryExpr instanceof ScalarSubquery) {
-                    Set<Slot> inputSlots = expression.getInputSlots();
+                    Set<Slot> inputSlots = subqueryExpr.getInputSlots();
                     if (correlatedSlots.isEmpty() && inputSlots.isEmpty()) {
                         relatedInfo = RelatedInfo.Unrelated;
                     } else if (leftOutputSlots.containsAll(inputSlots)

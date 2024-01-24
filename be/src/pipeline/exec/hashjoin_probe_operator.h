@@ -121,7 +121,16 @@ private:
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
     int _last_probe_match;
+
+    // For mark join, last probe index of null mark
     int _last_probe_null_mark;
+
+    /*
+     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
+     * build side with null keys,
+     * because the other join conjuncts' result may be changed from null to false(null & false == false).
+     */
+    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;

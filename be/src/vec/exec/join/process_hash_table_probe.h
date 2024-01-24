@@ -71,7 +71,8 @@ struct ProcessHashTableProbe {
                                    std::vector<uint8_t>& visited, bool has_null_in_build_side);
 
     template <bool with_other_conjuncts>
-    Status do_mark_join_conjuncts(Block* output_block, const size_t hash_table_bucket_size);
+    Status do_mark_join_conjuncts(Block* output_block, size_t hash_table_bucket_size,
+                                  const std::set<uint32_t>& null_result);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,

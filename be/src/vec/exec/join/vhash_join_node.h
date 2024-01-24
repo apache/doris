@@ -110,13 +110,19 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
+    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null,
+              bool with_other_conjuncts>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             // first row is mocked and is null
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
+                    if constexpr (with_other_conjuncts &&
+                                  (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                   JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
+                        _parent->_build_indexes_null->emplace_back(i);
+                    }
                 }
             }
             if (short_circuit_for_null && *has_null_key) {
@@ -307,6 +313,13 @@ private:
 
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
+
+    /*
+     * For null aware anti/semi join with other join conjuncts, we do need to care about the rows in
+     * build side with null keys,
+     * because the other join conjuncts' result maybe change null to false(null & false == false).
+     */
+    std::shared_ptr<std::vector<uint32_t>> _build_indexes_null;
 
     DataTypes _right_table_data_types;
     DataTypes _left_table_data_types;

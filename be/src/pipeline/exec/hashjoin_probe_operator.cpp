@@ -301,6 +301,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
 
     Status st;
     if (local_state._probe_index < local_state._probe_block.rows()) {
+        local_state._build_indexes_null = local_state._shared_state->build_indexes_null;
         DCHECK(local_state._has_set_need_null_map_for_probe);
         RETURN_IF_CATCH_EXCEPTION({
             std::visit(

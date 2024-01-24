@@ -76,6 +76,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
         _shared_hash_table_dependency->block();
         p._shared_hashtable_controller->append_dependency(p.node_id(),
                                                           _shared_hash_table_dependency);
+    } else {
+        if ((p._join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+             p._join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+            p._have_other_join_conjunct) {
+            _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
+        }
     }
 
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
@@ -257,31 +263,34 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     st = std::visit(
             Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           LOG(FATAL) << "FATAL: uninited hash table";
                           __builtin_unreachable();
                           return Status::OK();
                       },
                       [&](auto&& arg, auto&& join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           vectorized::ProcessHashTableBuild<HashTableCtxType,
                                                             HashJoinBuildSinkLocalState>
                                   hash_table_build_process(rows, block, raw_ptrs, this,
                                                            state->batch_size(), state);
-                          return hash_table_build_process
-                                  .template run<JoinOpType::value, has_null_value,
-                                                short_circuit_for_null_in_build_side>(
-                                          arg,
-                                          has_null_value || short_circuit_for_null_in_build_side
-                                                  ? &null_map_val->get_data()
-                                                  : nullptr,
-                                          &_shared_state->_has_null_in_build_side);
+                          return hash_table_build_process.template run<
+                                  JoinOpType::value, has_null_value,
+                                  short_circuit_for_null_in_build_side, with_other_conjuncts>(
+                                  arg,
+                                  has_null_value || short_circuit_for_null_in_build_side
+                                          ? &null_map_val->get_data()
+                                          : nullptr,
+                                  &_shared_state->_has_null_in_build_side);
                       }},
             *_shared_state->hash_table_variants, _shared_state->join_op_variants,
             vectorized::make_bool_variant(_build_side_ignore_null),
-            vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side));
+            vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
+            vectorized::make_bool_variant((p._have_other_join_conjunct)));
 
     return st;
 }
@@ -490,6 +499,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 state, local_state._shared_state->build_block.get(), &local_state, use_global_rf));
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
+        local_state._shared_state->build_indexes_null = local_state._build_indexes_null;
         if (_shared_hashtable_controller) {
             _shared_hash_table_context->status = Status::OK();
             // arena will be shared with other instances.
@@ -503,6 +513,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         _shared_hash_table_context);
             }
             _shared_hash_table_context->block = local_state._shared_state->build_block;
+            _shared_hash_table_context->build_indexes_null =
+                    local_state._shared_state->build_indexes_null;
             _shared_hashtable_controller->signal(node_id());
         }
     } else if (!local_state._should_build_hash_table) {
@@ -533,6 +545,9 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                         _shared_hash_table_context->hash_table_variants));
 
         local_state._shared_state->build_block = _shared_hash_table_context->block;
+        local_state._build_indexes_null = _shared_hash_table_context->build_indexes_null;
+        local_state._shared_state->build_indexes_null =
+                _shared_hash_table_context->build_indexes_null;
         const bool use_global_rf =
                 local_state._parent->cast<HashJoinBuildSinkOperatorX>()._use_global_rf;
 
