@@ -61,12 +61,14 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
             LogicalJoin<Plan, Plan> join = project.child();
             ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
             Set<Slot> residualSlot = Sets.difference(project.getInputSlots(), equalSet.getAllItemSet());
+            Plan res = null;
             if (join.left().getOutputSet().containsAll(residualSlot)) {
-                return tryEliminatePrimary(project, equalSet, join.right(), join.left());
-            } else if (join.right().getOutputSet().containsAll(residualSlot)) {
-                return tryEliminatePrimary(project, equalSet, join.left(), join.right());
+                res = tryEliminatePrimary(project, equalSet, join.right(), join.left());
             }
-            return null;
+            if (res == null && join.right().getOutputSet().containsAll(residualSlot)) {
+                res = tryEliminatePrimary(project, equalSet, join.left(), join.right());
+            }
+            return res;
         }).toRule(RuleType.ELIMINATE_JOIN_BY_UK);
     }
 

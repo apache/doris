@@ -310,7 +310,7 @@ public class JoinUtils {
         ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
         Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
         Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
-        if (!context.isForeignKey(foreignKey) && !context.isPrimaryKey(primaryKey)) {
+        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
             return false;
         }
 

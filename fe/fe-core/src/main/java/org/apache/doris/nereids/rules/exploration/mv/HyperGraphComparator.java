@@ -164,6 +164,10 @@ public class HyperGraphComparator {
                 if (LongBitmap.getCardinality(eliminatedRight) != 1) {
                     return false;
                 }
+                Plan rigthPlan = viewHyperGraph
+                        .getNode(LongBitmap.lowestOneIndex(joinEdge.getRightExtendedNodes())).getPlan();
+                return JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
+                        rigthPlan.getLogicalProperties().getFunctionalDependencies());
             }
             // eliminate by pk fk
             if (joinEdge.getJoinType().isInnerJoin()) {
