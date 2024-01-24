@@ -148,21 +148,19 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new ReplaceExpressionByChildOutput(),
                 new OneRowRelationExtractAggregate()
             ),
-            topDown(
-                new FillUpMissingSlots(),
-                // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
-                // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
-                // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
-                new NormalizeRepeat()
-            ),
-            bottomUp(new AdjustAggregateNullableForEmptySet()),
+            topDown(new FillUpMissingSlots()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
+            // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
+            // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
+            // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
+            topDown(new NormalizeRepeat()),
             topDown(new HavingToFilter()),
+            bottomUp(new AdjustAggregateNullableForEmptySet()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),

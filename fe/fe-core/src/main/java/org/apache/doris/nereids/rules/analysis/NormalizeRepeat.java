@@ -23,15 +23,16 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotTriplet;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -45,6 +46,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -78,35 +80,48 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     public Rule build() {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
-                checkRepeatLegality(repeat);
+                checkGroupingSetsSize(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
-                return normalizeRepeat(repeat);
+                return normalizeRepeat(preProcessIfAggFuncSlotInGroupingSets(repeat));
             })
         );
     }
 
-    private void checkRepeatLegality(LogicalRepeat<Plan> repeat) {
-        checkIfAggFuncSlotInGroupingSets(repeat);
-        checkGroupingSetsSize(repeat);
-    }
-
-    private void checkIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
+    /**
+     * if we have same slot in both agg funcs and grouping sets. we copy it before repeat.
+     * for eample:
+     *   SELECT MIN(c1) FROM t1 GROUP BY GROUPING SETS((c1,c2), (c2), ()) HAVING c1 < 3 OR c2 > '' order by 1;
+     * c1 appears in MIN function and grouping sets. so we rewrite plan like sql
+     *   with t as(select c1 a, c1 b, c2 c from t1)
+     *     select min(a), b, c, grouping_id(b, c) as g from t group by grouping sets((b, c), (c), ()) order by 1
+     */
+    private LogicalRepeat<Plan> preProcessIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
         Set<Slot> aggUsedSlots = repeat.getOutputExpressions().stream()
                 .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
-                .collect(ImmutableSet.toImmutableSet());
-        Set<ExprId> groupingSetsUsedSlotExprIds = repeat.getGroupingSets().stream()
+                .collect(Collectors.toSet());
+        Set<Slot> groupingSetsUsedSlots = repeat.getGroupingSets().stream()
                 .flatMap(Collection::stream)
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
-                .map(SlotReference::getExprId)
                 .collect(Collectors.toSet());
-        for (Slot slot : aggUsedSlots) {
-            if (groupingSetsUsedSlotExprIds.contains(slot.getExprId())) {
-                throw new AnalysisException("column: " + slot.toSql() + " cannot both in select "
-                        + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
-                        + "please use union instead.");
-            }
+        aggUsedSlots.retainAll(groupingSetsUsedSlots);
+        if (aggUsedSlots.isEmpty()) {
+            return repeat;
         }
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        ImmutableList.Builder<NamedExpression> projections = ImmutableList.builder();
+        projections.addAll(repeat.child().getOutput());
+
+        aggUsedSlots.forEach(s -> {
+            Alias alias = new Alias(s, s.toSql());
+            projections.add(alias);
+            replaceMap.put(s, alias.toSlot());
+        });
+        LogicalProject<Plan> project = new LogicalProject<>(projections.build(), repeat.child());
+        List<NamedExpression> newOutputs = repeat.getOutputExpressions().stream()
+                .map(e -> (NamedExpression) e.accept(AggregateChildrenExpressionReplacer.INSTANCE, replaceMap))
+                .collect(ImmutableList.toImmutableList());
+        return repeat.withAggOutputAndChild(newOutputs, project);
     }
 
     private void checkGroupingSetsSize(LogicalRepeat<Plan> repeat) {
@@ -263,6 +278,39 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             return Repeat.generateVirtualSlotByFunction(function);
         } else {
             return expr;
+        }
+    }
+
+    static class AggregateChildrenExpressionReplacer
+            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
+        public static final AggregateChildrenExpressionReplacer INSTANCE = new AggregateChildrenExpressionReplacer();
+
+        private AggregateChildrenExpressionReplacer() {}
+
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
+                Map<? extends Expression, ? extends Expression> context) {
+            List<Expression> newChildren = new ArrayList<>(aggregateFunction.arity());
+            boolean hasNewChildren = false;
+            for (Expression child : aggregateFunction.children()) {
+                Expression newChild = ExpressionUtils.replace(child, context);
+                if (newChild != child) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            return hasNewChildren ? aggregateFunction.withChildren(newChildren) : aggregateFunction;
+        }
+
+        @Override
+        public Expression visitWindow(WindowExpression windowExpression,
+                Map<? extends Expression, ? extends Expression> context) {
+            Expression function = super.visit(windowExpression.getFunction(), context);
+            List<Expression> partitionKeys = windowExpression.getPartitionKeys().stream()
+                    .map(pk -> pk.accept(this, context)).collect(ImmutableList.toImmutableList());
+            List<OrderExpression> orderKeys = windowExpression.getOrderKeys().stream()
+                    .map(ok -> (OrderExpression) ok.accept(this, context)).collect(ImmutableList.toImmutableList());
+            return windowExpression.withFunction(function).withPartitionKeysOrderKeys(partitionKeys, orderKeys);
         }
     }
 }

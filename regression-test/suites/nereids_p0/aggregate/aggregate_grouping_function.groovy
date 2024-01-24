@@ -92,4 +92,16 @@ suite("aggregate_grouping_function") {
     """
 
     sql "DROP TABLE test_aggregate_grouping_function"
+
+    sql "DROP TABLE IF EXISTS same_slot_in_agg_and_grouping_set"
+    sql """
+        create table if not exists same_slot_in_agg_and_grouping_set (`c0` int, `c1` int, `c2` text) engine=olap distributed by hash(c0) properties('replication_num' = '1'); 
+    """
+    sql """
+        insert into same_slot_in_agg_and_grouping_set values (0,16054,null),(1,-12,null),(2,-48,'j'),(3,null,null),(4,-43,"say"),(5,-43,null),(6,null,'a'),(7,19196,null),(8,89,"how"),(9,82,"yeah"); 
+    """
+    qt_same_slot_in_agg_and_grouping_set """
+        SELECT MIN(c1) FROM same_slot_in_agg_and_grouping_set GROUP BY GROUPING SETS((c1,c2), (c2), ()) HAVING c1 < 3 OR c2 > '' order by 1; 
+    """
+    sql "DROP TABLE IF EXISTS same_slot_in_agg_and_grouping_set"
 }
