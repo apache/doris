@@ -159,5 +159,4 @@ public class HMSAnalysisTaskTest {
         Assertions.assertEquals(1.0, info2.first);
         Assertions.assertEquals(0, info2.second);
     }
-
 }

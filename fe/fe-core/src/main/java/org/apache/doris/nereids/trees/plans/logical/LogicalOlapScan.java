@@ -140,10 +140,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
-                           long selectedIndexId, List<String> hints, Optional<TableSample> tableSample) {
+                           long selectedIndexId, PreAggStatus preAggStatus, List<String> hints,
+                           Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false, tabletIds,
-                selectedIndexId, true, PreAggStatus.off("For direct index scan."),
+                selectedIndexId, true, preAggStatus,
                 ImmutableList.of(), hints, Maps.newHashMap(), tableSample, true);
     }
 

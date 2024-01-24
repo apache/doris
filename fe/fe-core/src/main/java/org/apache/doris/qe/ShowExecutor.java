@@ -2433,43 +2433,54 @@ public class ShowExecutor {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         TableName tableName = showColumnStatsStmt.getTableName();
         TableIf tableIf = showColumnStatsStmt.getTable();
-        List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
+        List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
         boolean showCache = showColumnStatsStmt.isCached();
 
         for (String colName : columnNames) {
-            // Show column statistics in columnStatisticsCache. For validation.
-            if (showCache) {
-                ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                        tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
-            } else if (partitionNames == null) {
-                ColumnStatistic columnStatistic =
-                        StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
-                columnStatistics.add(Pair.of(colName, columnStatistic));
+            // Olap base index use -1 as index id.
+            List<Long> indexIds = Lists.newArrayList();
+            if (StatisticsUtil.isMvColumn(tableIf, colName)) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                indexIds = olapTable.getMvColumnIndexIds(colName);
             } else {
-                columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
-                                colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
-                        .stream().map(s -> Pair.of(colName, s))
-                        .collect(Collectors.toList()));
+                indexIds.add(-1L);
             }
-
+            for (long indexId : indexIds) {
+                String indexName = "N/A";
+                if (indexId != -1) {
+                    indexName = ((OlapTable) tableIf).getIndexNameById(indexId);
+                    if (indexName == null) {
+                        continue;
+                    }
+                }
+                // Show column statistics in columnStatisticsCache.
+                if (showCache) {
+                    ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                            tableIf.getDatabase().getCatalog().getId(),
+                            tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else if (partitionNames == null) {
+                    ColumnStatistic columnStatistic =
+                            StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), indexId, colName);
+                    columnStatistics.add(Pair.of(Pair.of(colName, indexName), columnStatistic));
+                } else {
+                    String finalIndexName = indexName;
+                    columnStatistics.addAll(StatisticsRepository.queryColumnStatisticsByPartitions(tableName,
+                            colName, showColumnStatsStmt.getPartitionNames().getPartitionNames())
+                            .stream().map(s -> Pair.of(Pair.of(colName, finalIndexName), s))
+                            .collect(Collectors.toList()));
+                }
+            }
         }
         resultSet = showColumnStatsStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowColumnHist() {
+        // TODO: support histogram in the future.
         ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
-        TableIf tableIf = showColumnHistStmt.getTable();
-        Set<String> columnNames = showColumnHistStmt.getColumnNames();
-
-        List<Pair<String, Histogram>> columnStatistics = columnNames.stream()
-                .map(colName -> Pair.of(colName,
-                        StatisticsRepository.queryColumnHistogramByName(tableIf.getId(), colName)))
-                .collect(Collectors.toList());
-
+        List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
         resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
@@ -2849,12 +2860,19 @@ public class ShowExecutor {
 
     private void handleShowAnalyzeTaskStatus() {
         ShowAnalyzeTaskStatus showStmt = (ShowAnalyzeTaskStatus) stmt;
+        AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(showStmt.getJobId());
+        TableIf table = StatisticsUtil.findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
         List<AnalysisInfo> analysisInfos = Env.getCurrentEnv().getAnalysisManager().findTasks(showStmt.getJobId());
         List<List<String>> rows = new ArrayList<>();
         for (AnalysisInfo analysisInfo : analysisInfos) {
             List<String> row = new ArrayList<>();
             row.add(String.valueOf(analysisInfo.taskId));
             row.add(analysisInfo.colName);
+            if (StatisticsUtil.isMvColumn(table, analysisInfo.colName)) {
+                row.add(((OlapTable) table).getIndexNameById(analysisInfo.indexId));
+            } else {
+                row.add("N/A");
+            }
             row.add(analysisInfo.message);
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),

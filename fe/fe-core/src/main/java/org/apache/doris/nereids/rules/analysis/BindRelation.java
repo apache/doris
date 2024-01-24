@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -197,9 +198,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     throw new AnalysisException("Table " + olapTable.getName()
                         + " doesn't have materialized view " + indexName.get());
                 }
+                PreAggStatus preAggStatus
+                        = olapTable.getIndexMetaByIndexId(indexId).getKeysType().equals(KeysType.DUP_KEYS)
+                        ? PreAggStatus.on()
+                        : PreAggStatus.off("For direct index scan.");
+
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
-                    unboundRelation.getHints(), unboundRelation.getTableSample());
+                    preAggStatus, unboundRelation.getHints(), unboundRelation.getTableSample());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),

@@ -421,10 +421,17 @@ public class AnalysisManager implements Writable {
     public void createTaskForEachColumns(AnalysisInfo jobInfo, Map<Long, BaseAnalysisTask> analysisTasks,
             boolean isSync) throws DdlException {
         Map<String, Set<String>> columnToPartitions = jobInfo.colToPartitions;
+        TableIf table = jobInfo.getTable();
         for (Entry<String, Set<String>> entry : columnToPartitions.entrySet()) {
-            long indexId = -1;
-            long taskId = Env.getCurrentEnv().getNextId();
             String colName = entry.getKey();
+            List<Long> indexIds = Lists.newArrayList();
+            // Get index id this column belongs to for OlapTable. Set it to -1 for baseIndex id.
+            if (StatisticsUtil.isMvColumn(table, colName)) {
+                OlapTable olapTable = (OlapTable) table;
+                indexIds = olapTable.getMvColumnIndexIds(colName);
+            } else {
+                indexIds.add(-1L);
+            }
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
             if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
@@ -432,14 +439,17 @@ public class AnalysisManager implements Writable {
                 colToParts.put(colName, entry.getValue());
                 colTaskInfoBuilder.setColToPartitions(colToParts);
             }
-            AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
-                    .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
-            analysisTasks.put(taskId, createTask(analysisInfo));
-            jobInfo.addTaskId(taskId);
-            if (isSync) {
-                continue;
+            for (long indexId : indexIds) {
+                long taskId = Env.getCurrentEnv().getNextId();
+                AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
+                        .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
+                analysisTasks.put(taskId, createTask(analysisInfo));
+                jobInfo.addTaskId(taskId);
+                if (isSync) {
+                    continue;
+                }
+                replayCreateAnalysisTask(analysisInfo);
             }
-            replayCreateAnalysisTask(analysisInfo);
         }
     }
 
@@ -674,7 +684,7 @@ public class AnalysisManager implements Writable {
         long catalogId = table.getDatabase().getCatalog().getId();
         long dbId = table.getDatabase().getId();
         long tableId = table.getId();
-        Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        Set<String> cols = table.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet());
         invalidateLocalStats(catalogId, dbId, tableId, cols, tableStats);
         // Drop stats ddl is master only operation.
         invalidateRemoteStats(catalogId, dbId, tableId, cols, true);
@@ -686,14 +696,25 @@ public class AnalysisManager implements Writable {
         if (tableStats == null) {
             return;
         }
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
         if (columns == null) {
-            TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
-            columns = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+            columns = table.getSchemaAllIndexes(false)
+                .stream().map(Column::getName).collect(Collectors.toSet());
         }
+
         for (String column : columns) {
-            tableStats.removeColumn(column);
-            statisticsCache.invalidate(tableId, -1, column);
+            List<Long> indexIds = Lists.newArrayList();
+            if (StatisticsUtil.isMvColumn(table, column)) {
+                OlapTable olapTable = (OlapTable) table;
+                indexIds = olapTable.getMvColumnIndexIds(column);
+            } else {
+                indexIds.add(-1L);
+            }
+            for (long indexId : indexIds) {
+                tableStats.removeColumn(column);
+                statisticsCache.invalidate(tableId, indexId, column);
+            }
         }
         tableStats.updatedTime = 0;
         tableStats.userInjected = false;
@@ -1074,6 +1095,10 @@ public class AnalysisManager implements Writable {
 
     public AnalysisJob findJob(long id) {
         return idToAnalysisJob.get(id);
+    }
+
+    public AnalysisInfo findJobInfo(long id) {
+        return analysisJobInfoMap.get(id);
     }
 
     public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {

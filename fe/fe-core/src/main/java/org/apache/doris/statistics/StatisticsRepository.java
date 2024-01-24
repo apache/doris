@@ -104,8 +104,8 @@ public class StatisticsRepository {
             + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
-    public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
-        ResultRow resultRow = queryColumnStatisticById(tableId, colName);
+    public static ColumnStatistic queryColumnStatisticsByName(long tableId, long indexId, String colName) {
+        ResultRow resultRow = queryColumnStatisticById(tableId, indexId, colName);
         if (resultRow == null) {
             return ColumnStatistic.UNKNOWN;
         }
@@ -128,17 +128,17 @@ public class StatisticsRepository {
                 Collectors.toList());
     }
 
-    public static ResultRow queryColumnStatisticById(long tblId, String colName) {
-        return queryColumnStatisticById(tblId, colName, false);
+    public static ResultRow queryColumnStatisticById(long tblId, long indexId, String colName) {
+        return queryColumnStatisticById(tblId, indexId, colName, false);
     }
 
-    public static ResultRow queryColumnHistogramById(long tblId, String colName) {
-        return queryColumnStatisticById(tblId, colName, true);
+    public static ResultRow queryColumnHistogramById(long tblId, long indexId, String colName) {
+        return queryColumnStatisticById(tblId, indexId, colName, true);
     }
 
-    private static ResultRow queryColumnStatisticById(long tblId, String colName, boolean isHistogram) {
+    private static ResultRow queryColumnStatisticById(long tblId, long indexId, String colName, boolean isHistogram) {
         Map<String, String> map = new HashMap<>();
-        String id = constructId(tblId, -1, colName);
+        String id = constructId(tblId, indexId, colName);
         map.put("id", StatisticsUtil.escapeSQL(id));
         List<ResultRow> rows = isHistogram ? StatisticsUtil.executeQuery(FETCH_COLUMN_HISTOGRAM_TEMPLATE, map) :
                 StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
@@ -160,8 +160,8 @@ public class StatisticsRepository {
         return rows == null ? Collections.emptyList() : rows;
     }
 
-    public static Histogram queryColumnHistogramByName(long tableId, String colName) {
-        ResultRow resultRow = queryColumnHistogramById(tableId, colName);
+    public static Histogram queryColumnHistogramByName(long tableId, long indexId, String colName) {
+        ResultRow resultRow = queryColumnHistogramById(tableId, indexId, colName);
         if (resultRow == null) {
             return Histogram.UNKNOWN;
         }

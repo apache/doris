@@ -232,7 +232,7 @@ public class StatisticsCleaner extends MasterDaemon {
 
                     TableIf t = idToTbl.get(tblId);
                     String colId = statsId.colId;
-                    if (t.getColumn(colId) == null) {
+                    if (!StatisticsUtil.isMvColumn(t, colId) && t.getColumn(colId) == null) {
                         expiredStats.ids.add(id);
                         continue;
                     }
