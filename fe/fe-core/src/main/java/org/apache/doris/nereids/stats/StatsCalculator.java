@@ -227,6 +227,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         we record the lowest expression cost as group cost to avoid missing this group.
         */
         if (originStats == null || originStats.getRowCount() > stats.getRowCount()) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> stats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(stats);
         } else {
             // the reason why we update col stats here.
