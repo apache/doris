@@ -1248,9 +1248,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        String indexName = null;
+        Optional<String> indexName = Optional.empty();
         if (ctx.materializedViewName() != null) {
-            indexName = ctx.materializedViewName().indexName.getText();
+            indexName = Optional.ofNullable(ctx.materializedViewName().indexName.getText());
         }
 
         List<Long> tabletIdLists = new ArrayList<>();

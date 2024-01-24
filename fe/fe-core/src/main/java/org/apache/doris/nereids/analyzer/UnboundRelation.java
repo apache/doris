@@ -52,20 +52,20 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     private final boolean isTempPart;
     private final List<String> hints;
     private final Optional<TableSample> tableSample;
-    private final String indexName;
+    private final Optional<String> indexName;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
         this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), null);
+                ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
         this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), null);
+                ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
-            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, String indexName) {
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         this(id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName);
     }
@@ -75,7 +75,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
      */
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
-            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, String indexName) {
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
@@ -154,7 +154,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
         return tabletIds;
     }
 
-    public String getIndexName() {
+    public Optional<String> getIndexName() {
         return indexName;
     }
 

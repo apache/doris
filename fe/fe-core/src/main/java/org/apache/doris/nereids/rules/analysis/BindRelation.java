@@ -189,21 +189,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
-            String indexName = unboundRelation.getIndexName();
-            if (indexName == null) {
-                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
-                    unboundRelation.getTableSample());
-            } else {
+            Optional<String> indexName = unboundRelation.getIndexName();
+            if (indexName.isPresent()) {
                 OlapTable olapTable = (OlapTable) table;
-                Long indexId = olapTable.getIndexIdByName(indexName);
+                Long indexId = olapTable.getIndexIdByName(indexName.get());
                 if (indexId == null) {
                     throw new AnalysisException("Table " + olapTable.getName()
-                        + " doesn't have materialized view " + indexName);
+                        + " doesn't have materialized view " + indexName.get());
                 }
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
                     unboundRelation.getHints(), unboundRelation.getTableSample());
+            } else {
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample());
             }
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
