@@ -151,7 +151,11 @@ Status OperatorXBase::close(RuntimeState* state) {
     if (_child_x && !is_source()) {
         RETURN_IF_ERROR(_child_x->close(state));
     }
-    return state->get_local_state(operator_id())->close(state);
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->close(state);
 }
 
 void PipelineXLocalStateBase::clear_origin_block() {
@@ -276,18 +280,32 @@ template <>
 inline constexpr bool NeedToCreate<LocalExchangeSharedState> = false;
 
 template <typename LocalStateType>
-void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& dependency,
-                                                       QueryContext* ctx) {
-    std::shared_ptr<typename LocalStateType::DependencyType::SharedState> ss = nullptr;
+void DataSinkOperatorX<LocalStateType>::get_dependency(
+        vector<DependencySPtr>& dependency,
+        std::map<int, std::shared_ptr<BasicSharedState>>& shared_states, QueryContext* ctx) {
+    std::shared_ptr<BasicSharedState> ss = nullptr;
     if constexpr (NeedToCreate<typename LocalStateType::DependencyType::SharedState>) {
         ss.reset(new typename LocalStateType::DependencyType::SharedState());
+        DCHECK(!shared_states.contains(dests_id().front()));
+        if constexpr (!std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                      FakeSharedState>) {
+            shared_states.insert({dests_id().front(), ss});
+        }
+    } else if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                        MultiCastSharedState>) {
+        ss = ((MultiCastDataStreamSinkOperatorX*)this)->create_multi_cast_data_streamer();
+        auto& dests = dests_id();
+        for (auto& dest_id : dests) {
+            DCHECK(!shared_states.contains(dest_id));
+            shared_states.insert({dest_id, ss});
+        }
     }
     if constexpr (!std::is_same_v<typename LocalStateType::DependencyType, FakeDependency>) {
         auto& dests = dests_id();
         for (auto& dest_id : dests) {
             dependency.push_back(std::make_shared<typename LocalStateType::DependencyType>(
                     dest_id, _node_id, ctx));
-            dependency.back()->set_shared_state(ss);
+            dependency.back()->set_shared_state(ss.get());
         }
     } else {
         dependency.push_back(nullptr);
@@ -295,8 +313,23 @@ void DataSinkOperatorX<LocalStateType>::get_dependency(vector<DependencySPtr>& d
 }
 
 template <typename LocalStateType>
-DependencySPtr OperatorX<LocalStateType>::get_dependency(QueryContext* ctx) {
-    return std::make_shared<typename LocalStateType::DependencyType>(_operator_id, _node_id, ctx);
+DependencySPtr OperatorX<LocalStateType>::get_dependency(
+        QueryContext* ctx, std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) {
+    std::shared_ptr<BasicSharedState> ss = nullptr;
+    if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                 SetSharedState>) {
+        ss.reset(new typename LocalStateType::DependencyType::SharedState());
+        shared_states.insert({operator_id(), ss});
+    } else if constexpr (std::is_same_v<typename LocalStateType::DependencyType::SharedState,
+                                        UnionSharedState>) {
+        ss.reset(new typename LocalStateType::DependencyType::SharedState(
+                ((UnionSourceOperatorX*)this)->get_child_count()));
+        shared_states.insert({operator_id(), ss});
+    }
+    auto dep =
+            std::make_shared<typename LocalStateType::DependencyType>(_operator_id, _node_id, ctx);
+    dep->set_shared_state(ss.get());
+    return dep;
 }
 
 template <typename LocalStateType>
@@ -334,19 +367,20 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
                 _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
-            _shared_state =
-                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first.get());
+            _shared_state = _dependency->shared_state()
+                                    ->template cast<typename DependencyType::SharedState>();
 
             _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
         } else if constexpr (!is_fake_shared) {
-            _dependency->set_shared_state(deps.front()->shared_state());
-            _shared_state =
-                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            _dependency->set_shared_state(info.shared_state);
+            _shared_state = _dependency->shared_state()
+                                    ->template cast<typename DependencyType::SharedState>();
 
             _shared_state->source_dep = info.dependency;
-            _shared_state->sink_dep = deps.front();
+            if (!deps.empty()) {
+                _shared_state->sink_dep = deps.front();
+            }
         }
     }
 
@@ -380,7 +414,6 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
-        _dependency->clear_shared_state();
     }
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
@@ -403,22 +436,21 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     constexpr auto is_fake_shared =
             std::is_same_v<typename DependencyType::SharedState, FakeSharedState>;
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
-        auto& deps = info.dependencys;
+        auto& deps = info.dependencies;
         _dependency = (DependencyType*)deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
             _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
         }
         if (_dependency) {
             if constexpr (!is_fake_shared) {
-                _shared_state =
-                        (typename DependencyType::SharedState*)_dependency->shared_state().get();
+                _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state();
             }
 
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
     } else {
-        auto& deps = info.dependencys;
+        auto& deps = info.dependencies;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
         _dependency = (DependencyType*)deps.front().get();
     }
@@ -441,9 +473,6 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
     }
     if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
-        if constexpr (!std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
-            _dependency->clear_shared_state();
-        }
     }
     if (_peak_memory_usage_counter) {
         _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
@@ -497,6 +526,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
@@ -516,6 +546,7 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _writer->start_writer(state, _profile);
@@ -523,12 +554,14 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
 }
 
 template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
@@ -537,24 +570,19 @@ Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_s
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        if (_writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
-            }
-            RETURN_IF_ERROR(_writer->close(exec_status));
+        Status st = _writer->get_writer_status();
+        if (exec_status.ok()) {
+            _writer->force_close(state->is_cancelled() ? Status::Cancelled("Cancelled")
+                                                       : Status::Cancelled("force close"));
         } else {
-            RETURN_IF_ERROR(_writer->get_writer_status());
+            _writer->force_close(exec_status);
         }
+        // If there is an error in process_block thread, then we should get the writer
+        // status before call force_close. For example, the thread may failed in commit
+        // transaction.
+        RETURN_IF_ERROR(st);
     }
     return Base::close(state, exec_status);
-}
-
-template <typename Writer, typename Parent>
-Status AsyncWriterSink<Writer, Parent>::try_close(RuntimeState* state, Status exec_status) {
-    if (state->is_cancelled() || !exec_status.ok()) {
-        _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
-    }
-    return Status::OK();
 }
 
 #define DECLARE_OPERATOR_X(LOCAL_STATE) template class DataSinkOperatorX<LOCAL_STATE>;

@@ -826,7 +826,7 @@ public class LoadManager implements Writable {
         // 2. Remove from DatabaseTransactionMgr
         try {
             Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label, isReplay);
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             // just ignore, because we don't want to throw any exception here.
             LOG.warn("Exception:", e);
         }

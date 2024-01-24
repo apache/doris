@@ -92,6 +92,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts,
+                new DistributeHint(DistributeType.NONE), Optional.empty(),
+                Optional.empty(), Optional.empty(), leftChild, rightChild);
+    }
+
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             DistributeHint hint, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(), Optional.empty(),
                 Optional.empty(), leftChild, rightChild);
@@ -378,7 +385,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 markJoinSlotReference, children);
     }
 
-    private @Nullable Pair<Set<Slot>, Set<Slot>> extractHashKeys() {
+    /**
+     * extractNullRejectHashKeys
+     */
+    public @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
         Set<Slot> leftKeys = new HashSet<>();
         Set<Slot> rightKeys = new HashSet<>();
         for (Expression expression : hashJoinConjuncts) {
@@ -421,7 +431,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
-        Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
         if (keys == null) {
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }

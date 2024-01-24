@@ -49,7 +49,7 @@ class HyperGraphAggTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p2).buildAll().get(0);
         Assertions.assertEquals("id", Objects.requireNonNull(((StructInfoNode) h1.getNode(1)).getExpressions()).get(0).toSql());
     }
 
@@ -79,17 +79,17 @@ class HyperGraphAggTest extends SqlTestBase {
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .getAllPlan().get(0).child(0);
-        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
-        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        HyperGraph h1 = HyperGraph.builderForMv(p1).buildAll().get(0);
+        HyperGraph h2 = HyperGraph.builderForMv(p2).buildAll().get(0);
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertEquals(2, res.getViewNoNullableSlot().size());
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
-        StructInfo st1 = AbstractMaterializedViewRule.extractStructInfo(p1,
+        StructInfo st1 = MaterializedViewUtils.extractStructInfo(p1,
                 null).get(0);
-        StructInfo st2 = AbstractMaterializedViewRule.extractStructInfo(p2,
+        StructInfo st2 = MaterializedViewUtils.extractStructInfo(p2,
                 null).get(0);
         RelationMapping rm = RelationMapping.generate(st1.getRelations(), st2.getRelations()).get(0);
         SlotMapping sm = SlotMapping.generate(rm);

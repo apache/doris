@@ -122,8 +122,8 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
         Set<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(
-                        c.getInputSlots())).collect(Collectors.toSet());
+                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(c.getInputSlots()))
+                .collect(Collectors.toSet());
         predicates.removeAll(plan.accept(pollUpPredicates, null));
         return PlanUtils.filterOrSelf(predicates, plan);
     }

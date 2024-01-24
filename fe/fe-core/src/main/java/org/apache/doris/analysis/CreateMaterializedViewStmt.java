@@ -478,11 +478,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
+    private Expr getAggfunctionSlot(FunctionCallExpr functionCallExpr) throws AnalysisException {
+        if (functionCallExpr.getFnParams() != null && functionCallExpr.getFnParams().isStar()) {
+            // convert count(*) to count(1)
+            return LiteralExpr.create("1", Type.BIGINT);
+        }
+        return functionCallExpr.getChildren().get(0);
+    }
+
     private MVColumnItem buildMVColumnItem(Analyzer analyzer, FunctionCallExpr functionCallExpr)
             throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
-        List<Expr> childs = functionCallExpr.getChildren();
-        Expr defineExpr = childs.get(0);
+        Expr defineExpr = getAggfunctionSlot(functionCallExpr);
         Type baseType = defineExpr.getType();
         AggregateType mvAggregateType = null;
         Type type;

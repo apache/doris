@@ -706,6 +706,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     return Status::OK();
 }
 
+// Deprecated, this code is retained only for compatibility with query problems that may be encountered when upgrading the version that maps JSON to JSONB to this version, and will be deleted in subsequent versions.
 Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Block* block,
                                            int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();

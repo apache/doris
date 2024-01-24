@@ -140,14 +140,11 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx) {
-    LOG(INFO) << "yyyy submit scanner ctx " << ctx->debug_string();
     if (ctx->done()) {
-        LOG(INFO) << "yyyy ctx is done, not submit" << ctx->debug_string();
         return Status::EndOfFile("ScannerContext is done");
     }
     ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     if (!_pending_queues[ctx->queue_idx]->blocking_put(ctx)) {
-        LOG(INFO) << "yyyy put to queue failed, not submit" << ctx->debug_string();
         return Status::InternalError("failed to submit scanner context to scheduler");
     }
     return Status::OK();
@@ -181,21 +178,18 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                   << " maybe finished";
         return;
     }
-    LOG(INFO) << "yyyy scheduled, query " << ctx->debug_string();
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
 
     if (ctx->done()) {
-        LOG(INFO) << "yyyy ctx done, " << ctx->debug_string();
         return;
     }
 
     std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
     if (this_run.empty()) {
-        LOG(INFO) << "yyyy run is empty, skip, " << ctx->debug_string();
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.

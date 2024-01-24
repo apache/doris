@@ -119,7 +119,7 @@ public class BinlogManagerTest {
         new MockUp<Env>() {
             @Mock
             public InternalCatalog getCurrentInternalCatalog() {
-                return EnvFactory.createInternalCatalog();
+                return EnvFactory.getInstance().createInternalCatalog();
             }
         };
 

@@ -35,6 +35,7 @@ namespace ErrorCode {
     TStatusError(MEM_ALLOC_FAILED, true);                \
     TStatusError(BUFFER_ALLOCATION_FAILED, true);        \
     TStatusError(INVALID_ARGUMENT, false);               \
+    TStatusError(INVALID_JSON_PATH, false);              \
     TStatusError(MINIMUM_RESERVATION_UNAVAILABLE, true); \
     TStatusError(CORRUPTION, true);                      \
     TStatusError(IO_ERROR, true);                        \
@@ -54,7 +55,8 @@ namespace ErrorCode {
     TStatusError(DATA_QUALITY_ERROR, false);             \
     TStatusError(LABEL_ALREADY_EXISTS, true);            \
     TStatusError(NOT_AUTHORIZED, true);                  \
-    TStatusError(HTTP_ERROR, true);
+    TStatusError(HTTP_ERROR, true);                      \
+    TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
     E(OK, 0, false);                                         \
@@ -273,7 +275,9 @@ namespace ErrorCode {
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
-    E(ENTRY_NOT_FOUND, -7002, false);
+    E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(INVALID_TABLET_STATE, -7211, false);                   \
+    E(ROWSETS_EXPIRED, -7311, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -403,6 +407,7 @@ public:
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
+    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)

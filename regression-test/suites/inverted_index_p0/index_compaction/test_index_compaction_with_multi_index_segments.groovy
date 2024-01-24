@@ -194,8 +194,16 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
+        String[][] dedup_tablets = deduplicate_tablets(tablets)
 
-        int replicaNum = 1
+        // In the p0 testing environment, there are no expected operations such as scaling down BE (backend) services
+        // if tablets or dedup_tablets is empty, exception is thrown, and case fail
+        int replicaNum = Math.floor(tablets.size() / dedup_tablets.size())
+        if (replicaNum != 1 && replicaNum != 3)
+        {
+            assert(false);
+        }
+
         // before full compaction, there are 3 rowsets.
         int rowsetCount = get_rowset_count.call(tablets)
         assert (rowsetCount == 3 * replicaNum)

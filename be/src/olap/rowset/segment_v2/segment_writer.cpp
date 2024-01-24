@@ -27,6 +27,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -339,7 +340,7 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("append_block_with_partial_content");
     }
@@ -589,7 +590,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }

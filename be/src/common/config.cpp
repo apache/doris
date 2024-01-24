@@ -236,7 +236,7 @@ DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
 DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
     if (config == -1) {
         CpuInfo::init();
-        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 4);
+        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
     }
     return true;
 });
@@ -265,8 +265,6 @@ DEFINE_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 DEFINE_mInt32(max_pushdown_conditions_per_column, "1024");
-// return_row / total_row
-DEFINE_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 
@@ -542,10 +540,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
 
-// The probing algorithm of partitioned hash table.
-// Enable quadratic probing hash table
-DEFINE_Bool(enable_quadratic_probing, "false");
-
 // for pprof
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
@@ -557,8 +551,6 @@ DEFINE_mBool(enable_token_check, "true");
 
 // to open/close system metrics
 DEFINE_Bool(enable_system_metrics, "true");
-
-DEFINE_mBool(enable_prefetch, "true");
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
@@ -600,7 +592,7 @@ DEFINE_mInt64(write_buffer_size, "104857600");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
-DEFINE_mInt32(memtable_flush_running_count_limit, "5");
+DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -837,6 +829,13 @@ DEFINE_Int32(routine_load_consumer_pool_size, "10");
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
 DEFINE_Int32(multi_table_batch_plan_threshold, "200");
+
+// Used in single-stream-multi-table load. When receiving a batch of messages from Kafka,
+// if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.
+// The param is aimed to avoid requesting and executing too many plans at once.
+// Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC
+// and improve the real-time processing of data.
+DEFINE_Int32(multi_table_max_wait_tables, "5");
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -1134,7 +1133,7 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
-DEFINE_mBool(enable_cgroup_cpu_soft_limit, "false");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
@@ -1166,6 +1165,9 @@ DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
 DEFINE_mInt32(report_query_statistics_interval_ms, "3000");
 // 30s
 DEFINE_mInt32(query_statistics_reserve_timeout_ms, "30000");
+
+// create tablet in partition random robin idx lru size, default 10000
+DEFINE_Int32(partition_disk_index_lru_size, "10000");
 
 // clang-format off
 #ifdef BE_TEST

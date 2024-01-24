@@ -61,12 +61,6 @@ public:
 
     void force_close(Status s);
 
-    virtual bool in_transaction() { return false; }
-
-    virtual Status commit_trans() { return Status::OK(); }
-
-    bool need_normal_close() const { return _need_normal_close; }
-
     Status init(RuntimeState* state) override { return Status::OK(); }
 
     virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
@@ -84,7 +78,10 @@ public:
     // Add the IO thread task process block() to thread pool to dispose the IO
     void start_writer(RuntimeState* state, RuntimeProfile* profile);
 
-    Status get_writer_status() { return _writer_status; }
+    Status get_writer_status() {
+        std::lock_guard l(_m);
+        return _writer_status;
+    }
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -107,8 +104,9 @@ private:
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _need_normal_close = true;
-    bool _writer_thread_closed = false;
+    // The writer is not started at the beginning. If prepare failed but not open, the the writer
+    // is not started, so should not pending finish on it.
+    bool _writer_thread_closed = true;
 
     // Used by pipelineX
     pipeline::AsyncWriterDependency* _dependency;

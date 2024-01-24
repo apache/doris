@@ -71,7 +71,7 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
-class StorageEngine;
+class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class RuntimeQueryStatiticsMgr;
@@ -112,15 +112,11 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
-#ifdef CLOUD_MODE
-    using Engine = CloudStorageEngine; // TODO(plat1ko)
-#else
-    using Engine = StorageEngine;
-#endif
-
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
+
+    BaseStorageEngine& storage_engine() { return *_storage_engine; }
 
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths,
@@ -225,7 +221,7 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
-    void set_storage_engine(StorageEngine* se) { this->_storage_engine = se; }
+    void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
@@ -250,7 +246,6 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
-    StorageEngine* get_storage_engine() { return _storage_engine; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -364,7 +359,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
-    StorageEngine* _storage_engine = nullptr;
+    std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;

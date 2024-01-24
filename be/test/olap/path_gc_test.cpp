@@ -45,7 +45,6 @@ TEST(PathGcTest, GcTabletAndRowset) {
     ASSERT_TRUE(st.ok()) << st;
 
     StorageEngine engine({});
-    ExecEnv::GetInstance()->set_storage_engine(&engine);
     DataDir data_dir(engine, dir_path, -1, TStorageMedium::HDD);
     st = data_dir._init_meta();
     ASSERT_TRUE(st.ok()) << st;

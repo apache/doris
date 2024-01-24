@@ -57,9 +57,22 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
+    template <class TARGET>
+    TARGET* cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<TARGET*>(this);
+    }
+    template <class TARGET>
+    const TARGET* cast() const {
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<const TARGET*>(this);
+    }
     DependencySPtr source_dep = nullptr;
     DependencySPtr sink_dep = nullptr;
-
     virtual ~BasicSharedState() = default;
 };
 
@@ -86,11 +99,8 @@ public:
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
-    std::shared_ptr<BasicSharedState> shared_state() { return _shared_state; }
-    void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
-        _shared_state = shared_state;
-    }
-    void clear_shared_state() { _shared_state.reset(); }
+    BasicSharedState* shared_state() { return _shared_state; }
+    void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
@@ -111,6 +121,19 @@ public:
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
+    void set_block_to_read() {
+        DCHECK(_is_write_dependency) << debug_string();
+        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
+        _shared_state->source_dep->block();
+    }
+    void set_ready_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->set_ready();
+    }
+    void set_block_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->block();
+    }
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block() { _ready = false; }
@@ -126,7 +149,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
+    BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -470,7 +493,6 @@ public:
 
 struct SetSharedState : public BasicSharedState {
 public:
-    SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
     vectorized::Block build_block; // build to source
     //record element size in hashtable
@@ -610,9 +632,10 @@ class Exchanger;
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
     std::vector<DependencySPtr> source_dependencies;
-    Dependency* sink_dependency;
+    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;

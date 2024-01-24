@@ -26,7 +26,7 @@ class TExpr;
 LoadStreams::LoadStreams(UniqueId load_id, int64_t dst_id, int num_use, LoadStreamStubPool* pool)
         : _load_id(load_id), _dst_id(dst_id), _use_cnt(num_use), _pool(pool) {}
 
-void LoadStreams::release(Status status) {
+void LoadStreams::release() {
     int num_use = --_use_cnt;
     DBUG_EXECUTE_IF("LoadStreams.release.keeping_streams", { num_use = 1; });
     if (num_use == 0) {

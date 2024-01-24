@@ -1674,10 +1674,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Type t2 = getChild(1).getType();
         // add operand casts
         Preconditions.checkState(compatibleType.isValid());
-        if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
+        if (t1.isDecimalV3() || t1.isDecimalV2()) {
+            if (!t1.equals(compatibleType)) {
+                castChild(compatibleType, 0);
+            }
+        } else if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
             castChild(compatibleType, 0);
         }
-        if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
+
+        if (t2.isDecimalV3() || t2.isDecimalV2()) {
+            if (!t2.equals(compatibleType)) {
+                castChild(compatibleType, 1);
+            }
+        } else if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
             castChild(compatibleType, 1);
         }
         return compatibleType;
@@ -2243,6 +2252,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return getStringValue();
     }
 
+    public String getStringValueForStreamLoad() {
+        return getStringValue();
+    }
+
     // A special method only for array literal, all primitive type in array
     // will be wrapped by double quote. eg:
     // ["1", "2", "3"]
@@ -2622,6 +2635,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         for (Expr expr : getChildren()) {
             expr.replaceSlot(tuple);
         }
+    }
+
+    public boolean isNullLiteral() {
+        return this instanceof NullLiteral;
+    }
+
+    public boolean isZeroLiteral() {
+        return this instanceof LiteralExpr && ((LiteralExpr) this).isZero();
     }
 }
 

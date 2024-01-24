@@ -30,6 +30,7 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
         tmp_qs.merge(*qs_ptr);
     }
     tmp_qs.to_thrift(tq_s);
+    tq_s->__set_workload_group_id(_wg_id);
 }
 
 void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
@@ -169,6 +170,14 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
         qs_ptr->merge(*qs);
     }
     return qs_ptr;
+}
+
+void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
+    // wg id just need eventual consistency, read lock is ok
+    std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
+        _query_statistics_ctx_map.at(query_id)->_wg_id = wg_id;
+    }
 }
 
 } // namespace doris

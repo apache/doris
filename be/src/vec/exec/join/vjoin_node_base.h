@@ -23,7 +23,6 @@
 #include <memory>
 #include <type_traits>
 #include <variant>
-#include <vector>
 
 #include "common/status.h"
 #include "exec/exec_node.h"
@@ -57,22 +56,20 @@ class VJoinNodeBase : public ExecNode {
 public:
     VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
-    virtual const RowDescriptor& row_desc() const override { return *_output_row_desc; }
+    const RowDescriptor& row_desc() const override { return *_output_row_desc; }
 
-    virtual const RowDescriptor& intermediate_row_desc() const override {
-        return *_intermediate_row_desc;
-    }
+    const RowDescriptor& intermediate_row_desc() const override { return *_intermediate_row_desc; }
 
-    virtual Status alloc_resource(RuntimeState* state) override;
-    virtual void release_resource(RuntimeState* state) override;
+    Status alloc_resource(RuntimeState* state) override;
+    void release_resource(RuntimeState* state) override;
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     [[nodiscard]] bool can_terminate_early() override { return _short_circuit_for_probe; }
 

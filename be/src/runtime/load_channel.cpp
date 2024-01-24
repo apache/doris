@@ -21,7 +21,9 @@
 #include <glog/logging.h>
 
 #include "bvar/bvar.h"
+#include "cloud/config.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 
@@ -83,9 +85,13 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            // TODO(plat1ko): CloudTabletsChannel
-            channel = std::make_shared<TabletsChannel>(*StorageEngine::instance(), key, _load_id,
-                                                       _is_high_priority, _self_profile);
+            if (!config::is_cloud_mode()) {
+                channel = std::make_shared<TabletsChannel>(
+                        ExecEnv::GetInstance()->storage_engine().to_local(), key, _load_id,
+                        _is_high_priority, _self_profile);
+            } else {
+                // TODO(plat1ko): CloudTabletsChannel
+            }
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
                 _tablets_channels.insert({index_id, channel});
