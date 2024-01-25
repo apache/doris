@@ -61,7 +61,7 @@ public:
     };
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& [src_column, src_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_column, right_const] =

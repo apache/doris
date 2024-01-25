@@ -53,7 +53,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& src_column = block.get_by_position(arguments[0]);
         DCHECK(src_column.column->size() == input_rows_count);
         // result of functions grouping and grouping_id is always not nullable,

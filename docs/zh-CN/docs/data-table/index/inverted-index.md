@@ -50,7 +50,10 @@ under the License.
 Doris倒排索引的功能简要介绍如下：
 
 - 增加了字符串类型的全文检索
-  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY、匹配短语词组MATCH_PHRASE
+  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY
+  - 支持短语查询 MATCH_PHRASE
+  - 支持短语+前缀 MATCH_PHRASE_PREFIX
+  - 支持正则查询 MATCH_REGEXP
   - 支持字符串数组类型的全文检索
   - 支持英文、中文以及Unicode多语言分词
 - 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
@@ -82,6 +85,17 @@ Doris倒排索引的功能简要介绍如下：
       - true为支持，但是索引需要更多的存储空间
       - false为不支持，更省存储空间，可以用MATCH_ALL查询多个关键字
       - 默认false
+    - char_filter：功能主要在分词前对字符串提前处理
+      - char_filter_type：指定使用不同功能的char_filter（目前仅支持char_replace）
+        - char_replace 将pattern中每个char替换为一个replacement中的char
+          - char_filter_pattern：需要被替换掉的字符数组
+          - char_filter_replacement：替换后的字符数组，可以不用配置，默认为一个空格字符
+    - ignore_above：控制字符串是否建索引。
+      - 长度超过 ignore_above 设置的字符串不会被索引。对于字符串数组，ignore_above 将分别应用于每个数组元素，长度超过 ignore_above 的字符串元素将不被索引。
+      - 默认为 256 字节
+    - lower_case: 是否将分词进行小写转换，从而在匹配的时候实现忽略大小写
+      - true: 转换小写
+      - false：不转换小写
   - COMMENT 是可选的，用于指定注释
 
 ```sql
@@ -92,6 +106,8 @@ CREATE TABLE table_name
   INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
   INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._"), "char_filter_replacement" = " "] [COMMENT 'your comment']
+  INDEX idx_name5(column_name4) USING INVERTED [PROPERTIES("char_filter_type" = "char_replace", "char_filter_pattern" = "._")] [COMMENT 'your comment']
 )
 table_properties;
 ```
@@ -117,22 +133,28 @@ ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIE
 
 **2.0-beta版本（含2.0-beta）之后：**
 
-上述`create/add index`操作只对增量数据生成倒排索引，增加了build index的语法用于对存量数据加倒排索引：
+上述`create/add index`操作只对增量数据生成倒排索引，增加了BUILD INDEX的语法用于对存量数据加倒排索引：
 ```sql
 -- 语法1，默认给全表的存量数据加上倒排索引
 BUILD INDEX index_name ON table_name;
 -- 语法2，可指定partition，可指定一个或多个
 BUILD INDEX index_name ON table_name PARTITIONS(partition_name1, partition_name2);
 ```
-(**在执行build index之前需要已经执行了以上`create/add index`的操作**)
+(**在执行BUILD INDEX之前需要已经执行了以上`create/add index`的操作**)
 
-查看`build index`进展，可通过以下语句进行查看：
+查看`BUILD INDEX`进展，可通过以下语句进行查看：
 ```sql
-show build index [FROM db_name];
--- 示例1，查看所有的build index任务进展
-show build index;
--- 示例2，查看指定table的build index任务进展
-show build index where TableName = "table1";
+SHOW BUILD INDEX [FROM db_name];
+-- 示例1，查看所有的BUILD INDEX任务进展
+SHOW BUILD INDEX;
+-- 示例2，查看指定table的BUILD INDEX任务进展
+SHOW BUILD INDEX where TableName = "table1";
+```
+
+取消 `BUILD INDEX`, 可通过以下语句进行
+```sql
+CANCEL BUILD INDEX ON table_name;
+CANCEL BUILD INDEX ON table_name (job_id1,jobid_2,...);
 ```
 
 - 删除倒排索引
@@ -160,11 +182,65 @@ SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword1 keyword2';
 -- 1.4 logmsg中同时包含keyword1和keyword2的行，并且按照keyword1在前，keyword2在后的顺序
 SELECT * FROM table_name WHERE logmsg MATCH_PHRASE 'keyword1 keyword2';
 
+-- 1.5 在保持词顺序的前提下，对最后一个词keyword2做前缀匹配，默认找50个前缀词（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1 keyword2';
+
+-- 1.6 如果只填一个词会退化为前缀查询，默认找50个前缀词（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_PHRASE_PREFIX 'keyword1';
+
+-- 1.7 对分词后的词进行正则匹配，默认匹配50个（session变量inverted_index_max_expansions控制）
+SELECT * FROM table_name WHERE logmsg MATCH_REGEXP 'key*';
+
 
 -- 2. 普通等值、范围、IN、NOT IN，正常的SQL语句即可，例如
 SELECT * FROM table_name WHERE id = 123;
 SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
+```
+
+- 分词函数
+
+如果想检查分词实际效果或者对一段文本进行分词的话，可以使用tokenize函数
+```sql
+mysql> SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
++-----------------------------------------------------------------------------------+
+| tokenize('武汉长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')       |
++-----------------------------------------------------------------------------------+
+| ["武汉", "武汉长江大桥", "长江", "长江大桥", "大桥"]                              |
++-----------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained"');
++--------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="fine_grained"')        |
++--------------------------------------------------------------------------------------+
+| ["武汉", "武汉市", "市长", "长江", "长江大桥", "大桥"]                               |
++--------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="coarse_grained"');
++----------------------------------------------------------------------------------------+
+| tokenize('武汉市长江大桥', '"parser"="chinese","parser_mode"="coarse_grained"')        |
++----------------------------------------------------------------------------------------+
+| ["武汉市", "长江大桥"]                                                                 |
++----------------------------------------------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA','"parser"="english"');
++------------------------------------------------+
+| tokenize('I love CHINA', '"parser"="english"') |
++------------------------------------------------+
+| ["i", "love", "china"]                         |
++------------------------------------------------+
+1 row in set (0.02 sec)
+
+mysql> SELECT TOKENIZE('I love CHINA 我爱我的祖国','"parser"="unicode"');
++-------------------------------------------------------------------+
+| tokenize('I love CHINA 我爱我的祖国', '"parser"="unicode"')       |
++-------------------------------------------------------------------+
+| ["i", "love", "china", "我", "爱", "我", "的", "祖", "国"]        |
++-------------------------------------------------------------------+
+1 row in set (0.02 sec)
 ```
 
 ## 使用示例
@@ -356,7 +432,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
-  **2.0-beta(含2.0-beta)后，需要再执行`build index`才能给存量数据加上倒排索引：**
+  **2.0-beta(含2.0-beta)后，需要再执行`BUILD INDEX`才能给存量数据加上倒排索引：**
 ```sql
 mysql> BUILD INDEX idx_timestamp ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
@@ -376,7 +452,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 **2.0-beta(含2.0-beta)后，可通过`show builde index`来查看存量数据创建索引进展：**
 ```sql
 -- 若table没有分区，PartitionName默认就是TableName
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                                     | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -411,7 +487,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+-- 2.0-beta(含2.0-beta)后，需要再执行BUILD INDEX才能给存量数据加上倒排索引：
 mysql> BUILD INDEX idx_parent ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -423,7 +499,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index;
+mysql> SHOW BUILD INDEX;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
@@ -454,7 +530,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+-- 2.0-beta(含2.0-beta)后，需要再执行BUILD INDEX才能给存量数据加上倒排索引：
 mysql> BUILD INDEX idx_author ON hackernews_1m;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -468,7 +544,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
-mysql> show build index order by CreateTime desc limit 1;
+mysql> SHOW BUILD INDEX order by CreateTime desc limit 1;
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
 | JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
 +-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+

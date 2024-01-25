@@ -35,9 +35,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -48,11 +46,14 @@
 namespace doris {
 class TupleDescriptor;
 
-// Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
-static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;
-
-TableConnector::TableConnector(const TupleDescriptor* tuple_desc, const std::string& sql_str)
-        : _is_open(false), _is_in_transaction(false), _tuple_desc(tuple_desc), _sql_str(sql_str) {}
+TableConnector::TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
+                               std::string_view table_name, const std::string& sql_str)
+        : _is_open(false),
+          _use_tranaction(use_transaction),
+          _is_in_transaction(false),
+          _table_name(table_name),
+          _tuple_desc(tuple_desc),
+          _sql_str(sql_str) {}
 
 void TableConnector::init_profile(doris::RuntimeProfile* profile) {
     _convert_tuple_timer = ADD_TIMER(profile, "TupleConvertTime");
@@ -94,54 +95,6 @@ std::u16string TableConnector::utf8_to_u16string(const char* first, const char* 
     }
     result += std::u16string_view(buffer, (sizeof(buffer) - outbytesleft) / sizeof(char16_t));
     return result;
-}
-
-Status TableConnector::append(const std::string& table_name, vectorized::Block* block,
-                              const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                              uint32_t start_send_row, uint32_t* num_rows_sent, bool is_odbc,
-                              TOdbcTableType::type table_type) {
-    if (is_odbc) {
-        _insert_stmt_buffer.clear();
-        std::u16string insert_stmt;
-        SCOPED_TIMER(_convert_tuple_timer);
-        fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", table_name);
-
-        int num_rows = block->rows();
-        int num_columns = block->columns();
-        for (int i = start_send_row; i < num_rows; ++i) {
-            (*num_rows_sent)++;
-
-            // Construct insert statement of odbc/jdbc table
-            for (int j = 0; j < num_columns; ++j) {
-                if (j != 0) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", ", ");
-                }
-                auto& column_ptr = block->get_by_position(j).column;
-                auto& type_ptr = block->get_by_position(j).type;
-                RETURN_IF_ERROR(convert_column_data(
-                        column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
-            }
-
-            if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
-                fmt::format_to(_insert_stmt_buffer, "{}", "),(");
-            } else {
-                // batch exhausted or _insert_stmt_buffer is full, need to do real insert stmt
-                fmt::format_to(_insert_stmt_buffer, "{}", ")");
-                break;
-            }
-        }
-        // Translate utf8 string to utf16 to use unicode encoding
-        insert_stmt = utf8_to_u16string(_insert_stmt_buffer.data(),
-                                        _insert_stmt_buffer.data() + _insert_stmt_buffer.size());
-
-        RETURN_IF_ERROR(exec_write_sql(insert_stmt, _insert_stmt_buffer));
-        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
-        return Status::OK();
-    } else {
-        RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs, num_rows_sent));
-        COUNTER_UPDATE(_sent_rows_counter, *num_rows_sent);
-        return Status::OK();
-    }
 }
 
 Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_ptr,
@@ -204,8 +157,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         fmt::format_to(_insert_stmt_buffer, "{}", *reinterpret_cast<const double*>(item));
         break;
     case TYPE_DATE: {
-        vectorized::VecDateTimeValue value =
-                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+        VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -214,8 +166,7 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATETIME: {
-        vectorized::VecDateTimeValue value =
-                binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(*(int64_t*)item);
+        VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -224,9 +175,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATEV2: {
-        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
-                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
-                        *(int32_t*)item);
+        DateV2Value<DateV2ValueType> value =
+                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf);
@@ -235,10 +185,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         break;
     }
     case TYPE_DATETIMEV2: {
-        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
-                binary_cast<uint64_t,
-                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
-                        *(int64_t*)item);
+        DateV2Value<DateTimeV2ValueType> value =
+                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
 
         char buf[64];
         char* pos = value.to_string(buf, type.scale);
@@ -251,7 +199,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_STRING: {
         // for oracle/pg database string must be '
         if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL ||
-            table_type == TOdbcTableType::SAP_HANA) {
+            table_type == TOdbcTableType::SAP_HANA || table_type == TOdbcTableType::MYSQL ||
+            table_type == TOdbcTableType::CLICKHOUSE || table_type == TOdbcTableType::SQLSERVER) {
             fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
         } else {
             fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
@@ -296,7 +245,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     }
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
-    case TYPE_DECIMAL128I: {
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256: {
         auto decimal_type = remove_nullable(type_ptr);
         auto val = decimal_type->to_string(*column, row);
         fmt::format_to(_insert_stmt_buffer, "{}", val);

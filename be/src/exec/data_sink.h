@@ -20,28 +20,26 @@
 
 #pragma once
 
-#include <opentelemetry/trace/span.h>
 #include <stddef.h>
-// IWYU pragma: no_include <opentelemetry/nostd/shared_ptr.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 
 namespace doris {
 
 class ObjectPool;
 class RuntimeState;
 class TPlanFragmentExecParams;
-class RowDescriptor;
 class DescriptorTbl;
-class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
+class TOlapTableSink;
 
 namespace vectorized {
 class Block;
@@ -50,7 +48,7 @@ class Block;
 // Superclass of all data sinks.
 class DataSink {
 public:
-    DataSink() : _closed(false) {}
+    DataSink(const RowDescriptor& desc) : _row_desc(desc) {}
     virtual ~DataSink() {}
 
     virtual Status init(const TDataSink& thrift_sink);
@@ -67,18 +65,18 @@ public:
         return Status::NotSupported("Not support send block");
     }
 
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return Status::OK();
+    // Send a Block into this sink, not blocked thredd API only use in pipeline exec engine
+    virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) {
+        return send(state, block, eos);
     }
 
-    virtual bool is_close_done() { return true; }
+    [[nodiscard]] virtual bool is_pending_finish() const { return false; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
     virtual Status close(RuntimeState* state, Status exec_status) {
-        profile()->add_to_span(_span);
         _closed = true;
         return Status::OK();
     }
@@ -99,22 +97,33 @@ public:
                                    DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
-    virtual RuntimeProfile* profile() = 0;
+    RuntimeProfile* profile() { return _profile; }
 
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-        _query_statistics = statistics;
-    }
+    const RowDescriptor& row_desc() { return _row_desc; }
+
+    virtual bool can_write() { return true; }
+
+private:
+    static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
-    bool _closed;
+    bool _closed = false;
     std::string _name;
+    const RowDescriptor& _row_desc;
 
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
+    RuntimeProfile* _profile = nullptr; // Allocated from _pool
 
-    OpentelemetrySpan _span {};
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _output_rows_counter = nullptr;
+
+    void init_sink_common_profile() {
+        _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
+        _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+        _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    }
 };
 
 } // namespace doris

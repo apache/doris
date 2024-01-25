@@ -32,7 +32,7 @@ public class UnboundLogicalProperties extends LogicalProperties {
     public static final UnboundLogicalProperties INSTANCE = new UnboundLogicalProperties();
 
     private UnboundLogicalProperties() {
-        super(ImmutableList::of);
+        super(ImmutableList::of, () -> FunctionalDependencies.EMPTY_FUNC_DEPS);
     }
 
     @Override

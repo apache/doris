@@ -16,12 +16,12 @@
 // under the License.
 
 suite("test_tz_streamload") {
-    def dbName = "tz_streamload"
-    def tableName = "timezone"
+    def table1 = "timezone"
+    def table2 = "datetime"
 
-    sql "drop table if exists ${tableName}"
+    sql "drop table if exists ${table1}"
     sql """
-    CREATE TABLE IF NOT EXISTS ${tableName} (
+    CREATE TABLE IF NOT EXISTS ${table1} (
       `k1` datetimev2(3) NULL,
       `k2` datev2 NULL
     ) ENGINE=OLAP
@@ -32,14 +32,40 @@ suite("test_tz_streamload") {
     )
     """
 
+    sql "drop table if exists ${table2}"
+    sql """
+    CREATE TABLE ${table2} (
+        id int NULL,
+        createTime datetime NULL
+    )ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_num" = "1",
+        "colocate_with" = "lineitem_orders",
+        "enable_unique_key_merge_on_write" = "true"
+    );
+    """
+
     streamLoad {
-        table "${tableName}"
+        table "${table1}"
         set 'column_separator', ','
-        set 'time_zone', '+02:00'
+        set 'timezone', '+02:00'
         file "test_tz_streamload.csv"
-        time 10000
+        time 20000
     }
     sql "sync"
+    qt_table1 "select * from ${table1} order by k1"
 
-    qt_all "select * from ${tableName} order by k1"
+    streamLoad {
+        table "${table2}"
+        set 'column_separator', ','
+        set 'columns', 'id,createTime,createTime=date_add(createTime, INTERVAL 8 HOUR)'
+        // use default timezone for this
+        file "test_tz_streamload2.csv"
+        time 20000
+    }
+    sql "sync"
+    qt_table2 "select * from ${table2} order by id"
 }

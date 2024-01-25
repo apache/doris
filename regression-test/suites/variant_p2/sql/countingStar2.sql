@@ -1,0 +1,1 @@
+SELECT cast(payload:action as string), count() FROM github_events WHERE type = 'WatchEvent' GROUP BY cast(payload:action as string) 

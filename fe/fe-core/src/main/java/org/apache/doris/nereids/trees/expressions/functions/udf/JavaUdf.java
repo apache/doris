@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -48,6 +47,7 @@ import java.util.stream.Collectors;
  */
 public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
+    private final long functionId;
     private final TFunctionBinaryType binaryType;
     private final FunctionSignature signature;
     private final NullableMode nullableMode;
@@ -60,11 +60,13 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     /**
      * Constructor of UDF
      */
-    public JavaUdf(String name, String dbName, TFunctionBinaryType binaryType, FunctionSignature signature,
+    public JavaUdf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
+            FunctionSignature signature,
             NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
             String checkSum, Expression... args) {
         super(name, args);
         this.dbName = dbName;
+        this.functionId = functionId;
         this.binaryType = binaryType;
         this.signature = signature;
         this.nullableMode = nullableMode;
@@ -101,7 +103,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
     @Override
     public JavaUdf withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == this.children.size());
-        return new JavaUdf(getName(), dbName, binaryType, signature, nullableMode,
+        return new JavaUdf(getName(), functionId, dbName, binaryType, signature, nullableMode,
                 objectFile, symbol, prepareFn, closeFn, checkSum, children.toArray(new Expression[0]));
     }
 
@@ -125,7 +127,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
                         (shape) -> ImmutableList.of()))
                 .toArray(VirtualSlotReference[]::new);
 
-        JavaUdf udf = new JavaUdf(fnName, dbName, scalar.getBinaryType(), sig,
+        JavaUdf udf = new JavaUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,
                 scalar.getNullableMode(),
                 scalar.getLocation().getLocation(),
                 scalar.getSymbolName(),
@@ -149,7 +151,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
             org.apache.doris.catalog.ScalarFunction expr = org.apache.doris.catalog.ScalarFunction.createUdf(
                     binaryType,
                     new FunctionName(dbName, getName()),
-                    signature.argumentsTypes.stream().map(AbstractDataType::toCatalogDataType).toArray(Type[]::new),
+                    signature.argumentsTypes.stream().map(DataType::toCatalogDataType).toArray(Type[]::new),
                     signature.returnType.toCatalogDataType(),
                     signature.hasVarArgs,
                     URI.create(objectFile),
@@ -159,6 +161,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
             );
             expr.setNullableMode(nullableMode);
             expr.setChecksum(checkSum);
+            expr.setId(functionId);
             return expr;
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());

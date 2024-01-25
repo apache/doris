@@ -68,7 +68,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         size_t num_element = arguments.size();
         auto result_col = block.get_by_position(result).type->create_column();
         auto result_array_col = static_cast<ColumnArray*>(result_col.get());

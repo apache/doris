@@ -30,9 +30,11 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     String resource_name = "jdbc_resource_catalog_doris"
     String catalog_name = "doris_jdbc_catalog";
     String internal_db_name = "regression_test_jdbc_catalog_p0";
-    String doris_port = 9030;
-    String inDorisTable = "doris_in_tb";
+    String doris_port = context.config.otherConfigs.get("doris_port");
+    String inDorisTable = "test_doris_jdbc_doris_in_tb";
     String hllTable = "bowen_hll_test"
+    String base_table = "base";
+    String arr_table = "arr";
 
     sql """create database if not exists ${internal_db_name}; """
 
@@ -45,12 +47,12 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         "password" = "${jdbcPassword}",
         "jdbc_url" = "${jdbcUrl}",
         "driver_url" = "${driver_url}",
-        "driver_class" = "com.mysql.jdbc.Driver"
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-
-    sql  """ drop table if exists ${inDorisTable} """
+    sql """use ${internal_db_name}"""
+    sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
     sql  """
-          CREATE TABLE ${inDorisTable} (
+          CREATE TABLE ${internal_db_name}.${inDorisTable} (
             `id` INT NULL COMMENT "主键id",
             `name` string NULL COMMENT "名字"
             ) DISTRIBUTED BY HASH(id) BUCKETS 10
@@ -82,62 +84,9 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
           `user_log_acct` hll HLL_UNION NULL COMMENT ""
         ) ENGINE=OLAP
         AGGREGATE KEY(`pin_id`, `pv_date`)
-        COMMENT "OLAP"
-        PARTITION BY RANGE(`pv_date`)
-        (PARTITION pbefore201910 VALUES [('1900-01-01'), ('2019-10-01')),
-        PARTITION p201910 VALUES [('2019-10-01'), ('2019-11-01')),
-        PARTITION p201911 VALUES [('2019-11-01'), ('2019-12-01')),
-        PARTITION p201912 VALUES [('2019-12-01'), ('2020-01-01')),
-        PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),
-        PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),
-        PARTITION p202003 VALUES [('2020-03-01'), ('2020-04-01')),
-        PARTITION p202004 VALUES [('2020-04-01'), ('2020-05-01')),
-        PARTITION p202005 VALUES [('2020-05-01'), ('2020-06-01')),
-        PARTITION p202006 VALUES [('2020-06-01'), ('2020-07-01')),
-        PARTITION p202007 VALUES [('2020-07-01'), ('2020-08-01')),
-        PARTITION p202008 VALUES [('2020-08-01'), ('2020-09-01')),
-        PARTITION p202009 VALUES [('2020-09-01'), ('2020-10-01')),
-        PARTITION p202010 VALUES [('2020-10-01'), ('2020-11-01')),
-        PARTITION p202011 VALUES [('2020-11-01'), ('2020-12-01')),
-        PARTITION p202012 VALUES [('2020-12-01'), ('2021-01-01')),
-        PARTITION p202101 VALUES [('2021-01-01'), ('2021-02-01')),
-        PARTITION p202102 VALUES [('2021-02-01'), ('2021-03-01')),
-        PARTITION p202103 VALUES [('2021-03-01'), ('2021-04-01')),
-        PARTITION p202104 VALUES [('2021-04-01'), ('2021-05-01')),
-        PARTITION p202105 VALUES [('2021-05-01'), ('2021-06-01')),
-        PARTITION p202106 VALUES [('2021-06-01'), ('2021-07-01')),
-        PARTITION p202107 VALUES [('2021-07-01'), ('2021-08-01')),
-        PARTITION p202108 VALUES [('2021-08-01'), ('2021-09-01')),
-        PARTITION p202109 VALUES [('2021-09-01'), ('2021-10-01')),
-        PARTITION p202110 VALUES [('2021-10-01'), ('2021-11-01')),
-        PARTITION p202111 VALUES [('2021-11-01'), ('2021-12-01')),
-        PARTITION p202112 VALUES [('2021-12-01'), ('2022-01-01')),
-        PARTITION p202201 VALUES [('2022-01-01'), ('2022-02-01')),
-        PARTITION p202202 VALUES [('2022-02-01'), ('2022-03-01')),
-        PARTITION p202203 VALUES [('2022-03-01'), ('2022-04-01')),
-        PARTITION p202204 VALUES [('2022-04-01'), ('2022-05-01')),
-        PARTITION p202205 VALUES [('2022-05-01'), ('2022-06-01')),
-        PARTITION p202206 VALUES [('2022-06-01'), ('2022-07-01')),
-        PARTITION p202207 VALUES [('2022-07-01'), ('2022-08-01')),
-        PARTITION p202208 VALUES [('2022-08-01'), ('2022-09-01')),
-        PARTITION p202209 VALUES [('2022-09-01'), ('2022-10-01')),
-        PARTITION p202210 VALUES [('2022-10-01'), ('2022-11-01')),
-        PARTITION p202211 VALUES [('2022-11-01'), ('2022-12-01')),
-        PARTITION p202212 VALUES [('2022-12-01'), ('2023-01-01')),
-        PARTITION p202301 VALUES [('2023-01-01'), ('2023-02-01')),
-        PARTITION p202302 VALUES [('2023-02-01'), ('2023-03-01')),
-        PARTITION p202303 VALUES [('2023-03-01'), ('2023-04-01')),
-        PARTITION p202304 VALUES [('2023-04-01'), ('2023-05-01')),
-        PARTITION p202305 VALUES [('2023-05-01'), ('2023-06-01')),
-        PARTITION p202306 VALUES [('2023-06-01'), ('2023-07-01')),
-        PARTITION p202307 VALUES [('2023-07-01'), ('2023-08-01')),
-        PARTITION p202308 VALUES [('2023-08-01'), ('2023-09-01')),
-        PARTITION p202309 VALUES [('2023-09-01'), ('2023-10-01')))
         DISTRIBUTED BY HASH(`pin_id`) BUCKETS 16
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "in_memory" = "false",
-        "storage_format" = "DEFAULT"
+        "replication_allocation" = "tag.location.default: 1"
         ); """
 
     sql """ insert into ${hllTable} values(1, "2023-01-01", hll_hash("1"));"""
@@ -146,6 +95,117 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ insert into ${hllTable} values(4, "2023-01-04", hll_hash("4"));"""
     sql """ insert into ${hllTable} values(5, "2023-01-05", hll_hash("5"));"""
     sql """ insert into ${hllTable} values(6, "2023-01-06", hll_hash("6"));"""
+
+    sql """drop table if exists ${base_table}"""
+    sql """
+        create table ${base_table} (
+            bool_col boolean,
+            tinyint_col tinyint,
+            smallint_col smallint,
+            int_col int,
+            bigint_col bigint,
+            largeint_col largeint,
+            float_col float,
+            double_col double,
+            decimal_col decimal(10, 5),
+            decimal_col2 decimal(30, 10),
+            date_col date,
+            datetime_col datetime(3),
+            char_col char(10),
+            varchar_col varchar(10),
+            json_col json
+        )
+        DUPLICATE KEY(`bool_col`)
+        DISTRIBUTED BY HASH(`bool_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """insert into ${base_table} values (true, 1, 1, 1, 1, 1, 1.0, 1.0, 1.0, 1.0, '2021-01-01', '2021-01-01 00:00:00.000', 'a', 'a', '{\"a\": 1}');"""
+    // insert NULL
+    sql """insert into ${base_table} values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_base1 """ select * from ${base_table} order by int_col; """
+
+    sql """drop table if exists all_null_tbl"""
+    sql """
+        create table all_null_tbl (
+            bool_col boolean,
+            tinyint_col tinyint,
+            smallint_col smallint,
+            int_col int,
+            bigint_col bigint,
+            largeint_col largeint,
+            float_col float,
+            double_col double,
+            decimal_col decimal(10, 5),
+            decimal_col2 decimal(30, 10),
+            date_col date,
+            datetime_col datetime(3),
+            char_col char(10),
+            varchar_col varchar(10),
+            json_col json
+        )
+        DUPLICATE KEY(`bool_col`)
+        DISTRIBUTED BY HASH(`bool_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into all_null_tbl values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_all_null """ select * from all_null_tbl order by int_col; """
+
+    sql """drop table if exists ${arr_table}"""
+    sql """
+        create table ${arr_table} (
+            int_col int,
+            arr_bool_col array<boolean>,
+            arr_tinyint_col array<tinyint>,
+            arr_smallint_col array<smallint>,
+            arr_int_col array<int>,
+            arr_bigint_col array<bigint>,
+            arr_largeint_col array<largeint>,
+            arr_float_col array<float>,
+            arr_double_col array<double>,
+            arr_decimal1_col array<decimal(10, 5)>,
+            arr_decimal2_col array<decimal(30, 10)>,
+            arr_date_col array<date>,
+            arr_datetime_col array<datetime(3)>,
+            arr_char_col array<char(10)>,
+            arr_varchar_col array<varchar(10)>,
+            arr_string_col array<string>
+        )
+        DUPLICATE KEY(`int_col`)
+        DISTRIBUTED BY HASH(`int_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into ${arr_table} values (1, array(true), array(1), array(1), array(1), array(1), array(1), array(1.0), array(1.0), array(1.0), array(1.0), array('2021-01-01'), array('2021-01-01 00:00:00.000'), array('a'), array('a'), array('a'));"""
+    // insert NULL
+    sql """insert into ${arr_table} values (2, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_arr1 """ select * from ${arr_table} order by int_col; """
+
+    sql """drop table if exists test_insert_order"""
+
+    sql """
+         CREATE TABLE test_insert_order (
+             gameid varchar(50) NOT NULL DEFAULT "",
+             aid int(11) NOT NULL DEFAULT "0",
+             bid int(11) NOT NULL DEFAULT "0",
+             cid int(11) NOT NULL DEFAULT "0",
+             did int(11) NOT NULL DEFAULT "0",
+             pname varchar(255) NOT NULL DEFAULT "其他"
+         ) ENGINE=OLAP
+         UNIQUE KEY(gameid, aid, bid, cid)
+         COMMENT 'OLAP'
+         DISTRIBUTED BY HASH(gameid) BUCKETS 3
+         PROPERTIES (
+             "replication_allocation" = "tag.location.default: 1"
+         );
+    """
+
 
     sql """ set return_object_data_as_binary=true """
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from ${hllTable} group by pin_id; """
@@ -157,6 +217,22 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     qt_sql """select current_catalog()"""
     sql """ use ${internal_db_name} """
     order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from ${catalog_name}.${internal_db_name}.${hllTable} group by pin_id; """
+    order_qt_base2 """ select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
+    order_qt_all_null2 """ select * from ${catalog_name}.${internal_db_name}.all_null_tbl order by int_col; """
+    order_qt_arr2 """ select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
+    sql """ drop table if exists internal.${internal_db_name}.ctas_base; """
+    sql """ drop table if exists internal.${internal_db_name}.ctas_arr; """
+    order_qt_ctas_base """ create table internal.${internal_db_name}.ctas_base PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
+    order_qt_ctas_arr """ create table internal.${internal_db_name}.ctas_arr PROPERTIES("replication_num" = "1") as select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
+    qt_desc_ctas_base """ desc internal.${internal_db_name}.ctas_base; """
+    qt_desc_ctas_arr """ desc internal.${internal_db_name}.ctas_arr; """
+    order_qt_query_ctas_base """ select * from internal.${internal_db_name}.ctas_base order by int_col; """
+    order_qt_query_ctas_arr """ select * from internal.${internal_db_name}.ctas_arr order by int_col; """
+
+    // test insert order
+    sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) values('g1',4,3,2,1,'p1')""";
+    sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) select 'g2',4,3,2,1,'p2'""";
+    qt_sql """select * from test_insert_order order by gameid, aid, bid, cid, did;"""
 
     //clean
     qt_sql """select current_catalog()"""
@@ -165,5 +241,9 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql "use ${internal_db_name}"
     sql """ drop table if exists ${inDorisTable} """
     sql """ drop table if exists ${hllTable} """
+    sql """ drop table if exists ${base_table} """
+    sql """ drop table if exists all_null_tbl """
+    sql """ drop table if exists ${arr_table} """
+    sql """ drop table if exists test_insert_order """
 
 }

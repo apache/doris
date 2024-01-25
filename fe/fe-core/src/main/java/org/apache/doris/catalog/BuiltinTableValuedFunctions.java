@@ -17,9 +17,22 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.ActiveQueries;
+import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
+import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
+import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
+import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.Local;
+import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
 import com.google.common.collect.ImmutableList;
 
@@ -31,9 +44,22 @@ import com.google.common.collect.ImmutableList;
  */
 public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
-            tableValued(Numbers.class, "numbers"),
+            tableValued(Backends.class, "backends"),
+            tableValued(Catalogs.class, "catalogs"),
+            tableValued(Frontends.class, "frontends"),
+            tableValued(FrontendsDisks.class, "frontends_disks"),
+            tableValued(GroupCommit.class, "group_commit"),
+            tableValued(Local.class, "local"),
+            tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
-            tableValued(S3.class, "s3")
+            tableValued(HttpStream.class, "http_stream"),
+            tableValued(Numbers.class, "numbers"),
+            tableValued(ActiveQueries.class, "active_queries"),
+            tableValued(S3.class, "s3"),
+            tableValued(MvInfos.class, "mv_infos"),
+            tableValued(Jobs.class, "jobs"),
+            tableValued(Tasks.class, "tasks"),
+            tableValued(WorkloadGroups.class, "workload_groups")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
@@ -41,3 +67,4 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
     // Note: Do not add any code here!
     private BuiltinTableValuedFunctions() {}
 }
+

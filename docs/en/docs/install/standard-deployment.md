@@ -27,7 +27,7 @@ under the License.
 
 # Installation and Deployment
 
-This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occur in creating and running clusters.
+This topic is about the hardware and software environment needed to deploy Doris, the recommended deployment mode, cluster scaling, and common problems occuring when creating and running clusters.
 
 Before continue reading, you might want to compile Doris following the instructions in the [Compile](https://doris.apache.org/docs/dev/install/source-install/compilation-general/) topic.
 
@@ -35,7 +35,7 @@ Before continue reading, you might want to compile Doris following the instructi
 
 ### Overview
 
-Doris, as an open source OLAP database with an MPP architecture, can run on most mainstream commercial servers. For you to take full advantage of the high concurrency and high availability of Doris, we recommend that your computer meet the following requirements:
+Doris, an open source OLAP database with an MPP architecture, can run on most mainstream commercial servers. For you to take full advantage of the high concurrency and high availability of Doris, we recommend that your computer meet the following requirements:
 
 #### Linux Operating System Version Requirements
 
@@ -48,7 +48,7 @@ Doris, as an open source OLAP database with an MPP architecture, can run on most
 
 | Soft | Version | 
 |---|---|
-| Java | 1.8  |
+| Java | 1.8 (exact)  |
 | GCC  | 4.8.2 and above |
 
 #### OS Installation Requirements
@@ -77,15 +77,15 @@ Both ext4 and xfs file systems are supported.
 
 | Module | CPU | Memory | Disk | Network | Number of Instances |
 |---|---|---|---|---|---|
-| Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1|
+| Frontend | 8 core + | 8GB + | SSD or SATA, 10GB + * | Gigabit Network Card | 1 |
 | Backend | 8 core + | 16GB + | SSD or SATA, 50GB + * | Gigabit Network Card | 1-3*|
 
 #### Production Environment
 
 | Module | CPU | Memory | Disk | Network | Number of Instances (Minimum Requirements) |
 |---|---|---|---|---|--------------------------------------------|
-| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-3*                                       |
-| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 3 *                                        |
+| Frontend | 16 core + | 64GB + | SSD or RAID card, 100GB + * | 10,000 Mbp network card | 1-3* |
+| Backend | 16 core + | 64GB + | SSD or SATA, 100G + * | 10-100 Mbp network card | 3 * |
 
 > Note 1:
 > 
@@ -98,7 +98,7 @@ Both ext4 and xfs file systems are supported.
 > Note 2: Number of FE nodes
 > 
 > 1. FE nodes are divided into Followers and Observers based on their roles. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, too.)
-> 2. The number of FE nodes should be at least 1 (1 Follower). If you deploy 1 Follower and 1 Observer, you can achieve high read availability; if you deploy 3 Followers, you can achieve high read-write  availability (HA).
+> 2. The number of FE nodes should be at least 1 (1 Follower). If you deploy 1 Follower and 1 Observer, you can achieve high read availability; if you deploy 3 Followers, you can achieve high read-write availability (HA).
 > 3. Although multiple BEs can be deployed on one machine, **only one instance** is recommended to be deployed, and **only one FE** can be deployed at the same time. If 3 copies of data are required, at least 3 machines are required to deploy a BE instance (instead of 1 machine deploying 3 BE instances). **The clocks of the servers where multiple FEs are located must be consistent (up to 5 seconds of clock deviation is allowed)**.
 > 4. According to past experience, for business that requires high cluster availability (e.g. online service providers), we recommend that you deploy 3 Followers and 1-3 Observers; for offline business, we recommend that you deploy 1 Follower and 1-3 Observers.
 
@@ -123,6 +123,7 @@ Doris instances communicate directly over the network. The following table shows
 | FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | Thrift server port on FE; The configurations of each FE should be consistent. |
 | FE | query_port | 9030 | user <--> FE | MySQL server port on FE |
+| FE | arrow_flight_sql_port | 9040 | user <--> FE | Arrow Flight SQL server port on FE |
 | FE | edit\_log_port | 9010 | FE <--> FE | Port on FE for BDBJE communication |
 | Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Thrift server port on Broker for receiving requests |
 
@@ -177,7 +178,7 @@ See the `lower_case_table_names` section in [Variables](../advanced/variables.md
 
      **Note: For production environments, it is better not to put the directory under the Doris installation directory but in a separate disk (SSD would be the best); for test and development environments, you may use the default configuration.**
 
-  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 4GB. For production environments, we recommend that it be adjusted to more than 8G.
+  2. The default maximum Java heap memory of JAVA_OPTS in fe.conf is 8GB.
 
 * Start FE
 
@@ -284,6 +285,16 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 * View Broker status
 
 	Connect any started FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
+
+#### FE and BE Startup Methods
+
+##### Version >= 2.0.2
+1. Start with start_xx.sh: This method logs the output to a file and does not exit the startup script process. It is recommended to use this method when using tools like Supervisor for automatic restarting.
+2. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+3. Start with start_xx.sh --console: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
+##### Version < 2.0.2
+1. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+2. Start with start_xx.sh: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
 
 **Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in Doris 0.9.0 and previous versions, you need to remove the last `&` symbol in the start_xx.sh scripts**. In Doris 0.10.0 and the subsequent versions, you may just call `sh start_xx.sh` directly to start.
 

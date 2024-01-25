@@ -73,6 +73,7 @@ public class PlanToStringTest {
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right);
+        System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
                 "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[] \\)"));
     }
@@ -91,7 +92,7 @@ public class PlanToStringTest {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
 
-        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+], excepts=\\[], canEliminate=true \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+], excepts=\\[] \\)"));
     }
 
     @Test

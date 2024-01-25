@@ -80,7 +80,13 @@ suite("test_struct_export", "export") {
     qt_select_count """SELECT COUNT(k2), COUNT(k4) FROM ${testTable}"""
 
     def outFilePath = """${context.file.parent}/test_struct_export"""
-    def outFile = "/tmp"
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def outFile = outFilePath
+    if (backends.size() > 1) {
+        outFile = "/tmp"
+    }
+    def url = ""
     def urlHost = ""
     def csvFiles = ""
     logger.info("test_struct_export the outFilePath=" + outFilePath)
@@ -92,14 +98,18 @@ suite("test_struct_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        result = sql """
+        def result = sql """
                     SELECT * FROM ${testTable} ORDER BY k1 INTO OUTFILE "file://${outFile}/";
         """
         url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath);
+        if (backends.size() > 1) {
+            // custer will scp files
+            def filePrifix = url.split("${outFile}")[1]
+            csvFiles = "${outFile}${filePrifix}*.csv"
+            scpFiles ("root", urlHost, csvFiles, outFilePath)
+        }
+
 
         File[] files = path.listFiles()
         assert files.length == 1
@@ -140,7 +150,9 @@ suite("test_struct_export", "export") {
             }
             path.delete();
         }
-        cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        if (csvFiles != "") {
+            cmd = "rm -rf ${csvFiles}"
+            sshExec("root", urlHost, cmd)
+        }
     }
 }

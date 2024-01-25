@@ -31,7 +31,7 @@ class SQLExecutor:
             database=database
         )
         self.cursor = self.connection.cursor()
-        self.wait_fetch_time_index = 16
+        self.wait_fetch_time_index = 4
 
     def execute_query(self, query: str, parameters: Tuple | None) -> List[Tuple]:
         if parameters:

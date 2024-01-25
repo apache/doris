@@ -81,6 +81,7 @@ https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:
 }
 
 _only_modified_regression_conf() {
+    if [[ -n ${added_files} || -n ${removed_files} ]]; then echo "Not only modified regression conf, find added/removed files" && return 1; fi
     for f in ${modified_files}; do
         if [[ "${f}" == "regression-test/pipeline/p0/conf/regression-conf.groovy" ]] ||
             [[ "${f}" == "regression-test/pipeline/p1/conf/regression-conf.groovy" ]]; then
@@ -136,6 +137,7 @@ need_run_regression_p0() {
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
+            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
@@ -167,7 +169,12 @@ need_run_ckb() {
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
-            [[ "${af}" == 'env.sh' ]]; then
+            [[ "${af}" == 'env.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/github-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/doris-utils.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/common/oss-utils.sh' ]] ||
+            [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
+            [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
             echo "clickbench performance related file changed, return need" && return 0
         fi
     done

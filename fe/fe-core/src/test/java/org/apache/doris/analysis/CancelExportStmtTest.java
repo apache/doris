@@ -23,6 +23,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.wildfly.common.Assert;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Predicate;
 
@@ -61,7 +63,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmt = new CancelExportStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM default_cluster:testDb WHERE `label` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label')",
                 stmt.toString());
 
         SlotRef labelSlotRefUpper = new SlotRef(null, "LABEL");
@@ -69,7 +71,7 @@ public class CancelExportStmtTest extends TestWithFeService {
                 labelStringLiteral);
         CancelExportStmt stmtUpper = new CancelExportStmt(null, labelBinaryPredicateUpper);
         stmtUpper.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM default_cluster:testDb WHERE `LABEL` = 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`LABEL` = 'doris_test_label')",
                 stmtUpper.toString());
 
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");
@@ -77,13 +79,13 @@ public class CancelExportStmtTest extends TestWithFeService {
                 stateStringLiteral);
         stmt = new CancelExportStmt(null, stateBinaryPredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM default_cluster:testDb WHERE `state` = 'PENDING'", stmt.toString());
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE (`state` = 'PENDING')", stmt.toString());
 
         LikePredicate labelLikePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef,
                 labelStringLiteral);
         stmt = new CancelExportStmt(null, labelLikePredicate);
         stmt.analyze(analyzer);
-        Assertions.assertEquals("CANCEL EXPORT FROM default_cluster:testDb WHERE `label` LIKE 'doris_test_label'",
+        Assertions.assertEquals("CANCEL EXPORT FROM testDb WHERE `label` LIKE 'doris_test_label'",
                 stmt.toString());
 
         CompoundPredicate compoundAndPredicate = new CompoundPredicate(Operator.AND, labelBinaryPredicate,
@@ -91,7 +93,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundAndPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'PENDING'",
+                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') AND (`state` = 'PENDING')",
                 stmt.toString());
 
         CompoundPredicate compoundOrPredicate = new CompoundPredicate(Operator.OR, labelBinaryPredicate,
@@ -99,7 +101,7 @@ public class CancelExportStmtTest extends TestWithFeService {
         stmt = new CancelExportStmt(null, compoundOrPredicate);
         stmt.analyze(analyzer);
         Assertions.assertEquals(
-                "CANCEL EXPORT FROM default_cluster:testDb WHERE `label` = 'doris_test_label' OR `state` = 'PENDING'",
+                "CANCEL EXPORT FROM testDb WHERE (`label` = 'doris_test_label') OR (`state` = 'PENDING')",
                 stmt.toString());
     }
 
@@ -154,19 +156,27 @@ public class CancelExportStmtTest extends TestWithFeService {
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
         ExportJob job2 = new ExportJob();
-        job2.updateState(ExportJob.JobState.CANCELLED, true);
         ExportJob job3 = new ExportJob();
-        job3.updateState(ExportJob.JobState.EXPORTING, false);
         ExportJob job4 = new ExportJob();
-        ExportJob job5 = new ExportJob();
-        job5.updateState(ExportJob.JobState.IN_QUEUE, false);
+
+
+        try {
+            Method setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
+                    ExportJobState.class);
+            setExportJobState.setAccessible(true);
+            setExportJobState.invoke(job2, ExportJobState.CANCELLED);
+            setExportJobState.invoke(job3, ExportJobState.EXPORTING);
+
+        } catch (Exception e) {
+            throw new UserException(e);
+        }
+
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);
         exportJobList1.add(job4);
         exportJobList2.add(job1);
         exportJobList2.add(job2);
-        exportJobList2.add(job5);
 
         SlotRef stateSlotRef = new SlotRef(null, "state");
         StringLiteral stateStringLiteral = new StringLiteral("PENDING");
@@ -188,15 +198,157 @@ public class CancelExportStmtTest extends TestWithFeService {
 
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 1);
 
-        stateStringLiteral = new StringLiteral("IN_QUEUE");
+    }
+
+    @Test
+    public void testExportMgrCancelJob() throws UserException {
+        FeConstants.runningUnitTest = true;
+        ExportJob job1 = new ExportJob();
+        job1.setId(1);
+        job1.setLabel("label_job1");
+        ExportJob job2 = new ExportJob();
+        job2.setId(2);
+        job2.setLabel("label_job2");
+        ExportJob job3 = new ExportJob();
+        job3.setId(3);
+        job3.setLabel("label_job3");
+        ExportJob job4 = new ExportJob();
+        job4.setId(4);
+        job4.setLabel("label_job4");
+
+        try {
+            Method setExportJobState = job1.getClass().getDeclaredMethod("setExportJobState",
+                    ExportJobState.class);
+            setExportJobState.setAccessible(true);
+            // job1 is PENDING
+            setExportJobState.invoke(job2, ExportJobState.EXPORTING);
+            setExportJobState.invoke(job3, ExportJobState.FINISHED);
+            setExportJobState.invoke(job4, ExportJobState.CANCELLED);
+        } catch (Exception e) {
+            throw new UserException(e);
+        }
+
+        ExportMgr exportMgr = new ExportMgr();
+        exportMgr.unprotectAddJob(job1);
+        exportMgr.unprotectAddJob(job2);
+        exportMgr.unprotectAddJob(job3);
+        exportMgr.unprotectAddJob(job4);
+
+
+        // cancel export job where state = "PENDING"
+        Assert.assertTrue(job1.getState() == ExportJobState.PENDING);
+        SlotRef stateSlotRef = new SlotRef(null, "state");
+        StringLiteral stateStringLiteral = new StringLiteral("PENDING");
+        BinaryPredicate stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        CancelExportStmt stmt = new CancelExportStmt(null, stateEqPredicate);
+        stmt.analyze(analyzer);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job1.getState() == ExportJobState.CANCELLED);
+
+        // cancel export job where state = "EXPORTING"
+        Assert.assertTrue(job2.getState() == ExportJobState.EXPORTING);
+        stateStringLiteral = new StringLiteral("EXPORTING");
         stateEqPredicate =
                 new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
         stmt = new CancelExportStmt(null, stateEqPredicate);
         stmt.analyze(analyzer);
-        filter = ExportMgr.buildCancelJobFilter(stmt);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job2.getState() == ExportJobState.CANCELLED);
 
-        Assert.assertTrue(exportJobList2.stream().filter(filter).count() == 1);
+        // cancel export job where state = "FINISHED"
+        Assert.assertTrue(job3.getState() == ExportJobState.FINISHED);
+        stateStringLiteral = new StringLiteral("FINISHED");
+        stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        stmt = new CancelExportStmt(null, stateEqPredicate);
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Only support PENDING/EXPORTING"));
+        }
 
+        // cancel export job where state = "CANCELLED"
+        Assert.assertTrue(job4.getState() == ExportJobState.CANCELLED);
+        stateStringLiteral = new StringLiteral("CANCELLED");
+        stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        stmt = new CancelExportStmt(null, stateEqPredicate);
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Only support PENDING/EXPORTING"));
+        }
+
+        ExportJob job5 = new ExportJob();
+        job5.setId(5);
+        job5.setLabel("label_job5");
+        exportMgr.unprotectAddJob(job5);
+
+        ExportJob job6 = new ExportJob();
+        job6.setId(6);
+        job6.setLabel("label_job6");
+        exportMgr.unprotectAddJob(job6);
+
+        ExportJob job7 = new ExportJob();
+        job7.setId(7);
+        job7.setLabel("label_job7");
+        exportMgr.unprotectAddJob(job7);
+
+        ExportJob job8 = new ExportJob();
+        job8.setId(8);
+        job8.setLabel("label_job8");
+        exportMgr.unprotectAddJob(job8);
+
+        // cancel export job where label = "label_job5"
+        Assert.assertTrue(job5.getState() == ExportJobState.PENDING);
+        SlotRef labelSlotRef = new SlotRef(null, "label");
+        StringLiteral labelStringLiteral = new StringLiteral("label_job5");
+        BinaryPredicate labelEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef, labelStringLiteral);
+        stmt = new CancelExportStmt(null, labelEqPredicate);
+        stmt.analyze(analyzer);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job5.getState() == ExportJobState.CANCELLED);
+
+        // cancel export job where label like "job6"
+        Assert.assertTrue(job6.getState() == ExportJobState.PENDING);
+        labelSlotRef = new SlotRef(null, "label");
+        labelStringLiteral = new StringLiteral("%job6");
+        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef, labelStringLiteral);
+        stmt = new CancelExportStmt(null, likePredicate);
+        stmt.analyze(analyzer);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job6.getState() == ExportJobState.CANCELLED);
+
+        // cancel export job where label = "label_job7" AND STATE = "PENDING"
+        Assert.assertTrue(job7.getState() == ExportJobState.PENDING);
+        labelSlotRef = new SlotRef(null, "label");
+        labelStringLiteral = new StringLiteral("label_job7");
+        labelEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef, labelStringLiteral);
+        stateStringLiteral = new StringLiteral("PENDING");
+        stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        CompoundPredicate andCompoundPredicate = new CompoundPredicate(Operator.AND, labelEqPredicate, stateEqPredicate);
+        stmt = new CancelExportStmt(null, andCompoundPredicate);
+        stmt.analyze(analyzer);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job7.getState() == ExportJobState.CANCELLED);
+
+        // cancel export job where label like "%job8" OR STATE = "PENDING"
+        Assert.assertTrue(job8.getState() == ExportJobState.PENDING);
+        labelSlotRef = new SlotRef(null, "label");
+        labelStringLiteral = new StringLiteral("%job8");
+        likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef, labelStringLiteral);
+        stateStringLiteral = new StringLiteral("PENDING");
+        stateEqPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        CompoundPredicate orCompoundPredicate = new CompoundPredicate(Operator.OR, likePredicate, stateEqPredicate);
+        stmt = new CancelExportStmt(null, orCompoundPredicate);
+        stmt.analyze(analyzer);
+        exportMgr.cancelExportJob(stmt);
+        Assert.assertTrue(job8.getState() == ExportJobState.CANCELLED);
     }
-
 }
+

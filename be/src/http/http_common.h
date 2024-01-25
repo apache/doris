@@ -29,6 +29,8 @@ static const std::string HTTP_COLUMNS = "columns";
 static const std::string HTTP_WHERE = "where";
 static const std::string HTTP_COLUMN_SEPARATOR = "column_separator";
 static const std::string HTTP_LINE_DELIMITER = "line_delimiter";
+static const std::string HTTP_ENCLOSE = "enclose";
+static const std::string HTTP_ESCAPE = "escape";
 static const std::string HTTP_MAX_FILTER_RATIO = "max_filter_ratio";
 static const std::string HTTP_TIMEOUT = "timeout";
 static const std::string HTTP_PARTITIONS = "partitions";
@@ -36,7 +38,6 @@ static const std::string HTTP_TEMP_PARTITIONS = "temporary_partitions";
 static const std::string HTTP_NEGATIVE = "negative";
 static const std::string HTTP_STRICT_MODE = "strict_mode";
 static const std::string HTTP_TIMEZONE = "timezone";
-static const std::string HTTP_TIME_ZONE = "time_zone";
 static const std::string HTTP_EXEC_MEM_LIMIT = "exec_mem_limit";
 static const std::string HTTP_JSONPATHS = "jsonpaths";
 static const std::string HTTP_JSONROOT = "json_root";
@@ -61,5 +62,9 @@ static const std::string HTTP_SQL = "sql";
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
 static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
+static const std::string HTTP_MEMTABLE_ON_SINKNODE = "memtable_on_sink_node";
+static const std::string HTTP_WAL_ID_KY = "wal_id";
+static const std::string HTTP_AUTH_CODE = "auth_code";
+static const std::string HTTP_GROUP_COMMIT = "group_commit";
 
 } // namespace doris

@@ -19,12 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
@@ -55,7 +55,7 @@ public class AlterDatabaseRename extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             throw new AnalysisException("Database name is not set");
         }
-
+        InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                 PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.ALTER_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
@@ -67,9 +67,6 @@ public class AlterDatabaseRename extends DdlStmt {
         }
 
         FeNameFormat.checkDbName(newDbName);
-
-        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
     }
 
     @Override

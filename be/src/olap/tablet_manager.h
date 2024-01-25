@@ -54,7 +54,7 @@ class TTabletInfo;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
-    TabletManager(int32_t tablet_map_lock_shard_size);
+    TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size);
     ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
@@ -66,13 +66,12 @@ public:
     // TODO(lingbin): Other schema-change type do not need to be on the same disk. Because
     // there may be insufficient space on the current disk, which will lead the schema-change
     // task to be fail, even if there is enough space on other disks
-    Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
+    Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores,
+                         RuntimeProfile* profile);
 
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
-
-    Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
@@ -83,25 +82,18 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
 
-    std::pair<TabletSharedPtr, Status> get_tablet_and_status(TTabletId tablet_id,
-                                                             bool include_deleted = false);
-
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
-                                                        [](Tablet* t) { return t->is_used(); }) {
-        std::vector<TabletSharedPtr> res;
-        for (const auto& tablets_shard : _tablets_shards) {
-            std::shared_lock rdlock(tablets_shard.lock);
-            for (auto& [id, tablet] : tablets_shard.tablet_map) {
-                if (filter(tablet.get())) {
-                    res.emplace_back(tablet);
-                }
-            }
-        }
-        return res;
-    }
+    std::vector<TabletSharedPtr> get_all_tablet(
+            std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    // Handler not hold the shard lock.
+    void for_each_tablet(std::function<void(const TabletSharedPtr&)>&& handler,
+                         std::function<bool(Tablet*)>&& filter = filter_used_tablets);
+
+    static bool filter_all_tablets(Tablet* tablet) { return true; }
+    static bool filter_used_tablets(Tablet* tablet) { return tablet->is_used(); }
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
@@ -164,6 +156,7 @@ public:
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
     void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::vector<RowsetSharedPtr>* rowsets,
                               std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
@@ -178,10 +171,11 @@ private:
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        Status::Error<UNINITIALIZED>(), if not inited
     Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
-                                bool update_meta, bool force);
+                                bool update_meta, bool force, RuntimeProfile* profile);
 
     Status _add_tablet_to_map_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
-                                       bool update_meta, bool keep_files, bool drop_old);
+                                       bool update_meta, bool keep_files, bool drop_old,
+                                       RuntimeProfile* profile);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
@@ -195,11 +189,13 @@ private:
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
                                                      const Tablet* base_tablet,
-                                                     const std::vector<DataDir*>& data_dirs);
+                                                     const std::vector<DataDir*>& data_dirs,
+                                                     RuntimeProfile* profile);
     TabletSharedPtr _create_tablet_meta_and_dir_unlocked(const TCreateTabletReq& request,
                                                          const bool is_schema_change,
                                                          const Tablet* base_tablet,
-                                                         const std::vector<DataDir*>& data_dirs);
+                                                         const std::vector<DataDir*>& data_dirs,
+                                                         RuntimeProfile* profile);
     Status _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                         const bool is_schema_change_tablet,
                                         const Tablet* base_tablet,
@@ -210,6 +206,8 @@ private:
     void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
+
+    bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
@@ -228,8 +226,10 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    StorageEngine& _engine;
+
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
@@ -242,7 +242,9 @@ private:
     std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-    std::vector<TabletSharedPtr> _shutdown_tablets;
+    // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
+    std::list<TabletSharedPtr> _shutdown_tablets;
+    std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
     std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =

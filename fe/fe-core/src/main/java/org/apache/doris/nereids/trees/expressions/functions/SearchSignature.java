@@ -26,7 +26,6 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
@@ -50,7 +49,7 @@ public class SearchSignature {
     // param1: signature type
     // param2: real argument type
     // return: is the real argument type matches the signature type?
-    private final List<BiFunction<AbstractDataType, AbstractDataType, Boolean>> typePredicatePerRound
+    private final List<BiFunction<DataType, DataType, Boolean>> typePredicatePerRound
             = Lists.newArrayList();
 
     private SearchSignature(ComputeSignature computeSignature,
@@ -65,7 +64,7 @@ public class SearchSignature {
         return new SearchSignature(computeSignature, signatures, arguments);
     }
 
-    public SearchSignature orElseSearch(BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate) {
+    public SearchSignature orElseSearch(BiFunction<DataType, DataType, Boolean> typePredicate) {
         typePredicatePerRound.add(typePredicate);
         return this;
     }
@@ -76,7 +75,7 @@ public class SearchSignature {
      */
     public Optional<FunctionSignature> result() {
         // search every round
-        for (BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate : typePredicatePerRound) {
+        for (BiFunction<DataType, DataType, Boolean> typePredicate : typePredicatePerRound) {
             int candidateNonStrictMatched = Integer.MAX_VALUE;
             int candidateDateToDateV2Count = Integer.MIN_VALUE;
             FunctionSignature candidate = null;
@@ -134,7 +133,7 @@ public class SearchSignature {
     private boolean checkDecimalV3Precision(FunctionSignature signature) {
         DataType finalType = null;
         for (int i = 0; i < arguments.size(); i++) {
-            AbstractDataType targetType;
+            DataType targetType;
             if (i >= signature.argumentsTypes.size()) {
                 if (signature.getVarArgType().isPresent()) {
                     targetType = signature.getVarArgType().get();
@@ -144,10 +143,7 @@ public class SearchSignature {
             } else {
                 targetType = signature.getArgType(i);
             }
-            if (!(targetType instanceof DataType)) {
-                continue;
-            }
-            if (!((DataType) targetType).isDecimalV3Type()) {
+            if (!targetType.isDecimalV3Type()) {
                 continue;
             }
             if (finalType == null) {
@@ -189,8 +185,8 @@ public class SearchSignature {
         int dateToDateV2Count = 0;
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
-            AbstractDataType sigArgType = sig.getArgType(i);
-            AbstractDataType realType = arguments.get(i).getDataType();
+            DataType sigArgType = sig.getArgType(i);
+            DataType realType = arguments.get(i).getDataType();
             if (!IdenticalSignature.isIdentical(sigArgType, realType)) {
                 nonStrictMatched++;
                 if (sigArgType instanceof DateV2Type && realType instanceof DateType) {
@@ -202,17 +198,17 @@ public class SearchSignature {
     }
 
     private boolean doMatchTypes(FunctionSignature sig, List<Expression> arguments,
-            BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate) {
+            BiFunction<DataType, DataType, Boolean> typePredicate) {
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
-            AbstractDataType sigArgType = sig.getArgType(i);
+            DataType sigArgType = sig.getArgType(i);
             DataType realType = arguments.get(i).getDataType();
             // we need to try to do string literal coercion when search signature.
             // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
             // if SQL block is `FUNC_A('2020-02-02 00:00:00')`, we should return signature FUNC_A(datetime).
-            if (arguments.get(i).isLiteral() && realType.isStringLikeType() && sigArgType instanceof DataType) {
+            if (arguments.get(i).isLiteral() && realType.isStringLikeType()) {
                 realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) arguments.get(i)).getStringValue(),
-                                (DataType) sigArgType).orElse(arguments.get(i)).getDataType();
+                        sigArgType).orElse(arguments.get(i)).getDataType();
             }
             if (!typePredicate.apply(sigArgType, realType)) {
                 return false;
@@ -221,7 +217,7 @@ public class SearchSignature {
         return true;
     }
 
-    private static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {
+    public static void throwCanNotFoundFunctionException(String name, List<Expression> arguments) {
         String missingSignature = name + arguments.stream()
                 .map(Expression::getDataType)
                 .map(DataType::toSql)

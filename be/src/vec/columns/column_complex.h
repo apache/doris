@@ -50,7 +50,7 @@ public:
 
     bool is_bitmap() const override { return std::is_same_v<T, BitmapValue>; }
     bool is_hll() const override { return std::is_same_v<T, HyperLogLog>; }
-    bool is_quantile_state() const override { return std::is_same_v<T, QuantileState<double>>; }
+    bool is_quantile_state() const override { return std::is_same_v<T, QuantileState>; }
 
     size_t size() const override { return data.size(); }
 
@@ -78,7 +78,7 @@ public:
             pvalue->deserialize(pos);
         } else if constexpr (std::is_same_v<T, HyperLogLog>) {
             pvalue->deserialize(Slice(pos, length));
-        } else if constexpr (std::is_same_v<T, QuantileStateDouble>) {
+        } else if constexpr (std::is_same_v<T, QuantileState>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
             LOG(FATAL) << "Unexpected type in column complex";
@@ -118,17 +118,12 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void insert_value(T value) { data.emplace_back(std::move(value)); }
 
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
-    }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
+        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
@@ -137,6 +132,7 @@ public:
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -164,22 +160,27 @@ public:
 
     [[noreturn]] UInt64 get64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Float64 get_float64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] UInt64 get_uint(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -190,18 +191,14 @@ public:
         data.insert(data.end(), st, ed);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         const Self& src_vec = assert_cast<const Self&>(src);
         auto new_size = indices_end - indices_begin;
 
-        for (int i = 0; i < new_size; ++i) {
+        for (uint32_t i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
-            if (offset == -1) {
-                data.emplace_back(T {});
-            } else {
-                data.emplace_back(src_vec.get_element(offset));
-            }
+            data.emplace_back(src_vec.get_element(offset));
         }
     }
 
@@ -210,10 +207,12 @@ public:
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
+        __builtin_unreachable();
     }
 
     // maybe we do not need to impl the function
@@ -238,12 +237,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "compare_at for " + std::string(get_family_name()));
     }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not implemented";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
@@ -277,6 +270,7 @@ public:
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not implemented";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -423,13 +417,7 @@ void ColumnComplexType<T>::replicate(const uint32_t* indexs, size_t target_size,
 
 using ColumnBitmap = ColumnComplexType<BitmapValue>;
 using ColumnHLL = ColumnComplexType<HyperLogLog>;
-
-template <typename T>
-using ColumnQuantileState = ColumnComplexType<QuantileState<T>>;
-
-using ColumnQuantileStateDouble = ColumnQuantileState<double>;
-
-//template class ColumnQuantileState<double>;
+using ColumnQuantileState = ColumnComplexType<QuantileState>;
 
 template <typename T>
 struct is_complex : std::false_type {};
@@ -443,8 +431,8 @@ struct is_complex<HyperLogLog> : std::true_type {};
 //DataTypeHLL::FieldType = HyperLogLog
 
 template <>
-struct is_complex<QuantileState<double>> : std::true_type {};
-//DataTypeQuantileState::FieldType = QuantileState<double>
+struct is_complex<QuantileState> : std::true_type {};
+//DataTypeQuantileState::FieldType = QuantileState
 
 template <class T>
 constexpr bool is_complex_v = is_complex<T>::value;

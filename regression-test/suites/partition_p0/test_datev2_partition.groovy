@@ -43,7 +43,6 @@ suite("test_datev2_partition") {
     qt_select """ select * from ${tblName1} order by TIME_STAMP """
     qt_select """ select * from ${tblName1} WHERE TIME_STAMP = '2022-12-15' order by TIME_STAMP """
     qt_select """ select * from ${tblName1} WHERE TIME_STAMP > '2022-12-15' order by TIME_STAMP """
-    sql "drop table ${tblName1}"
 
     def tblName2 = "test_datev2_partition2"
     sql "drop table if exists ${tblName2}"
@@ -72,5 +71,4 @@ suite("test_datev2_partition") {
     qt_select """ select * from ${tblName2} order by TIME_STAMP """
     qt_select """ select * from ${tblName2} WHERE TIME_STAMP = '2022-12-15 22:22:22.222' order by TIME_STAMP """
     qt_select """ select * from ${tblName2} WHERE TIME_STAMP > '2022-12-15 22:22:22.222' order by TIME_STAMP """
-    sql "drop table ${tblName2}"
 }

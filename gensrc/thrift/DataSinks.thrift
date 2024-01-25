@@ -36,10 +36,13 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
+    GROUP_COMMIT_BLOCK_SINK,
 }
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
+    ARROW_FLIGHT_PROTOCAL,
     FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 
@@ -124,6 +127,7 @@ struct TResultFileSinkOptions {
     15: optional string orc_schema
 
     16: optional bool delete_existing_files;
+    17: optional string file_suffix;
 }
 
 struct TMemoryScratchSink {
@@ -231,6 +235,12 @@ struct TExportSink {
     7: optional string header
 }
 
+enum TGroupCommitMode {
+    SYNC_MODE,
+    ASYNC_MODE,
+    OFF_MODE
+}
+
 struct TOlapTableSink {
     1: required Types.TUniqueId load_id
     2: required i64 txn_id
@@ -250,6 +260,13 @@ struct TOlapTableSink {
     16: optional bool load_to_single_tablet
     17: optional bool write_single_replica
     18: optional Descriptors.TOlapTableLocationParam slave_location
+    19: optional i64 txn_timeout_s // timeout of load txn in second
+    20: optional bool write_file_cache
+
+    // used by GroupCommitBlockSink
+    21: optional i64 base_schema_version
+    22: optional TGroupCommitMode group_commit_mode
+    23: optional double max_filter_ratio
 }
 
 struct TDataSink {

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Objects;
@@ -30,6 +29,7 @@ import java.util.Objects;
 public class VarcharType extends CharacterType {
 
     public static final VarcharType SYSTEM_DEFAULT = new VarcharType(-1);
+    public static final int MAX_VARCHAR_LENGTH = ScalarType.MAX_VARCHAR_LENGTH;
 
     public VarcharType(int len) {
         super(len);
@@ -55,11 +55,6 @@ public class VarcharType extends CharacterType {
     }
 
     @Override
-    public boolean acceptsType(AbstractDataType other) {
-        return other instanceof VarcharType || other instanceof StringType;
-    }
-
-    @Override
     public String simpleString() {
         return "varchar";
     }
@@ -72,7 +67,7 @@ public class VarcharType extends CharacterType {
     @Override
     public String toSql() {
         if (len == -1) {
-            return "VARCHAR(*)";
+            return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
         }
         return "VARCHAR(" + len + ")";
     }
@@ -89,5 +84,9 @@ public class VarcharType extends CharacterType {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), len);
+    }
+
+    public boolean isWildcardVarchar() {
+        return len == -1 || len == MAX_VARCHAR_LENGTH;
     }
 }

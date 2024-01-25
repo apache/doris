@@ -40,7 +40,7 @@ public class Ndv extends AggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(AnyDataType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     /**

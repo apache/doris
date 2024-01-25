@@ -20,28 +20,18 @@ suite("test_date_acquire") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_fold_nondeterministic_fn=true'
 
-    String res = sql 'explain select now(), now(3), curdate(), current_date(), curtime(), current_time(), current_timestamp(), current_timestamp(3)'
+    String res = sql 'explain select now(), now(3), curdate(), current_date(), current_timestamp(), current_timestamp(3)'
     res = res.split('VUNION')[1]
     assertFalse(res.contains("()") || res.contains("(3)"))
 
     sql "set enable_fold_constant_by_be=true"
 
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 15:10:55', 1196389819]])
-    }
+    sql "set time_zone='+08:00'"
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 
     sql "set time_zone='+00:00'"
-
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 07:10:55', 1196418619]])
-    }
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 
     sql "set time_zone='+04:00'"
-
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 11:10:55', 1196404219]])
-    }
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 }

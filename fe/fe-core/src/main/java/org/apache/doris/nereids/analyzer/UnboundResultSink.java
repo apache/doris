@@ -21,7 +21,9 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,21 +40,22 @@ import java.util.Optional;
 /**
  * unbound result sink
  */
-public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Unbound, Sink {
+public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+        implements Unbound, Sink, BlockFuncDepsPropagation {
 
     public UnboundResultSink(CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, child);
+        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, ImmutableList.of(), child);
     }
 
     public UnboundResultSink(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundResultSink only accepts one child");
-        return new UnboundResultSink<>(groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+        return new UnboundResultSink<>(groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
@@ -74,7 +78,11 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundResultSink only accepts one child");
         return new UnboundResultSink<>(groupExpression, logicalProperties, children.get(0));
+    }
 
+    @Override
+    public UnboundResultSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        throw new UnboundException("could not call withOutputExprs on UnboundResultSink");
     }
 
     @Override

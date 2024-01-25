@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.CTEScanNode;
@@ -38,7 +37,7 @@ import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -46,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,10 +67,6 @@ public class RuntimeFilterTranslator {
 
     public RuntimeFilterContext getContext() {
         return context;
-    }
-
-    public List<Slot> getTargetOnScanNode(RelationId id) {
-        return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
     }
 
     /**
@@ -111,35 +105,37 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, JoinNodeBase node, PlanTranslatorContext ctx) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable()
+                .getIgnoredRuntimeFilterIds().contains(filter.getId().asInt())) {
+            return;
+        }
         Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         List<Expr> targetExprList = new ArrayList<>();
         List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
         List<ScanNode> scanNodeList = new ArrayList<>();
         boolean hasInvalidTarget = false;
-        for (int i = 0; i < filter.getTargetExprs().size(); i++) {
-            Slot curTargetExpr = filter.getTargetExprs().get(i);
+        for (int i = 0; i < filter.getTargetExpressions().size(); i++) {
+            Slot curTargetSlot = filter.getTargetSlots().get(i);
             Expression curTargetExpression = filter.getTargetExpressions().get(i);
-            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetExpr.getExprId());
+            Expr target = context.getExprIdToOlapScanNodeSlotRef().get(curTargetSlot.getExprId());
             if (target == null) {
                 context.setTargetNullCount();
                 hasInvalidTarget = true;
                 break;
             }
-            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetExpr);
+            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetSlot);
             Expr targetExpr;
-            if (filter.getType() == TRuntimeFilterType.BITMAP) {
-                if (curTargetExpression.equals(curTargetExpr)) {
-                    targetExpr = target;
-                } else {
-                    RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
-                            context.getExprIdToOlapScanNodeSlotRef());
-                    targetExpr = curTargetExpression.accept(translator, ctx);
-                }
-            } else {
+            if (curTargetSlot.equals(curTargetExpression)) {
                 targetExpr = target;
+            } else {
+                RuntimeFilterExpressionTranslator translator = new RuntimeFilterExpressionTranslator(
+                        context.getExprIdToOlapScanNodeSlotRef());
+                targetExpr = curTargetExpression.accept(translator, ctx);
             }
+
             // adjust data type
-            if (!src.getType().equals(target.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+            if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                 targetExpr = new CastExpr(src.getType(), targetExpr);
             }
             SlotRef targetSlot = target.getSrcSlotRef();
@@ -152,8 +148,8 @@ public class RuntimeFilterTranslator {
         if (!hasInvalidTarget) {
             org.apache.doris.planner.RuntimeFilter origFilter
                     = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
-                    filter.getId(), node, src, filter.getExprOrder(), targetExprList,
-                    targetTupleIdMapList, filter.getType(), context.getLimits(), filter.getBuildSideNdv());
+                    filter, node, src, targetExprList,
+                    targetTupleIdMapList, context.getLimits());
             if (node instanceof HashJoinNode) {
                 origFilter.setIsBroadcast(((HashJoinNode) node).getDistributionMode() == DistributionMode.BROADCAST);
             } else {
@@ -185,11 +181,6 @@ public class RuntimeFilterTranslator {
         origFilter.markFinalized();
         origFilter.assignToPlanNodes();
         origFilter.extractTargetsPosition();
-        // Number of parallel instances are large for pipeline engine, so we prefer bloom filter.
-        if (origFilter.hasRemoteTargets() && origFilter.getType() == TRuntimeFilterType.IN_OR_BLOOM
-                && SessionVariable.enablePipelineEngine()) {
-            origFilter.setType(TRuntimeFilterType.BLOOM);
-        }
         return origFilter;
     }
 }

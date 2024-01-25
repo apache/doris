@@ -52,7 +52,9 @@ public:
 class ExternalScanContextMgr {
 public:
     ExternalScanContextMgr(ExecEnv* exec_env);
-    ~ExternalScanContextMgr();
+    ~ExternalScanContextMgr() = default;
+
+    void stop();
 
     Status create_scan_context(std::shared_ptr<ScanContext>* p_context);
 
@@ -61,7 +63,7 @@ public:
     Status clear_scan_context(const std::string& context_id);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::map<std::string, std::shared_ptr<ScanContext>> _active_contexts;
     void gc_expired_context();
 

@@ -19,6 +19,7 @@ package org.apache.doris.master;
 
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -42,6 +43,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.metric.GaugeMetric;
@@ -142,7 +144,8 @@ public class ReportHandler extends Daemon {
         if (backend == null) {
             tStatus.setStatusCode(TStatusCode.INTERNAL_ERROR);
             List<String> errorMsgs = Lists.newArrayList();
-            errorMsgs.add("backend[" + host + ":" + bePort + "] does not exist.");
+            errorMsgs.add("backend[" + NetUtils
+                    .getHostPortInAccessibleFormat(host, bePort) + "] does not exist.");
             tStatus.setErrorMsgs(errorMsgs);
             return result;
         }
@@ -303,6 +306,7 @@ public class ReportHandler extends Daemon {
         // do the diff. find out (intersection) / (be - meta) / (meta - be)
         List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
         List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
+        resourcesInFe.addAll(Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.HDFS));
 
         List<Resource> resourceToPush = new ArrayList<>();
         List<Policy> policyToPush = new ArrayList<>();
@@ -402,7 +406,8 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
+    // public for fe ut
+    public static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                 backendId, backendTablets.size(), backendReportVersion);
@@ -558,9 +563,12 @@ public class ReportHandler extends Daemon {
             LOG.warn("backend doesn't exist. id: " + backendId);
             return;
         }
+        List<String> badDisks = backendDisks.values().stream().filter(disk -> !disk.isUsed())
+                .map(disk -> "path=" + disk.getRootPath() + ", path hash=" + disk.getPathHash())
+                .collect(Collectors.toList());
         backend.updateDisks(backendDisks);
-        LOG.info("finished to handle disk report from backend {}, cost: {} ms",
-                backendId, (System.currentTimeMillis() - start));
+        LOG.info("finished to handle disk report from backend: {}, disk size: {}, bad disk: {}, cost: {} ms",
+                backendId, backendDisks.size(), badDisks, (System.currentTimeMillis() - start));
     }
 
     private static void cpuReport(long backendId, int cpuCores, int pipelineExecutorSize) {
@@ -585,6 +593,7 @@ public class ReportHandler extends Daemon {
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        OUTER:
         for (Long dbId : tabletSyncMap.keySet()) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
@@ -606,7 +615,12 @@ public class ReportHandler extends Daemon {
                 if (olapTable == null || !olapTable.writeLockIfExist()) {
                     continue;
                 }
+
                 try {
+                    if (backendReportVersion < Env.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                        break OUTER;
+                    }
+
                     long partitionId = tabletMeta.getPartitionId();
                     Partition partition = olapTable.getPartition(partitionId);
                     if (partition == null) {
@@ -659,14 +673,25 @@ public class ReportHandler extends Daemon {
                             continue;
                         }
 
-                        if (metaVersion < backendVersion
-                                || (metaVersion == backendVersion && replica.isBad())) {
-
-                            if (backendReportVersion < Env.getCurrentSystemInfo()
-                                    .getBackendReportVersion(backendId)) {
-                                continue;
+                        boolean needSync = false;
+                        if (metaVersion < backendVersion) {
+                            needSync = true;
+                        } else if (metaVersion == backendVersion) {
+                            if (replica.isBad()) {
+                                needSync = true;
                             }
+                            if (replica.getVersion() >= partition.getCommittedVersion()
+                                    && replica.getLastFailedVersion() > partition.getCommittedVersion()) {
+                                LOG.info("sync replica {} of tablet {} in backend {} in db {}. replica last failed"
+                                        + " version change to -1 because last failed version > replica's committed"
+                                        + " version {}",
+                                        replica, tabletId, backendId, dbId, partition.getCommittedVersion());
+                                replica.updateLastFailedVersion(-1L);
+                                needSync = true;
+                            }
+                        }
 
+                        if (needSync) {
                             // happens when
                             // 1. PUSH finished in BE but failed or not yet report to FE
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
@@ -813,7 +838,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                                            olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
+                                            olapTable.storeRowColumn(),
                                             binlogConfig);
 
                                     createReplicaTask.setIsRecoverTask(true);
@@ -957,6 +983,9 @@ public class ReportHandler extends Daemon {
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);
                 TabletMeta tabletMeta = tabletMetaList.get(i);
+                if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                    continue;
+                }
                 // always get old schema hash(as effective one)
                 int effectiveSchemaHash = tabletMeta.getOldSchemaHash();
                 StorageMediaMigrationTask task = new StorageMediaMigrationTask(backendId, tabletId,
@@ -1047,18 +1076,25 @@ public class ReportHandler extends Daemon {
                                 break;
                             }
 
-                            if (tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss()) {
+                            if ((tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss())
+                                    || replica.checkVersionRegressive(tTabletInfo.getVersion())) {
                                 // If the origin last failed version is larger than 0, not change it.
                                 // Otherwise, we set last failed version to replica'version + 1.
                                 // Because last failed version should always larger than replica's version.
                                 long newLastFailedVersion = replica.getLastFailedVersion();
                                 if (newLastFailedVersion < 0) {
                                     newLastFailedVersion = replica.getVersion() + 1;
+                                    replica.updateLastFailedVersion(newLastFailedVersion);
+                                    LOG.warn("set missing version for replica {} of tablet {} on backend {}, "
+                                            + "version in fe {}, version in be {}, be missing {}",
+                                            replica.getId(), tabletId, backendId, replica.getVersion(),
+                                            tTabletInfo.getVersion(), tTabletInfo.isVersionMiss());
                                 }
-                                replica.updateLastFailedVersion(newLastFailedVersion);
                                 backendReplicasInfo.addMissingVersionReplica(tabletId, newLastFailedVersion);
                                 break;
                             }
+
+                            break;
                         }
                     }
                 } finally {
@@ -1172,6 +1208,10 @@ public class ReportHandler extends Daemon {
                 int tabletOrderIdx = materializedIndex.getTabletOrderIdx(tabletId);
                 Preconditions.checkState(tabletOrderIdx != -1, "get tablet materializedIndex for %s fail", tabletId);
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
+                ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                if (groupSchema != null) {
+                    replicaAlloc = groupSchema.getReplicaAlloc();
+                }
                 TabletStatus status =
                         tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
                 if (status == TabletStatus.HEALTHY) {
@@ -1188,7 +1228,21 @@ public class ReportHandler extends Daemon {
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     visibleVersion, replicaAlloc, aliveBeIds);
 
-            if (isColocateBackend || status.first == TabletStatus.VERSION_INCOMPLETE
+            // FORCE_REDUNDANT is a specific missing case.
+            // So it can add replica when it's in FORCE_REDUNDANT.
+            // But must be careful to avoid: delete a replica then add it back, then repeat forever.
+            // If this replica is sched available and existing another replica is sched unavailable,
+            // it's safe to add this replica.
+            // Because if the tablet scheduler want to delete a replica, it will choose the sched
+            // unavailable replica and avoid the repeating loop as above.
+            boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
+                    && infoService.checkBackendScheduleAvailable(backendId)
+                    && tablet.getReplicas().stream().anyMatch(
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+
+            if (isColocateBackend
+                    || canAddForceRedundant
+                    || status.first == TabletStatus.VERSION_INCOMPLETE
                     || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
@@ -1264,7 +1318,10 @@ public class ReportHandler extends Daemon {
 
                 Env.getCurrentEnv().getEditLog().logAddReplica(info);
 
-                LOG.info("add replica[{}-{}] to catalog. backend[{}]", tabletId, replicaId, backendId);
+                LOG.info("add replica[{}-{}] to catalog. backend[{}], tablet status {}, tablet size {}, "
+                        + "is colocate backend {}",
+                        tabletId, replicaId, backendId, status.first.name(), tablet.getReplicas().size(),
+                        isColocateBackend);
                 return true;
             } else {
                 // replica is enough. check if this tablet is already in meta
@@ -1275,7 +1332,9 @@ public class ReportHandler extends Daemon {
                         return true;
                     }
                 }
-                LOG.warn("replica is enough[{}-{}]", tablet.getReplicas().size(), replicaAlloc.toCreateStmt());
+                LOG.warn("no add replica [{}-{}] cause it is enough[{}-{}], tablet status {}",
+                        tabletId, replicaId, tablet.getReplicas().size(), replicaAlloc.toCreateStmt(),
+                        status.first.name());
                 return false;
             }
         } finally {

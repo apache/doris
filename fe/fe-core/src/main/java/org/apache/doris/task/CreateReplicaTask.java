@@ -74,8 +74,6 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
-    private boolean isDynamicSchema;
-
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -113,9 +111,12 @@ public class CreateReplicaTask extends AgentTask {
 
     private long timeSeriesCompactionTimeThresholdSeconds;
 
+    private long timeSeriesCompactionEmptyRowsetsThreshold;
+
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
+    private List<Integer> clusterKeyIndexes;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -135,8 +136,8 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionGoalSizeMbytes,
                              long timeSeriesCompactionFileCountThreshold,
                              long timeSeriesCompactionTimeThresholdSeconds,
+                             long timeSeriesCompactionEmptyRowsetsThreshold,
                              boolean storeRowColumn,
-                             boolean isDynamicSchema,
                              BinlogConfig binlogConfig) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
@@ -160,7 +161,6 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
-        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
@@ -178,6 +178,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
         this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
         this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
+        this.timeSeriesCompactionEmptyRowsetsThreshold = timeSeriesCompactionEmptyRowsetsThreshold;
         this.storeRowColumn = storeRowColumn;
         this.binlogConfig = binlogConfig;
     }
@@ -222,6 +223,10 @@ public class CreateReplicaTask extends AgentTask {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
+        this.clusterKeyIndexes = clusterKeyIndexes;
     }
 
     public TCreateTabletReq toThrift() {
@@ -269,7 +274,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
-
+        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+            tSchema.setClusterKeyIdxes(clusterKeyIndexes);
+            LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+        }
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : indexes) {
@@ -287,7 +295,6 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
-        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
@@ -319,6 +326,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
+        createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

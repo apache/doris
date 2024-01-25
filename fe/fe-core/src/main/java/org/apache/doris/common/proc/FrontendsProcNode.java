@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -46,14 +47,14 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
-            .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
+            .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
             .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
             .add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("EditLogPort").add("DirType").add("Dir").add("Filesystem")
+            .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
             .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
@@ -87,6 +88,23 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
+    public static List<Pair<String, Integer>> getFrontendWithRpcPort(Env env, boolean includeSelf) {
+        List<Pair<String, Integer>> allFe = new ArrayList<>();
+        List<Frontend> frontends = env.getFrontends(null);
+
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+
+        String finalSelfNode = selfNode;
+        frontends.stream()
+            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+            .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
+                .forEach(allFe::add);
+        return allFe;
+    }
+
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
         InetSocketAddress master = null;
         try {
@@ -109,7 +127,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         for (Frontend fe : env.getFrontends(null /* all */)) {
-
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());
@@ -119,9 +136,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
             if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
+                info.add(Integer.toString(Config.arrow_flight_sql_port));
             } else {
                 info.add(Integer.toString(fe.getQueryPort()));
                 info.add(Integer.toString(fe.getRpcPort()));
+                info.add(Integer.toString(fe.getArrowFlightSqlPort()));
             }
 
             info.add(fe.getRole().name());
@@ -159,7 +178,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     List<String> info = new ArrayList<String>();
                     info.add(fe.getNodeName());
                     info.add(fe.getHost());
-                    info.add(Integer.toString(fe.getEditLogPort()));
                     info.add(disk.getDirType());
                     info.add(disk.getDir());
                     info.add(disk.getSpaceInfo().fileSystem);

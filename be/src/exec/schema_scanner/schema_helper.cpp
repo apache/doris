@@ -60,13 +60,12 @@ Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port
                 client->listTableStatus(*result, request);
             });
 }
-
-Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
-                                    const TDescribeTableParams& request,
-                                    TDescribeTableResult* result) {
+Status SchemaHelper::list_table_metadata_name_ids(const std::string& ip, const int32_t port,
+                                                  const doris::TGetTablesParams& request,
+                                                  TListTableMetadataNameIdsResult* result) {
     return ThriftRpcHelper::rpc<FrontendServiceClient>(
             ip, port, [&request, &result](FrontendServiceConnection& client) {
-                client->describeTable(*result, request);
+                client->listTableMetadataNameIds(*result, request);
             });
 }
 

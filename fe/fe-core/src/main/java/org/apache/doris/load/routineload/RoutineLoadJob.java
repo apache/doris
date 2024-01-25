@@ -57,6 +57,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
@@ -104,6 +105,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
 
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
+    public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_BATCH_ROWS = 200000;
@@ -156,7 +158,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected long id;
     protected String name;
-    protected String clusterName;
     protected long dbId;
     protected long tableId;
     // this code is used to verify be task request
@@ -176,6 +177,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // maxErrorNum / (maxBatchRows * 10) = max error rate of routine load job
     // if current error rate is more than max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
+    protected double maxFilterRatio = DEFAULT_MAX_FILTER_RATIO;
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
     protected boolean loadToSingleTablet = DEFAULT_LOAD_TO_SINGLE_TABLET;
@@ -196,7 +198,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    protected boolean isPartialUpdate = false;
+
     protected String sequenceCol;
+
+    protected boolean memtableOnSinkNode = false;
 
     /**
      * RoutineLoad support json data.
@@ -253,6 +259,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected boolean isTypeRead = false;
 
+    protected byte enclose = 0;
+
+    protected byte escape = 0;
+
     public void setTypeRead(boolean isTypeRead) {
         this.isTypeRead = isTypeRead;
     }
@@ -260,14 +270,16 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public RoutineLoadJob(long id, LoadDataSourceType type) {
         this.id = id;
         this.dataSourceType = type;
+        if (ConnectContext.get() != null) {
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+        }
     }
 
-    public RoutineLoadJob(Long id, String name, String clusterName,
+    public RoutineLoadJob(Long id, String name,
                           long dbId, long tableId, LoadDataSourceType dataSourceType,
                           UserIdentity userIdentity) {
         this(id, dataSourceType);
         this.name = name;
-        this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
         this.authCode = 0;
@@ -276,6 +288,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -284,12 +297,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     /**
      * MultiLoadJob will use this constructor
      */
-    public RoutineLoadJob(Long id, String name, String clusterName,
+    public RoutineLoadJob(Long id, String name,
                           long dbId, LoadDataSourceType dataSourceType,
                           UserIdentity userIdentity) {
         this(id, dataSourceType);
         this.name = name;
-        this.clusterName = clusterName;
         this.dbId = dbId;
         this.authCode = 0;
         this.userIdentity = userIdentity;
@@ -298,6 +310,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -311,6 +324,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         if (stmt.getMaxErrorNum() != -1) {
             this.maxErrorNum = stmt.getMaxErrorNum();
+        }
+        if (stmt.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = stmt.getMaxFilterRatio();
         }
         if (stmt.getMaxBatchIntervalS() != -1) {
             this.maxBatchIntervalS = stmt.getMaxBatchIntervalS();
@@ -332,10 +348,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
         jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
-
+        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, stmt.isPartialUpdate() ? "true" : "false");
+        if (stmt.isPartialUpdate()) {
+            this.isPartialUpdate = true;
+        }
+        jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
         } else if (stmt.getFormat().equals("json")) {
@@ -368,6 +387,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             jobProperties.put(PROPS_FUZZY_PARSE, "true");
         } else {
             jobProperties.put(PROPS_FUZZY_PARSE, "false");
+        }
+        if (stmt.getEnclose() != null) {
+            jobProperties.put(LoadStmt.KEY_ENCLOSE, stmt.getEnclose());
+        }
+        if (stmt.getEscape() != null) {
+            jobProperties.put(LoadStmt.KEY_ESCAPE, stmt.getEscape());
         }
     }
 
@@ -516,6 +541,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return lineDelimiter;
     }
 
+    public byte getEnclose() {
+        return enclose;
+    }
+
+    public byte getEscape() {
+        return escape;
+    }
+
     public boolean isStrictMode() {
         String value = jobProperties.get(LoadStmt.STRICT_MODE);
         if (value == null) {
@@ -624,7 +657,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     @Override
     public boolean isPartialUpdate() {
-        return false;
+        return isPartialUpdate;
     }
 
     @Override
@@ -658,6 +691,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    @Override
+    public boolean isMemtableOnSinkNode() {
+        return memtableOnSinkNode;
+    }
+
+    public void setMemtableOnSinkNode(boolean memtableOnSinkNode) {
+        this.memtableOnSinkNode = memtableOnSinkNode;
     }
 
     public void setComment(String comment) {
@@ -773,18 +815,23 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.jobStatistic.currentTotalRows += numOfTotalRows;
         this.jobStatistic.errorRowsAfterResumed = this.jobStatistic.currentErrorRows;
         if (this.jobStatistic.currentTotalRows > maxBatchRows * 10) {
-            if (this.jobStatistic.currentErrorRows > maxErrorNum) {
+            if (this.jobStatistic.currentErrorRows > maxErrorNum
+                    || ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                         .add("current_total_rows", this.jobStatistic.currentTotalRows)
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
                         .add("max_error_num", maxErrorNum)
-                        .add("msg", "current error rows is more than max error num, begin to pause job")
+                        .add("max_filter_ratio", maxFilterRatio)
+                        .add("msg", "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than value set, begin to pause job")
                         .build());
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
                     updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                            "current error rows of job is more than max error num"), isReplay);
+                            "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the value set"), isReplay);
                 }
             }
 
@@ -793,24 +840,31 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         .add("current_total_rows", this.jobStatistic.currentTotalRows)
                         .add("current_error_rows", this.jobStatistic.currentErrorRows)
                         .add("max_error_num", maxErrorNum)
+                        .add("max_filter_ratio", maxFilterRatio)
                         .add("msg", "reset current total rows and current error rows "
-                                + "when current total rows is more than base")
+                                + "when current total rows is more than base or the filter ratio is more than the max")
                         .build());
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
-        } else if (this.jobStatistic.currentErrorRows > maxErrorNum) {
+        } else if (this.jobStatistic.currentErrorRows > maxErrorNum
+                || (this.jobStatistic.currentTotalRows > 0
+                    && ((double) this.jobStatistic.currentErrorRows
+                            / this.jobStatistic.currentTotalRows) > maxFilterRatio)) {
             LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                     .add("current_total_rows", this.jobStatistic.currentTotalRows)
                     .add("current_error_rows", this.jobStatistic.currentErrorRows)
                     .add("max_error_num", maxErrorNum)
-                    .add("msg", "current error rows is more than max error rows, begin to pause job")
+                    .add("max_filter_ratio", maxFilterRatio)
+                    .add("msg", "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the max, begin to pause job")
                     .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                        "current error rows is more than max error num"), isReplay);
+                        "current error rows is more than max_error_number "
+                            + "or the max_filter_ratio is more than the value set"), isReplay);
             }
             // reset currentTotalNum and currentErrorNum
             this.jobStatistic.currentErrorRows = 0;
@@ -836,11 +890,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void initPlanner() throws UserException {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         // for multi table load job, the table name is dynamic,we will set table when task scheduling.
         if (isMultiTable) {
             return;
         }
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         planner = new StreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
@@ -858,6 +912,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
+            if (isPartialUpdate) {
+                txnState.setSchemaForPartialUpdate((OlapTable) table);
+            }
 
             return planParams;
         } finally {
@@ -878,6 +935,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }
             txnState.addTableIndexes(planner.getDestTable());
+            if (isPartialUpdate) {
+                txnState.setSchemaForPartialUpdate((OlapTable) table);
+            }
 
             return planParams;
         } finally {
@@ -1082,11 +1142,34 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
                             TransactionState.TxnStatusChangeReason.fromString(txnStatusChangeReasonString);
+                    String msg;
                     if (txnStatusChangeReason != null) {
                         switch (txnStatusChangeReason) {
+                            case INVALID_JSON_PATH:
+                                msg = "be " + taskBeId + " abort task,"
+                                        + " task id: " + routineLoadTaskInfo.getId()
+                                        + " job id: " + routineLoadTaskInfo.getJobId()
+                                        + " with reason: " + txnStatusChangeReasonString
+                                        + " please check the jsonpaths";
+                                updateState(JobState.PAUSED,
+                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        false /* not replay */);
+                                return;
                             case OFFSET_OUT_OF_RANGE:
+                                msg = "be " + taskBeId + " abort task,"
+                                        + " task id: " + routineLoadTaskInfo.getId()
+                                        + " job id: " + routineLoadTaskInfo.getJobId()
+                                        + " with reason: " + txnStatusChangeReasonString
+                                        + " the offset used by job does not exist in kafka,"
+                                        + " please check the offset,"
+                                        + " using the Alter ROUTINE LOAD command to modify it,"
+                                        + " and resume the job";
+                                updateState(JobState.PAUSED,
+                                        new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
+                                        false /* not replay */);
+                                return;
                             case PAUSE:
-                                String msg = "be " + taskBeId + " abort task "
+                                msg = "be " + taskBeId + " abort task "
                                         + "with reason: " + txnStatusChangeReasonString;
                                 updateState(JobState.PAUSED,
                                         new ErrorReason(InternalErrorCode.TASKS_ABORT_ERR, msg),
@@ -1194,21 +1277,27 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public void updateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
-        writeLock();
-        try {
-            unprotectUpdateState(jobState, reason, isReplay);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                 .add("current_job_state", getState())
                 .add("desire_job_state", jobState)
                 .add("msg", reason)
                 .build());
 
+        writeLock();
+        try {
+            unprotectUpdateState(jobState, reason, isReplay);
+        } finally {
+            writeUnlock();
+        }
+
+        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                .add("current_job_state", getState())
+                .add("msg", "job state has been changed")
+                .add("is replay", String.valueOf(isReplay))
+                .build());
+    }
+
+    protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
         switch (jobState) {
             case RUNNING:
@@ -1237,11 +1326,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (!isReplay && jobState != JobState.RUNNING) {
             Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
         }
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                .add("current_job_state", getState())
-                .add("msg", "job state has been changed")
-                .add("is replay", String.valueOf(isReplay))
-                .build());
     }
 
     private void executeRunning() {
@@ -1285,9 +1369,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             writeLock();
             try {
                 if (!state.isFinalState()) {
-                    unprotectUpdateState(JobState.CANCELLED,
-                            new ErrorReason(InternalErrorCode.DB_ERR, "db " + dbId + "not exist"),
-                            false /* not replay */);
+                    ErrorReason reason = new ErrorReason(InternalErrorCode.DB_ERR, "db " + dbId + "not exist");
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                            .add("current_job_state", getState())
+                            .add("desire_job_state", JobState.CANCELLED)
+                            .add("msg", reason)
+                            .build());
+                    unprotectUpdateState(JobState.CANCELLED, reason, false /* not replay */);
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                            .add("current_job_state", getState())
+                            .add("msg", "job state has been changed")
+                            .add("is replay", "false")
+                            .build());
                 }
                 return;
             } finally {
@@ -1304,8 +1397,18 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             writeLock();
             try {
                 if (!state.isFinalState()) {
-                    unprotectUpdateState(JobState.CANCELLED, new ErrorReason(InternalErrorCode.TABLE_ERR,
-                            "table does not exist"), false /* not replay */);
+                    ErrorReason reason = new ErrorReason(InternalErrorCode.TABLE_ERR, "table does not exist");
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                            .add("current_job_state", getState())
+                            .add("desire_job_state", JobState.CANCELLED)
+                            .add("msg", reason)
+                            .build());
+                    unprotectUpdateState(JobState.CANCELLED, reason, false /* not replay */);
+                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                            .add("current_job_state", getState())
+                            .add("msg", "job state has been changed")
+                            .add("is replay", "false")
+                            .build());
                 }
                 return;
             } finally {
@@ -1405,16 +1508,24 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    public List<List<String>> getTasksShowInfo() {
+    public List<List<String>> getTasksShowInfo() throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
+        if (null == routineLoadTaskInfoList || routineLoadTaskInfoList.isEmpty()) {
+            return rows;
+        }
+
         routineLoadTaskInfoList.forEach(entity -> {
-            try {
-                entity.setTxnStatus(Env.getCurrentEnv().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId)
-                        .getTransactionState(entity.getTxnId()).getTransactionStatus());
+            long txnId = entity.getTxnId();
+            if (RoutineLoadTaskInfo.INIT_TXN_ID == txnId) {
                 rows.add(entity.getTaskShowInfo());
-            } catch (AnalysisException e) {
-                LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
+                return;
             }
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(dbId, entity.getTxnId());
+            if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                entity.setTxnStatus(transactionState.getTransactionStatus());
+            }
+            rows.add(entity.getTaskShowInfo());
         });
         return rows;
     }
@@ -1468,10 +1579,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
         appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        if (isPartialUpdate) {
+            appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
+        }
         appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
         appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
@@ -1545,20 +1660,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
-            jobProperties.put("dataFormat", "json");
+            jobProperties.put(PROPS_FORMAT, "json");
         } else {
-            jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
-            jobProperties.put("lineDelimiter", lineDelimiter == null ? "\n" : lineDelimiter.toString());
+            jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
+                    columnSeparator == null ? "\t" : columnSeparator.toString());
+            jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
+                    lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
-        jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
-        jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
-        jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
-        jobProperties.put("maxBatchSizeBytes", String.valueOf(maxBatchSizeBytes));
-        jobProperties.put("currentTaskConcurrentNum", String.valueOf(currentTaskConcurrentNum));
-        jobProperties.put("desireTaskConcurrentNum", String.valueOf(desireTaskConcurrentNum));
-        jobProperties.put("execMemLimit", String.valueOf(execMemLimit));
-        jobProperties.put("mergeType", mergeType.toString());
-        jobProperties.put("deleteCondition", deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
+        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
+        jobProperties.put(CreateRoutineLoadStmt.CURRENT_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(desireTaskConcurrentNum));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
+        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
@@ -1572,7 +1693,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract Map<String, String> getCustomProperties();
 
-    public boolean needRemove() {
+    public boolean isExpired() {
         if (!isFinal()) {
             return false;
         }
@@ -1605,7 +1726,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         out.writeLong(id);
         Text.writeString(out, name);
-        Text.writeString(out, clusterName);
+        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeInt(desireTaskConcurrentNum);
@@ -1652,7 +1773,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         id = in.readLong();
         name = Text.readString(in);
-        clusterName = Text.readString(in);
+        // cluster
+        Text.readString(in);
         dbId = in.readLong();
         tableId = in.readLong();
         if (tableId == 0) {
@@ -1700,6 +1822,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             String key = Text.readString(in);
             String value = Text.readString(in);
             jobProperties.put(key, value);
+            if (key.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+                isPartialUpdate = Boolean.parseBoolean(value);
+            }
         }
 
         size = in.readInt();
@@ -1750,6 +1875,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
             this.maxErrorNum = Long.parseLong(
                     jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+        }
+
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
+            this.maxFilterRatio = Double.parseDouble(
+                    jobProperties.remove(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {

@@ -18,6 +18,7 @@
 #include "olap/storage_engine.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <assert.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -36,7 +37,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iterator>
-#include <list>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <random>
@@ -46,15 +47,20 @@
 #include <utility>
 
 #include "agent/task_worker_pool.h"
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
+#include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
@@ -63,6 +69,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/single_replica_compaction.h"
+#include "olap/snapshot_manager.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
@@ -90,10 +97,31 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-
+extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                                   std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 
-StorageEngine* StorageEngine::_s_instance = nullptr;
+BaseStorageEngine::BaseStorageEngine(Type type, const UniqueId& backend_uid)
+        : _type(type),
+          _rowset_id_generator(std::make_unique<UniqueRowsetIdGenerator>(backend_uid)),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())) {}
+
+BaseStorageEngine::~BaseStorageEngine() = default;
+
+RowsetId BaseStorageEngine::next_rowset_id() {
+    return _rowset_id_generator->next_id();
+}
+
+StorageEngine& BaseStorageEngine::to_local() {
+    CHECK_EQ(_type, Type::LOCAL);
+    return *static_cast<StorageEngine*>(this);
+}
+
+CloudStorageEngine& BaseStorageEngine::to_cloud() {
+    CHECK_EQ(_type, Type::CLOUD);
+    return *static_cast<CloudStorageEngine*>(this);
+}
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
@@ -102,81 +130,67 @@ static Status _validate_options(const EngineOptions& options) {
     return Status::OK();
 }
 
-Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_ptr) {
-    RETURN_IF_ERROR(_validate_options(options));
-    LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
-    std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
-    RETURN_NOT_OK_STATUS_WITH_WARN(engine->_open(), "open engine failed");
-    *engine_ptr = engine.release();
+Status StorageEngine::open() {
+    RETURN_IF_ERROR(_validate_options(_options));
+    LOG(INFO) << "starting backend using uid:" << _options.backend_uid.to_string();
+    RETURN_NOT_OK_STATUS_WITH_WARN(_open(), "open engine failed");
     LOG(INFO) << "success to init storage engine.";
     return Status::OK();
 }
 
 StorageEngine::StorageEngine(const EngineOptions& options)
-        : _options(options),
+        : BaseStorageEngine(Type::LOCAL, options.backend_uid),
+          _options(options),
           _available_storage_medium_type_count(0),
-          _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
           _stop_background_threads_latch(1),
-          _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
-          _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
-          _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
-          _memtable_flush_executor(nullptr),
+          _tablet_manager(new TabletManager(*this, config::tablet_map_shard_size)),
+          _txn_manager(new TxnManager(*this, config::txn_map_shard_size, config::txn_shard_size)),
           _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
-          _heartbeat_flags(nullptr),
-          _stream_load_recorder(nullptr) {
-    _s_instance = this;
+          _stream_load_recorder(nullptr),
+          _create_tablet_idx_lru_cache(
+                  new CreateTabletIdxCache(config::partition_disk_index_lru_size)),
+          _snapshot_mgr(std::make_unique<SnapshotManager>(*this)) {
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         // std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
+
+    _broken_paths = options.broken_paths;
 }
 
 StorageEngine::~StorageEngine() {
-    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-
-    if (_base_compaction_thread_pool) {
-        _base_compaction_thread_pool->shutdown();
-    }
-    if (_cumu_compaction_thread_pool) {
-        _cumu_compaction_thread_pool->shutdown();
-    }
-    if (_single_replica_compaction_thread_pool) {
-        _single_replica_compaction_thread_pool->shutdown();
-    }
-
-    if (_seg_compaction_thread_pool) {
-        _seg_compaction_thread_pool->shutdown();
-    }
-    if (_tablet_meta_checkpoint_thread_pool) {
-        _tablet_meta_checkpoint_thread_pool->shutdown();
-    }
-    if (_cold_data_compaction_thread_pool) {
-        _cold_data_compaction_thread_pool->shutdown();
-    }
-    _clear();
-    _s_instance = nullptr;
+    stop();
 }
 
-void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
+// Note: Only the previously existing root path can be reloaded here, that is, the root path registered when re load starts is allowed,
+// but the brand new path of re load is not allowed because the ce scheduler information has not been thoroughly updated here
+static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
-    for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
-            auto res = data_dir->load();
-            if (!res.ok()) {
-                LOG(WARNING) << "io error when init load tables. res=" << res
-                             << ", data dir=" << data_dir->path();
-                // TODO(lingbin): why not exit progress, to force OP to change the conf
-            }
-        });
+    std::vector<Status> results(data_dirs.size());
+    for (size_t i = 0; i < data_dirs.size(); ++i) {
+        threads.emplace_back(
+                [&results, data_dir = data_dirs[i]](size_t index) {
+                    results[index] = data_dir->load();
+                    if (!results[index].ok()) {
+                        LOG(WARNING) << "io error when init load tables. res=" << results[index]
+                                     << ", data dir=" << data_dir->path();
+                    }
+                },
+                i);
     }
     for (auto& thread : threads) {
         thread.join();
     }
+    for (const auto& result : results) {
+        if (!result.ok()) {
+            return result;
+        }
+    }
+    return Status::OK();
 }
 
 Status StorageEngine::_open() {
@@ -190,13 +204,13 @@ Status StorageEngine::_open() {
 
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
-    auto dirs = get_stores<false>();
-    load_data_dirs(dirs);
+    auto dirs = get_stores();
+    RETURN_IF_ERROR(load_data_dirs(dirs));
 
-    _memtable_flush_executor.reset(new MemTableFlushExecutor());
-    _memtable_flush_executor->init(dirs);
+    _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
+    _memtable_flush_executor->init(dirs.size());
 
-    _calc_delete_bitmap_executor.reset(new CalcDeleteBitmapExecutor());
+    _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init();
 
     _parse_default_rowset_type();
@@ -205,15 +219,13 @@ Status StorageEngine::_open() {
 }
 
 Status StorageEngine::_init_store_map() {
-    std::vector<DataDir*> tmp_stores;
     std::vector<std::thread> threads;
     SpinLock error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
-        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
-        tmp_stores.emplace_back(store);
-        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
+        auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
+                                               path.storage_medium);
+        threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -224,28 +236,18 @@ Status StorageEngine::_init_store_map() {
                              << ", path=" << store->path();
             }
         });
+        _store_map.emplace(store->path(), std::move(store));
     }
     for (auto& thread : threads) {
         thread.join();
     }
 
+    // All store paths MUST init successfully
     if (!error_msg.empty()) {
-        for (auto store : tmp_stores) {
-            delete store;
-        }
         return Status::InternalError("init path failed, error={}", error_msg);
     }
 
-    for (auto store : tmp_stores) {
-        _store_map.emplace(store->path(), store);
-    }
-
-    std::string stream_load_record_path;
-    if (!tmp_stores.empty()) {
-        stream_load_record_path = tmp_stores[0]->path();
-    }
-
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(_options.store_paths[0].path),
                                    "init StreamLoadRecorder failed");
 
     return Status::OK();
@@ -305,28 +307,24 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     return Status::OK();
 }
 
-template <bool include_unused>
-std::vector<DataDir*> StorageEngine::get_stores() {
+std::vector<DataDir*> StorageEngine::get_stores(bool include_unused) {
     std::vector<DataDir*> stores;
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
-    if constexpr (include_unused) {
-        for (auto& it : _store_map) {
-            stores.push_back(it.second);
+    if (include_unused) {
+        for (auto&& [_, store] : _store_map) {
+            stores.push_back(store.get());
         }
     } else {
-        for (auto& it : _store_map) {
-            if (it.second->is_used()) {
-                stores.push_back(it.second);
+        for (auto&& [_, store] : _store_map) {
+            if (store->is_used()) {
+                stores.push_back(store.get());
             }
         }
     }
     return stores;
 }
-
-template std::vector<DataDir*> StorageEngine::get_stores<false>();
-template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
 Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                             bool need_update) {
@@ -344,7 +342,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (need_update) {
-                it.second->update_capacity();
+                RETURN_IF_ERROR(it.second->update_capacity());
             }
             path_map.emplace(it.first, it.second->get_dir_info());
         }
@@ -412,7 +410,9 @@ Status StorageEngine::_check_file_descriptor_number() {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return Status::InternalError("file descriptors limit is too small");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "file descriptors limit {} is small than {}", l.rlim_cur,
+                config::min_file_descriptor_number);
     }
     return Status::OK();
 }
@@ -440,7 +440,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
-        set_cluster_id(_effective_cluster_id);
+        RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
     }
 
     return Status::OK();
@@ -456,36 +456,80 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
+StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent) {
+    assert(disk_usage_percent <= 1);
+    if (disk_usage_percent < 0.7) {
+        return StorageEngine::DiskRemainingLevel::LOW;
+    } else if (disk_usage_percent < 0.85) {
+        return StorageEngine::DiskRemainingLevel::MID;
+    }
+    return StorageEngine::DiskRemainingLevel::HIGH;
+}
+
+int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
+                                                TStorageMedium::type storage_medium) {
+    auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
+    int curr_index = _create_tablet_idx_lru_cache->get_index(key);
+    // -1, lru can't find key
+    if (curr_index == -1) {
+        curr_index = std::max(0, _last_use_index[storage_medium] + 1);
+    }
+    _last_use_index[storage_medium] = curr_index;
+    _create_tablet_idx_lru_cache->set_index(key, std::max(0, curr_index + 1));
+    return curr_index;
+}
+
+void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
+                                          std::vector<DirInfo>& dir_infos) {
+    for (auto& it : _store_map) {
+        DataDir* data_dir = it.second.get();
+        if (data_dir->is_used()) {
+            if ((_available_storage_medium_type_count == 1 ||
+                 data_dir->storage_medium() == storage_medium) &&
+                !data_dir->reach_capacity_limit(0)) {
+                DirInfo dir_info;
+                dir_info.data_dir = data_dir;
+                dir_info.available_level = get_available_level(data_dir->get_usage(0));
+                dir_infos.push_back(dir_info);
+            }
+        }
+    }
+}
+
 std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
-        TStorageMedium::type storage_medium) {
+        int64 partition_id, TStorageMedium::type storage_medium) {
+    std::vector<DirInfo> dir_infos;
+    int curr_index = 0;
     std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
-        for (auto& it : _store_map) {
-            if (it.second->is_used()) {
-                if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
-                    stores.push_back(it.second);
-                }
-            }
-        }
+        curr_index = _get_and_set_next_disk_index(partition_id, storage_medium);
+        _get_candidate_stores(storage_medium, dir_infos);
     }
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.end(), g);
-    // Two random choices
-    for (int i = 0; i < stores.size(); i++) {
-        int j = i + 1;
-        if (j < stores.size()) {
-            if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
-                std::swap(stores[i], stores[j]);
-            }
-            std::shuffle(stores.begin() + j, stores.end(), g);
-        } else {
-            break;
-        }
-    }
+
+    std::sort(dir_infos.begin(), dir_infos.end());
+    get_round_robin_stores(curr_index, dir_infos, stores);
+
     return stores;
+}
+
+// maintain in stores LOW,MID,HIGH level round robin
+void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
+                            std::vector<DataDir*>& stores) {
+    for (size_t i = 0; i < dir_infos.size();) {
+        size_t end = i + 1;
+        while (end < dir_infos.size() &&
+               dir_infos[i].available_level == dir_infos[end].available_level) {
+            end++;
+        }
+        // data dirs [i, end) have the same tablet size, round robin range [i, end)
+        size_t count = end - i;
+        for (size_t k = 0; k < count; k++) {
+            size_t index = i + (k + curr_index) % count;
+            stores.push_back(dir_infos[index].data_dir);
+        }
+        i = end;
+    }
 }
 
 DataDir* StorageEngine::get_store(const std::string& path) {
@@ -494,7 +538,7 @@ DataDir* StorageEngine::get_store(const std::string& path) {
     if (it == _store_map.end()) {
         return nullptr;
     }
-    return it->second;
+    return it->second.get();
 }
 
 static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
@@ -532,6 +576,10 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
 }
 
 void StorageEngine::stop() {
+    if (_stopped) {
+        LOG(WARNING) << "Storage engine is stopped twice.";
+        return;
+    }
     // trigger the waiting threads
     notify_listeners();
 
@@ -570,22 +618,38 @@ void StorageEngine::stop() {
     THREADS_JOIN(_path_gc_threads);
     THREADS_JOIN(_path_scan_threads);
 #undef THREADS_JOIN
-    _stopped = true;
-}
 
-void StorageEngine::_clear() {
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& store_pair : _store_map) {
-        delete store_pair.second;
-        store_pair.second = nullptr;
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
     }
-    _store_map.clear();
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
+    }
+
+    if (_seg_compaction_thread_pool) {
+        _seg_compaction_thread_pool->shutdown();
+    }
+    if (_tablet_meta_checkpoint_thread_pool) {
+        _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
+    }
+
+    _memtable_flush_executor.reset(nullptr);
+    _calc_delete_bitmap_executor.reset(nullptr);
+
+    _stopped = true;
+    LOG(INFO) << "Storage engine is stopped.";
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
     // clear transaction task may not contains partitions ids, we should get partition id from txn manager.
     std::vector<int64_t> partition_ids;
-    StorageEngine::instance()->txn_manager()->get_partition_ids(transaction_id, &partition_ids);
+    _txn_manager->get_partition_ids(transaction_id, &partition_ids);
     clear_transaction_task(transaction_id, partition_ids);
 }
 
@@ -595,8 +659,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
     for (const TPartitionId& partition_id : partition_ids) {
         std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
-        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
-                transaction_id, partition_id, &tablet_infos);
+        _txn_manager->get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         // each tablet
         for (auto& tablet_info : tablet_infos) {
@@ -609,8 +672,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
-            StorageEngine::instance()->txn_manager()->delete_txn(partition_id, tablet,
-                                                                 transaction_id);
+            static_cast<void>(_txn_manager->delete_txn(partition_id, tablet, transaction_id));
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
@@ -622,10 +684,13 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
+        if (ignore_guard) {
+            _need_clean_trash.store(true, std::memory_order_relaxed);
+        }
         return res;
     }
 
-    LOG(INFO) << "start trash and snapshot sweep.";
+    LOG(INFO) << "start trash and snapshot sweep. is_clean=" << ignore_guard;
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
@@ -680,7 +745,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     }
 
     // clear expire incremental rowset, move deleted tablet to trash
-    _tablet_manager->start_trash_sweep();
+    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
 
     // clean rubbish transactions
     _clean_unused_txns();
@@ -701,6 +766,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
         data_dir->perform_remote_tablet_gc();
+        data_dir->update_trash_capacity();
     }
 
     return res;
@@ -761,10 +827,11 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
+        static_cast<void>(
+                RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
         for (auto& rowset_meta : invalid_rowset_metas) {
-            RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
-                                      rowset_meta->rowset_id());
+            static_cast<void>(RowsetMetaManager::remove(
+                    data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
@@ -795,9 +862,10 @@ void StorageEngine::_clean_unused_binlog_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(), unused_binlog_collector);
+        static_cast<void>(RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(),
+                                                                   unused_binlog_collector));
         for (const auto& suffix : unused_binlog_key_suffixes) {
-            RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix);
+            static_cast<void>(RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix));
         }
         LOG(INFO) << "remove " << unused_binlog_key_suffixes.size()
                   << " invalid binlog meta from dir: " << data_dir->path();
@@ -820,9 +888,11 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(), clean_delete_bitmap_func);
+        static_cast<void>(TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(),
+                                                                    clean_delete_bitmap_func));
         for (auto id : removed_tablets) {
-            TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX);
+            static_cast<void>(
+                    TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX));
         }
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
                   << ", deleted tablets size: " << removed_tablets.size();
@@ -843,10 +913,11 @@ void StorageEngine::_clean_unused_pending_publish_info() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        TabletMetaManager::traverse_pending_publish(data_dir->get_meta(),
-                                                    clean_pending_publish_info_func);
+        static_cast<void>(TabletMetaManager::traverse_pending_publish(
+                data_dir->get_meta(), clean_pending_publish_info_func));
         for (auto& [tablet_id, publish_version] : removed_infos) {
-            TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id, publish_version);
+            static_cast<void>(TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id,
+                                                                             publish_version));
         }
         LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
                   << ", deleted pending publish info size: " << removed_infos.size();
@@ -881,7 +952,6 @@ void StorageEngine::_clean_unused_txns() {
             // currently just remove them from memory
             // nullptr to indicate not remove them from meta store
             _txn_manager->force_rollback_tablet_related_txns(nullptr, tablet_info.tablet_id,
-                                                             tablet_info.schema_hash,
                                                              tablet_info.tablet_uid);
         }
     }
@@ -897,6 +967,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
         return res;
     }
 
+    int curr_sweep_batch_size = 0;
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
@@ -928,6 +999,13 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                 if (!res.ok()) {
                     continue;
                 }
+
+                curr_sweep_batch_size++;
+                if (config::garbage_sweep_batch_size > 0 &&
+                    curr_sweep_batch_size >= config::garbage_sweep_batch_size) {
+                    curr_sweep_batch_size = 0;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
             } else {
                 // Because files are ordered by filename, i.e. by create time, so all the left files are not expired.
                 break;
@@ -958,32 +1036,38 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    std::unordered_map<std::string, RowsetSharedPtr> unused_rowsets_copy;
+    std::vector<RowsetSharedPtr> unused_rowsets_copy;
+    unused_rowsets_copy.reserve(_unused_rowsets.size());
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
-            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+            auto&& rs = it->second;
+            if (rs.use_count() == 1 && rs->need_delete_file() &&
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > it->second->delayed_expired_timestamp()) {
-                if (it->second->is_local()) {
-                    unused_rowsets_copy[it->first] = it->second;
-                }
-                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                if (rs->is_local()) {
+                    unused_rowsets_copy.push_back(std::move(rs));
+                }
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
             }
         }
     }
-    for (auto it = unused_rowsets_copy.begin(); it != unused_rowsets_copy.end(); ++it) {
-        VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                    << ", version:" << it->second->version().first << "-"
-                    << it->second->version().second;
-        Status status = it->second->remove();
-        VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                    << " finished. status:" << status;
+    for (auto&& rs : unused_rowsets_copy) {
+        VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
+                    << ", version:" << rs->version();
+        // delete delete_bitmap of unused rowsets
+        if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
+            tablet && tablet->enable_unique_key_merge_on_write()) {
+            tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
+                                                          {rs->rowset_id(), UINT32_MAX, 0});
+        }
+        Status status = rs->remove();
+        VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
 }
 
@@ -991,37 +1075,46 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) {
         return;
     }
-
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
-                << ", version:" << rowset->version().first << "-" << rowset->version().second
-                << ", unique id:" << rowset->unique_id();
-
-    auto rowset_id = rowset->rowset_id().to_string();
-
+                << ", version:" << rowset->version();
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto it = _unused_rowsets.find(rowset_id);
+    auto it = _unused_rowsets.find(rowset->rowset_id());
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
         rowset->close();
-        _unused_rowsets[rowset_id] = rowset;
-        release_rowset_id(rowset->rowset_id());
+        _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
     }
 }
 
 // TODO(zc): refactor this funciton
-Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
+Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
-    stores = get_stores_for_create_tablet(request.storage_medium);
+    {
+        SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
+        stores = get_stores_for_create_tablet(request.partition_id, request.storage_medium);
+    }
     if (stores.empty()) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
                 "there is no available disk that can be used to create tablet.");
     }
-    return _tablet_manager->create_tablet(request, stores);
+    return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
-                                        std::string* shard_path, DataDir** store) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id) {
+    BaseTabletSPtr tablet;
+    std::string err;
+    tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
+    if (tablet == nullptr) {
+        return unexpected(
+                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err));
+    }
+    return tablet;
+}
+
+Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
+                                        std::string* shard_path, DataDir** store,
+                                        int64_t partition_id) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
@@ -1029,27 +1122,33 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                 "invalid output parameter which is null pointer.");
     }
 
-    auto stores = get_stores_for_create_tablet(storage_medium);
+    auto stores = get_stores_for_create_tablet(partition_id, storage_medium);
     if (stores.empty()) {
         return Status::Error<NO_AVAILABLE_ROOT_PATH>(
                 "no available disk can be used to create tablet.");
     }
 
-    Status res = Status::OK();
-    uint64_t shard = 0;
-    res = stores[0]->get_shard(&shard);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to get root path shard. res=" << res;
-        return res;
+    *store = nullptr;
+    if (path_hash != -1) {
+        for (auto data_dir : stores) {
+            if (data_dir->path_hash() == path_hash) {
+                *store = data_dir;
+                break;
+            }
+        }
+    }
+    if (*store == nullptr) {
+        *store = stores[0];
     }
 
+    uint64_t shard = (*store)->get_shard();
+
     std::stringstream root_path_stream;
-    root_path_stream << stores[0]->path() << "/" << DATA_PREFIX << "/" << shard;
+    root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
-    *store = stores[0];
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
@@ -1091,59 +1190,65 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
     return res;
 }
 
-void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+void BaseStorageEngine::register_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    CHECK(_report_listeners.find(listener) == _report_listeners.end());
-    _report_listeners.insert(listener);
+    if (std::find(_report_listeners.begin(), _report_listeners.end(), listener) !=
+        _report_listeners.end()) [[unlikely]] {
+        return;
+    }
+    _report_listeners.push_back(listener);
 }
 
-void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+void BaseStorageEngine::deregister_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    _report_listeners.erase(listener);
-}
-
-void StorageEngine::notify_listeners() {
-    std::lock_guard<std::mutex> l(_report_mtx);
-    for (auto& listener : _report_listeners) {
-        listener->notify_thread();
+    if (auto it = std::find(_report_listeners.begin(), _report_listeners.end(), listener);
+        it != _report_listeners.end()) {
+        _report_listeners.erase(it);
     }
 }
 
-Status StorageEngine::execute_task(EngineTask* task) {
-    RETURN_IF_ERROR(task->execute());
-    return task->finish();
+void BaseStorageEngine::notify_listeners() {
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        listener->notify();
+    }
+}
+
+bool BaseStorageEngine::notify_listener(std::string_view name) {
+    bool found = false;
+    std::lock_guard<std::mutex> l(_report_mtx);
+    for (auto& listener : _report_listeners) {
+        if (listener->name() == name) {
+            listener->notify();
+            found = true;
+        }
+    }
+    return found;
 }
 
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto search = _unused_rowsets.find(rowset_id.to_string());
-    return search != _unused_rowsets.end();
+    return _unused_rowsets.contains(rowset_id);
 }
 
-void StorageEngine::create_cumulative_compaction(
-        TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
-}
-
-void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
-                                           std::shared_ptr<BaseCompaction>& base_compaction) {
-    base_compaction.reset(new BaseCompaction(best_tablet));
-}
-
-void StorageEngine::create_single_replica_compaction(
-        TabletSharedPtr best_tablet,
-        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-        CompactionType compaction_type) {
-    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
+PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& ctx) {
+    if (!ctx.fs || ctx.fs->type() == io::FileSystemType::LOCAL) {
+        return _pending_local_rowsets.add(ctx.rowset_id);
+    }
+    return _pending_remote_rowsets.add(ctx.rowset_id);
 }
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
                                           std::string* token) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.count(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id !=
-                _tablet_manager->get_tablet(tablet_id)->replica_id()) {
+    if (_peer_replica_infos.contains(tablet_id) &&
+        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
         *replica = _peer_replica_infos[tablet_id];
         *token = _token;
         return true;
@@ -1152,10 +1257,14 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
-    if (_peer_replica_infos.count(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id !=
-               _tablet_manager->get_tablet(tablet_id)->replica_id();
+    if (_peer_replica_infos.contains(tablet_id)) {
+        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
     }
     return false;
 }
@@ -1249,6 +1358,84 @@ RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
 void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
     std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
     _querying_rowsets.erase(rs_id);
+}
+
+bool StorageEngine::add_broken_path(std::string path) {
+    std::lock_guard<std::mutex> lock(_broken_paths_mutex);
+    auto success = _broken_paths.emplace(path).second;
+    if (success) {
+        static_cast<void>(_persist_broken_paths());
+    }
+    return success;
+}
+
+bool StorageEngine::remove_broken_path(std::string path) {
+    std::lock_guard<std::mutex> lock(_broken_paths_mutex);
+    auto count = _broken_paths.erase(path);
+    if (count > 0) {
+        static_cast<void>(_persist_broken_paths());
+    }
+    return count > 0;
+}
+
+Status StorageEngine::_persist_broken_paths() {
+    std::string config_value;
+    for (const std::string& path : _broken_paths) {
+        config_value += path + ";";
+    }
+
+    if (config_value.length() > 0) {
+        auto st = config::set_config("broken_storage_path", config_value, true);
+        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        return st;
+    }
+
+    return Status::OK();
+}
+
+bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return true;
+    }
+    std::lock_guard l(_low_priority_task_nums_mutex);
+    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
+        _low_priority_task_nums[dir]++;
+        return true;
+    }
+    return false;
+}
+
+void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
+    if (config::enable_compaction_priority_scheduling) {
+        std::lock_guard l(_low_priority_task_nums_mutex);
+        _low_priority_task_nums[dir]--;
+        DCHECK(_low_priority_task_nums[dir] >= 0);
+    }
+}
+
+int CreateTabletIdxCache::get_index(const std::string& key) {
+    auto lru_handle = cache()->lookup(key);
+    if (lru_handle) {
+        Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+        auto value = (CacheValue*)cache()->value(lru_handle);
+        value->last_visit_time = UnixMillis();
+        VLOG_DEBUG << "use create tablet idx cache key=" << key << " value=" << value->idx;
+        return value->idx;
+    }
+    return -1;
+}
+
+void CreateTabletIdxCache::set_index(const std::string& key, int next_idx) {
+    assert(next_idx >= 0);
+    CacheValue* value = new CacheValue;
+    value->last_visit_time = UnixMillis();
+    value->idx = next_idx;
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        CacheValue* cache_value = (CacheValue*)value;
+        delete cache_value;
+    };
+    auto lru_handle = cache()->insert(key, value, 1, deleter, CachePriority::NORMAL, sizeof(int));
+    cache()->release(lru_handle);
 }
 
 } // namespace doris

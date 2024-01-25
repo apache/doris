@@ -64,7 +64,7 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
     
 3. Download and install other compilation packages
 
-    1. [Java8](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u131-linux-x64.tar.gz)
+    1. [Java8](https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/jdk-8u391-linux-x64.tar.gz)
     2. [Apache Maven 3.6.3](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/apache-maven-3.6.3-bin.tar.gz)
     3. [Node v12.13.0](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v12.13.0-linux-x64.tar.gz)
 
@@ -124,6 +124,11 @@ $ USE_AVX2=0 sh build.sh
 ```
 
 If supported, execute `sh build.sh` directly.
+
+To build debug version for BE, add BUILD_TYPE=Debug.
+```
+$ BUILD_TYPE=Debug sh build.sh
+```
 
 This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output will be in the `output/` directory.
 

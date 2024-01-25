@@ -20,6 +20,8 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.SchedException.SubCode;
+import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.resource.Tag;
@@ -34,6 +36,7 @@ import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
@@ -63,8 +66,9 @@ public class PartitionRebalancer extends Rebalancer {
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
     private final AtomicLong counterBalanceMoveSucceeded = new AtomicLong(0);
 
-    public PartitionRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        super(infoService, invertedIndex);
+    public PartitionRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
+        super(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     @Override
@@ -139,7 +143,7 @@ public class PartitionRebalancer extends Rebalancer {
             }
 
             // Random pick one candidate to create tabletSchedCtx
-            Random rand = new Random();
+            Random rand = new SecureRandom();
             Object[] keys = tabletCandidates.keySet().toArray();
             long pickedTabletId = (long) keys[rand.nextInt(keys.length)];
             LOG.debug("Picked tablet id for move {}: {}", move, pickedTabletId);
@@ -229,7 +233,7 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
-    protected void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, TabletScheduler.PathSlot> backendsWorkingSlots)
+    protected void completeSchedCtx(TabletSchedCtx tabletCtx)
             throws SchedException {
         MovesCacheMap.MovesCache movesInProgress = movesCacheMap.getCache(tabletCtx.getTag(),
                 tabletCtx.getStorageMedium());
@@ -251,7 +255,7 @@ public class PartitionRebalancer extends Rebalancer {
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
             }
 
@@ -269,11 +273,11 @@ public class PartitionRebalancer extends Rebalancer {
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
-            } else {
-                tabletCtx.setDest(beStat.getBeId(), pathHash);
             }
+
+            tabletCtx.setDest(beStat.getBeId(), pathHash);
 
             // ToDeleteReplica is the source replica
             pair.second = srcReplica.getId();
@@ -297,12 +301,17 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
+    public void onTabletFailed(TabletSchedCtx tabletCtx) {
+        movesCacheMap.invalidateTablet(tabletCtx);
+    }
+
+    @Override
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         // We don't invalidate the cached move here, cuz the redundant repair progress is just started.
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
         Pair<TabletMove, Long> pair = movesCacheMap.getTabletMove(tabletCtx);
         if (pair != null) {
-            Preconditions.checkState(pair.second != -1L);
+            //Preconditions.checkState(pair.second != -1L);
             return pair.second;
         } else {
             return (long) -1;

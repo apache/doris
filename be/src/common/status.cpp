@@ -17,6 +17,11 @@
 #include "service/backend_options.h"
 
 namespace doris {
+namespace ErrorCode {
+
+ErrorCodeState error_states[MAX_ERROR_CODE_DEFINE_NUM];
+ErrorCodeInitializer error_code_init;
+} // namespace ErrorCode
 
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();
@@ -39,7 +44,7 @@ TStatus Status::to_thrift() const {
 void Status::to_protobuf(PStatus* s) const {
     s->clear_error_msgs();
     s->set_status_code((int)_code);
-    if (!ok() && _err_msg) {
+    if (!ok()) {
         s->add_error_msgs(fmt::format("({})[{}]{}", BackendOptions::get_localhost(),
                                       code_as_string(), _err_msg ? _err_msg->_msg : ""));
     }

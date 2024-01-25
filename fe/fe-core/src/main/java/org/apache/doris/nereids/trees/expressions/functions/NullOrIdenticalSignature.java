@@ -18,8 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import java.util.List;
 
@@ -30,14 +31,26 @@ import java.util.List;
  * when matching a particular instantiation. That is, their fixed arguments.
  */
 public interface NullOrIdenticalSignature extends ComputeSignature {
+
+    static boolean isNullOrIdentical(DataType signatureType, DataType realType) {
+        return ComputeSignature.processComplexType(
+                signatureType, realType, NullOrIdenticalSignature::isPrimitiveNullOrIdentical);
+    }
+
     /** isNullOrIdentical */
-    static boolean isNullOrIdentical(AbstractDataType signatureType, AbstractDataType realType) {
+    static boolean isPrimitiveNullOrIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
-            return realType instanceof NullType
-                    || realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
+            // TODO: resolve AnyDataType invoke toCatalogDataType
+            if (realType instanceof NullType) {
+                return true;
+            }
+            if (signatureType instanceof AnyDataType) {
+                return false;
+            }
+            return realType.toCatalogDataType().matchesType(signatureType.toCatalogDataType());
         } catch (Throwable t) {
-            // the signatureType maybe AbstractDataType and can not cast to catalog data type.
+            // the signatureType maybe DataType and can not cast to catalog data type.
             return false;
         }
     }

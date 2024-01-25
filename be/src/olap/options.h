@@ -47,21 +47,34 @@ Status parse_root_path(const std::string& root_path, StorePath* path);
 
 Status parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* path);
 
+void parse_conf_broken_store_paths(const std::string& config_path, std::set<std::string>* paths);
+
 struct CachePath {
     io::FileCacheSettings init_settings() const;
-    CachePath(std::string path, int64_t total_bytes, int64_t query_limit_bytes)
+
+    CachePath(std::string path, int64_t total_bytes, int64_t query_limit_bytes,
+              size_t normal_percent, size_t disposable_percent, size_t index_percent)
             : path(std::move(path)),
               total_bytes(total_bytes),
-              query_limit_bytes(query_limit_bytes) {}
+              query_limit_bytes(query_limit_bytes),
+              normal_percent(normal_percent),
+              disposable_percent(disposable_percent),
+              index_percent(index_percent) {}
+
     std::string path;
     int64_t total_bytes = 0;
     int64_t query_limit_bytes = 0;
+    size_t normal_percent = 85;
+    size_t disposable_percent = 10;
+    size_t index_percent = 5;
 };
+
 Status parse_conf_cache_paths(const std::string& config_path, std::vector<CachePath>& path);
 
 struct EngineOptions {
     // list paths that tablet will be put into.
     std::vector<StorePath> store_paths;
+    std::set<std::string> broken_paths;
     // BE's UUID. It will be reset every time BE restarts.
     UniqueId backend_uid {0, 0};
 };

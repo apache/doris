@@ -47,7 +47,6 @@
 #include <cstdlib>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #ifdef THREAD_SANITIZER
 /// Thread sanitizer does not intercept mremap. The usage of mremap will lead to false positives.
@@ -98,6 +97,7 @@ public:
     /// Allocate memory range.
     void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
+        consume_memory(size);
         void* buf;
 
         if (use_mmap && size >= doris::config::mmap_threshold) {
@@ -107,7 +107,6 @@ public:
                         "Too large alignment {}: more than page size when allocating {}.",
                         alignment, size);
 
-            consume_memory(size);
             buf = mmap(nullptr, size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
                 release_memory(size);
@@ -123,6 +122,7 @@ public:
                     buf = ::malloc(size);
 
                 if (nullptr == buf) {
+                    release_memory(size);
                     throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
                 }
             } else {
@@ -130,6 +130,7 @@ public:
                 int res = posix_memalign(&buf, alignment, size);
 
                 if (0 != res) {
+                    release_memory(size);
                     throw_bad_alloc(
                             fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
                 }
@@ -141,17 +142,15 @@ public:
     }
 
     /// Free memory range.
-    void free(void* buf, size_t size = -1) {
+    void free(void* buf, size_t size) {
         if (use_mmap && size >= doris::config::mmap_threshold) {
-            DCHECK(size != -1);
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
-            } else {
-                release_memory(size);
             }
         } else {
             ::free(buf);
         }
+        release_memory(size);
     }
 
     /** Enlarge memory range.
@@ -162,13 +161,18 @@ public:
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
-        } else if (!use_mmap || (old_size < doris::config::mmap_threshold &&
-                                 new_size < doris::config::mmap_threshold &&
-                                 alignment <= MALLOC_MIN_ALIGNMENT)) {
-            memory_check(new_size);
+            return buf;
+        }
+        memory_check(new_size);
+        consume_memory(new_size - old_size);
+
+        if (!use_mmap ||
+            (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
+             alignment <= MALLOC_MIN_ALIGNMENT)) {
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
             if (nullptr == new_buf) {
+                release_memory(new_size - old_size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
@@ -179,9 +183,7 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= doris::config::mmap_threshold &&
                    new_size >= doris::config::mmap_threshold) {
-            memory_check(new_size);
             /// Resize mmap'd memory region.
-            consume_memory(new_size - old_size);
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
@@ -200,7 +202,6 @@ public:
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
             }
         } else {
-            memory_check(new_size);
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));

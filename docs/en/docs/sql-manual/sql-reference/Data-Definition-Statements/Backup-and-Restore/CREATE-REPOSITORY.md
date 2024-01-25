@@ -174,6 +174,25 @@ PROPERTIES
 );
 ```
 
+9. Create repository and delete snapshots if exists.
+
+```sql
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "s3.endpoint" = "http://s3-REGION.amazonaws.com",
+    "s3.region" = "s3-REGION",
+    "s3.access_key" = "AWS_ACCESS_KEY",
+    "s3.secret_key"="AWS_SECRET_KEY",
+    "s3.region" = "REGION",
+    "delete_if_exists" = "true"
+);
+```
+
+Note: only the s3 service supports the "delete_if_exists" property.
+
 ### Keywords
 
     CREATE, REPOSITORY

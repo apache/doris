@@ -95,14 +95,14 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
-    private long nextVersion;
+    protected long nextVersion;
     @Deprecated
     @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
     @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
-    private Partition() {
+    protected Partition() {
     }
 
     public Partition(long id, String name,
@@ -168,8 +168,20 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersionTime;
     }
 
+    /**
+     * if visibleVersion is 1, do not return creation time but 0
+     *
+     * @return
+     */
+    public long getVisibleVersionTimeIgnoreInit() {
+        if (visibleVersion == 1) {
+            return 0L;
+        }
+        return visibleVersionTime;
+    }
+
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion) {
+    protected void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
     }
@@ -253,10 +265,15 @@ public class Partition extends MetaObject implements Writable {
         return indices;
     }
 
-    public long getDataSize() {
+    public long getAllDataSize(boolean singleReplica) {
+        return getDataSize(singleReplica) + getRemoteDataSize();
+    }
+
+    // this is local data size
+    public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
-            dataSize += mIndex.getDataSize();
+            dataSize += mIndex.getDataSize(singleReplica);
         }
         return dataSize;
     }
@@ -272,6 +289,14 @@ public class Partition extends MetaObject implements Writable {
     public long getReplicaCount() {
         long replicaCount = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            replicaCount += mIndex.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
+    public long getAllReplicaCount() {
+        long replicaCount = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL)) {
             replicaCount += mIndex.getReplicaCount();
         }
         return replicaCount;
@@ -306,7 +331,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public static Partition read(DataInput in) throws IOException {
-        Partition partition = new Partition();
+        Partition partition = EnvFactory.getInstance().createPartition();
         partition.readFields(in);
         return partition;
     }

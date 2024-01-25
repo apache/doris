@@ -30,26 +30,87 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.PrimitiveSink;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
     private final List<Backend> backends = Lists.newArrayList();
+    private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
+    private final SecureRandom random = new SecureRandom();
     private ConsistentHash<TScanRangeLocations, Backend> consistentHash;
 
     private int nextBe = 0;
     private boolean initialized = false;
+
+    // Create a ConsistentHash ring may be a time-consuming operation, so we cache it.
+    private static LoadingCache<HashCacheKey, ConsistentHash<TScanRangeLocations, Backend>> consistentHashCache;
+
+    static {
+        consistentHashCache = CacheBuilder.newBuilder().maximumSize(5)
+                .build(new CacheLoader<HashCacheKey, ConsistentHash<TScanRangeLocations, Backend>>() {
+                    @Override
+                    public ConsistentHash<TScanRangeLocations, Backend> load(HashCacheKey key) {
+                        return new ConsistentHash<>(Hashing.murmur3_128(), new ScanRangeHash(),
+                                new BackendHash(), key.bes, Config.virtual_node_number);
+                    }
+                });
+    }
+
+    private static class HashCacheKey {
+        // sorted backend ids as key
+        private List<Long> beIds;
+        // backends is not part of key, just an attachment
+        private List<Backend> bes;
+
+        HashCacheKey(List<Backend> backends) {
+            this.bes = backends;
+            this.beIds = backends.stream().map(b -> b.getId()).sorted().collect(Collectors.toList());
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof HashCacheKey)) {
+                return false;
+            }
+            return Objects.equals(beIds, ((HashCacheKey) obj).beIds);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(beIds);
+        }
+
+        @Override
+        public String toString() {
+            return "HashCache{" + "beIds=" + beIds + '}';
+        }
+    }
 
     public void init() throws UserException {
         if (!initialized) {
@@ -62,9 +123,13 @@ public class FederationBackendPolicy {
         Set<Tag> tags = Sets.newHashSet();
         if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
             String qualifiedUser = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
-            tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
-                throw new UserException("No valid resource tag for user: " + qualifiedUser);
+            // Some request from stream load(eg, mysql load) may not set user info in ConnectContext
+            // just ignore it.
+            if (!Strings.isNullOrEmpty(qualifiedUser)) {
+                tags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+                if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                    throw new UserException("No valid resource tag for user: " + qualifiedUser);
+                }
             }
         } else {
             LOG.debug("user info in ExternalFileScanNode should not be null, add log to observer");
@@ -87,9 +152,12 @@ public class FederationBackendPolicy {
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
-        int virtualNumber = Math.max(Math.min(512 / backends.size(), 32), 2);
-        consistentHash = new ConsistentHash<>(Hashing.murmur3_128(), new ScanRangeHash(),
-                new BackendHash(), backends, virtualNumber);
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
+        try {
+            consistentHash = consistentHashCache.get(new HashCacheKey(backends));
+        } catch (ExecutionException e) {
+            throw new UserException("failed to get consistent hash", e);
+        }
     }
 
     public Backend getNextBe() {
@@ -102,12 +170,27 @@ public class FederationBackendPolicy {
         return consistentHash.getNode(scanRangeLocations);
     }
 
+    // Try to find a local BE, if not exists, use `getNextBe` instead
+    public Backend getNextLocalBe(List<String> hosts, TScanRangeLocations scanRangeLocations) {
+        List<Backend> candidateBackends = Lists.newArrayListWithCapacity(hosts.size());
+        for (String host : hosts) {
+            List<Backend> backends = backendMap.get(host);
+            if (CollectionUtils.isNotEmpty(backends)) {
+                candidateBackends.add(backends.get(random.nextInt(backends.size())));
+            }
+        }
+
+        return CollectionUtils.isEmpty(candidateBackends)
+                    ? getNextConsistentBe(scanRangeLocations)
+                    : candidateBackends.get(random.nextInt(candidateBackends.size()));
+    }
+
     public int numBackends() {
         return backends.size();
     }
 
-    public List<Backend> getBackends() {
-        return backends;
+    public Collection<Backend> getBackends() {
+        return CollectionUtils.unmodifiableCollection(backends);
     }
 
     private static class BackendHash implements Funnel<Backend> {

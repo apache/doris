@@ -152,4 +152,6 @@ suite("load") {
     sql "insert into tt select * from t"
     new_count = sql "select count(*) from tt"
     assertEquals(origin_count, new_count)
+
+    sql """ sync """
 }

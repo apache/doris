@@ -44,7 +44,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     int index = 0;
     for (auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
-        std::string type = JniConnector::get_hive_type(desc->type());
+        std::string type = JniConnector::get_jni_type(desc->type());
         column_names.emplace_back(field);
         if (index == 0) {
             required_fields << field;
@@ -63,7 +63,7 @@ MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
 }
 
 Status MockJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_nex_block(block, read_rows, eof));
+    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
     if (*eof) {
         RETURN_IF_ERROR(_jni_connector->close());
     }

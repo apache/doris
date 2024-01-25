@@ -111,7 +111,7 @@ public class AccessTestUtil {
             EditLog editLog = new EditLog("name");
             env.setEditLog(editLog);
 
-            Database db = new Database(50000L, "testCluster:testDb");
+            Database db = new Database(50000L, "testDb");
             MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
             RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
             Partition partition = new Partition(20000L, "testTbl", baseIndex, distributionInfo);
@@ -133,11 +133,11 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable("testCluster:testDb");
+                    catalog.getDbNullable("testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable("testCluster:emptyDb");
+                    catalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
@@ -147,7 +147,7 @@ public class AccessTestUtil {
 
                     catalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
+                    result = Lists.newArrayList("testDb");
                 }
             };
 
@@ -204,6 +204,10 @@ public class AccessTestUtil {
                     env.getCatalogMgr();
                     minTimes = 0;
                     result = dsMgr;
+
+                    env.isCheckpointThread();
+                    minTimes = 0;
+                    result = false;
                 }
             };
             return env;
@@ -341,16 +345,16 @@ public class AccessTestUtil {
             Env env = Deencapsulation.newInstance(Env.class);
 
             AccessControllerManager accessManager = fetchBlockAccess();
-            Database db = mockDb("testCluster:testDb");
+            Database db = mockDb("testDb");
 
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(catalog) {
                 {
-                    catalog.getDbNullable("testCluster:testDb");
+                    catalog.getDbNullable("testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable("testCluster:testdb");
+                    catalog.getDbNullable("testdb");
                     minTimes = 0;
                     result = db;
 
@@ -358,7 +362,7 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDbNullable("testCluster:emptyDb");
+                    catalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
@@ -368,7 +372,7 @@ public class AccessTestUtil {
 
                     catalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("testCluster:testDb");
+                    result = Lists.newArrayList("testDb");
 
                     catalog.getDbNullable("emptyCluster");
                     minTimes = 0;
@@ -414,6 +418,10 @@ public class AccessTestUtil {
                     env.getCatalogMgr();
                     minTimes = 0;
                     result = ctlMgr;
+
+                    env.isCheckpointThread();
+                    minTimes = 0;
+                    result = false;
                 }
             };
             return env;
@@ -425,7 +433,7 @@ public class AccessTestUtil {
     }
 
     public static Analyzer fetchAdminAnalyzer(boolean withCluster) {
-        final String prefix = "testCluster:";
+        final String prefix = "";
 
         Analyzer analyzer = new Analyzer(fetchAdminCatalog(), new ConnectContext());
         new Expectations(analyzer) {
@@ -441,10 +449,6 @@ public class AccessTestUtil {
                 analyzer.getQualifiedUser();
                 minTimes = 0;
                 result = withCluster ? prefix + "testUser" : "testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 analyzer.incrementCallDepth();
                 minTimes = 0;
@@ -472,15 +476,11 @@ public class AccessTestUtil {
 
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 analyzer.getQualifiedUser();
                 minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
+                result = "testUser";
             }
         };
         return analyzer;
@@ -500,11 +500,7 @@ public class AccessTestUtil {
 
                 analyzer.getQualifiedUser();
                 minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
+                result = "testUser";
             }
         };
         return analyzer;
@@ -618,10 +614,6 @@ public class AccessTestUtil {
                 analyzer.getEnv();
                 minTimes = 0;
                 result = env;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
 
                 analyzer.incrementCallDepth();
                 minTimes = 0;

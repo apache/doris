@@ -24,7 +24,6 @@
 #include <cstring>
 #include <ostream>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/port.h"
@@ -168,7 +167,7 @@ public:
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_first_value, SIZE_OF_TYPE);
         return Status::OK();
@@ -176,7 +175,7 @@ public:
     Status get_last_value(void* value) const override {
         DCHECK(_finished);
         if (_count == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
         memcpy(value, &_last_value, SIZE_OF_TYPE);
         return Status::OK();
@@ -267,6 +266,7 @@ inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,
     case 8:
     case 12:
     case 16:
+    case 32:
         break;
     default:
         return Status::InternalError("invalid size_of_elem:{}", size_of_element);
@@ -320,7 +320,7 @@ public:
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
-            return Status::InvalidArgument("invalid pos");
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("invalid pos");
         }
 
         DCHECK_LE(pos, _num_elements);
@@ -332,7 +332,7 @@ public:
         DCHECK(_parsed) << "Must call init() firstly";
 
         if (_num_elements == 0) {
-            return Status::NotFound("page is empty");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
         }
 
         size_t left = 0;
@@ -353,7 +353,7 @@ public:
             }
         }
         if (left >= _num_elements) {
-            return Status::NotFound("all value small than the value");
+            return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("all value small than the value");
         }
         void* find_value = get_data(left);
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {

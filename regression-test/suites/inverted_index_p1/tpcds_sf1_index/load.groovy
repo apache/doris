@@ -98,5 +98,7 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
+    sql """ sync """
 }

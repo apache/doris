@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -35,10 +36,13 @@ class HybridSetBase;
 class BloomFilterFuncBase;
 class BitmapFilterFuncBase;
 
+namespace pipeline {
+class SharedHashTableDependency;
+}
+
 namespace vectorized {
 
 class Arena;
-class Block;
 
 struct SharedRuntimeFilterContext {
     std::shared_ptr<MinMaxFuncBase> minmax_func;
@@ -49,17 +53,15 @@ struct SharedRuntimeFilterContext {
 
 struct SharedHashTableContext {
     SharedHashTableContext()
-            : hash_table_variants(nullptr),
-              signaled(false),
-              short_circuit_for_null_in_probe_side(false) {}
+            : hash_table_variants(nullptr), block(std::make_shared<vectorized::Block>()) {}
 
     Status status;
     std::shared_ptr<Arena> arena;
     std::shared_ptr<void> hash_table_variants;
-    std::shared_ptr<std::vector<Block>> blocks;
+    std::shared_ptr<Block> block;
     std::map<int, SharedRuntimeFilterContext> runtime_filters;
-    bool signaled;
-    bool short_circuit_for_null_in_probe_side;
+    std::atomic<bool> signaled = false;
+    bool short_circuit_for_null_in_probe_side = false;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
@@ -67,8 +69,7 @@ using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
 class SharedHashTableController {
 public:
     /// set hash table builder's fragment instance id and consumers' fragment instance id
-    void set_builder_and_consumers(TUniqueId builder, const std::vector<TUniqueId>& consumers,
-                                   int node_id);
+    void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
     void signal(int my_node_id);
@@ -76,12 +77,18 @@ public:
     Status wait_for_signal(RuntimeState* state, const SharedHashTableContextPtr& context);
     bool should_build_hash_table(const TUniqueId& fragment_instance_id, int my_node_id);
     void set_pipeline_engine_enabled(bool enabled) { _pipeline_engine_enabled = enabled; }
+    void append_dependency(int node_id, std::shared_ptr<pipeline::SharedHashTableDependency> dep) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _dependencies[node_id].push_back(dep);
+    }
 
 private:
     bool _pipeline_engine_enabled = false;
     std::mutex _mutex;
+    // For pipelineX, we update all dependencies once hash table is built;
+    std::map<int /*node id*/, std::vector<std::shared_ptr<pipeline::SharedHashTableDependency>>>
+            _dependencies;
     std::condition_variable _cv;
-    std::map<int, std::vector<TUniqueId>> _ref_fragments;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };

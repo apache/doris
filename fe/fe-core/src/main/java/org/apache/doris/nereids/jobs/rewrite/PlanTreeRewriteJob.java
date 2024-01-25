@@ -42,8 +42,10 @@ public abstract class PlanTreeRewriteJob extends Job {
         boolean isRewriteRoot = rewriteJobContext.isRewriteRoot();
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(isRewriteRoot);
-        List<Rule> validRules = getValidRules(rules);
-        for (Rule rule : validRules) {
+        for (Rule rule : rules) {
+            if (disableRules.contains(rule.getRuleType().type())) {
+                continue;
+            }
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
                 List<Plan> newPlans = rule.transform(plan, cascadesContext);

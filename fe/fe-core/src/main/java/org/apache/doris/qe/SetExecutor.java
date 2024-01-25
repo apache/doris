@@ -56,7 +56,7 @@ public class SetExecutor {
             // do nothing
             return;
         } else if (var instanceof SetUserDefinedVar) {
-            VariableMgr.setUserVar(var);
+            ConnectContext.get().setUserVar(var);
         } else {
             VariableMgr.setVar(ctx.getSessionVariable(), var);
         }

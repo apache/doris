@@ -112,7 +112,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `auto_increment_increment`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used for compatibility with MySQL clients. No practical effect. Although Doris already has [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) feature, but this parameter does not affect the behavior of 'AUTO_INCREMENT'. Same as auto_increment_offset.
     
 * `autocommit`
 
@@ -247,7 +247,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
         Forward to Master to view the start time and last heartbeat information.
         
-    4. `SHOW TABLET;`/`ADMIN SHOW REPLICA DISTRIBUTION;`/`ADMIN SHOW REPLICA STATUS;`
+    4. `SHOW TABLET;`/`SHOW REPLICA DISTRIBUTION;`/`SHOW REPLICA STATUS;`
 
         Forward to Master to view the tablet information stored in the Master FE metadata. Under normal circumstances, the tablet information in different FE metadata should be consistent. When a problem occurs, this method can be used to compare the difference between the current FE and Master FE metadata.
         
@@ -313,7 +313,6 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
 
-Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 
@@ -365,7 +364,7 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `query_timeout`
 
-    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 5 minutes, in seconds.
+    Used to set the query timeout. This variable applies to all query statements in the current connection. Particularly, timeout of INSERT statements is recommended to be managed by the insert_timeout below. The default is 15 minutes, in seconds.
 
 * `insert_timeout`
 
@@ -390,15 +389,15 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `sql_select_limit`
 
-    Used for compatibility with MySQL clients. No practical effect.
+    Used to limit return rows of select stmt, including select clause of insert stmt.
 
 * `system_time_zone`
 
-    Displays the current system time zone. Cannot be changed.
+    Set to the current system time zone when the cluster is initialised. It cannot be changed.
     
 * `time_zone`
 
-    Used to set the time zone of the current session. The time zone has an effect on the results of certain time functions. For the time zone, see [here](./time-zone.md).
+    Used to set the time zone for the current session. Defaults to the value of `system_time_zone`. It affects the results of certain time functions. For more information, see the [time zone](./time-zone) documentation.
     
 * `tx_isolation`
 
@@ -576,6 +575,14 @@ Translated with www.DeepL.com/Translator (free version)
 
     For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
 
+* `skip_missing_version`
+
+    In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover. This config can control the behavior of query. When it is opened, the query will ignore the visible version recorded in FE partition, use the replica version. If the replica on be has missing versions, the query will directly skip this missing version, and only return the data of the existing version, In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving BE replicas, so as to recover as much data as possible. You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries. Note that, this variable conflicts with the a variable, when the a variable is not -1, this variable will not work.
+
+* `skip_bad_tablet`
+
+    In some scenarios, user has a huge amount of data and only a single replica was specified when creating the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and load the remaining data into a new table.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:
@@ -640,13 +647,13 @@ Translated with www.DeepL.com/Translator (free version)
 
     <version since="1.2.0"></version>
 
-    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
+    Use a fixed replica to query. replica starts with 0 and if use_fix_replica is 0, the smallest is used, if use_fix_replica is 1, the second smallest is used, and so on. The default value is -1, indicating that the function is disabled.
 
 * `dry_run_query`
 
     <version since="dev"></version>
 
-    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows. The default is false.
+    If set to true, for query requests, the actual result set will no longer be returned, but only the number of rows, while for load and insert, the data is discarded by sink node, no writing happens. The default is false.
 
     This parameter can be used to avoid the time-consuming result set transmission when testing a large number of data sets, and focus on the time-consuming underlying query execution.
 
@@ -670,6 +677,37 @@ Translated with www.DeepL.com/Translator (free version)
 * `enable_strong_consistency_read`
 
   Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
+
+* `truncate_char_or_varchar_columns`
+
+  Whether to truncate char or varchar columns according to the table's schema. The default is false.
+
+  Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
+
+* `jdbc_clickhouse_query_final`
+
+  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse,default is false.
+  
+  It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
+
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  Whether to enable MemTable on DataSink node when loading data, default is false.
+  </version>
+
+  Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
+  It reduces duplicate work among replicas, and saves time in data serialization & deserialization.
+
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
+  </version>
+
+* `describe_extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
 
 ***
 

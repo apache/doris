@@ -46,14 +46,6 @@ struct RowRange {
     }
 };
 
-struct ParquetReadColumn {
-    ParquetReadColumn(int parquet_col_id, const std::string& file_slot_name)
-            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {};
-
-    int _parquet_col_id;
-    const std::string& _file_slot_name;
-};
-
 #pragma pack(1)
 struct ParquetInt96 {
     uint64_t lo; // time of nanoseconds in a day
@@ -61,6 +53,11 @@ struct ParquetInt96 {
 
     inline uint64_t to_timestamp_micros() const {
         return (hi - JULIAN_EPOCH_OFFSET_DAYS) * MICROS_IN_DAY + lo / NANOS_PER_MICROSECOND;
+    }
+    inline __int128 to_int128() const {
+        __int128 ans = 0;
+        ans = (((__int128)hi) << 64) + lo;
+        return ans;
     }
 
     static const uint32_t JULIAN_EPOCH_OFFSET_DAYS;

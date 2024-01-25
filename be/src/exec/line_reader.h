@@ -22,9 +22,9 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 }
-// This class is used for CSV scanner, to read content line by line
+// This class is used to read content line by line
 class LineReader {
 public:
     virtual ~LineReader() = default;

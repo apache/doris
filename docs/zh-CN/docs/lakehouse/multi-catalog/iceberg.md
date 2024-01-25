@@ -53,7 +53,30 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
-使用Iceberg API访问元数据的方式，支持Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
+使用Iceberg API访问元数据的方式，支持Hadoop File System、Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
+
+#### Hadoop Catalog
+
+```sql
+CREATE CATALOG iceberg_hadoop PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
+);
+```
+
+```sql
+CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-nameservice/dir/key',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
 
 #### Hive Metastore
 
@@ -72,6 +95,8 @@ CREATE CATALOG iceberg PROPERTIES (
 ```
 
 #### AWS Glue
+
+> 连接Glue时，如果是在非EC2环境，需要将EC2环境里的 `~/.aws` 目录拷贝到当前环境里。也可以下载[AWS Cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)工具进行配置，这种方式也会在当前用户目录下创建`.aws`目录。
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
@@ -133,16 +158,42 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
 
-### Iceberg On S3
+### Iceberg On Object Storage
 
-若数据存放在S3上，properties中可以使用以下参数
+若数据存放在S3上，properties中可以使用以下参数：
 
 ```
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
-"s3.endpoint" = "http://endpoint-uri"
-"s3.region" = "your-region"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+"s3.endpoint" = "s3.us-east-1.amazonaws.com"
+"s3.region" = "us-east-1"
+```
+
+数据存放在阿里云OSS上：
+
+```
+"oss.access_key" = "ak"
+"oss.secret_key" = "sk"
+"oss.endpoint" = "oss-cn-beijing-internal.aliyuncs.com"
+"oss.region" = "oss-cn-beijing"
+```
+
+数据存放在腾讯云COS上：
+
+```
+"cos.access_key" = "ak"
+"cos.secret_key" = "sk"
+"cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+"cos.region" = "ap-beijing"
+```
+
+数据存放在华为云OBS上：
+
+```
+"obs.access_key" = "ak"
+"obs.secret_key" = "sk"
+"obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com"
+"obs.region" = "cn-north-4"
 ```
 
 ## 列类型映射
@@ -163,5 +214,5 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) 表函数查询指定表的 snapshot 信息。
+另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) 表函数查询指定表的 snapshot 信息。
 

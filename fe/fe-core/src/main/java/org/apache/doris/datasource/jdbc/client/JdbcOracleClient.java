@@ -19,6 +19,16 @@ package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.util.Util;
+
+import com.google.common.collect.Lists;
+
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class JdbcOracleClient extends JdbcClient {
 
@@ -29,6 +39,123 @@ public class JdbcOracleClient extends JdbcClient {
     @Override
     protected String getDatabaseQuery() {
         return "SELECT DISTINCT OWNER FROM all_tables";
+    }
+
+    @Override
+    protected String getCatalogName(Connection conn) throws SQLException {
+        return conn.getCatalog();
+    }
+
+    @Override
+    public List<String> getDatabaseNameList() {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
+            return getSpecifiedDatabase(conn);
+        }
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            rs = conn.getMetaData().getSchemas(conn.getCatalog(), null);
+            List<String> tempDatabaseNames = Lists.newArrayList();
+            while (rs.next()) {
+                String databaseName = rs.getString("TABLE_SCHEM");
+                if (isLowerCaseTableNames) {
+                    lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
+                    databaseName = databaseName.toLowerCase();
+                } else {
+                    lowerDBToRealDB.put(databaseName, databaseName);
+                }
+                tempDatabaseNames.add(databaseName);
+            }
+            if (isOnlySpecifiedDatabase) {
+                for (String db : tempDatabaseNames) {
+                    // Exclude database map take effect with higher priority over include database map
+                    if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(db)) {
+                        continue;
+                    }
+                    if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(db)) {
+                        continue;
+                    }
+                    databaseNames.add(db);
+                }
+            } else {
+                databaseNames = tempDatabaseNames;
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get database name list from jdbc", e);
+        } finally {
+            close(rs, conn);
+        }
+        return databaseNames;
+    }
+
+    @Override
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
+        Connection conn = getConnection();
+        ResultSet rs = null;
+        List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
+        try {
+            DatabaseMetaData databaseMetaData = conn.getMetaData();
+            String catalogName = getCatalogName(conn);
+            String modifiedTableName;
+            boolean isModify = false;
+            if (finalTableName.contains("/")) {
+                modifiedTableName = modifyTableNameIfNecessary(finalTableName);
+                isModify = !modifiedTableName.equals(finalTableName);
+                if (isModify) {
+                    rs = getColumns(databaseMetaData, catalogName, finalDbName, modifiedTableName);
+                } else {
+                    rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+                }
+            } else {
+                rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+            }
+            while (rs.next()) {
+                if (isModify && isTableModified(rs.getString("TABLE_NAME"), finalTableName)) {
+                    continue;
+                }
+                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
+                JdbcFieldSchema field = new JdbcFieldSchema();
+                String columnName = rs.getString("COLUMN_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
+                            .put(columnName.toLowerCase(), columnName);
+                    columnName = columnName.toLowerCase();
+                } else {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
+                }
+                field.setColumnName(columnName);
+                field.setDataType(rs.getInt("DATA_TYPE"));
+                field.setDataTypeName(rs.getString("TYPE_NAME"));
+                /*
+                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
+                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
+                */
+                field.setKey(true);
+                field.setColumnSize(rs.getInt("COLUMN_SIZE"));
+                field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
+                field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
+                /*
+                   Whether it is allowed to be NULL
+                   0 (columnNoNulls)
+                   1 (columnNullable)
+                   2 (columnNullableUnknown)
+                 */
+                field.setAllowNull(rs.getInt("NULLABLE") != 0);
+                field.setRemarks(rs.getString("REMARKS"));
+                field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
+                tableSchema.add(field);
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
+                Util.getRootCauseMessage(e));
+        } finally {
+            close(rs, conn);
+        }
+        return tableSchema;
     }
 
     @Override

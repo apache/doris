@@ -42,7 +42,7 @@ public:
 
     template <typename ColumnType, bool is_nullable>
     Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
-                            MutableColumnPtr& column_result) {
+                            MutableColumnPtr& column_result) const {
         auto type_error = [&]() {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         column->get_name(), get_name());
@@ -76,7 +76,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
         WhichDataType which(data_type);

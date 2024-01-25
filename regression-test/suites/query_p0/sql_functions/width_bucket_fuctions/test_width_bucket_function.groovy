@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_width_bucket_function") {
+suite("test_width_bucket_function", "arrow_flight_sql") {
     qt_sql "select width_bucket(1, 2, 3, 2)"
     qt_sql "select width_bucket(null, 2, 3, 2)"
     qt_sql "select width_bucket(6, 2, 6, 4)"
@@ -83,4 +83,10 @@ suite("test_width_bucket_function") {
     qt_select "SELECT k1, width_bucket(v1, date('2023-11-18'), date('2027-11-18'), 4) FROM ${tableName2} ORDER BY k1"
     qt_select "SELECT k1, width_bucket(v2, 200000, 600000, 4) FROM ${tableName2} ORDER BY k1"
     qt_select "SELECT k1, width_bucket(v3, 200000, 600000, 4) FROM ${tableName2} ORDER BY k1"
+
+    qt_select_width_bucket_1 "select width_bucket(10,0,11,10);"
+    qt_select_width_bucket_2 "select width_bucket(cast(10 as int),0,11,10);"
+    qt_select_width_bucket_3 "select width_bucket(10.0,0,11,10);"
+    qt_select_width_bucket_4 "select width_bucket(10,0,10.1,10);"
+    qt_select_width_bucket_5 "select width_bucket(10,0,10.10,10);"
 }

@@ -148,7 +148,7 @@ LIMIT 5;
 
 You can put the Table Value Function anywhere that you used to put Table in the SQL, such as in the WITH or FROM clause in CTE. In this way, you can treat the file as a normal table and conduct analysis conveniently.
 
-你也可以用过 `CREATE VIEW` 语句为 Table Value Function 创建一个逻辑视图。这样，你可以想其他视图一样，对这个 Table Value Function 进行访问、权限管理等操作，也可以让其他用户访问这个 Table Value Function。
+你也可以用过 `CREATE VIEW` 语句为 Table Value Function 创建一个逻辑视图.这样，你可以想其他视图一样，对这个 Table Value Function 进行访问、权限管理等操作，也可以让其他用户访问这个 Table Value Function.
 You can also create a logic view by using `CREATE VIEW` statement for a Table Value Function. So that you can query this view, grant priv on this view or allow other user to access this Table Value Function.
 
 ```
@@ -193,3 +193,9 @@ FROM s3(
     "use_path_style" = "true");
 ```
 
+
+### Note
+
+1. If the URI specified by the `S3 / HDFS` TVF is not matched with the file, or all the matched files are empty files, then the` S3 / HDFS` TVF will return to the empty result set. In this case, using the `DESC FUNCTION` to view the schema of this file, you will get a dummy column` __dummy_col`, which can be ignored.
+
+2. If the format of the TVF is specified to `CSV`, and the read file is not a empty file but the first line of this file is empty, then it will prompt the error `The first line is empty, can not parse column numbers`. This is because the schema cannot be parsed from the first line of the file

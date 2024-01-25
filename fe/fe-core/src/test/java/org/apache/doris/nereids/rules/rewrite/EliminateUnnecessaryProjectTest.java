@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,7 +43,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
 
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
 
         createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"
                 + "DISTRIBUTED BY HASH(col3)\n"
@@ -52,6 +53,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 + ");");
     }
 
+    @Disabled("enable this case when we remove canEliminate on LogicalProject again")
     @Test
     void testEliminateNonTopUnnecessaryProject() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
@@ -61,7 +63,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
                 .customRewrite(new EliminateUnnecessaryProject())
-                .matchesFromRoot(logicalFilter(logicalProject()));
+                .matchesFromRoot(logicalFilter(logicalOlapScan()));
     }
 
     @Test
@@ -75,15 +77,16 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .matchesFromRoot(logicalOlapScan());
     }
 
+    @Disabled("enable this case when we remove canEliminate on LogicalProject again")
     @Test
-    void testNotEliminateTopProjectWhenOutputNotEquals() {
+    void testEliminateTopProjectWhenOutputNotEquals() {
         LogicalPlan necessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
                 .project(ImmutableList.of(1, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), necessaryProject)
                 .customRewrite(new EliminateUnnecessaryProject())
-                .matchesFromRoot(logicalProject());
+                .notMatchesFromRoot(logicalProject());
     }
 
     @Test

@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -46,7 +47,7 @@ class DataSink;
 class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
-class QueryStatistics;
+struct ReportStatusRequest;
 
 namespace vectorized {
 class Block;
@@ -71,20 +72,14 @@ class Block;
 //
 // Aside from Cancel(), which may be called asynchronously, this class is not
 // thread-safe.
-class PlanFragmentExecutor {
+class PlanFragmentExecutor : public TaskExecutionContext {
 public:
-    // Callback to report execution status of plan fragment.
-    // 'profile' is the cumulative profile, 'done' indicates whether the execution
-    // is done or still continuing.
-    // Note: this does not take a const RuntimeProfile&, because it might need to call
-    // functions like PrettyPrint() or to_thrift(), neither of which is const
-    // because they take locks.
-    using report_status_callback =
-            std::function<void(const Status&, RuntimeProfile*, RuntimeProfile*, bool)>;
-
+    using report_status_callback = std::function<void(const ReportStatusRequest)>;
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
-    PlanFragmentExecutor(ExecEnv* exec_env, const report_status_callback& report_status_cb);
+    PlanFragmentExecutor(ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
+                         const TUniqueId& instance_id, int fragment_id, int backend_num,
+                         const report_status_callback& report_status_cb);
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -100,7 +95,7 @@ public:
     // number of bytes this query can consume at runtime.
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
     // If query_ctx is not null, some components will be got from query_ctx.
-    Status prepare(const TExecPlanFragmentParams& request, QueryContext* query_ctx = nullptr);
+    Status prepare(const TExecPlanFragmentParams& request);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -112,6 +107,10 @@ public:
     // If this fragment has a sink, report_status_cb will have been called for the final
     // time when open() returns, and the status-reporting thread will have been stopped.
     Status open();
+
+    Status execute();
+
+    const VecDateTimeValue& start_time() const { return _start_time; }
 
     // Closes the underlying plan fragment and frees up all resources allocated
     // in open()/get_next().
@@ -133,12 +132,34 @@ public:
 
     DataSink* get_sink() const { return _sink.get(); }
 
-    void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
+    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
+
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
+    std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
+
+    TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
+
+    TUniqueId query_id() const { return _query_ctx->query_id(); }
+
+    bool is_timeout(const VecDateTimeValue& now) const;
+
+    bool is_canceled() { return _runtime_state->is_cancelled(); }
+
+    Status update_status(Status status);
 
 private:
-    ExecEnv* _exec_env; // not owned
-    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
-    TUniqueId _query_id;
+    ExecEnv* _exec_env = nullptr; // not owned
+    ExecNode* _plan = nullptr;    // lives in _runtime_state->obj_pool()
+    std::shared_ptr<QueryContext> _query_ctx;
+    // Id of this instance
+    TUniqueId _fragment_instance_id;
+    int _fragment_id;
+    // Used to report to coordinator which backend is over
+    int _backend_num;
 
     // profile reporting-related
     report_status_callback _report_status_cb;
@@ -160,6 +181,9 @@ private:
 
     // true if prepare() returned OK
     bool _prepared;
+
+    // true if open() returned OK
+    bool _opened;
 
     // true if close() has been called
     bool _closed;
@@ -189,24 +213,28 @@ private:
     std::unique_ptr<DataSink> _sink;
 
     // Number of rows returned by this fragment
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
 
     // Number of blocks returned by this fragment
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    RuntimeProfile::Counter* _fragment_cpu_timer;
+    RuntimeProfile::Counter* _fragment_cpu_timer = nullptr;
 
-    // It is shared with BufferControlBlock and will be called in two different
-    // threads. But their calls are all at different time, there is no problem of
-    // multithreaded access.
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
+    bool _need_wait_execution_trigger = false;
+
+    // Timeout of this instance, it is inited from query options
+    int _timeout_second = -1;
+
+    VecDateTimeValue _start_time;
 
     // Record the cancel information when calling the cancel() method, return it to FE
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    OpentelemetrySpan _span;
+    DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
@@ -240,9 +268,9 @@ private:
 
     const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
-    void _collect_query_statistics();
-
     void _collect_node_statistics();
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

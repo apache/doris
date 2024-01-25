@@ -20,14 +20,18 @@
 #include "factory_helpers.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function.h"
 #include "vec/io/io_helper.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
@@ -104,6 +108,7 @@ public:
     using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, arg_is_nullable>,
                                          Value<ColVecType, arg_is_nullable>>;
     static constexpr bool nullable = arg_is_nullable;
+    static constexpr bool result_nullable = result_is_nullable;
 
     void reset() {
         _data_value.reset();
@@ -192,13 +197,19 @@ template <typename Data>
 class ReaderFunctionData final
         : public IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>> {
 public:
-    ReaderFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types),
-              _argument_type(argument_types[0]) {}
+    ReaderFunctionData(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types_),
+              _argument_type(argument_types_[0]) {}
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return _argument_type; }
+    DataTypePtr get_return_type() const override {
+        if constexpr (Data::result_nullable) {
+            return make_nullable(_argument_type);
+        } else {
+            return _argument_type;
+        }
+    }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);

@@ -48,7 +48,10 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 class BloomFilterIndexReaderWriterTest : public testing::Test {
 public:
     void SetUp() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(dname).ok());
+        auto st = io::global_local_filesystem()->delete_directory(dname);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(dname);
+        ASSERT_TRUE(st.ok()) << st;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(dname).ok());
@@ -70,7 +73,8 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
-        BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
+        static_cast<void>(
+                BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer));
         const CppType* vals = (const CppType*)values;
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
@@ -97,7 +101,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
     std::string fname = dname + "/" + file_name;
     io::FileReaderSPtr file_reader;
     ASSERT_EQ(io::global_local_filesystem()->open_file(fname, &file_reader), Status::OK());
-    *reader = new BloomFilterIndexReader(std::move(file_reader), &meta.bloom_filter_index());
+    *reader = new BloomFilterIndexReader(std::move(file_reader), meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
     EXPECT_TRUE(st.ok());
 

@@ -119,4 +119,5 @@ suite("load") {
         rowCount = sql "select count(*) from ${table}"
         assertEquals(table_rows, rowCount[0][0])
     }
+    sql """ sync """
 }

@@ -28,6 +28,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -78,7 +79,7 @@ public class CooldownConfHandler extends MasterDaemon {
             if (replicas.isEmpty()) {
                 continue;
             }
-            Random rand = new Random(System.currentTimeMillis());
+            Random rand = new SecureRandom();
             int index = rand.nextInt(replicas.size());
             conf.setCooldownReplicaId(replicas.get(index).getId());
             // find TabletMeta to get cooldown term

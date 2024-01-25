@@ -22,7 +22,7 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.loadv2.LoadManager;
 
@@ -147,10 +147,10 @@ public class JobsProcDir implements ProcDirInterface {
 
         // export
         ExportMgr exportMgr = Env.getCurrentEnv().getExportMgr();
-        pendingNum = exportMgr.getJobNum(ExportJob.JobState.PENDING, dbId);
-        runningNum = exportMgr.getJobNum(ExportJob.JobState.EXPORTING, dbId);
-        finishedNum = exportMgr.getJobNum(ExportJob.JobState.FINISHED, dbId);
-        cancelledNum = exportMgr.getJobNum(ExportJob.JobState.CANCELLED, dbId);
+        pendingNum = exportMgr.getJobNum(ExportJobState.PENDING, dbId);
+        runningNum = exportMgr.getJobNum(ExportJobState.EXPORTING, dbId);
+        finishedNum = exportMgr.getJobNum(ExportJobState.FINISHED, dbId);
+        cancelledNum = exportMgr.getJobNum(ExportJobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(EXPORT, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                 cancelledNum.toString(), totalNum.toString()));
@@ -209,10 +209,10 @@ public class JobsProcDir implements ProcDirInterface {
 
         // export
         ExportMgr exportMgr = Env.getCurrentEnv().getExportMgr();
-        pendingNum = exportMgr.getJobNum(ExportJob.JobState.PENDING);
-        runningNum = exportMgr.getJobNum(ExportJob.JobState.EXPORTING);
-        finishedNum = exportMgr.getJobNum(ExportJob.JobState.FINISHED);
-        cancelledNum = exportMgr.getJobNum(ExportJob.JobState.CANCELLED);
+        pendingNum = exportMgr.getJobNum(ExportJobState.PENDING);
+        runningNum = exportMgr.getJobNum(ExportJobState.EXPORTING);
+        finishedNum = exportMgr.getJobNum(ExportJobState.FINISHED);
+        cancelledNum = exportMgr.getJobNum(ExportJobState.CANCELLED);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(EXPORT, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                 cancelledNum.toString(), totalNum.toString()));

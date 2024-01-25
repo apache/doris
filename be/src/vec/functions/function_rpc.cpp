@@ -73,7 +73,7 @@ void RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& argum
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         arg->set_has_null(column.column->has_null(row_count));
         auto col = column.column->convert_to_full_column_if_const();
-        column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count);
+        static_cast<void>(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
 }
 
@@ -81,7 +81,7 @@ void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t po
     auto data_type = block.get_data_type(pos);
     auto col = data_type->create_column();
     auto serde = data_type->get_serde();
-    serde->read_column_from_pb(*col, result);
+    static_cast<void>(serde->read_column_from_pb(*col, result));
     block.replace_by_position(pos, std::move(col));
 }
 
@@ -101,7 +101,7 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                            size_t result, size_t input_rows_count, bool dry_run) {
+                            size_t result, size_t input_rows_count, bool dry_run) const {
     RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     return fn->vec_call(context, block, arguments, result, input_rows_count);

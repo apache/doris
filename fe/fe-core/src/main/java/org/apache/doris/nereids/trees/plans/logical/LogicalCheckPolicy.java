@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -46,7 +47,8 @@ import java.util.Optional;
 /**
  * Logical Check Policy
  */
-public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements PropagateFuncDeps {
 
     public LogicalCheckPolicy(CHILD_TYPE child) {
         super(PlanType.LOGICAL_CHECK_POLICY, child);
@@ -125,18 +127,14 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
         PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        String user = connectContext.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-            return Optional.empty();
-        }
-        if (!policyMgr.existPolicy(user)) {
             return Optional.empty();
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
         long dbId = catalogRelation.getDatabase().getId();
         long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getMatchRowPolicy(dbId, tableId, currentUserIdentity);
+        List<RowPolicy> policies = policyMgr.getUserPolicies(dbId, tableId, currentUserIdentity);
         if (policies.isEmpty()) {
             return Optional.empty();
         }

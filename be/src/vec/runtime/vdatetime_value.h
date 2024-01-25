@@ -26,10 +26,12 @@
 #include <cstddef>
 #include <iostream>
 #include <iterator>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -39,14 +41,17 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace doris::vectorized {
+class DataTypeDateTime;
+class DataTypeDateV2;
+class DataTypeDateTimeV2;
+} // namespace doris::vectorized
+
 namespace doris {
-
-namespace vectorized {
-
-using ZoneList = std::map<std::string, cctz::time_zone>;
 
 enum TimeUnit {
     MICROSECOND,
+    MILLISECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -75,6 +80,7 @@ struct TimeInterval {
     int64_t hour;
     int64_t minute;
     int64_t second;
+    int64_t millisecond;
     int64_t microsecond;
     bool is_neg;
 
@@ -85,6 +91,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(false) {}
 
@@ -95,6 +102,7 @@ struct TimeInterval {
               hour(0),
               minute(0),
               second(0),
+              millisecond(0),
               microsecond(0),
               is_neg(is_neg_param) {
         switch (unit) {
@@ -121,6 +129,9 @@ struct TimeInterval {
             break;
         case SECOND_MICROSECOND:
             microsecond = count;
+            break;
+        case MILLISECOND:
+            millisecond = count;
             break;
         case MICROSECOND:
             microsecond = count;
@@ -193,6 +204,7 @@ static constexpr uint32_t MIN_YEAR = 0;
 
 static constexpr uint32_t DATEV2_YEAR_WIDTH = 23;
 static constexpr uint32_t DATETIMEV2_YEAR_WIDTH = 18;
+static constexpr uint32_t DATETIMEV2_MONTH_WIDTH = 4;
 
 static RE2 time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
@@ -247,7 +259,7 @@ public:
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scanned from storage engine and convert to typed data.
-    // At other case, we just use binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>.
+    // At other case, we just use binary_cast<Int64, VecDateTimeValue>.
 
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
@@ -268,6 +280,9 @@ public:
 
     template <typename T>
     void create_from_date_v2(DateV2Value<T>& value, TimeType type);
+
+    template <typename T>
+    void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second);
@@ -353,8 +368,7 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -438,7 +452,7 @@ public:
     void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -478,8 +492,12 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
+
+    // set interval
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
@@ -490,9 +508,10 @@ public:
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
 
     bool operator==(const VecDateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -590,7 +609,7 @@ public:
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
     }
 
-    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
@@ -661,6 +680,9 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    // reset 0
+    void reset_zero_by_type(int type) { set_zero(type); }
+
 private:
     // Used to make sure sizeof VecDateTimeValue
     friend class UnusedClass;
@@ -685,8 +707,7 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone,
-                            ZoneList* time_zone_cache);
+    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -732,9 +753,11 @@ public:
     // Constructor
     DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
 
-    DateV2Value(DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(underlying_value int_val) : int_val_(int_val) {}
 
-    DateV2Value(const DateV2Value<T>& other) { int_val_ = other.to_date_int_val(); }
+    DateV2Value(DateV2Value<T>& other) = default;
+
+    DateV2Value(const DateV2Value<T>& other) = default;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -749,7 +772,7 @@ public:
     }
 
     void set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                  uint8_t second, uint32_t microsecond);
+                  uint8_t second, uint32_t microsecond = 0);
 
     void set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond);
 
@@ -808,7 +831,7 @@ public:
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       ZoneList& time_zone_cache, int scale = -1);
+                       int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -889,7 +912,7 @@ public:
     uint8_t day() const { return date_v2_value_.day_; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    uint8_t weekday() const { return doris::calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
     auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
@@ -932,8 +955,11 @@ public:
     template <TimeUnit unit, typename TO>
     bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
 
-    template <TimeUnit unit>
+    template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
+
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
@@ -942,14 +968,19 @@ public:
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    //the first arg is result of fixed point
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
+    bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
-
-    bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
-    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
+    bool from_unixtime(std::pair<int64_t, int64_t>, const std::string& timezone);
+    void from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
+    bool from_unixtime(int64_t, int32_t, const std::string& timezone, int scale);
+    void from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.
@@ -1052,7 +1083,7 @@ public:
 
     DateV2Value<T>& operator--() { return *this += -1; }
 
-    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
 
@@ -1103,7 +1134,7 @@ public:
                this->microsecond() == 0;
     }
 
-    underlying_value to_date_int_val() const;
+    underlying_value to_date_int_val() const { return int_val_; }
 
     bool from_date(uint32_t value);
     bool from_datetime(uint64_t value);
@@ -1161,13 +1192,15 @@ public:
 
     void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
+    void set_int_val(uint64_t val) { this->int_val_ = val; }
+
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
 
     bool from_date_str_base(const char* date_str, int len, int scale,
-                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache);
+                            const cctz::time_zone* local_time_zone);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
@@ -1317,8 +1350,9 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
         if constexpr (std::is_same_v<T0, T1>) {
-            int shift_bits = DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH + 5
-                                                          : DATEV2_YEAR_WIDTH + 5;
+            int shift_bits = DateV2Value<T0>::is_datetime
+                                     ? DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH
+                                     : DATEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH;
             decltype(ts_value2.to_date_int_val()) minus_one = -1;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) <
@@ -1331,23 +1365,27 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
             auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
-                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) <
+                          (ts1_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             } else if (month < 0) {
                 month += ((ts_value2.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
-                          (ts1_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) >
+                          (ts1_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         } else {
             auto ts2_int_value = ((uint64_t)ts_value2.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
-                month -= ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) <
+                month -= ((ts2_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) <
                           (ts_value1.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             } else if (month < 0) {
-                month += ((ts2_int_value & (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))) >
+                month += ((ts2_int_value &
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))) >
                           (ts_value1.to_date_int_val() &
-                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + 5))));
+                           (uint64_minus_one >> (DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH))));
             }
         }
         return month;
@@ -1373,6 +1411,15 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     case SECOND: {
         int64_t second = ts_value2.second_diff(ts_value1);
         return second;
+    }
+    case MILLISECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        int64_t millisecond = microsecond / 1000;
+        return millisecond;
+    }
+    case MICROSECOND: {
+        int64_t microsecond = ts_value2.microsecond_diff(ts_value1);
+        return microsecond;
     }
     }
     // Rethink the default return value
@@ -1478,12 +1525,58 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
     return 0;
 }
 
-class DataTypeDateTime;
-class DataTypeDateV2;
-class DataTypeDateTimeV2;
+/**
+ * Date dict table. date range is [1900-01-01, 2039-12-31].
+ */
+class date_day_offset_dict {
+private:
+    static constexpr int DAY_BEFORE_EPOCH = 25567;                           // 1900-01-01
+    static constexpr int DAY_AFTER_EPOCH = 25566;                            // 2039-12-31
+    static constexpr int DICT_DAYS = DAY_BEFORE_EPOCH + 1 + DAY_AFTER_EPOCH; // 1 means 1970-01-01
 
-[[maybe_unused]] void init_date_day_offset_dict();
-[[maybe_unused]] DateV2Value<DateV2ValueType>* get_date_day_offset_dict();
+    static constexpr int START_YEAR = 1900; // 1900-01-01
+    static constexpr int END_YEAR = 2039;   // 2039-10-24
+    static constexpr int DAY_OFFSET_CAL_START_POINT_DAYNR =
+            719528; // 1970-01-01 (start from 0000-01-01, 0000-01-01 is day 1, returns 1)
+
+    static std::array<DateV2Value<DateV2ValueType>, DICT_DAYS> DATE_DAY_OFFSET_ITEMS;
+    static std::array<std::array<std::array<int, 31>, 12>, 140> DATE_DAY_OFFSET_DICT;
+
+    static bool DATE_DAY_OFFSET_ITEMS_INIT;
+
+    static date_day_offset_dict instance;
+
+    date_day_offset_dict();
+    ~date_day_offset_dict() = default;
+    date_day_offset_dict(const date_day_offset_dict&) = default;
+    date_day_offset_dict& operator=(const date_day_offset_dict&) = default;
+
+public:
+    static bool can_speed_up_calc_daynr(int year) { return year >= START_YEAR && year <= END_YEAR; }
+
+    static int get_offset_by_daynr(int daynr) { return daynr - DAY_OFFSET_CAL_START_POINT_DAYNR; }
+
+    static bool can_speed_up_daynr_to_date(int daynr) {
+        auto res = get_offset_by_daynr(daynr);
+        return res >= 0 ? res <= DAY_AFTER_EPOCH : -res <= DAY_BEFORE_EPOCH;
+    }
+
+    static date_day_offset_dict& get();
+
+    static bool get_dict_init();
+
+    inline DateV2Value<DateV2ValueType> operator[](int day) const {
+        int index = day + DAY_BEFORE_EPOCH;
+        if (LIKELY(index >= 0 && index < DICT_DAYS)) {
+            return DATE_DAY_OFFSET_ITEMS[index];
+        } else {
+            DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
+            return d += index;
+        }
+    }
+
+    int daynr(int year, int month, int day) const;
+};
 
 template <typename T>
 struct DateTraits {};
@@ -1491,44 +1584,38 @@ struct DateTraits {};
 template <>
 struct DateTraits<int64_t> {
     using T = VecDateTimeValue;
-    using DateType = DataTypeDateTime;
+    using DateType = vectorized::DataTypeDateTime;
 };
 
 template <>
 struct DateTraits<uint32_t> {
     using T = DateV2Value<DateV2ValueType>;
-    using DateType = DataTypeDateV2;
+    using DateType = vectorized::DataTypeDateV2;
 };
 
 template <>
 struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
-    using DateType = DataTypeDateTimeV2;
+    using DateType = vectorized::DataTypeDateTimeV2;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 template <>
-struct std::hash<::doris::vectorized::VecDateTimeValue> {
-    size_t operator()(const ::doris::vectorized::VecDateTimeValue& v) const {
-        return ::doris::vectorized::hash_value(v);
+struct std::hash<doris::VecDateTimeValue> {
+    size_t operator()(const doris::VecDateTimeValue& v) const { return doris::hash_value(v); }
+};
+
+template <>
+struct std::hash<doris::DateV2Value<doris::DateV2ValueType>> {
+    size_t operator()(const doris::DateV2Value<doris::DateV2ValueType>& v) const {
+        return doris::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>> {
-    size_t operator()(
-            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>& v) const {
-        return ::doris::vectorized::hash_value(v);
-    }
-};
-
-template <>
-struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>> {
-    size_t operator()(
-            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>& v)
-            const {
-        return ::doris::vectorized::hash_value(v);
+struct std::hash<doris::DateV2Value<doris::DateTimeV2ValueType>> {
+    size_t operator()(const doris::DateV2Value<doris::DateTimeV2ValueType>& v) const {
+        return doris::hash_value(v);
     }
 };

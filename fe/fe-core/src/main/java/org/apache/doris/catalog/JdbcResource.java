@@ -94,6 +94,11 @@ public class JdbcResource extends Resource {
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
+    public static final String MIN_POOL_SIZE = "min_pool_size";
+    public static final String MAX_POOL_SIZE = "max_pool_size";
+    public static final String MAX_IDLE_TIME = "max_idle_time";
+    public static final String MAX_WAIT_TIME = "max_wait_time";
+    public static final String KEEP_ALIVE = "keep_alive";
     public static final String CHECK_SUM = "checksum";
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -111,7 +116,12 @@ public class JdbcResource extends Resource {
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
             INCLUDE_DATABASE_LIST,
-            EXCLUDE_DATABASE_LIST
+            EXCLUDE_DATABASE_LIST,
+            MIN_POOL_SIZE,
+            MAX_POOL_SIZE,
+            MAX_IDLE_TIME,
+            MAX_WAIT_TIME,
+            KEEP_ALIVE
     ).build();
 
     // The default value of optional properties
@@ -123,6 +133,11 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MIN_POOL_SIZE, "1");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_POOL_SIZE, "100");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_IDLE_TIME, "30000");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(MAX_WAIT_TIME, "5000");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(KEEP_ALIVE, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -228,9 +243,9 @@ public class JdbcResource extends Resource {
             return "";
         }
         String fullDriverUrl = getFullDriverUrl(driverPath);
-        InputStream inputStream = null;
-        try {
-            inputStream = Util.getInputStreamFromUrl(fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS);
+
+        try (InputStream inputStream =
+                 Util.getInputStreamFromUrl(fullDriverUrl, null, HTTP_TIMEOUT_MS, HTTP_TIMEOUT_MS)) {
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] buf = new byte[4096];
             int bytesRead = 0;
@@ -297,28 +312,26 @@ public class JdbcResource extends Resource {
         if (dbType.equals(MYSQL) || dbType.equals(OCEANBASE)) {
             // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "yearIsDateType", "true", "false");
             // MySQL Types and Return Values for GetColumnTypeName and GetColumnClassName
             // are presented in https://dev.mysql.com/doc/connector-j/8.0/en/connector-j-reference-type-conversions.html
-            // However when tinyInt1isBit=false, GetColumnClassName of MySQL returns java.lang.Boolean,
-            // while that of Doris returns java.lang.Integer. In order to be compatible with both MySQL and Doris,
-            // Jdbc params should set tinyInt1isBit=true&transformedBitIsBoolean=true
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "transformedBitIsBoolean", "false", "true");
+            // When mysql's tinyint stores non-0 or 1, we need to read the data correctly,
+            // so we need tinyInt1isBit=false
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "tinyInt1isBit", "true", "false");
             // set useUnicode and characterEncoding to false and utf-8
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "rewriteBatchedStatements", "false", "true");
-            newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useUnicode", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "rewriteBatchedStatements", "false", "true");
+            newJdbcUrl = checkAndSetJdbcParam(dbType, newJdbcUrl, "characterEncoding", "utf-8");
             if (dbType.equals(OCEANBASE)) {
                 // set useCursorFetch to true
-                newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+                newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useCursorFetch", "false", "true");
             }
         }
         if (dbType.equals(POSTGRESQL)) {
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "reWriteBatchedInserts", "false", "true");
         }
         if (dbType.equals(SQLSERVER)) {
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(dbType, newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
         }
         return newJdbcUrl;
     }
@@ -334,21 +347,19 @@ public class JdbcResource extends Resource {
      * @param expectedVal
      * @return
      */
-    private static String checkAndSetJdbcBoolParam(String jdbcUrl, String params, String unexpectedVal,
+    private static String checkAndSetJdbcBoolParam(String dbType, String jdbcUrl, String params, String unexpectedVal,
             String expectedVal) {
+        String delimiter = getDelimiter(jdbcUrl, dbType);
         String unexpectedParams = params + "=" + unexpectedVal;
         String expectedParams = params + "=" + expectedVal;
+
         if (jdbcUrl.contains(expectedParams)) {
             return jdbcUrl;
         } else if (jdbcUrl.contains(unexpectedParams)) {
             jdbcUrl = jdbcUrl.replaceAll(unexpectedParams, expectedParams);
         } else {
-            if (jdbcUrl.contains("?")) {
-                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
-                    jdbcUrl += "&";
-                }
-            } else {
-                jdbcUrl += "?";
+            if (!jdbcUrl.endsWith(delimiter)) {
+                jdbcUrl += delimiter;
             }
             jdbcUrl += expectedParams;
         }
@@ -363,20 +374,29 @@ public class JdbcResource extends Resource {
      * @param params
      * @return
      */
-    private static String checkAndSetJdbcParam(String jdbcUrl, String params, String expectedVal) {
+    private static String checkAndSetJdbcParam(String dbType, String jdbcUrl, String params, String expectedVal) {
+        String delimiter = getDelimiter(jdbcUrl, dbType);
         String expectedParams = params + "=" + expectedVal;
+
         if (jdbcUrl.contains(expectedParams)) {
             return jdbcUrl;
         } else {
-            if (jdbcUrl.contains("?")) {
-                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
-                    jdbcUrl += "&";
-                }
-            } else {
-                jdbcUrl += "?";
+            if (!jdbcUrl.endsWith(delimiter)) {
+                jdbcUrl += delimiter;
             }
             jdbcUrl += expectedParams;
         }
         return jdbcUrl;
     }
+
+    private static String getDelimiter(String jdbcUrl, String dbType) {
+        if (dbType.equals(SQLSERVER)) {
+            return ";";
+        } else if (jdbcUrl.contains("?")) {
+            return "&";
+        } else {
+            return "?";
+        }
+    }
+
 }

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "function_array_map.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
@@ -31,41 +32,43 @@ struct NameArrayUnion {
     static constexpr auto name = "array_union";
 };
 
-template <typename Set, typename Element>
+template <typename Map, typename ColumnType>
 struct UnionAction {
-    // True if set has null element
-    bool null_flag = false;
+    // True if current has null element
+    bool current_null_flag = false;
     // True if result_set has null element
     bool result_null_flag = false;
-    // True if it should execute the left array first.
-    static constexpr auto execute_left_column_first = true;
 
     // Handle Null element.
-    // Return true means this null element should put into result column.
-    template <bool is_left>
-    bool apply_null() {
-        if (!null_flag) {
-            null_flag = true;
-            return true;
-        }
-        return false;
-    }
+    bool apply_null() { return result_null_flag; }
 
     // Handle Non-Null element.
-    // Return ture means this Non-Null element should put into result column.
-    template <bool is_left>
-    bool apply(Set& set, Set& result_set, const Element& elem) {
-        if (!set.find(elem)) {
-            set.insert(elem);
-            return true;
+    void apply(Map& map, size_t arg_idx, size_t row_idx, const ColumnArrayExecutionData& param) {
+        current_null_flag = false;
+        size_t start_off = (*param.offsets_ptr)[row_idx - 1];
+        size_t end_off = (*param.offsets_ptr)[row_idx];
+        for (size_t off = start_off; off < end_off; ++off) {
+            if (param.nested_nullmap_data && param.nested_nullmap_data[off]) {
+                current_null_flag = true;
+            } else {
+                if constexpr (std::is_same_v<ColumnString, ColumnType>) {
+                    map[param.nested_col->get_data_at(off)];
+                } else {
+                    auto& data_col = static_cast<const ColumnType&>(*param.nested_col);
+                    map[data_col.get_element(off)];
+                }
+            }
         }
-        return false;
+        result_null_flag = result_null_flag || current_null_flag;
     }
 
-    void reset() { null_flag = false; }
+    void reset() {
+        current_null_flag = false;
+        result_null_flag = false;
+    }
 };
 
-using FunctionArrayUnion = FunctionArrayBinary<ArraySetImpl<SetOperation::UNION>, NameArrayUnion>;
+using FunctionArrayUnion = FunctionArrayNary<ArrayMapImpl<MapOperation::UNION>, NameArrayUnion>;
 
 void register_function_array_union(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayUnion>();

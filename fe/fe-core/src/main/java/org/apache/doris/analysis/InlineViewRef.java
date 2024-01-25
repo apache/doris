@@ -27,6 +27,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.Dialect;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
 
@@ -47,6 +49,8 @@ import java.util.Set;
 public class InlineViewRef extends TableRef {
     private static final Logger LOG = LogManager.getLogger(InlineViewRef.class);
 
+    private static final String DEFAULT_TABLE_ALIAS_FOR_SPARK_SQL = "__auto_generated_subquery_name";
+
     // Catalog or local view that is referenced.
     // Null for inline views parsed directly from a query string.
     private final View view;
@@ -56,6 +60,7 @@ public class InlineViewRef extends TableRef {
     // and column labels used in the query definition. Either all or none of the column
     // labels must be overridden.
     private List<String> explicitColLabels;
+    private List<List<String>> explicitSubColPath;
 
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -97,6 +102,7 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(String alias, QueryStmt queryStmt, List<String> colLabels) {
         this(alias, queryStmt);
         explicitColLabels = Lists.newArrayList(colLabels);
+        LOG.debug("inline view explicitColLabels {}", explicitColLabels);
     }
 
     /**
@@ -153,6 +159,12 @@ public class InlineViewRef extends TableRef {
         return queryStmt.getColLabels();
     }
 
+    public List<List<String>> getSubColPath() {
+        if (explicitSubColPath != null) {
+            return explicitSubColPath;
+        }
+        return queryStmt.getSubColPath();
+    }
 
     @Override
     public void reset() {
@@ -186,7 +198,13 @@ public class InlineViewRef extends TableRef {
         }
 
         if (view == null && !hasExplicitAlias()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
+            Dialect sqlDialect = Dialect.getByName(dialect);
+            if (Dialect.SPARK != sqlDialect) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            }
+            hasExplicitAlias = true;
+            aliases = new String[] { DEFAULT_TABLE_ALIAS_FOR_SPARK_SQL };
         }
 
         // Analyze the inline view query statement with its own analyzer
@@ -227,15 +245,28 @@ public class InlineViewRef extends TableRef {
         // TODO: relax this a bit by allowing propagation out of the inline view (but
         // not into it)
         List<SlotDescriptor> slots = analyzer.changeSlotToNullableOfOuterJoinedTuples();
+        LOG.debug("inline view query {}", queryStmt.toSql());
         for (int i = 0; i < getColLabels().size(); ++i) {
             String colName = getColLabels().get(i);
-            SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(), colName);
+            LOG.debug("inline view register {}", colName);
+            SlotDescriptor slotDesc = analyzer.registerColumnRef(getAliasAsName(),
+                                            colName, getSubColPath().get(i));
             Expr colExpr = queryStmt.getResultExprs().get(i);
-            slotDesc.setSourceExpr(colExpr);
+            if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getValueList() != null) {
+                ValueList valueList = ((SelectStmt) queryStmt).getValueList();
+                for (int j = 0; j < valueList.getRows().size(); ++j) {
+                    slotDesc.addSourceExpr(valueList.getRows().get(j).get(i));
+                }
+            } else {
+                slotDesc.setSourceExpr(colExpr);
+            }
             slotDesc.setIsNullable(slotDesc.getIsNullable() || colExpr.isNullable());
             SlotRef slotRef = new SlotRef(slotDesc);
-            sMap.put(slotRef, colExpr);
-            baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            // to solve select * from (values(1, 2, 3), (4, 5, 6)) a returns only one row.
+            if (slotDesc.getSourceExprs().size() == 1) {
+                sMap.put(slotRef, colExpr);
+                baseTblSmap.put(slotRef, queryStmt.getBaseTblResultExprs().get(i));
+            }
             if (createAuxPredicate(colExpr)) {
                 analyzer.createAuxEquivPredicate(new SlotRef(slotDesc), colExpr.clone());
             }

@@ -17,18 +17,14 @@
 
 #include "vec/exprs/vexpr_context.h"
 
-#include <algorithm>
 #include <ostream>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
-#include "common/object_pool.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -39,13 +35,6 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-VExprContext::VExprContext(const VExprSPtr& expr)
-        : _root(expr),
-          _is_clone(false),
-          _prepared(false),
-          _opened(false),
-          _last_result_column_id(-1) {}
-
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -155,19 +144,19 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     return execute_conjuncts(ctxs, filters, false, block, result_filter, can_filter_all);
 }
 
-// TODO Performance Optimization
+// TODO: Performance Optimization
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
-                                       const bool accept_null, Block* block,
+                                       bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
     DCHECK(result_filter->size() == block->rows());
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
-    for (auto& ctx : ctxs) {
+    for (const auto& ctx : ctxs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
         ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
             size_t column_size = nullable_column->size();
             if (column_size == 0) {
                 *can_filter_all = true;
@@ -176,9 +165,9 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
                 const IColumn::Filter& filter =
                         assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-                auto* __restrict filter_data = filter.data();
+                const auto* __restrict filter_data = filter.data();
                 const size_t size = filter.size();
-                auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+                const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
                 if (accept_null) {
                     for (size_t i = 0; i < size; ++i) {
@@ -195,7 +184,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     return Status::OK();
                 }
             }
-        } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+        } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
             // filter all
             if (!const_column->get_bool(0)) {
                 *can_filter_all = true;
@@ -205,7 +194,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
         } else {
             const IColumn::Filter& filter =
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
-            auto* __restrict filter_data = filter.data();
+            const auto* __restrict filter_data = filter.data();
 
             const size_t size = filter.size();
             for (size_t i = 0; i < size; ++i) {
@@ -287,15 +276,27 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     return Status::OK();
 }
 
+// do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),
+// output_vexpr_ctxs will output the same column more than once, and if the output_block
+// is mem-reused later, it will trigger DCHECK_EQ(d.column->use_count(), 1) failure when
+// doing Block::clear_column_data, set do_projection to true to copy the column data to
+// avoid this problem.
 Status VExprContext::get_output_block_after_execute_exprs(
-        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
+        bool do_projection) {
+    auto rows = input_block.rows();
     vectorized::Block tmp_block(input_block.get_columns_with_type_and_name());
     vectorized::ColumnsWithTypeAndName result_columns;
-    for (auto& vexpr_ctx : output_vexpr_ctxs) {
+    for (const auto& vexpr_ctx : output_vexpr_ctxs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(vexpr_ctx->execute(&tmp_block, &result_column_id));
         DCHECK(result_column_id != -1);
-        result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
+        const auto& col = tmp_block.get_by_position(result_column_id);
+        if (do_projection) {
+            result_columns.emplace_back(col.column->clone_resized(rows), col.type, col.name);
+        } else {
+            result_columns.emplace_back(tmp_block.get_by_position(result_column_id));
+        }
     }
     *output_block = {result_columns};
     return Status::OK();

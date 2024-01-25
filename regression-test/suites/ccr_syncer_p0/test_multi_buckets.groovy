@@ -18,6 +18,10 @@
 suite("test_multi_buckets") {
 
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_multi_buckets")
+        return
+    }
     def tableName = "tbl_multi_buckets"
     def test_num = 0
     def insert_num = 5
@@ -69,8 +73,9 @@ suite("test_multi_buckets") {
     assertTrue(syncer.commitTxn())
     syncer.closeBackendClients()
     assertTrue(syncer.checkTargetVersion())
+    target_sql " sync "
     def res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == 1)
+    assertEquals(res.size(), 1)
 
 
 
@@ -90,7 +95,8 @@ suite("test_multi_buckets") {
         syncer.closeBackendClients()
     }
 
+    target_sql " sync "
     res = target_sql """SELECT * FROM ${tableName} WHERE test=${test_num}"""
-    assertTrue(res.size() == insert_num)
+    assertEquals(res.size(), insert_num)
 
 }

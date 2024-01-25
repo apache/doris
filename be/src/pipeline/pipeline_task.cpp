@@ -24,6 +24,7 @@
 
 #include <ostream>
 
+#include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline.h"
 #include "pipeline_fragment_context.h"
@@ -41,22 +42,40 @@ class RuntimeState;
 namespace doris::pipeline {
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
-                           Operators& operators, OperatorPtr& sink,
-                           PipelineFragmentContext* fragment_context,
+                           OperatorPtr& sink, PipelineFragmentContext* fragment_context,
                            RuntimeProfile* parent_profile)
         : _index(index),
           _pipeline(pipeline),
-          _operators(operators),
-          _source(_operators.front()),
-          _root(_operators.back()),
-          _sink(sink),
           _prepared(false),
           _opened(false),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
-          _parent_profile(parent_profile) {
+          _parent_profile(parent_profile),
+          _operators(pipeline->_operators),
+          _source(_operators.front()),
+          _root(_operators.back()),
+          _sink(sink) {
+    _pipeline_task_watcher.start();
+}
+
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _prepared(false),
+          _opened(false),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile),
+          _operators({}),
+          _source(nullptr),
+          _root(nullptr),
+          _sink(nullptr) {
     _pipeline_task_watcher.start();
 }
 
@@ -66,7 +85,6 @@ void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
-    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
     COUNTER_SET(_begin_execute_timer, _begin_execute_time);
     COUNTER_SET(_eos_timer, _eos_time);
     COUNTER_SET(_src_pending_finish_over_timer, _src_pending_finish_over_time);
@@ -90,20 +108,21 @@ void PipelineTask::_init_profile() {
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
     _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
-    _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
     _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
     _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
     _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+    _wait_bf_counts = ADD_COUNTER(_task_profile, "WaitBfTimes", TUnit::UNIT);
+    _wait_dependency_counts = ADD_COUNTER(_task_profile, "WaitDenpendencyTimes", TUnit::UNIT);
+    _pending_finish_counts = ADD_COUNTER(_task_profile, "PendingFinishTimes", TUnit::UNIT);
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
@@ -191,13 +210,21 @@ void PipelineTask::set_task_queue(TaskQueue* task_queue) {
 
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
     Defer defer {[&]() {
         if (_task_queue) {
             _task_queue->update_statistics(this, time_spent);
+        }
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        auto cpu_qs = query_context()->get_cpu_statistics();
+        if (cpu_qs) {
+            cpu_qs->add_cpu_nanos(delta_cpu_time);
         }
     }};
     // The status must be runnable
@@ -219,23 +246,25 @@ Status PipelineTask::execute(bool* eos) {
             set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
             return Status::OK();
         }
-        if (!_source->can_read()) {
+        if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             return Status::OK();
         }
-        if (!_sink->can_write()) {
+        if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             return Status::OK();
         }
     }
 
+    auto status = Status::OK();
+
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
-        if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
+        if (_data_state != SourceState::MORE_DATA && !source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
             break;
         }
-        if (!_sink->can_write()) {
+        if (!sink_can_write()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SINK);
             break;
         }
@@ -255,9 +284,10 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            auto status = _sink->sink(_state, block, _data_state);
+            status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -267,33 +297,15 @@ Status PipelineTask::execute(bool* eos) {
             }
         }
     }
-
-    return Status::OK();
-}
-
-Status PipelineTask::finalize() {
-    SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, _finalize_timer->value());
-        }
-    }};
-    SCOPED_TIMER(_finalize_timer);
-    return _sink->finalize(_state);
-}
-
-Status PipelineTask::try_close() {
-    if (_try_close_flag) {
-        return Status::OK();
+    if (*eos) { // now only join node have add_dependency, and join probe could start when the join sink is eos
+        _finish_p_dependency();
     }
-    _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
-    Status status2 = _source->try_close(_state);
-    return status1.ok() ? status2 : status1;
+
+    // If the status is eof(sink node will return eof if downstream fragment finished), then return it.
+    return status;
 }
 
-Status PipelineTask::close() {
+Status PipelineTask::close(Status exec_status) {
     int64_t close_ns = 0;
     Defer defer {[&]() {
         if (_task_queue) {
@@ -320,7 +332,7 @@ Status PipelineTask::close() {
 }
 
 QueryContext* PipelineTask::query_context() {
-    return _fragment_context->get_query_context();
+    return _fragment_context->get_query_ctx();
 }
 
 // The FSM see PipelineTaskState's comment
@@ -352,11 +364,12 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
             _wait_bf_watcher.start();
+            COUNTER_UPDATE(_wait_bf_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_DEPENDENCY) {
+            COUNTER_UPDATE(_wait_dependency_counts, 1);
+        } else if (state == PipelineTaskState::PENDING_FINISH) {
+            COUNTER_UPDATE(_pending_finish_counts, 1);
         }
-    }
-
-    if (state == PipelineTaskState::FINISHED) {
-        _finish_p_dependency();
     }
 
     _cur_state = state;
@@ -365,7 +378,7 @@ void PipelineTask::set_state(PipelineTaskState state) {
 std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(fragment_context()->get_fragment_instance_id()));
 

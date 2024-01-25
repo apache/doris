@@ -39,13 +39,15 @@
 #include "bthread/countdown_event.h"
 #include "common/config.h"
 #include "common/consts.h"
+#include "common/exception.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"       // ExecEnv
-#include "runtime/runtime_state.h"  // RuntimeState
+#include "runtime/exec_env.h"      // ExecEnv
+#include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/types.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -130,6 +132,8 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     }
     vectorized::DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+    default_values.resize(_fetch_option.desc->slots().size());
     auto merge_function = [&](const PMultiGetResponse& resp) {
         Status st(Status::create(resp.status()));
         if (!st.ok()) {
@@ -149,17 +153,19 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                 serdes = vectorized::create_data_type_serdes(_fetch_option.desc->slots());
                 for (int i = 0; i < _fetch_option.desc->slots().size(); ++i) {
                     col_uid_to_idx[_fetch_option.desc->slots()[i]->col_unique_id()] = i;
+                    default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
                 vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block);
+                        col_uid_to_idx, *output_block, default_values);
             }
             return Status::OK();
         }
         // Merge partial blocks
-        vectorized::Block partial_block(resp.block());
+        vectorized::Block partial_block;
+        RETURN_IF_ERROR(partial_block.deserialize(resp.block()));
         if (partial_block.is_empty_column()) {
             return Status::OK();
         }
@@ -188,6 +194,24 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
+bool _has_char_type(const TypeDescriptor& desc) {
+    switch (desc.type) {
+    case TYPE_CHAR:
+        return true;
+    case TYPE_ARRAY:
+    case TYPE_MAP:
+    case TYPE_STRUCT:
+        for (int idx = 0; idx < desc.children.size(); ++idx) {
+            if (_has_char_type(desc.children[idx])) {
+                return true;
+            }
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
 Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                            vectorized::Block* res_block) {
     CHECK(!_stubs.empty());
@@ -207,7 +231,10 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<PRowLocation> rows_locs;
     rows_locs.reserve(rows_locs.size());
     RETURN_IF_ERROR(_merge_rpc_results(mget_req, resps, cntls, res_block, &rows_locs));
-
+    if (rows_locs.size() != res_block->rows()) {
+        return Status::InternalError("Miss matched return row loc count {}, expected {}, input {}",
+                                     rows_locs.size(), res_block->rows(), column_row_ids->size());
+    }
     // Final sort by row_ids sequence, since row_ids is already sorted if need
     std::map<GlobalRowLoacation, size_t> positions;
     for (size_t i = 0; i < rows_locs.size(); ++i) {
@@ -217,6 +244,10 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                                rows_locs[i].ordinal_id());
         positions[grl] = i;
     };
+    // TODO remove this warning code
+    if (positions.size() < rows_locs.size()) {
+        LOG(WARNING) << "contains duplicated row entry";
+    }
     vectorized::IColumn::Permutation permutation;
     permutation.reserve(column_row_ids->size());
     for (size_t i = 0; i < column_row_ids->size(); ++i) {
@@ -224,26 +255,20 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
                 reinterpret_cast<const GlobalRowLoacation*>(column_row_ids->get_data_at(i).data);
         permutation.push_back(positions[*location]);
     }
-    size_t num_rows = res_block->rows();
+    // Check row consistency
+    RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
     for (size_t i = 0; i < res_block->columns(); ++i) {
         res_block->get_by_position(i).column =
-                res_block->get_by_position(i).column->permute(permutation, num_rows);
+                res_block->get_by_position(i).column->permute(permutation, permutation.size());
     }
     // shrink for char type
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        auto column_desc = _fetch_option.desc->slots()[i];
-        auto type_desc = column_desc->type();
-        do {
-            if (type_desc.type == TYPE_CHAR) {
-                char_type_idx.emplace_back(i);
-                break;
-            } else if (type_desc.type != TYPE_ARRAY) {
-                break;
-            }
-            // for Array<Char> or Array<Array<Char>>
-            type_desc = type_desc.children[0];
-        } while (true);
+        const auto& column_desc = _fetch_option.desc->slots()[i];
+        const TypeDescriptor& type_desc = column_desc->type();
+        if (_has_char_type(type_desc)) {
+            char_type_idx.push_back(i);
+        }
     }
     res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);

@@ -125,6 +125,11 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+
+        if (olapScanNode.getOlapTable().getVisibleIndex().size() == 1) {
+            return new BestIndexInfo(olapScanNode.getOlapTable().getBaseIndexId(), isPreAggregation, reasonOfDisable);
+        }
+
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         if (candidateIndexIdToSchema.keySet().size() == 0) {
             return null;
@@ -196,6 +201,17 @@ public class MaterializedViewSelector {
         Map<Long, List<Column>> result = Maps.newHashMap();
         for (Map.Entry<Long, MaterializedIndexMeta> entry : candidateIndexIdToMeta.entrySet()) {
             result.put(entry.getKey(), entry.getValue().getSchema());
+        }
+        // For query like `select v:a from tbl` when column v is variant type but v:a is not expicity
+        // in index, so the above check will filter all index. But we should at least choose the base
+        // index at present.TODO we should better handle it.
+        LOG.debug("result {}, has variant col {}, tuple {}", result,
+                    analyzer.getTupleDesc(scanNode.getTupleId()).hasVariantCol(),
+                    analyzer.getTupleDesc(scanNode.getTupleId()).toString());
+        if (result.keySet().size() == 0 && scanNode.getOlapTable()
+                    .getBaseSchema().stream().anyMatch(column -> column.getType().isVariantType())) {
+            LOG.info("Using base schema");
+            result.put(scanNode.getOlapTable().getBaseIndexId(), scanNode.getOlapTable().getBaseSchema());
         }
         return result;
     }
@@ -572,7 +588,8 @@ public class MaterializedViewSelector {
             candidateIndexSchema
                     .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
                             .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
-
+            LOG.debug("candidateIndexSchema {}, indexColumnNames {}, queryColumnNames {}",
+                            candidateIndexSchema, indexColumnNames, queryColumnNames);
             // Rollup index have no define expr.
             if (entry.getValue().getWhereClause() == null && indexExprs.isEmpty()
                     && !indexColumnNames.containsAll(queryColumnNames)) {

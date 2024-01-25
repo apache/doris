@@ -105,6 +105,7 @@ public class OperationType {
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
     public static final short OP_BACKEND_REPLICAS_INFO = 48;
+    public static final short OP_SET_PARTITION_VERSION = 49;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -186,6 +187,10 @@ public class OperationType {
     public static final short OP_ADD_GLOBAL_FUNCTION = 132;
     public static final short OP_DROP_GLOBAL_FUNCTION = 133;
 
+    // modify database/table/tablet/replica meta
+    public static final short OP_SET_REPLICA_VERSION = 141;
+    public static final short OP_COLOCATE_MOD_REPLICA_ALLOC = 142;
+
     // routine load 200
     public static final short OP_CREATE_ROUTINE_LOAD_JOB = 200;
     public static final short OP_CHANGE_ROUTINE_LOAD_JOB = 201;
@@ -215,11 +220,18 @@ public class OperationType {
 
     // set table replication_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
-    // set table in memory
+    // set table in memory (confusion)
+    // The actual opcode now represents
+    // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
+    // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
+    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
     public static final short OP_MODIFY_IN_MEMORY = 267;
 
     // set table default distribution bucket num
     public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
+
+    // set table status
+    public static final short OP_SET_TABLE_STATUS = 269;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;
@@ -259,24 +271,36 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    // scheduler job and task 330-350
+    @Deprecated
     public static final short OP_CREATE_MTMV_JOB = 330;
+    @Deprecated
     public static final short OP_DROP_MTMV_JOB = 331;
+    @Deprecated
     public static final short OP_CHANGE_MTMV_JOB = 332;
-
+    @Deprecated
     public static final short OP_CREATE_MTMV_TASK = 340;
+    @Deprecated
     public static final short OP_DROP_MTMV_TASK = 341;
     @Deprecated
     public static final short OP_CHANGE_MTMV_TASK = 342;
-
+    @Deprecated
     public static final short OP_ALTER_MTMV_STMT = 345;
+    public static final short OP_ADD_CONSTRAINT = 346;
+    public  static final short OP_DROP_CONSTRAINT = 347;
 
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_DB = 351;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;
+    @Deprecated
     public static final short OP_CREATE_EXTERNAL_DB = 353;
+    @Deprecated
     public static final short OP_ADD_EXTERNAL_PARTITIONS = 354;
+    @Deprecated
     public static final short OP_DROP_EXTERNAL_PARTITIONS = 355;
+    @Deprecated
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
@@ -289,6 +313,9 @@ public class OperationType {
     public static final short OP_CREATE_WORKLOAD_GROUP = 410;
     public static final short OP_DROP_WORKLOAD_GROUP = 411;
     public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+    public static final short OP_CREATE_WORKLOAD_SCHED_POLICY = 413;
+    public static final short OP_ALTER_WORKLOAD_SCHED_POLICY = 414;
+    public static final short OP_DROP_WORKLOAD_SCHED_POLICY = 415;
 
     // query stats 440 ~ 424
     public static final short OP_CLEAN_QUERY_STATS = 420;
@@ -323,6 +350,28 @@ public class OperationType {
     public static final short OP_CREATE_SCHEDULER_TASK = 453;
     public static final short OP_DELETE_SCHEDULER_TASK = 454;
 
+    public static final short OP_UPDATE_TABLE_STATS = 455;
+
+    @Deprecated
+    public static final short OP_PERSIST_AUTO_JOB = 456;
+
+    public static final short OP_DELETE_TABLE_STATS = 457;
+
+    public static final short OP_ALTER_CATALOG_COMMENT = 458;
+
+    public static final short OP_ALTER_MTMV = 459;
+
+    public static final short OP_ALTER_REPOSITORY = 460;
+
+    public static final short OP_INSERT_OVERWRITE = 461;
+
+    public static final short OP_LOG_UPDATE_ROWS = 462;
+
+    public static final short OP_LOG_NEW_PARTITION_LOADED = 463;
+
+    public static final short OP_LOG_ALTER_COLUMN_STATS = 464;
+
+    public static final short OP_ADD_META_ID_MAPPINGS = 470;
 
     /**
      * Get opcode name by op code.
@@ -345,4 +394,5 @@ public class OperationType {
         }
         return "Not Found";
     }
+
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
@@ -46,7 +45,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -196,7 +194,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
                 "maybeUseStreaming", maybeUsingStream,
@@ -295,28 +293,26 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-            AbstractPhysicalJoin builderNode, Expression src, Expression probeExpr,
+            AbstractPhysicalJoin<?, ?> builderNode, Expression src, Expression probeExpr,
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
 
         AbstractPhysicalPlan child = (AbstractPhysicalPlan) child(0);
-        boolean pushedDown = child.pushDownRuntimeFilter(context, generator, builderNode,
+        return child.pushDownRuntimeFilter(context, generator, builderNode,
                 src, probeExpr, type, buildSideNdv, exprOrder);
-        return pushedDown;
     }
 
     @Override

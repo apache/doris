@@ -46,6 +46,7 @@
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "util/mysql_global.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -81,6 +82,8 @@ public:
         return _col_uid_to_idx;
     }
 
+    const std::vector<std::string>& get_col_default_values() const { return _col_default_values; }
+
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
@@ -93,7 +96,7 @@ public:
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
@@ -101,11 +104,12 @@ private:
     int64_t _create_timestamp = 0;
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
+    std::vector<std::string> _col_default_values;
     int64_t _mem_size = 0;
 };
 
 // RowCache is a LRU cache for row store
-class RowCache {
+class RowCache : public LRUCachePolicy {
 public:
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -161,7 +165,7 @@ public:
     };
 
     // Create global instance of this class
-    static void create_global_cache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
+    static RowCache* create_global_cache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
 
     static RowCache* instance();
 
@@ -183,23 +187,24 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    static RowCache* _s_instance;
-    std::unique_ptr<Cache> _cache = nullptr;
 };
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
 class LookupConnectionCache : public LRUCachePolicy {
 public:
-    static LookupConnectionCache* instance() { return _s_instance; }
+    static LookupConnectionCache* instance() {
+        return ExecEnv::GetInstance()->get_lookup_connection_cache();
+    }
 
-    static void create_global_instance(size_t capacity);
+    static LookupConnectionCache* create_global_instance(size_t capacity);
 
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::SIZE,
-                             config::tablet_lookup_cache_clean_interval) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::SIZE, config::tablet_lookup_cache_stale_sweep_time_sec) {
+    }
 
     std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -217,20 +222,20 @@ private:
             delete cache_value;
         };
         LOG(INFO) << "Add item mem size " << item->mem_size()
-                  << ", cache_capacity: " << _cache->get_total_capacity()
-                  << ", cache_usage: " << _cache->get_usage()
-                  << ", mem_consum: " << _cache->mem_consumption();
+                  << ", cache_capacity: " << cache()->get_total_capacity()
+                  << ", cache_usage: " << cache()->get_usage()
+                  << ", mem_consum: " << cache()->mem_consumption();
         auto lru_handle =
-                _cache->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
-        _cache->release(lru_handle);
+                cache()->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
+        cache()->release(lru_handle);
     }
 
     std::shared_ptr<Reusable> get(__int128_t cache_id) {
         std::string key = encode_key(cache_id);
-        auto lru_handle = _cache->lookup(key);
+        auto lru_handle = cache()->lookup(key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
             value->last_visit_time = UnixMillis();
             return value->item;
         }
@@ -238,10 +243,8 @@ private:
     }
 
     struct CacheValue : public LRUCacheValueBase {
-        std::shared_ptr<Reusable> item = nullptr;
+        std::shared_ptr<Reusable> item;
     };
-
-    static LookupConnectionCache* _s_instance;
 };
 
 struct Metrics {
@@ -282,7 +285,7 @@ private:
 
     static void release_rowset(RowsetSharedPtr* r) {
         if (r && *r) {
-            VLOG_DEBUG << "release rowset " << (*r)->unique_id();
+            VLOG_DEBUG << "release rowset " << (*r)->rowset_id();
             (*r)->release();
         }
         delete r;
@@ -299,7 +302,7 @@ private:
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
     };
 
-    PTabletKeyLookupResponse* _response;
+    PTabletKeyLookupResponse* _response = nullptr;
     TabletSharedPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;

@@ -25,19 +25,24 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.ColumnRefExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.LambdaFunctionCallExpr;
+import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
@@ -47,8 +52,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -82,6 +87,9 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -89,14 +97,16 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -169,38 +179,58 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    @Override
-    public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        String invertedIndexParser = null;
-        String invertedIndexParserMode = null;
-        SlotRef left = (SlotRef) match.left().accept(this, context);
-        SlotDescriptor slotDesc = left.getDesc();
+    private OlapTable getOlapTableFromSlotDesc(SlotDescriptor slotDesc) {
         if (slotDesc != null && slotDesc.isScanSlot()) {
             TupleDescriptor slotParent = slotDesc.getParent();
-            OlapTable olapTbl = (OlapTable) slotParent.getTable();
-            if (olapTbl == null) {
-                throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
-            }
-            List<Index> indexes = olapTbl.getIndexes();
+            return (OlapTable) slotParent.getTable();
+        }
+        return null;
+    }
+
+    private OlapTable getOlapTableDirectly(SlotRef left) {
+        if (left.getTableDirect() instanceof OlapTable) {
+            return (OlapTable) left.getTableDirect();
+        }
+        return null;
+    }
+
+    @Override
+    public Expr visitMatch(Match match, PlanTranslatorContext context) {
+        String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
+        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+        Map<String, String> invertedIndexCharFilter = new HashMap<>();
+        SlotRef left = (SlotRef) match.left().accept(this, context);
+        OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
+                                    .orElse(getOlapTableDirectly(left));
+
+        if (olapTbl == null) {
+            throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
+        }
+
+        List<Index> indexes = olapTbl.getIndexes();
+        if (indexes != null) {
             for (Index index : indexes) {
                 if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
                     List<String> columns = index.getColumns();
-                    if (left.getColumnName().equals(columns.get(0))) {
+                    if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
                         invertedIndexParser = index.getInvertedIndexParser();
                         invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        invertedIndexCharFilter = index.getInvertedIndexCharFilter();
                         break;
                     }
                 }
             }
         }
+
         MatchPredicate.Operator op = match.op();
         return new MatchPredicate(op,
-                match.left().accept(this, context),
-                match.right().accept(this, context),
-                match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT,
-                invertedIndexParser,
-                invertedIndexParserMode);
+            match.left().accept(this, context),
+            match.right().accept(this, context),
+            match.getDataType().toCatalogDataType(),
+            NullableMode.DEPEND_ON_ARGUMENT,
+            invertedIndexParser,
+            invertedIndexParserMode,
+            invertedIndexCharFilter);
     }
 
     @Override
@@ -246,6 +276,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitArrayItemSlot(ArrayItemReference.ArrayItemSlot arrayItemSlot, PlanTranslatorContext context) {
+        return context.findColumnRef(arrayItemSlot.getExprId());
+    }
+
+    @Override
+    public Expr visitArrayItemReference(ArrayItemReference arrayItemReference, PlanTranslatorContext context) {
+        return context.findColumnRef(arrayItemReference.getExprId());
+    }
+
+    @Override
     public Expr visitMarkJoinReference(MarkJoinSlotReference markJoinSlotReference, PlanTranslatorContext context) {
         return markJoinSlotReference.isExistsHasAgg()
                 ? new BoolLiteral(true) : context.findSlotRef(markJoinSlotReference.getExprId());
@@ -261,11 +301,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.analysis.NullLiteral nullLit = new org.apache.doris.analysis.NullLiteral();
         nullLit.setType(nullLiteral.getDataType().toCatalogDataType());
         return nullLit;
-    }
-
-    @Override
-    public Expr visitBetween(Between between, PlanTranslatorContext context) {
-        throw new RuntimeException("Unexpected invocation");
     }
 
     @Override
@@ -365,6 +400,57 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitLambda(Lambda lambda, PlanTranslatorContext context) {
+        Expr func = lambda.getLambdaFunction().accept(this, context);
+        List<Expr> arguments = lambda.getLambdaArguments().stream().map(e -> e.accept(this, context))
+                .collect(Collectors.toList());
+        return new LambdaFunctionExpr(func, lambda.getLambdaArgumentNames(), arguments);
+    }
+
+    @Override
+    public Expr visitArrayMap(ArrayMap arrayMap, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arrayMap.child(0);
+        List<Expr> arguments = new ArrayList<>(arrayMap.children().size());
+        arguments.add(null);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
+
+            ColumnRefExpr column = new ColumnRefExpr();
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setNullable(true);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+            columnId += 1;
+        }
+
+        List<Type> argTypes = arrayMap.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arrayMap.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(arrayMap.getName()), argTypes,
+                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                true, true, nullableMode);
+
+        // create catalog FunctionCallExpr without analyze again
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+    }
+
+    @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
         List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
@@ -372,7 +458,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         List<Type> argTypes = function.getArguments().stream()
                 .map(Expression::getDataType)
-                .map(AbstractDataType::toCatalogDataType)
+                .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
 
         NullableMode nullableMode = function.nullable()
@@ -385,6 +471,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
+        if (function instanceof HighOrderFunction) {
+            return new LambdaFunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
+        }
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
     }
 
@@ -412,7 +501,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
         List<Type> argTypes = function.expectedInputTypes().stream()
-                .map(AbstractDataType::toCatalogDataType)
+                .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
 
         NullableMode nullableMode = function.nullable()

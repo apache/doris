@@ -39,6 +39,7 @@
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
 #include "util/spinlock.h"
@@ -90,7 +91,6 @@ struct UserFunctionCacheEntry {
     // used to lookup a symbol
     void* lib_handle = nullptr;
 
-    SpinLock map_lock;
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
 
@@ -122,8 +122,7 @@ UserFunctionCache::~UserFunctionCache() {
 }
 
 UserFunctionCache* UserFunctionCache::instance() {
-    static UserFunctionCache s_cache;
-    return &s_cache;
+    return ExecEnv::GetInstance()->user_function_cache();
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
@@ -151,7 +150,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
                 file);
     }
 
-    std::vector<std::string> split_parts = strings::Split(file, ".");
+    std::vector<std::string> split_parts = _split_string_by_checksum(file);
     if (split_parts.size() != 3 && split_parts.size() != 4) {
         return Status::InternalError(
                 "user function's name should be function_id.checksum[.file_name].file_type, now "
@@ -198,14 +197,6 @@ Status UserFunctionCache::_load_cached_lib() {
         RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
     }
     return Status::OK();
-}
-
-std::string get_real_symbol(const std::string& symbol) {
-    static std::regex rx1("8palo_udf");
-    std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
-    static std::regex rx2("4palo");
-    std::string str2 = std::regex_replace(str1, rx2, "5doris");
-    return str2;
 }
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
@@ -379,4 +370,27 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
     return Status::OK();
 }
 
+std::vector<std::string> UserFunctionCache::_split_string_by_checksum(const std::string& file) {
+    std::vector<std::string> result;
+
+    // Find the first dot from the start
+    size_t firstDot = file.find('.');
+    if (firstDot == std::string::npos) return {};
+
+    // Find the second dot starting from the first dot's position
+    size_t secondDot = file.find('.', firstDot + 1);
+    if (secondDot == std::string::npos) return {};
+
+    // Find the last dot from the end
+    size_t lastDot = file.rfind('.');
+    if (lastDot == std::string::npos || lastDot <= secondDot) return {};
+
+    // Split based on these dots
+    result.push_back(file.substr(0, firstDot));
+    result.push_back(file.substr(firstDot + 1, secondDot - firstDot - 1));
+    result.push_back(file.substr(secondDot + 1, lastDot - secondDot - 1));
+    result.push_back(file.substr(lastDot + 1));
+
+    return result;
+}
 } // namespace doris

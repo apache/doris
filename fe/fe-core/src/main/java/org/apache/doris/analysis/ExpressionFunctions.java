@@ -51,14 +51,9 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
-    private static final Set<String> unfixedFn = ImmutableSet.of(
-            "now",
-            "current_time",
-            "current_date",
-            "utc_timestamp",
+    public static final Set<String> unfixedFn = ImmutableSet.of(
             "uuid",
-            "random",
-            "unix_timestamp"
+            "random"
     );
 
     private ExpressionFunctions() {
@@ -77,6 +72,9 @@ public enum ExpressionFunctions {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof TimestampArithmeticExpr) {
             Function fn = constExpr.getFn();
+            if (fn == null) {
+                return constExpr;
+            }
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
                     && !ConnectContext.get().getSessionVariable().isEnableFoldNondeterministicFn()
@@ -120,6 +118,9 @@ public enum ExpressionFunctions {
                         try {
                             ((DateLiteral) dateLiteral).checkValueValid();
                         } catch (AnalysisException e) {
+                            if (ConnectContext.get() != null) {
+                                ConnectContext.get().getState().reset();
+                            }
                             return NullLiteral.create(dateLiteral.getType());
                         }
                         return dateLiteral;
@@ -127,6 +128,9 @@ public enum ExpressionFunctions {
                         return invoker.invoke(constExpr.getChildrenWithoutCast());
                     }
                 } catch (AnalysisException e) {
+                    if (ConnectContext.get() != null) {
+                        ConnectContext.get().getState().reset();
+                    }
                     LOG.debug("failed to invoke", e);
                     return constExpr;
                 }
@@ -274,8 +278,10 @@ public enum ExpressionFunctions {
             LiteralExpr[] exprs;
             if (argType.isStringType()) {
                 exprs = new StringLiteral[args.size()];
-            } else if (argType.isFixedPointType()) {
+            } else if (argType.isIntegerType()) {
                 exprs = new IntLiteral[args.size()];
+            } else if (argType.isLargeIntType()) {
+                exprs = new LargeIntLiteral[args.size()];
             } else if (argType.isDateType()) {
                 exprs = new DateLiteral[args.size()];
             } else if (argType.isDecimalV2() || argType.isDecimalV3()) {

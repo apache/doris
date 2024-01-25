@@ -34,17 +34,6 @@
 #undef bshuf_compress_lz4
 #undef bshuf_decompress_lz4
 
-// Include the bitshuffle header again, but this time importing the
-// AVX512-compiled symbols by defining some macros.
-#undef BITSHUFFLE_H
-#define bshuf_compress_lz4_bound bshuf_compress_lz4_bound_avx512
-#define bshuf_compress_lz4 bshuf_compress_lz4_avx512
-#define bshuf_decompress_lz4 bshuf_decompress_lz4_avx512
-#include <bitshuffle/bitshuffle.h> // NOLINT(*)
-#undef bshuf_compress_lz4_bound
-#undef bshuf_compress_lz4
-#undef bshuf_decompress_lz4
-
 using base::CPU;
 
 namespace doris {
@@ -65,11 +54,7 @@ decltype(&bshuf_decompress_lz4) g_bshuf_decompress_lz4;
 // the cost of a 'std::once' call.
 __attribute__((constructor)) void SelectBitshuffleFunctions() {
 #if (defined(__i386) || defined(__x86_64__))
-    if (CPU().has_avx512()) {
-        g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx512;
-        g_bshuf_compress_lz4 = bshuf_compress_lz4_avx512;
-        g_bshuf_decompress_lz4 = bshuf_decompress_lz4_avx512;
-    } else if (CPU().has_avx2()) {
+    if (CPU().has_avx2()) {
         g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx2;
         g_bshuf_compress_lz4 = bshuf_compress_lz4_avx2;
         g_bshuf_decompress_lz4 = bshuf_decompress_lz4_avx2;

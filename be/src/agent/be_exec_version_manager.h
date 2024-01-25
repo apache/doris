@@ -56,10 +56,20 @@ private:
  *    a. function month/day/hour/minute/second's return type is changed to smaller type.
  *    b. in order to solve agg of sum/count is not compatibility during the upgrade process
  *    c. change the string hash method in runtime filter
- *    d. elt funciton return type change to nullable(string)
+ *    d. elt function return type change to nullable(string)
  *    e. add repeat_max_num in repeat function
+ * 3: start from doris 2.1
+ *    a. aggregation function do not serialize bitmap to string.
+ *    b. array contains/position/countequal function return nullable in less situations.
+ *    c. cleared old version of Version 2.
+ *    d. unix_timestamp function support timestamp with float for datetimev2, and change nullable mode.
+ *    e. change shuffle serialize/deserialize way 
+ *    f. the right function outputs NULL when the function contains NULL, substr function returns empty if start > str.length.
 */
-inline const int BeExecVersionManager::max_be_exec_version = 2;
-inline const int BeExecVersionManager::min_be_exec_version = 0;
+constexpr inline int BeExecVersionManager::max_be_exec_version = 3;
+constexpr inline int BeExecVersionManager::min_be_exec_version = 0;
+
+/// functional
+constexpr inline int USE_NEW_SERDE = 3; // release on DORIS version 2.1
 
 } // namespace doris

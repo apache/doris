@@ -20,23 +20,41 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.springframework.util.CollectionUtils;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** ArrayLiteral */
+/**
+ * ArrayLiteral
+ */
 public class ArrayLiteral extends Literal {
+
     private final List<Literal> items;
 
+    /**
+     * construct array literal
+     */
     public ArrayLiteral(List<Literal> items) {
-        super(computeDataType(items));
-        this.items = ImmutableList.copyOf(items);
+        this(items, ArrayType.of(CollectionUtils.isEmpty(items) ? NullType.INSTANCE : items.get(0).getDataType()));
+    }
+
+    /**
+     * when items is empty, we could not get dataType from items, so we need pass dataType explicitly.
+     */
+    public ArrayLiteral(List<Literal> items, DataType dataType) {
+        super(dataType);
+        Preconditions.checkArgument(dataType instanceof ArrayType,
+                "dataType should be ArrayType, but we meet %s", dataType);
+        this.items = ImmutableList.copyOf(Objects.requireNonNull(items, "items should not null"));
     }
 
     @Override
@@ -46,43 +64,33 @@ public class ArrayLiteral extends Literal {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        if (items.isEmpty()) {
-            return new org.apache.doris.analysis.ArrayLiteral();
+        LiteralExpr[] itemExprs = items.stream()
+                .map(Literal::toLegacyLiteral)
+                .toArray(LiteralExpr[]::new);
+        return new org.apache.doris.analysis.ArrayLiteral(getDataType().toCatalogDataType(), itemExprs);
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        } else if (targetType instanceof ArrayType) {
+            // we should pass dataType to constructor because arguments maybe empty
+            return new ArrayLiteral(items.stream()
+                    .map(i -> i.uncheckedCastTo(((ArrayType) targetType).getItemType()))
+                    .map(Literal.class::cast)
+                    .collect(ImmutableList.toImmutableList()), targetType);
         } else {
-            LiteralExpr[] itemExprs = items.stream()
-                    .map(Literal::toLegacyLiteral)
-                    .toArray(LiteralExpr[]::new);
-            try {
-                return new org.apache.doris.analysis.ArrayLiteral(itemExprs);
-            } catch (Throwable t) {
-                throw new AnalysisException(t.getMessage(), t);
-            }
+            return super.uncheckedCastTo(targetType);
         }
-    }
-
-    @Override
-    protected Expression uncheckedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(items.stream().toArray(Expression[]::new)).castTo(targetType);
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public Expression checkedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(
-                    items.stream().toArray(Expression[]::new)).checkedCastTo(targetType);
-        }
-        return super.checkedCastTo(targetType);
     }
 
     @Override
     public String toString() {
         String items = this.items.stream()
-                .map(item -> item.toString())
+                .map(Literal::toString)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
@@ -90,18 +98,11 @@ public class ArrayLiteral extends Literal {
         String items = this.items.stream()
                 .map(Literal::toSql)
                 .collect(Collectors.joining(", "));
-        return "array(" + items + ")";
+        return "[" + items + "]";
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitArrayLiteral(this, context);
-    }
-
-    private static DataType computeDataType(List<Literal> items) {
-        if (items.isEmpty()) {
-            return ArrayType.SYSTEM_DEFAULT;
-        }
-        return new Array(items.toArray(new Expression[0])).getDataType();
     }
 }

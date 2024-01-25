@@ -29,6 +29,7 @@ import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterDatabaseMessage;
 
+import java.security.SecureRandom;
 import java.util.List;
 
 /**
@@ -41,13 +42,15 @@ public class AlterDatabaseEvent extends MetastoreEvent {
 
     // true if this alter event was due to a rename operation
     private final boolean isRename;
+    private final String dbNameAfter;
 
     // for test
     public AlterDatabaseEvent(long eventId, String catalogName, String dbName, boolean isRename) {
-        super(eventId, catalogName, dbName, null);
+        super(eventId, catalogName, dbName, null, MetastoreEventType.ALTER_DATABASE);
         this.isRename = isRename;
         this.dbBefore = null;
         this.dbAfter = null;
+        this.dbNameAfter = isRename ? (dbName + new SecureRandom().nextInt(10)) : dbName;
     }
 
     private AlterDatabaseEvent(NotificationEvent event,
@@ -61,6 +64,7 @@ public class AlterDatabaseEvent extends MetastoreEvent {
                                 .getAlterDatabaseMessage(event.getMessage());
             dbBefore = Preconditions.checkNotNull(alterDatabaseMessage.getDbObjBefore());
             dbAfter = Preconditions.checkNotNull(alterDatabaseMessage.getDbObjAfter());
+            dbNameAfter = dbAfter.getName();
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Unable to parse the alter database message"), e);
@@ -95,6 +99,10 @@ public class AlterDatabaseEvent extends MetastoreEvent {
 
     public boolean isRename() {
         return isRename;
+    }
+
+    public String getDbNameAfter() {
+        return dbNameAfter;
     }
 
     @Override

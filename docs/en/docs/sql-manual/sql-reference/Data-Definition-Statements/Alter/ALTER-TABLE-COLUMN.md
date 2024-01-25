@@ -198,6 +198,7 @@ Note: Whether you modify the key column or the value column, you need to declare
 ALTER TABLE example_db.my_table
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ```
+Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
 
 9. Reorder the columns in example_rollup_index (set the original column order as: k1,k2,k3,v1,v2)
 

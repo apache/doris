@@ -1,0 +1,1 @@
+SELECT cast(repo:name as string), count() FROM github_events WHERE type = 'WatchEvent' AND cast(repo:name as string) LIKE '%_/_%' GROUP BY cast(repo:name as string) ORDER BY length(cast(repo:name as string)) ASC, cast(repo:name as string) LIMIT 50

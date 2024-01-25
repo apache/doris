@@ -81,12 +81,14 @@ const ColumnConst* check_and_get_column_const_string_or_fixedstring(const IColum
 
 /// Transform anything to Field.
 template <typename T>
-std::enable_if_t<!IsDecimalNumber<T>, Field> to_field(const T& x) {
+    requires(!IsDecimalNumber<T>)
+Field to_field(const T& x) {
     return Field(NearestFieldType<T>(x));
 }
 
 template <typename T>
-std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 scale) {
+    requires IsDecimalNumber<T>
+Field to_field(const T& x, UInt32 scale) {
     return Field(NearestFieldType<T>(x, scale));
 }
 
@@ -95,14 +97,14 @@ Columns convert_const_tuple_to_constant_elements(const ColumnConst& column);
 /// Returns the copy of a tmp block and temp args order same as args
 /// in which only args column each column specified in the "arguments"
 /// parameter is replaced with its respective nested column if it is nullable.
-std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
-                                                                  const ColumnNumbers& args,
-                                                                  const bool need_check_same);
+std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
+        const Block& block, const ColumnNumbers& args, const bool need_check_same,
+        bool need_replace_null_data_to_default = false);
 
 // Same as above and return the new_res loc in tuple
-std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
-                                                                          const ColumnNumbers& args,
-                                                                          size_t result);
+std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(
+        const Block& block, const ColumnNumbers& args, size_t result,
+        bool need_replace_null_data_to_default = false);
 
 /// Checks argument type at specified index with predicate.
 /// throws if there is no argument at specified index or if predicate returns false.

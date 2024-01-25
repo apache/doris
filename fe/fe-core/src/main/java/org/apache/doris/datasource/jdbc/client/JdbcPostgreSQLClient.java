@@ -35,7 +35,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"};
+        return new String[] {"TABLE", "PARTITIONED TABLE", "VIEW", "MATERIALIZED VIEW", "FOREIGN TABLE"};
     }
 
     @Override
@@ -101,10 +101,9 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "varbit":
             case "uuid":
             case "bytea":
-                return ScalarType.createStringType();
             case "json":
             case "jsonb":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             default:
                 return Type.UNSUPPORTED;
         }

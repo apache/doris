@@ -17,25 +17,29 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Use nested loop algorithm to do join.
@@ -80,7 +84,7 @@ public class PhysicalNestedLoopJoin<
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 // nested loop join ignores join hints.
-                JoinHint.NONE, markJoinSlotReference,
+                new DistributeHint(DistributeType.NONE), markJoinSlotReference,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -103,7 +107,7 @@ public class PhysicalNestedLoopJoin<
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 // nested loop join ignores join hints.
-                JoinHint.NONE, markJoinSlotReference,
+                new DistributeHint(DistributeType.NONE), markJoinSlotReference,
                 groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
     }
 
@@ -112,17 +116,17 @@ public class PhysicalNestedLoopJoin<
         return visitor.visitPhysicalNestedLoopJoin(this, context);
     }
 
-    @Override
-    public String toString() {
-        // TODO: Maybe we could pull up this to the abstract class in the future.
-        return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdAsString(),
-                "type", joinType,
-                "otherJoinCondition", otherJoinConjuncts,
-                "isMarkJoin", markJoinSlotReference.isPresent(),
-                "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
-                "stats", statistics
-        );
-    }
+    // @Override
+    // public String toString() {
+    //     // TODO: Maybe we could pull up this to the abstract class in the future.
+    //     return Utils.toSqlString("PhysicalNestedLoopJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+    //             "type", joinType,
+    //             "otherJoinCondition", otherJoinConjuncts,
+    //             "isMarkJoin", markJoinSlotReference.isPresent(),
+    //             "markJoinSlotReference", markJoinSlotReference.isPresent() ? markJoinSlotReference.get() : "empty",
+    //             "stats", statistics
+    //     );
+    // }
 
     @Override
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
@@ -131,7 +135,7 @@ public class PhysicalNestedLoopJoin<
                 hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
         if (groupExpression.isPresent()) {
-            newJoin.setMutableState("group", groupExpression.get().getOwnerGroup().getGroupId().asInt());
+            newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
         return newJoin;
     }
@@ -171,6 +175,11 @@ public class PhysicalNestedLoopJoin<
 
     public boolean isBitMapRuntimeFilterConditionsEmpty() {
         return bitMapRuntimeFilterConditions.isEmpty();
+    }
+
+    public Set<Slot> getConditionSlot() {
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override

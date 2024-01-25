@@ -36,6 +36,24 @@ public class ListPartitionDesc extends PartitionDesc {
                              List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
         super(partitionColNames, allPartitionDescs);
         type = PartitionType.LIST;
+        this.isAutoCreatePartitions = false;
+    }
+
+    public ListPartitionDesc(ArrayList<Expr> exprs, List<String> partitionColNames,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        if (exprs != null) {
+            this.partitionExprs = exprs;
+        }
+        this.partitionColNames = partitionColNames;
+        this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
+        this.type = PartitionType.LIST;
+        this.isAutoCreatePartitions = true;
+    }
+
+    public static ListPartitionDesc createListPartitionDesc(ArrayList<Expr> exprs,
+            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
+        List<String> colNames = getColNamesFromExpr(exprs, true);
+        return new ListPartitionDesc(exprs, colNames, allPartitionDescs);
     }
 
     @Override
@@ -100,7 +118,8 @@ public class ListPartitionDesc extends PartitionDesc {
             }
         }
 
-        ListPartitionInfo listPartitionInfo = new ListPartitionInfo(partitionColumns);
+        ListPartitionInfo listPartitionInfo = new ListPartitionInfo(this.isAutoCreatePartitions, this.partitionExprs,
+                partitionColumns);
         for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
             listPartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);

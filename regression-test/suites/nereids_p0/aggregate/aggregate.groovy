@@ -314,4 +314,26 @@ suite("aggregate") {
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """
+
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k1 > 0"
+    sql "select k1 as k, k1 from tempbaseall group by k1 having k > 0"
+    
+    // remove distinct for max, min, any_value
+    def plan = sql(
+            """explain optimized plan SELECT max(distinct c_bigint), 
+            min(distinct c_bigint), 
+            any_value(distinct c_bigint)
+            FROM regression_test_nereids_p0_aggregate.${tableName};"""
+        ).toString()
+    assertTrue(plan.contains("max(c_bigint"))
+    assertTrue(plan.contains("min(c_bigint"))
+    assertTrue(plan.contains("any_value(c_bigint"))
+
+    test {
+        sql """
+              SELECT k1, k2 FROM tempbaseall
+              GROUP BY k1;
+            """
+        exception "java.sql.SQLException: errCode = 2, detailMessage = k2 not in agg's output"
+    }
 }

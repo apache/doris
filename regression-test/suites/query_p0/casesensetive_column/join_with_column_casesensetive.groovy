@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("join_with_column_casesensetive") {
+suite("join_with_column_casesensetive", "arrow_flight_sql") {
     def tables=["ad_order_data_v1","ad_order_data"]
 
     for (String table in tables) {

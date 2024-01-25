@@ -18,6 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_json_load_and_function", "p0") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     // define a sql table
     def testTable = "tbl_test_json"
     def dataFile = "test_json.csv"
@@ -95,6 +99,8 @@ suite("test_json_load_and_function", "p0") {
         }
     }
 
+    sql """ sync; """
+
     // check result
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
@@ -102,6 +108,12 @@ suite("test_json_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
     sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
     sql """INSERT INTO ${testTable} VALUES(28, '{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
+    // int64 value
+    sql """INSERT INTO ${testTable} VALUES(29, '12524337771678448270')"""
+    // int64 min value
+    sql """INSERT INTO ${testTable} VALUES(30, '-9223372036854775808')"""
+    // int64 max value
+    sql """INSERT INTO ${testTable} VALUES(31, '18446744073709551615')"""
 
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
@@ -146,6 +158,7 @@ suite("test_json_load_and_function", "p0") {
     qt_select "SELECT * FROM ${testTable} ORDER BY id"
 
     // json_extract
+    qt_select "SELECT json_extract( '{\"k1\\\\\": \"v1\"}', \"\$.k1\\\\\")"
     qt_select "SELECT id, j, jsonb_extract(j, '\$') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.*') FROM ${testTable} ORDER BY id"
 
@@ -247,6 +260,39 @@ suite("test_json_load_and_function", "p0") {
     qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, json_extract_bigint(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+
+
+    // json_extract_largeint
+    qt_json_extract_largeint_select "SELECT id, j, json_extract_largeint(j, '\$') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.k1') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.k2') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[5]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[6]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$[10]') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1') FROM ${testTable} ORDER BY id"
+
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[3]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[4]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[10]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-2]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[last-10]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-0]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-1]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, json_extract_largeint(j, '\$.a1[-10]') FROM ${testTable} ORDER BY id"
 
 
     // json_extract_double

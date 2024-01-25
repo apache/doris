@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -35,12 +37,12 @@ public class ExternalFileTableValuedFunctionTest {
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(ExternalFileTableValuedFunction.CSV_SCHEMA,
+        properties.put(FileFormatConstants.PROP_CSV_SCHEMA,
                 "k1:int;k2:bigint;k3:float;k4:double;k5:smallint;k6:tinyint;k7:bool;"
                         + "k8:char(10);k9:varchar(20);k10:date;k11:datetime;k12:decimal(10,2)");
         List<Column> csvSchema = Lists.newArrayList();
         try {
-            ExternalFileTableValuedFunction.parseCsvSchema(csvSchema, properties);
+            FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
             Assert.fail();
         } catch (AnalysisException e) {
             e.printStackTrace();
@@ -48,11 +50,11 @@ public class ExternalFileTableValuedFunctionTest {
         }
 
         csvSchema.clear();
-        properties.put(ExternalFileTableValuedFunction.CSV_SCHEMA,
+        properties.put(FileFormatConstants.PROP_CSV_SCHEMA,
                 "k1:int;k2:bigint;k3:float;k4:double;k5:smallint;k6:tinyint;k7:boolean;"
                         + "k8:string;k9:date;k10:datetime;k11:decimal(10, 2);k12:decimal( 38,10); k13:datetime(5)");
         try {
-            ExternalFileTableValuedFunction.parseCsvSchema(csvSchema, properties);
+            FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
             Assert.assertEquals(13, csvSchema.size());
             Column decimalCol = csvSchema.get(10);
             Assert.assertEquals(10, decimalCol.getPrecision());

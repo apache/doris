@@ -19,22 +19,30 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -42,9 +50,14 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -60,11 +73,18 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      *             ▼
      * requestPropertyToChildren
      */
+    private final ConnectContext connectContext;
     private final PhysicalProperties requestPropertyFromParent;
     private List<List<PhysicalProperties>> requestPropertyToChildren;
 
-    public RequestPropertyDeriver(JobContext context) {
+    public RequestPropertyDeriver(ConnectContext connectContext, JobContext context) {
+        this.connectContext = connectContext;
         this.requestPropertyFromParent = context.getRequiredProperties();
+    }
+
+    public RequestPropertyDeriver(ConnectContext connectContext, PhysicalProperties requestPropertyFromParent) {
+        this.connectContext = connectContext;
+        this.requestPropertyFromParent = requestPropertyFromParent;
     }
 
     /**
@@ -72,7 +92,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      */
     public List<List<PhysicalProperties>> getRequestChildrenPropertyList(GroupExpression groupExpression) {
         requestPropertyToChildren = Lists.newArrayList();
-        groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+        groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
         return requestPropertyToChildren;
     }
 
@@ -101,8 +121,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                && !ConnectContext.get().getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
@@ -143,21 +162,25 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        JoinHint hint = hashJoin.getHint();
-        if (hint == JoinHint.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
+        DistributeHint hint = hashJoin.getDistributeHint();
+        if (hint.distributeType == DistributeType.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
             addBroadcastJoinRequestProperty();
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
-        if (hint == JoinHint.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
+        if (hint.distributeType == DistributeType.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join
         if (JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
         }
+
         // for broadcast join
-        if (JoinUtils.couldBroadcast(hashJoin)) {
+        if (JoinUtils.couldBroadcast(hashJoin)
+                && (JoinUtils.checkBroadcastJoinStats(hashJoin) || requestPropertyToChildren.isEmpty())) {
             addBroadcastJoinRequestProperty();
         }
         return null;
@@ -191,12 +214,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         // intersect and except need do distinct, so we must do distribution on it.
         DistributionSpec distributionRequestFromParent = requestPropertyFromParent.getDistributionSpec();
         if (distributionRequestFromParent instanceof DistributionSpecHash) {
+            // shuffle according to parent require
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
             addRequestPropertyToChildren(createHashRequestAccordingToParent(
                     setOperation, distributionSpecHash, context));
         } else {
-            addRequestPropertyToChildren(setOperation.children().stream()
-                    .map(Plan::getOutputExprIds)
+            // shuffle all column
+            // TODO: for wide table, may be we should add a upper limit of shuffle columns
+            addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
+                    .map(childOutputs -> childOutputs.stream()
+                            .map(SlotReference::getExprId)
+                            .collect(ImmutableList.toImmutableList()))
                     .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
                     .collect(Collectors.toList()));
         }
@@ -223,7 +251,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             // current be could not run const expr on appropriate node,
             // so if we have constant exprs on union, the output of union always any
-            // then any request on children is useless.
+            // then any other request on children is useless.
             for (int i = context.arity(); i > 0; --i) {
                 requiredPropertyList.add(PhysicalProperties.ANY);
             }
@@ -243,17 +271,76 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN, PlanContext context) {
+        if (partitionTopN.getPhase().isTwoPhaseLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal()
+                            || partitionTopN.getPhase().isOnePhaseGlobal(),
+                    "partition topn phase is not two phase global or one phase global");
+            PhysicalProperties properties = PhysicalProperties.createHash(partitionTopN.getPartitionKeys(),
+                    ShuffleType.REQUIRE);
+            addRequestPropertyToChildren(properties);
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (!(parentDist instanceof DistributionSpecHash)) {
+            return super.visitPhysicalProject(project, context);
+        }
+        DistributionSpecHash hashDist = (DistributionSpecHash) parentDist;
+        Map<ExprId, NamedExpression> exprIdToProjection = project.getProjects().stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, n -> n, (n1, n2) -> n1));
+        Map<ExprId, ExprId> exprIdMap = Maps.newHashMap();
+        for (ExprId exprId : hashDist.getExprIdToEquivalenceSet().keySet()) {
+            if (!exprIdToProjection.containsKey(exprId)) {
+                return super.visitPhysicalProject(project, context);
+            }
+            NamedExpression projection = exprIdToProjection.get(exprId);
+            if (projection instanceof Alias) {
+                if (((Alias) projection).child() instanceof SlotReference) {
+                    exprIdMap.put(exprId, ((SlotReference) ((Alias) projection).child()).getExprId());
+                } else {
+                    return super.visitPhysicalProject(project, context);
+                }
+            } else if (projection instanceof SlotReference) {
+                exprIdMap.put(exprId, exprId);
+            } else {
+                return super.visitPhysicalProject(project, context);
+            }
+        }
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(new PhysicalProperties(
+                hashDist.project(exprIdMap, ImmutableSet.of(), DistributionSpecAny.INSTANCE)));
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (!(parentDist instanceof DistributionSpecHash)) {
+            return super.visitPhysicalFilter(filter, context);
+        }
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        addRequestPropertyToChildren(new PhysicalProperties(parentDist));
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
         addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
     private List<PhysicalProperties> createHashRequestAccordingToParent(
-            Plan plan, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
+            SetOperation setOperation, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         int[] outputOffsets = new int[distributionRequestFromParent.getOrderedShuffledColumns().size()];
-        List<Slot> setOperationOutputs = plan.getOutput();
+        List<NamedExpression> setOperationOutputs = setOperation.getOutputs();
         // get the offset of bucketed columns of set operation
         for (int i = 0; i < setOperationOutputs.size(); i++) {
             int offset = distributionRequestFromParent.getExprIdToEquivalenceSet()
@@ -264,13 +351,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         // use the offset to generate children's request
         for (int i = 0; i < context.arity(); i++) {
-            List<Slot> childOutput = plan.child(i).getOutput();
-            List<ExprId> childRequest = Lists.newArrayList();
+            List<SlotReference> childOutput = setOperation.getRegularChildOutput(i);
+            ImmutableList.Builder<ExprId> childRequest = ImmutableList.builder();
             for (int offset : outputOffsets) {
                 childRequest.add(childOutput.get(offset).getExprId());
             }
             requiredPropertyList.add(PhysicalProperties.createHash(
-                    childRequest, distributionRequestFromParent.getShuffleType()));
+                    childRequest.build(), distributionRequestFromParent.getShuffleType()));
         }
         return requiredPropertyList;
     }

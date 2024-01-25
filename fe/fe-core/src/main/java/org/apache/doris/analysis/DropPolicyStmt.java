@@ -27,11 +27,12 @@ import org.apache.doris.qe.ConnectContext;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Drop policy statement.
  * syntax:
- * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user]
+ * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user|ROLE role]
  **/
 @AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
@@ -51,6 +52,9 @@ public class DropPolicyStmt extends DdlStmt {
     @Getter
     private final UserIdentity user;
 
+    @Getter
+    private final String roleName;
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -61,7 +65,7 @@ public class DropPolicyStmt extends DdlStmt {
             default:
                 tableName.analyze(analyzer);
                 if (user != null) {
-                    user.analyze(analyzer.getClusterName());
+                    user.analyze();
                 }
         }
         // check auth
@@ -86,6 +90,9 @@ public class DropPolicyStmt extends DdlStmt {
                 sb.append(" ON ").append(tableName.toSql());
                 if (user != null) {
                     sb.append(" FOR ").append(user.getQualifiedUser());
+                }
+                if (StringUtils.isEmpty(roleName)) {
+                    sb.append(" FOR ROLE ").append(roleName);
                 }
         }
         return sb.toString();

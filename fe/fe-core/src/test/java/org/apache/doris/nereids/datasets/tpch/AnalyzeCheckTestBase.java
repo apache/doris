@@ -36,7 +36,7 @@ public abstract class AnalyzeCheckTestBase extends TestWithFeService {
     }
 
     protected void checkAnalyze(String sql) {
-        LogicalPlan analyzed = analyze(sql);
+        LogicalPlan analyzed = analyzeAndGetLogicalPlanByNereids(sql);
         Assertions.assertTrue(checkBound(analyzed));
     }
 

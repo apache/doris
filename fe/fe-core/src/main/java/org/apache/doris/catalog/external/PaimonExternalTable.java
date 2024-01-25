@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ExternalAnalysisTask;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -31,8 +34,10 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.MapType;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,7 +46,6 @@ public class PaimonExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
 
-    public static final int PAIMON_DATETIME_SCALE_MS = 3;
     private Table originTable = null;
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
@@ -55,19 +59,21 @@ public class PaimonExternalTable extends ExternalTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
+            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
+            schemaUpdateTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }
 
     public Table getOriginTable() {
-        if (originTable == null) {
-            originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
-        }
+        makeSureInitialized();
         return originTable;
     }
 
     @Override
     public List<Column> initSchema() {
+        //init schema need update lastUpdateTime and get latest schema
+        objectCreated = false;
         Table table = getOriginTable();
         TableSchema schema = ((AbstractFileStoreTable) table).schema();
         List<DataField> columns = schema.fields();
@@ -94,9 +100,12 @@ public class PaimonExternalTable extends ExternalTable {
                 return Type.DOUBLE;
             case SMALLINT:
                 return Type.SMALLINT;
+            case TINYINT:
+                return Type.TINYINT;
             case VARCHAR:
             case BINARY:
             case CHAR:
+            case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
@@ -105,11 +114,27 @@ public class PaimonExternalTable extends ExternalTable {
                 return ScalarType.createDateV2Type();
             case TIMESTAMP_WITHOUT_TIME_ZONE:
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                return ScalarType.createDatetimeV2Type(PAIMON_DATETIME_SCALE_MS);
+                int scale = 3; // default
+                if (dataType instanceof org.apache.paimon.types.TimestampType) {
+                    scale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
+                    if (scale > 6) {
+                        scale = 6;
+                    }
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
+                return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                return new org.apache.doris.catalog.MapType(
+                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
             case TIME_WITHOUT_TIME_ZONE:
                 return Type.UNSUPPORTED;
             default:
-                throw new IllegalArgumentException("Cannot transform unknown type: " + dataType.getTypeRoot());
+                LOG.warn("Cannot transform unknown type: " + dataType.getTypeRoot());
+                return Type.UNSUPPORTED;
         }
     }
 
@@ -131,5 +156,11 @@ public class PaimonExternalTable extends ExternalTable {
             throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
                     + getPaimonCatalogType());
         }
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new ExternalAnalysisTask(info);
     }
 }

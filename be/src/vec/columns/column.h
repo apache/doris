@@ -98,7 +98,6 @@ protected:
     using Offsets64 = PaddedPODArray<Offset64>;
 
 public:
-    static constexpr int PREFETCH_STEP = 64;
     // 32bit offsets for string
     using Offset = UInt32;
     using Offsets = PaddedPODArray<Offset>;
@@ -145,15 +144,13 @@ public:
         return nullptr;
     }
 
+    /// Some columns may require finalization before using of other operations.
+    virtual void finalize() {}
+
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
-    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
-    virtual TypeIndex get_data_type() const {
-        LOG(FATAL) << "Cannot get_data_type() column " << get_name();
-        __builtin_unreachable();
-    }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -243,10 +240,8 @@ public:
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
-    /// Warning:
-    ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
-    virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
-                                     const int* indices_end) = 0;
+    virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                     const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
@@ -344,8 +339,7 @@ public:
     }
 
     virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                             const uint8_t* null_map,
-                                             size_t max_row_byte_size) const {
+                                             const uint8_t* null_map) const {
         LOG(FATAL) << "serialize_vec_with_null_map not supported";
     }
 
@@ -395,13 +389,14 @@ public:
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
-    virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    virtual void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                        uint32_t rows, uint32_t offset = 0,
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
 
     // use range for one hash value to avoid virtual function call in loop
-    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    virtual void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                        const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
@@ -426,9 +421,13 @@ public:
      *  convert(convert MutablePtr to ImmutablePtr or convert ImmutablePtr to MutablePtr)
      *  happends in filter_by_selector because of mem-reuse logic or ColumnNullable, I think this is meaningless;
      *  So using raw ptr directly here.
+     *  NOTICE: only column_nullable and predict_column, column_dictionary now support filter_by_selector
      */
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-        LOG(FATAL) << "column not support filter_by_selector";
+        LOG(FATAL) << get_name()
+                   << " do not support filter_by_selector, only column_nullable, column_dictionary "
+                      "and predict_column "
+                      "support";
         __builtin_unreachable();
     }
 
@@ -454,6 +453,7 @@ public:
       * For example, if nan_direction_hint == -1 is used by descending sorting, NaNs will be at the end.
       *
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
+      * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
@@ -488,9 +488,7 @@ public:
       * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
       * If `count_sz` is -1, `begin` must be 0.
       */
-    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
-        LOG(FATAL) << "not support";
-    }
+    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const = 0;
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
@@ -534,14 +532,6 @@ public:
     /// TODO: interface decoupled from ColumnGathererStream that allows non-generic specializations.
     //    virtual void gather(ColumnGathererStream & gatherer_stream) = 0;
 
-    /** Computes minimum and maximum element of the column.
-      * In addition to numeric types, the function is completely implemented for Date and DateTime.
-      * For strings and arrays function should return default value.
-      *  (except for constant columns; they should return value of the constant).
-      * If column is empty function should return default value.
-      */
-    virtual void get_extremes(Field& min, Field& max) const = 0;
-
     /// Reserves memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
     virtual void reserve(size_t /*n*/) {}
@@ -558,13 +548,10 @@ public:
     /// Zero, if could not be determined.
     virtual size_t allocated_bytes() const = 0;
 
-    /// Make memory region readonly with mprotect if it is large enough.
-    /// The operation is slow and performed only for debug builds.
-    virtual void protect() {}
-
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
     using ColumnCallback = std::function<void(WrappedPtr&)>;
+    using ImutableColumnCallback = std::function<void(const IColumn&)>;
     virtual void for_each_subcolumn(ColumnCallback) {}
 
     /// Columns have equal structure.
@@ -606,6 +593,8 @@ public:
 
     virtual bool is_hll() const { return false; }
 
+    virtual bool is_variant() const { return false; }
+
     virtual bool is_quantile_state() const { return false; }
 
     // true if column has null element
@@ -614,13 +603,10 @@ public:
     // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
-    /// It's a special kind of column, that contain single value, but is not a ColumnConst.
-    virtual bool is_dummy() const { return false; }
-
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {}
+    virtual void clear() = 0;
 
     /** Memory layout properties.
       *
@@ -657,6 +643,18 @@ public:
         return 0;
     }
 
+    /// Returns ratio of values in column, that are equal to default value of column.
+    /// Checks only @sample_ratio ratio of rows.
+    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const {
+        LOG(FATAL) << fmt::format("get_ratio_of_default_rows of column {} are not implemented.",
+                                  get_name());
+        return 0.0;
+    }
+
+    /// Template is to devirtualize calls to 'isDefaultAt' method.
+    template <typename Derived>
+    double get_ratio_of_default_rows_impl(double sample_ratio) const;
+
     /// Column is ColumnVector of numbers or ColumnConst of it. Note that Nullable columns are not numeric.
     /// Implies is_fixed_and_contiguous.
     virtual bool is_numeric() const { return false; }
@@ -665,20 +663,16 @@ public:
 
     virtual bool is_column_decimal() const { return false; }
 
-    virtual bool is_predicate_column() const { return false; }
-
     virtual bool is_column_dictionary() const { return false; }
 
     virtual bool is_column_array() const { return false; }
 
     virtual bool is_column_map() const { return false; }
 
-    /// If the only value column can contain is NULL.
-    /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))
-    virtual bool only_null() const { return false; }
+    virtual bool is_column_struct() const { return false; }
 
-    /// Can be inside ColumnNullable.
-    virtual bool can_be_inside_nullable() const { return false; }
+    /// If the only value column can contain is NULL.
+    virtual bool only_null() const { return false; }
 
     virtual bool low_cardinality() const { return false; }
 
@@ -701,13 +695,13 @@ public:
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
-    virtual bool is_decimalv2_type() const { return is_decimalv2; }
 
     virtual void set_date_type() { is_date = true; }
     virtual void set_datetime_type() { is_date_time = true; }
-    virtual void set_decimalv2_type() { is_decimalv2 = true; }
 
     void copy_date_types(const IColumn& col) {
         if (col.is_date_type()) {
@@ -721,7 +715,6 @@ public:
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
-    bool is_decimalv2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.
@@ -737,7 +730,7 @@ using ColumnPtr = IColumn::Ptr;
 using MutableColumnPtr = IColumn::MutablePtr;
 using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
-
+using ColumnPtrs = std::vector<ColumnPtr>;
 using ColumnRawPtrs = std::vector<const IColumn*>;
 
 template <typename... Args>

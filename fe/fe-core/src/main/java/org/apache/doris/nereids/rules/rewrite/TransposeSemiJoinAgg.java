@@ -50,7 +50,11 @@ public class TransposeSemiJoinAgg extends OneRewriteRuleFactory {
      */
     public static boolean canTranspose(LogicalAggregate<? extends Plan> aggregate,
             LogicalJoin<? extends Plan, ? extends Plan> join) {
-        Set<Slot> canPushDownSlots = PushdownFilterThroughAggregation.getCanPushDownSlots(aggregate);
+        Set<Slot> canPushDownSlots = PushDownFilterThroughAggregation.getCanPushDownSlots(aggregate);
+        // avoid push down scalar agg.
+        if (canPushDownSlots.isEmpty()) {
+            return false;
+        }
         Set<Slot> leftConditionSlot = join.getLeftConditionSlot();
         return canPushDownSlots.containsAll(leftConditionSlot);
     }

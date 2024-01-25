@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -44,14 +47,16 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentCatalog;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -63,14 +68,20 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,6 +116,28 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitLiteral(Literal literal, ExpressionRewriteContext context) {
         return literal;
+    }
+
+    @Override
+    public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
+        String dbName = encryptKeyRef.getDbName();
+        ConnectContext connectContext = context.cascadesContext.getConnectContext();
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = connectContext.getDatabase();
+        }
+        if ("".equals(dbName)) {
+            throw new AnalysisException("DB " + dbName + "not found");
+        }
+        org.apache.doris.catalog.Database database =
+                Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+        if (database == null) {
+            throw new AnalysisException("DB " + dbName + "not found");
+        }
+        EncryptKey encryptKey = database.getEncryptKey(encryptKeyRef.getEncryptKeyName());
+        if (encryptKey == null) {
+            throw new AnalysisException("Can not found encryptKey" + encryptKeyRef.getEncryptKeyName());
+        }
+        return new StringLiteral(encryptKey.getKeyString());
     }
 
     @Override
@@ -310,12 +343,24 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         Expression child = cast.child();
+        DataType dataType = cast.getDataType();
         // todo: process other null case
         if (child.isNullLiteral()) {
-            return new NullLiteral(cast.getDataType());
+            return new NullLiteral(dataType);
+        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+            try {
+                return ((DateLikeType) dataType).fromString(((StringLikeLiteral) child).getStringValue());
+            } catch (AnalysisException t) {
+                if (cast.isExplicitType()) {
+                    return new NullLiteral(dataType);
+                } else {
+                    // If cast is from type coercion, we don't use NULL literal and will throw exception.
+                    throw t;
+                }
+            }
         }
         try {
-            Expression castResult = child.checkedCastTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
@@ -445,6 +490,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitPassword(Password password, ExpressionRewriteContext context) {
+        Preconditions.checkArgument(password.child(0) instanceof StringLikeLiteral,
+                "argument of password must be string literal");
+        String s = ((StringLikeLiteral) password.child()).value;
+        return new StringLiteral("*" + DigestUtils.sha1Hex(
+                DigestUtils.sha1(s.getBytes())).toUpperCase());
+    }
+
+    @Override
     public Expression visitArray(Array array, ExpressionRewriteContext context) {
         array = rewriteChildren(array, context);
         Optional<Expression> checkedExpr = preProcess(array);
@@ -452,7 +506,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return checkedExpr.get();
         }
         List<Literal> arguments = (List) array.getArguments();
-        return new ArrayLiteral(arguments);
+        // we should pass dataType to constructor because arguments maybe empty
+        return new ArrayLiteral(arguments, array.getDataType());
     }
 
     @Override
@@ -495,8 +550,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     private Optional<Expression> preProcess(Expression expression) {
-        if (expression instanceof PropagateNullable && !(expression instanceof NullableAggregateFunction)
-                && argsHasNullLiteral(expression)) {
+        if (expression instanceof AggregateFunction || expression instanceof TableGeneratingFunction) {
+            return Optional.of(expression);
+        }
+        if (expression instanceof PropagateNullable && argsHasNullLiteral(expression)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!allArgsIsAllLiteral(expression)) {

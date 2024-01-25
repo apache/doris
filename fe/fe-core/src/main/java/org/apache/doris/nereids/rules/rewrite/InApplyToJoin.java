@@ -18,17 +18,19 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -76,7 +78,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 List<Expression> groupExpressions = ImmutableList.of();
                 Expression bitmapCol = apply.right().getOutput().get(0);
                 BitmapUnion union = new BitmapUnion(bitmapCol);
-                Alias alias = new Alias(union, union.toSql());
+                Alias alias = new Alias(union);
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
                 LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
@@ -87,38 +89,42 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 }
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
-                        JoinHint.NONE,
+                        new DistributeHint(DistributeType.NONE),
                         apply.left(), agg);
             }
 
             //in-predicate to equal
+            InSubquery inSubquery = ((InSubquery) apply.getSubqueryExpr());
             Expression predicate;
-            Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
+            Expression left = inSubquery.getCompareExpr();
             // TODO: trick here, because when deep copy logical plan the apply right child
             //  is not same with query plan in subquery expr, since the scan node copy twice
-            Expression right = apply.getSubqueryExpr().getSubqueryOutput((LogicalPlan) apply.right());
+            Expression right = inSubquery.getSubqueryOutput((LogicalPlan) apply.right());
             if (apply.isCorrelated()) {
-                predicate = ExpressionUtils.and(new EqualTo(left, right),
-                        apply.getCorrelationFilter().get());
+                if (inSubquery.isNot()) {
+                    predicate = ExpressionUtils.and(ExpressionUtils.or(new EqualTo(left, right),
+                            new IsNull(left), new IsNull(right)),
+                            apply.getCorrelationFilter().get());
+                } else {
+                    predicate = ExpressionUtils.and(new EqualTo(left, right),
+                            apply.getCorrelationFilter().get());
+                }
             } else {
                 predicate = new EqualTo(left, right);
             }
 
-            if (apply.getSubCorrespondingConjunct().isPresent()) {
-                predicate = ExpressionUtils.and(predicate, apply.getSubCorrespondingConjunct().get());
-            }
             List<Expression> conjuncts = ExpressionUtils.extractConjunction(predicate);
-            if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
+            if (inSubquery.isNot()) {
                 return new LogicalJoin<>(
-                        predicate.nullable() ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(),
-                        conjuncts,
-                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.children());
+                        predicate.nullable() && !apply.isCorrelated()
+                                ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+                                : JoinType.LEFT_ANTI_JOIN,
+                        Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
+                        apply.getMarkJoinSlotReference(), apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
+                        new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
                         apply.children());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

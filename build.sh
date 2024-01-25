@@ -42,6 +42,7 @@ Usage: $0 <options>
      --fe                   build Frontend and Spark DPP application. Default ON.
      --be                   build Backend. Default ON.
      --meta-tool            build Backend meta tool. Default OFF.
+     --cloud                build Cloud. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
      --audit                build audit loader. Default ON.
@@ -61,6 +62,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
@@ -95,6 +97,7 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
+    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -116,6 +119,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -l 'fe' \
     -l 'be' \
+    -l 'cloud' \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
@@ -137,6 +141,7 @@ eval set -- "${OPTS}"
 PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
+BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
@@ -153,6 +158,7 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
+
     BUILD_BROKER=1
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
@@ -174,6 +180,10 @@ else
         --be)
             BUILD_BE=1
             BUILD_BE_JAVA_EXTENSIONS=1
+            shift
+            ;;
+        --cloud)
+            BUILD_CLOUD=1
             shift
             ;;
         --broker)
@@ -243,6 +253,7 @@ else
     if [[ "${PARAMETER_COUNT}" -eq 3 ]] && [[ "${PARAMETER_FLAG}" -eq 1 ]]; then
         BUILD_FE=1
         BUILD_BE=1
+        BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
@@ -280,18 +291,33 @@ update_submodule() {
     echo "Update ${submodule_name} submodule ..."
     git submodule update --init --recursive "${submodule_path}"
     exit_code=$?
+    if [[ "${exit_code}" -eq 0 ]]; then
+        cd "${submodule_path}"
+        submodule_commit_id=$(git rev-parse HEAD)
+        cd -
+        expect_submodule_commit_id=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}"
+    fi
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "Update ${submodule_name} submodule failed, start to download and extract ${submodule_name} package ..."
+        set +e
+        # try to get submodule's current commit
+        submodule_commit=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        exit_code=$?
+        if [[ "${exit_code}" = "0" ]]; then
+            commit_specific_url=$(echo "${archive_url}" | sed "s/refs\/heads/${submodule_commit}/")
+        else
+            commit_specific_url="${archive_url}"
+        fi
+        set -e
+        echo "Update ${submodule_name} submodule failed, start to download and extract ${commit_specific_url}"
+
         mkdir -p "${DORIS_HOME}/${submodule_path}"
-        curl -L "${archive_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
+        curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
 
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
-
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
     clean_fe
@@ -399,6 +425,7 @@ fi
 echo "Get params:
     BUILD_FE                    -- ${BUILD_FE}
     BUILD_BE                    -- ${BUILD_BE}
+    BUILD_CLOUD                 -- ${BUILD_CLOUD}
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_AUDIT                 -- ${BUILD_AUDIT}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
@@ -457,6 +484,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
     modules+=("be-java-extensions/avro-scanner")
+    modules+=("be-java-extensions/preload-extensions")
 fi
 FE_MODULES="$(
     IFS=','
@@ -465,6 +493,8 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
+    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -506,7 +536,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -521,6 +550,42 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     cd "${DORIS_HOME}"
+fi
+
+# Clean and build cloud
+if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
+    if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
+        rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h"
+    fi
+    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    echo "Build Cloud: ${CMAKE_BUILD_TYPE}"
+    CMAKE_BUILD_DIR="${DORIS_HOME}/cloud/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${CMAKE_BUILD_DIR}"
+        echo "clean cloud"
+    fi
+    MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
+    echo "-- Make program: ${MAKE_PROGRAM}"
+    echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+    mkdir -p "${CMAKE_BUILD_DIR}"
+    cd "${CMAKE_BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DMAKE_TEST=OFF \
+        "${CMAKE_USE_CCACHE}" \
+        -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
+        -DUSE_DWARF="${USE_DWARF}" \
+        -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
+        "${DORIS_HOME}/cloud/"
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+    cd "${DORIS_HOME}"
+    echo "Build cloud done"
 fi
 
 if [[ "${BUILD_DOCS}" = "ON" ]]; then
@@ -572,9 +637,18 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
+        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
+        fi
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
+        fi
     fi
     cd "${DORIS_HOME}"
 fi
@@ -622,9 +696,19 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
+    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
+        rm -rf "${DORIS_HOME}/zoneinfo"
+        echo "Generating zoneinfo files"
+        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
+    fi
+    cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
+    fi
+
+    if [[ -f "${DORIS_THIRDPARTY}/installed/lib/libz.so" ]]; then
+        cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
     fi
 
     if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
@@ -640,6 +724,10 @@ EOF
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
     rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
+        cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
+    fi
     if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
@@ -667,21 +755,22 @@ EOF
         cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi
 
-    extensions_modules=("")
-    extensions_modules+=("java-udf")
+    extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
     extensions_modules+=("avro-scanner")
+    extensions_modules+=("preload-extensions")
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
     mkdir "${BE_JAVA_EXTENSIONS_DIR}"
     for extensions_module in "${extensions_modules[@]}"; do
         module_path="${DORIS_HOME}/fe/be-java-extensions/${extensions_module}/target/${extensions_module}-jar-with-dependencies.jar"
+        mkdir "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         if [[ -f "${module_path}" ]]; then
-            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/
+            cp "${module_path}" "${BE_JAVA_EXTENSIONS_DIR}"/"${extensions_module}"
         fi
     done
 
@@ -710,6 +799,11 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
     cd "${DORIS_HOME}"
+fi
+
+if [[ ${BUILD_CLOUD} -eq 1 ]]; then
+    rm -rf "${DORIS_HOME}/output/ms"
+    cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
 
 echo "***************************************"

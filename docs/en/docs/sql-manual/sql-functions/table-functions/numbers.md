@@ -1,6 +1,6 @@
 ---
 {
-    "title": "numbers",
+    "title": "NUMBERS",
     "language": "en"
 }
 ---
@@ -28,26 +28,23 @@ under the License.
 
 ### description
 
-Table-Value-Function, generate a temporary table with only one column named 'number', row values are [0,n).
-
-This function is used in FROM clauses.
+Table function that generates a temporary table containing only one column with the column name `number` and all element values are `const_value` if `const_value` is specified, otherwise they are [0,`number`) incremented.
 
 #### syntax
-
 ```sql
 numbers(
-  "number" = "n",
-  "backend_num" = "m"
+  "number" = "n"
+  <, "const_value" = "x">
   );
 ```
 
 parameter：
-- `number`: It means to generate rows [0, n).
-- `backend_num`: Optional parameters. It means this function is executed simultaneously on `m` be nodes (multiple BEs need to be deployed).
+- `number`: Line number.
+- `const_value`: the constant value.
 
 ### example
 ```
-mysql> select * from numbers("number" = "10");
+mysql> select * from numbers("number" = "5");
 +--------+
 | number |
 +--------+
@@ -56,14 +53,22 @@ mysql> select * from numbers("number" = "10");
 |      2 |
 |      3 |
 |      4 |
-|      5 |
-|      6 |
-|      7 |
-|      8 |
-|      9 |
 +--------+
+5 rows in set (0.11 sec)
+
+mysql> select * from numbers("number" = "5", "const_value" = "-123");
++--------+
+| number |
++--------+
+|   -123 |
+|   -123 |
+|   -123 |
+|   -123 |
+|   -123 |
++--------+
+5 rows in set (0.12 sec)
 ```
 
 ### keywords
 
-    numbers
+    numbers, const_value

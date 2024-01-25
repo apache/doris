@@ -19,9 +19,7 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <memory>
@@ -31,7 +29,6 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
@@ -61,15 +58,15 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     // Create const_expr_ctx_lists_ from thrift exprs.
-    auto& const_texpr_lists = tnode.union_node.const_expr_lists;
-    for (auto& texprs : const_texpr_lists) {
+    const auto& const_texpr_lists = tnode.union_node.const_expr_lists;
+    for (const auto& texprs : const_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _const_expr_lists.push_back(ctxs);
     }
     // Create result_expr_ctx_lists_ from thrift exprs.
-    auto& result_texpr_lists = tnode.union_node.result_expr_lists;
-    for (auto& texprs : result_texpr_lists) {
+    const auto& result_texpr_lists = tnode.union_node.result_expr_lists;
+    for (const auto& texprs : result_texpr_lists) {
         VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr_lists.push_back(ctxs);
@@ -80,6 +77,7 @@ Status VUnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VUnionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     _materialize_exprs_evaluate_timer =
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
     // Prepare const expr lists.
@@ -105,7 +103,14 @@ Status VUnionNode::open(RuntimeState* state) {
 }
 
 Status VUnionNode::alloc_resource(RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+
+    std::unique_lock<std::mutex> l(_resource_lock);
+    if (_resource_allocated) {
+        return Status::OK();
+    }
+
     // open const expr lists.
     for (const auto& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
@@ -114,12 +119,13 @@ Status VUnionNode::alloc_resource(RuntimeState* state) {
     for (const auto& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    return ExecNode::alloc_resource(state);
+    RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+    _resource_allocated = true;
+    return Status::OK();
 }
 
 Status VUnionNode::get_next_pass_through(RuntimeState* state, Block* block) {
     DCHECK(!reached_limit());
-    DCHECK(!is_in_subplan());
     DCHECK_LT(_child_idx, _children.size());
     DCHECK(is_child_passthrough(_child_idx));
     if (_child_eos) {
@@ -188,21 +194,17 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         // incremented '_num_rows_returned' yet.
         DCHECK(!reached_limit());
         if (_child_eos) {
-            // Unless we are inside a subplan expecting to call open()/get_next() on the child
-            // again, the child can be closed at this point.
-            // TODO: Recheck whether is_in_subplan() is right
-            //            if (!is_in_subplan()) {
-            //                child(_child_idx)->close(state);
-            //            }
             ++_child_idx;
         }
     }
+    block->set_columns(std::move(mblock.mutable_columns()));
 
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
 }
 
 Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
+    SCOPED_TIMER(_exec_timer);
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
@@ -224,7 +226,10 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             tmp_block.clear();
         }
     }
-
+    block->set_columns(std::move(mblock.mutable_columns()));
+    LOG(INFO) << "temporary log query id: " << print_id(state->query_id())
+              << ", instance id: " << print_id(state->fragment_instance_id())
+              << ", block rows: " << block->rows();
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
@@ -247,6 +252,8 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
+
+        output_block->set_columns(std::move(mblock.mutable_columns()));
     }
     return Status::OK();
 }
@@ -260,8 +267,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         // The previous child needs to be closed if passthrough was enabled for it. In the non
         // passthrough case, the child was already closed in the previous call to get_next().
         DCHECK(is_child_passthrough(_to_close_child_idx));
-        DCHECK(!is_in_subplan());
-        child(_to_close_child_idx)->close(state);
+        static_cast<void>(child(_to_close_child_idx)->close(state));
         _to_close_child_idx = -1;
     }
 
@@ -274,6 +280,7 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     } else if (has_more_const(state)) {
         RETURN_IF_ERROR(get_next_const(state, block));
     }
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
 
     *eos = (!has_more_passthrough() && !has_more_materialized() && !has_more_const(state));
@@ -301,8 +308,8 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
     *out << string(indentation_level * 2, ' ');
     *out << "_union(_first_materialized_child_idx=" << _first_materialized_child_idx
          << " _child_expr_lists=[";
-    for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        *out << VExpr::debug_string(_child_expr_lists[i]) << ", ";
+    for (const auto& _child_expr_list : _child_expr_lists) {
+        *out << VExpr::debug_string(_child_expr_list) << ", ";
     }
     *out << "] \n";
     ExecNode::debug_string(indentation_level, out);
@@ -310,11 +317,12 @@ void VUnionNode::debug_string(int indentation_level, std::stringstream* out) con
 }
 
 Status VUnionNode::materialize_block(Block* src_block, int child_idx, Block* res_block) {
+    SCOPED_TIMER(_exec_timer);
     const auto& child_exprs = _child_expr_lists[child_idx];
     ColumnsWithTypeAndName colunms;
-    for (size_t i = 0; i < child_exprs.size(); ++i) {
+    for (const auto& child_expr : child_exprs) {
         int result_column_id = -1;
-        RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
+        RETURN_IF_ERROR(child_expr->execute(src_block, &result_column_id));
         colunms.emplace_back(src_block->get_by_position(result_column_id));
     }
     _child_row_idx += src_block->rows();

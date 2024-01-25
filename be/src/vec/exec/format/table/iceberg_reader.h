@@ -47,7 +47,7 @@ class TIcebergDeleteFileDesc;
 class TupleDescriptor;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 struct TypeDescriptor;
 
@@ -69,8 +69,8 @@ public:
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                       io::IOContext* io_ctx);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                       int64_t push_down_count);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters(const TFileRangeDesc& range) override;
@@ -154,6 +154,8 @@ private:
     io::IOContext* _io_ctx;
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
+
+    int64_t _remaining_push_down_count;
 };
 } // namespace vectorized
 } // namespace doris

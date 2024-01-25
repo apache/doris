@@ -45,6 +45,26 @@ PathInData::PathInData(const Parts& parts_) {
 PathInData::PathInData(const PathInData& other) : path(other.path) {
     build_parts(other.get_parts());
 }
+
+PathInData::PathInData(const std::string& root, const std::vector<std::string>& paths) {
+    PathInDataBuilder path_builder;
+    path_builder.append(root, false);
+    for (const std::string& path : paths) {
+        path_builder.append(path, false);
+    }
+    build_path(path_builder.get_parts());
+    build_parts(path_builder.get_parts());
+}
+
+PathInData::PathInData(const std::vector<std::string>& paths) {
+    PathInDataBuilder path_builder;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        path_builder.append(paths[i], false);
+    }
+    build_path(path_builder.get_parts());
+    build_parts(path_builder.get_parts());
+}
+
 PathInData& PathInData::operator=(const PathInData& other) {
     if (this != &other) {
         path = other.path;
@@ -92,10 +112,73 @@ void PathInData::build_parts(const Parts& other_parts) {
         begin += part.key.length() + 1;
     }
 }
+
+void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
+    parts.clear();
+    path = pb.path();
+    has_nested = pb.has_has_nested();
+    parts.reserve(pb.path_part_infos().size());
+    for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
+        Part part;
+        part.is_nested = part_info.is_nested();
+        part.anonymous_array_level = part_info.anonymous_array_level();
+        part.key = part_info.key();
+        parts.push_back(part);
+    }
+}
+
+std::string PathInData::to_jsonpath() const {
+    std::string jsonpath = "$.";
+    if (parts.empty()) {
+        return jsonpath;
+    }
+    auto it = parts.begin();
+    jsonpath += it->key;
+    ++it;
+    for (; it != parts.end(); ++it) {
+        jsonpath += ".";
+        jsonpath += it->key;
+    }
+    return jsonpath;
+}
+
+void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const {
+    pb->set_path(path);
+    pb->set_has_nested(has_nested);
+    pb->set_parrent_column_unique_id(parent_col_unique_id);
+
+    // set parts info
+    for (const Part& part : parts) {
+        segment_v2::ColumnPathPartInfo& part_info = *pb->add_path_part_infos();
+        part_info.set_key(std::string(part.key.data(), part.key.size()));
+        part_info.set_is_nested(part.is_nested);
+        part_info.set_anonymous_array_level(part.anonymous_array_level);
+    }
+}
+
 size_t PathInData::Hash::operator()(const PathInData& value) const {
     auto hash = get_parts_hash(value.parts);
     return hash.low ^ hash.high;
 }
+
+PathInData PathInData::copy_pop_front() const {
+    return copy_pop_nfront(1);
+}
+
+PathInData PathInData::copy_pop_nfront(size_t n) const {
+    if (n >= parts.size()) {
+        return {};
+    }
+    PathInData new_path;
+    Parts new_parts;
+    if (!parts.empty()) {
+        std::copy(parts.begin() + n, parts.end(), std::back_inserter(new_parts));
+    }
+    new_path.build_path(new_parts);
+    new_path.build_parts(new_parts);
+    return new_path;
+}
+
 PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array) {
     if (parts.empty()) {
         current_anonymous_array_level += is_array;
@@ -125,9 +208,11 @@ PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool
     }
     return *this;
 }
+
 void PathInDataBuilder::pop_back() {
     parts.pop_back();
 }
+
 void PathInDataBuilder::pop_back(size_t n) {
     assert(n <= parts.size());
     parts.resize(parts.size() - n);

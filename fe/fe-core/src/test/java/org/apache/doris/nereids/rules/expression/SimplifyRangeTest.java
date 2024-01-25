@@ -67,11 +67,13 @@ public class SimplifyRangeTest {
         assertRewrite("TA = 1 and TA > 10", "FALSE");
         assertRewrite("TA > 5 or TA < 1", "TA > 5 or TA < 1");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
-        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TRUE");
+        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > 5 or TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 1 or TA < 1", "TA > 1 or TA < 1");
-        assertRewrite("TA > 1 or TA < 10", "TRUE");
+        assertRewrite("TA > 1 or TA < 10", "TA IS NOT NULL");
+        assertRewriteNotNull("TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 5 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 + 1 and TA > 10", "TA > 5 + 1 and TA > 10");
@@ -104,12 +106,21 @@ public class SimplifyRangeTest {
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
         assertRewrite("(TA > 3 and TA < 1) and TB < 5", "FALSE");
         assertRewrite("(TA > 3 and TA < 1) or TB < 5", "TB < 5");
+        assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
     }
 
     private void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private void assertRewriteNotNull(String expression, String expected) {
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression needRewriteExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expression), mem);
+        Expression expectedExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expected), mem);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -127,6 +138,24 @@ public class SimplifyRangeTest {
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
             mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0))));
+            return mem.get(name);
+        }
+        return hasNewChildren ? expression.withChildren(children) : expression;
+    }
+
+    private Expression replaceNotNullUnboundSlot(Expression expression, Map<String, Slot> mem) {
+        List<Expression> children = Lists.newArrayList();
+        boolean hasNewChildren = false;
+        for (Expression child : expression.children()) {
+            Expression newChild = replaceNotNullUnboundSlot(child, mem);
+            if (newChild != child) {
+                hasNewChildren = true;
+            }
+            children.add(newChild);
+        }
+        if (expression instanceof UnboundSlot) {
+            String name = ((UnboundSlot) expression).getName();
+            mem.putIfAbsent(name, new SlotReference(name, getType(name.charAt(0)), false));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

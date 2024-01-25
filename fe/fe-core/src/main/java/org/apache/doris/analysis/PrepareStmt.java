@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
@@ -58,6 +59,16 @@ public class PrepareStmt extends StatementBase {
     // Since, serialize fields is too heavy when table is wide
     Map<String, byte[]> serializedFields =  Maps.newHashMap();
 
+    // We provide bellow types of prepared statement:
+    // NONE, which is not prepared
+    // FULL_PREPARED, which is really prepared, which will cache analyzed statement and planner
+    // STATEMENT, which only cache statement itself, but need to analyze each time executed
+    public enum PreparedType {
+        NONE, FULL_PREPARED, STATEMENT
+    }
+
+    private PreparedType preparedType = PreparedType.STATEMENT;
+
     public PrepareStmt(StatementBase stmt, String name, boolean binaryRowFormat) {
         this.inner = stmt;
         this.stmtName = name;
@@ -70,7 +81,7 @@ public class PrepareStmt extends StatementBase {
     }
 
     public boolean needReAnalyze() {
-        if (schemaVersion == tbl.getBaseSchemaVersion()) {
+        if (preparedType == PreparedType.FULL_PREPARED && schemaVersion == tbl.getBaseSchemaVersion()) {
             return false;
         }
         reset();
@@ -133,22 +144,32 @@ public class PrepareStmt extends StatementBase {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!(inner instanceof SelectStmt)) {
-            throw new UserException("Only support prepare SelectStmt now");
+        if (inner instanceof SelectStmt) {
+            // Use tmpAnalyzer since selectStmt will be reAnalyzed
+            Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
+            SelectStmt selectStmt = (SelectStmt) inner;
+            inner.analyze(tmpAnalyzer);
+            if (!selectStmt.checkAndSetPointQuery()) {
+                throw new UserException("Only support prepare SelectStmt point query now");
+            }
+            tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
+            schemaVersion = tbl.getBaseSchemaVersion();
+            // reset will be reAnalyzed
+            selectStmt.reset();
+            analyzer.setPrepareStmt(this);
+            // tmpAnalyzer.setPrepareStmt(this);
+            preparedType = PreparedType.FULL_PREPARED;
+        } else if (inner instanceof NativeInsertStmt) {
+            LabelName label = ((NativeInsertStmt) inner).getLoadLabel();
+            if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
+                analyzer.setPrepareStmt(this);
+                preparedType = PreparedType.STATEMENT;
+            } else {
+                throw new UserException("Only support prepare InsertStmt without label now");
+            }
+        } else {
+            throw new UserException("Only support prepare SelectStmt or InsertStmt now");
         }
-        // Use tmpAnalyzer since selectStmt will be reAnalyzed
-        Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
-        SelectStmt selectStmt = (SelectStmt) inner;
-        inner.analyze(tmpAnalyzer);
-        if (!selectStmt.checkAndSetPointQuery()) {
-            throw new UserException("Only support prepare SelectStmt point query now");
-        }
-        tbl = (OlapTable) selectStmt.getTableRefs().get(0).getTable();
-        schemaVersion = tbl.getBaseSchemaVersion();
-        // reset will be reAnalyzed
-        selectStmt.reset();
-        analyzer.setPrepareStmt(this);
-        // tmpAnalyzer.setPrepareStmt(this);
     }
 
     public String getName() {
@@ -201,6 +222,10 @@ public class PrepareStmt extends StatementBase {
         }
     }
 
+    public PreparedType getPreparedType() {
+        return preparedType;
+    }
+
     @Override
     public void reset() {
         serializedDescTable = null;
@@ -208,6 +233,9 @@ public class PrepareStmt extends StatementBase {
         descTable = null;
         this.id = UUID.randomUUID();
         inner.reset();
+        if (inner instanceof NativeInsertStmt) {
+            ((NativeInsertStmt) inner).resetPrepare();
+        }
         serializedFields.clear();
     }
 }

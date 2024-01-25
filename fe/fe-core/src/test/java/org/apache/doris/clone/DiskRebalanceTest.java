@@ -20,7 +20,6 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
@@ -36,7 +35,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
@@ -60,7 +58,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 public class DiskRebalanceTest {
@@ -79,11 +76,14 @@ public class DiskRebalanceTest {
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
     private Map<Tag, LoadStatisticForTag> statisticMap;
+    private Map<Long, PathSlot> backendsWorkingSlots = Maps.newHashMap();
 
     @Before
     public void setUp() throws Exception {
+        FeConstants.runningUnitTest = true;
+        Config.used_capacity_percent_max_diff = 1.0;
+        Config.balance_slot_num_per_path = 1;
         db = new Database(1, "test db");
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
             {
                 env.getInternalCatalog();
@@ -136,12 +136,19 @@ public class DiskRebalanceTest {
                 Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
     }
 
-    private void generateStatisticMap() {
+    private void generateStatisticsAndPathSlots() {
         LoadStatisticForTag loadStatistic = new LoadStatisticForTag(Tag.DEFAULT_BACKEND_TAG, systemInfoService,
                 invertedIndex);
         loadStatistic.init();
         statisticMap = Maps.newHashMap();
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
+        backendsWorkingSlots.clear();
+        for (BackendLoadStatistic beStat : loadStatistic.getSortedBeLoadStats(null)) {
+            Map<Long, TStorageMedium> paths = Maps.newHashMap();
+            beStat.getPathStatistics().stream().forEach(
+                    path -> paths.put(path.getPathHash(), path.getStorageMedium()));
+            backendsWorkingSlots.put(beStat.getBeId(), new PathSlot(paths, beStat.getBeId()));
+        }
     }
 
     private void createPartitionsForTable(OlapTable olapTable, MaterializedIndex index, Long partitionCount) {
@@ -186,8 +193,9 @@ public class DiskRebalanceTest {
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
-        generateStatisticMap();
+        generateStatisticsAndPathSlots();
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(),
+                backendsWorkingSlots);
         rebalancer.updateLoadStatistic(statisticMap);
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
@@ -228,8 +236,9 @@ public class DiskRebalanceTest {
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
-        generateStatisticMap();
+        generateStatisticsAndPathSlots();
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(),
+                backendsWorkingSlots);
         rebalancer.updateLoadStatistic(statisticMap);
         for (Map.Entry<Tag, LoadStatisticForTag> s : statisticMap.entrySet()) {
             if (s.getValue() != null) {
@@ -239,16 +248,6 @@ public class DiskRebalanceTest {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
         Assert.assertEquals(2, alternativeTablets.size());
-        Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
-        for (Backend be : Env.getCurrentSystemInfo().getAllBackends()) {
-            if (!backendsWorkingSlots.containsKey(be.getId())) {
-                List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash)
-                        .collect(Collectors.toList());
-                PathSlot slot = new PathSlot(pathHashes, Config.schedule_slot_num_per_path);
-                backendsWorkingSlots.put(be.getId(), slot);
-            }
-        }
-
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
             LOG.info("try to schedule tablet {}", tabletCtx.getTabletId());
             try {
@@ -258,7 +257,7 @@ public class DiskRebalanceTest {
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
-                AgentTask task = rebalancer.createBalanceTask(tabletCtx, backendsWorkingSlots);
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 if (tabletCtx.getTabletSize() == 0) {
                     Assert.fail("no exception");
                 } else {

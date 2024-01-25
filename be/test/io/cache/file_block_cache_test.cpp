@@ -87,8 +87,8 @@ void download(io::FileBlockSPtr file_segment) {
 
     std::string data(size, '0');
     Slice result(data.data(), size);
-    file_segment->append(result);
-    file_segment->finalize_write();
+    static_cast<void>(file_segment->append(result));
+    static_cast<void>(file_segment->finalize_write());
 }
 
 void complete(const io::FileBlocksHolder& holder) {
@@ -532,7 +532,7 @@ void test_file_cache(io::CacheType cache_type) {
         /// Test LRUCache::restore().
 
         io::LRUFileCache cache2(cache_base_path, settings);
-        cache2.initialize();
+        static_cast<void>(cache2.initialize());
         auto holder1 = cache2.get_or_set(key, 2, 28, context); /// Get [2, 29]
 
         auto segments1 = fromHolder(holder1);
@@ -846,7 +846,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        segments[0]->read_at(Slice(buffer.get(), 9), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -858,7 +858,7 @@ TEST(LRUFileCache, fd_cache_remove) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        segments[0]->read_at(Slice(buffer.get(), 1), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -871,7 +871,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        segments[0]->read_at(Slice(buffer.get(), 5), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     {
@@ -884,7 +884,7 @@ TEST(LRUFileCache, fd_cache_remove) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(10);
-        segments[0]->read_at(Slice(buffer.get(), 10), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 10), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 15)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
@@ -916,6 +916,7 @@ TEST(LRUFileCache, fd_cache_evict) {
     context.cache_type = io::CacheType::NORMAL;
     auto key = io::LRUFileCache::hash("key1");
     config::file_cache_max_file_reader_cache_size = 2;
+    IFileCache::init();
     {
         auto holder = cache.get_or_set(key, 0, 9, context); /// Add range [0, 8]
         auto segments = fromHolder(holder);
@@ -925,7 +926,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(9);
-        segments[0]->read_at(Slice(buffer.get(), 9), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 9), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
     }
     {
@@ -937,7 +938,7 @@ TEST(LRUFileCache, fd_cache_evict) {
         assert_range(2, segments[0], io::FileBlock::Range(9, 9), io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(1);
-        segments[0]->read_at(Slice(buffer.get(), 1), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 1), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 9)));
     }
     {
@@ -950,7 +951,7 @@ TEST(LRUFileCache, fd_cache_evict) {
                      io::FileBlock::State::DOWNLOADING);
         download(segments[0]);
         std::unique_ptr<char[]> buffer = std::make_unique<char[]>(5);
-        segments[0]->read_at(Slice(buffer.get(), 5), 0);
+        static_cast<void>(segments[0]->read_at(Slice(buffer.get(), 5), 0));
         EXPECT_TRUE(io::IFileCache::contains_file_reader(std::make_pair(key, 10)));
     }
     EXPECT_FALSE(io::IFileCache::contains_file_reader(std::make_pair(key, 0)));
@@ -958,6 +959,82 @@ TEST(LRUFileCache, fd_cache_evict) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
+}
+
+TEST(LRUFileCache, percents) {
+    std::string string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 50,
+            "disposable_percent" : 45,
+            "index_percent" : 5
+        },
+        {
+            "path" : "file_cache2",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 85,
+            "disposable_percent" : 10,
+            "index_percent" : 5
+        },
+        {
+            "path" : "file_cache3",
+            "total_size" : 100,
+            "query_limit" : 50
+        }
+        ]
+        )");
+
+    std::vector<CachePath> cache_paths;
+    EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
+    EXPECT_EQ(cache_paths.size(), 3);
+    for (size_t i = 0; i < cache_paths.size(); ++i) {
+        io::FileCacheSettings settings = cache_paths[i].init_settings();
+        EXPECT_EQ(settings.total_size, 100);
+        if (i == 0) {
+            EXPECT_EQ(settings.query_queue_size, 50);
+            EXPECT_EQ(settings.disposable_queue_size, 45);
+            EXPECT_EQ(settings.index_queue_size, 5);
+        } else {
+            EXPECT_EQ(settings.query_queue_size, 85);
+            EXPECT_EQ(settings.disposable_queue_size, 10);
+            EXPECT_EQ(settings.index_queue_size, 5);
+        }
+    }
+
+    // percents number error
+    std::string err_string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 50,
+            "disposable_percent" : 45
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
+
+    // percents value error
+    err_string = std::string(R"(
+        [
+        {
+            "path" : "file_cache1",
+            "total_size" : 100,
+            "query_limit" : 50,
+            "normal_percent" : 10,
+            "disposable_percent" : 10,
+            "index_percent" : 10
+        }
+        ]
+        )");
+    cache_paths.clear();
+    EXPECT_FALSE(parse_conf_cache_paths(err_string, cache_paths));
 }
 
 } // namespace doris::io

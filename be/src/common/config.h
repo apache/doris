@@ -96,17 +96,26 @@ DECLARE_Int32(be_port);
 // port for brpc
 DECLARE_Int32(brpc_port);
 
+// port for arrow flight sql
+// Default -1, do not start arrow flight sql server.
+DECLARE_Int32(arrow_flight_sql_port);
+
+// If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
+// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
+// If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
+DECLARE_mString(public_access_ip);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
-// this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+// This is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// performance moderate or or compact, only tcmalloc compile
+// performance moderate or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -143,11 +152,6 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// Expand the hash table before inserting data, the maximum expansion size.
-// There are fewer duplicate keys, reducing the number of resize hash tables
-// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
-DECLARE_mInt64(hash_table_pre_expanse_max_rows);
-
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
@@ -164,14 +168,14 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
-
+//waibibabu
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
-// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// malloc or new large memory larger than large_memory_check_bytes, default 2G,
 // will print a warning containing the stacktrace, but not prevent memory alloc.
-// large memory alloc looking forward to using Allocator.
+// If is -1, disable large memory check.
 DECLARE_mInt64(large_memory_check_bytes);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -222,6 +226,9 @@ DECLARE_Int32(download_worker_count);
 DECLARE_Int32(make_snapshot_worker_count);
 // the count of thread to release snapshot
 DECLARE_Int32(release_snapshot_worker_count);
+// report random wait a little time to avoid FE receiving multiple be reports at the same time.
+// do not set it to false for production environment
+DECLARE_mBool(report_random_wait);
 // the interval time(seconds) for agent report tasks signature to FE
 DECLARE_mInt32(report_task_interval_seconds);
 // the interval time(seconds) for refresh storage policy from FE
@@ -236,8 +243,6 @@ DECLARE_mInt32(max_download_speed_kbps);
 DECLARE_mInt32(download_low_speed_limit_kbps);
 // download low speed time(seconds)
 DECLARE_mInt32(download_low_speed_time);
-// sleep time for one second
-DECLARE_Int32(sleep_one_second);
 
 // log dir
 DECLARE_String(sys_log_dir);
@@ -252,6 +257,8 @@ DECLARE_Int32(sys_log_roll_num);
 DECLARE_Strings(sys_log_verbose_modules);
 // verbose log level
 DECLARE_Int32(sys_log_verbose_level);
+// verbose log FLAGS_v
+DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
 
@@ -262,18 +269,17 @@ DECLARE_Int32(be_service_threads);
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DECLARE_Int32(num_threads_per_core);
-// if true, compresses tuple data in Serialize
-DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
+DECLARE_mInt32(pipeline_status_report_interval);
 // if true, each disk will have a separate thread pool for scanner
 DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 // the timeout of a work thread to wait the blocking priority queue to get a task
 DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
-DECLARE_Int32(doris_scanner_thread_pool_thread_num);
+DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
 // if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
@@ -301,8 +307,6 @@ DECLARE_mInt32(doris_max_scan_key_num);
 // the max number of push down values of a single column.
 // if exceed, no conditions will be pushed down for that column.
 DECLARE_mInt32(max_pushdown_conditions_per_column);
-// return_row / total_row
-DECLARE_mInt32(doris_max_pushdown_conjuncts_return_rate);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 
@@ -315,10 +319,12 @@ DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 // the prune stale interval of all cache
 DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
-DECLARE_mInt32(tablet_lookup_cache_clean_interval);
+DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
+DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
+DECLARE_mString(broken_storage_path);
 
 // Config is used to check incompatible old format hdr_ format
 // whether doris uses strict way. When config is true, process will log fatal
@@ -332,9 +338,14 @@ DECLARE_mInt32(default_num_rows_per_column_file_block);
 DECLARE_mInt32(pending_data_expire_time_sec);
 // inc_rowset snapshot rs sweep time interval
 DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
+// tablet stale rowset sweep by threshold size
+DECLARE_Bool(tablet_rowset_stale_sweep_by_size);
+DECLARE_mInt32(tablet_rowset_stale_sweep_threshold_size);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
+// garbage sweep every batch will sleep 1ms
+DECLARE_mInt32(garbage_sweep_batch_size);
 DECLARE_mInt32(snapshot_expire_time_sec);
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -342,6 +353,7 @@ DECLARE_mInt32(trash_file_expire_time_sec);
 // minimum file descriptor number
 // modify them upon necessity
 DECLARE_Int32(min_file_descriptor_number);
+DECLARE_mBool(disable_segment_cache);
 DECLARE_Int64(index_stream_cache_capacity);
 DECLARE_String(row_cache_mem_limit);
 
@@ -354,9 +366,10 @@ DECLARE_Int32(storage_page_cache_shard_size);
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
 // whether to disable page cache feature in storage
+// TODO delete it. Divided into Data page, Index page, pk index page
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
-DECLARE_Bool(disable_storage_row_cache);
+DECLARE_mBool(disable_storage_row_cache);
 // whether to disable pk page cache feature in storage
 DECLARE_Bool(disable_pk_storage_page_cache);
 
@@ -391,6 +404,9 @@ DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
 
+// If enabled, segments will be flushed column by column
+DECLARE_mBool(enable_vertical_segment_writer);
+
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -417,6 +433,12 @@ DECLARE_mDouble(compaction_promotion_ratio);
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
+
+// When output rowset of cumulative compaction total version count (end_version - start_version)
+// exceed this config count, the rowset will be moved to base compaction
+// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
+// related cost on delete bitmap more effectively.
+DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -454,6 +476,11 @@ DECLARE_mBool(disable_compaction_trace_log);
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 
+// Compaction priority schedule
+DECLARE_mBool(enable_compaction_priority_scheduling);
+DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
+DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
 
@@ -468,7 +495,7 @@ DECLARE_mInt32(finished_migration_tasks_size);
 // If size less than this, the remaining rowsets will be force to complete
 DECLARE_mInt32(migration_remaining_size_threshold_mb);
 // If the task runs longer than this time, the task will be terminated, in seconds.
-// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
+// timeout = std::max(migration_task_timeout_secs,  tablet size / 1MB/s)
 DECLARE_mInt32(migration_task_timeout_secs);
 
 // Port to start debug webserver on
@@ -494,6 +521,8 @@ DECLARE_Int32(single_replica_load_download_num_workers);
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
 DECLARE_mInt64(load_error_log_reserve_hours);
+// error log size limit, default 200MB
+DECLARE_mInt64(load_error_log_limit_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -532,10 +561,14 @@ DECLARE_mInt32(stream_load_record_batch_size);
 DECLARE_Int32(stream_load_record_expire_time_secs);
 // time interval to clean expired stream load records
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
+// The buffer size to store stream table function schema info
+DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DECLARE_mInt32(olap_table_sink_send_interval_ms);
+DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
+// For auto partition, the send interval will multiply the factor
+DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
 DECLARE_Int32(fragment_pool_thread_num_min);
@@ -557,10 +590,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
 
-// The probing algorithm of partitioned hash table.
-// Enable quadratic probing hash table
-DECLARE_Bool(enable_quadratic_probing);
-
 // for pprof
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
@@ -573,8 +602,6 @@ DECLARE_mBool(enable_token_check);
 
 // to open/close system metrics
 DECLARE_Bool(enable_system_metrics);
-
-DECLARE_mBool(enable_prefetch);
 
 // Number of cores Doris will used, this will effect only when it's greater than 0.
 // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
@@ -600,13 +627,23 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
+// percent of (active memtables size / all memtables size) when reach hard limit
+DECLARE_mInt32(memtable_hard_limit_active_percent);
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DECLARE_mInt32(memtable_soft_limit_active_percent);
+
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 
-// max write buffer size before flush, default 200MB
+// memtable insert memory tracker will multiply input block size with this ratio
+DECLARE_mDouble(memtable_insert_memory_ratio);
+// max write buffer size before flush, default 100MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+// max parallel flush task per memtable writer
+DECLARE_mInt32(memtable_flush_running_count_limit);
 
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
@@ -616,6 +653,10 @@ DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
 DECLARE_Int32(load_process_soft_mem_limit_percent);
+
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -669,8 +710,6 @@ DECLARE_Bool(path_gc_check);
 DECLARE_mInt32(path_gc_check_interval_second);
 DECLARE_mInt32(path_gc_check_step);
 DECLARE_mInt32(path_gc_check_step_interval_ms);
-DECLARE_mInt32(path_scan_interval_second);
-DECLARE_mInt32(path_scan_step_interval_ms);
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -776,6 +815,24 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
+// share delta writers when memtable_on_sink_node = true
+DECLARE_Bool(share_delta_writers);
+// timeout for open load stream rpc in ms
+DECLARE_Int64(open_load_stream_timeout_ms);
+// timeout for load stream close wait in ms
+DECLARE_Int64(close_load_stream_timeout_ms);
+
+// brpc streaming max_buf_size in bytes
+DECLARE_Int64(load_stream_max_buf_size);
+// brpc streaming messages_in_batch
+DECLARE_Int32(load_stream_messages_in_batch);
+// brpc streaming StreamWait seconds on EAGAIN
+DECLARE_Int32(load_stream_eagain_wait_seconds);
+// max tasks per flush token in load stream
+DECLARE_Int32(load_stream_flush_token_max_tasks);
+// max wait flush token time in load stream
+DECLARE_Int32(load_stream_max_wait_flush_token_time_ms);
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -785,12 +842,6 @@ DECLARE_mInt32(max_send_batch_parallelism_per_job);
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size
 DECLARE_Int32(send_batch_thread_pool_queue_size);
-// number of download cache thread pool size
-DECLARE_Int32(download_cache_thread_pool_thread_num);
-// number of download cache thread pool queue size
-DECLARE_Int32(download_cache_thread_pool_queue_size);
-// download cache buffer size
-DECLARE_Int64(download_cache_buffer_size);
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -808,6 +859,10 @@ DECLARE_mInt32(external_table_connect_timeout_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
+
+// A common object cache depends on an Sharded LRU Cache.
+DECLARE_mInt32(common_obj_lru_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
@@ -819,6 +874,7 @@ DECLARE_mInt32(max_remote_storage_count);
 // and the valid values are: 0.9.0.x, 0.8.x.y.
 DECLARE_String(kafka_api_version_request);
 DECLARE_String(kafka_broker_version_fallback);
+DECLARE_mString(kafka_debug);
 
 // The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
@@ -828,6 +884,13 @@ DECLARE_Int32(routine_load_consumer_pool_size);
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
 DECLARE_Int32(multi_table_batch_plan_threshold);
+
+// Used in single-stream-multi-table load. When receiving a batch of messages from Kafka,
+// if the size of the table wait for plan is more than this threshold, we will request plans for all related tables.
+// The param is aimed to avoid requesting and executing too many plans at once.
+// Performing small batch processing on multiple tables during the loaded process can reduce the pressure of a single RPC
+// and improve the real-time processing of data.
+DECLARE_Int32(multi_table_max_wait_tables);
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -846,43 +909,14 @@ DECLARE_String(function_service_protocol);
 // use which load balancer to select server to connect
 DECLARE_String(rpc_load_balancer);
 
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DECLARE_Bool(enable_tracing);
-
-// Enable opentelemtry collector
-DECLARE_Bool(enable_otel_collector);
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DECLARE_mString(trace_exporter);
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DECLARE_String(trace_export_url);
-
-// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
-// An export will be triggered when the number of spans in the queue reaches half of the maximum.
-DECLARE_Int32(max_span_queue_size);
-
-// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
-DECLARE_Int32(max_span_export_batch_size);
-
-// The time interval between two consecutive export spans.
-DECLARE_Int32(export_span_schedule_delay_millis);
-
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 DECLARE_mInt32(string_type_length_soft_limit_bytes);
 
 DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 
-// used for olap scanner to save memory, when the size of unused_object_pool
-// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
-DECLARE_Int32(object_pool_buffer_size);
+// Threshold fo reading a small file into memory
+DECLARE_mInt32(in_memory_file_size);
 
 // ParquetReaderWrap prefetch buffer size
 DECLARE_Int32(parquet_reader_max_buffer_size);
@@ -894,6 +928,10 @@ DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 DECLARE_mInt32(parquet_column_max_buffer_mb);
 // Merge small IO, the max amplified read ratio
 DECLARE_mDouble(max_amplified_read_ratio);
+// Equivalent min size of each IO that can reach the maximum storage speed limit
+// 1MB for oss, 8KB for hdfs
+DECLARE_mInt32(merged_oss_min_io_size);
+DECLARE_mInt32(merged_hdfs_min_io_size);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);
@@ -911,21 +949,16 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
-DECLARE_mInt64(generate_cache_cleaner_task_interval_sec); // 12 h
 DECLARE_Int32(concurrency_per_dir);
-DECLARE_mInt64(cooldown_lag_time_sec);     // 3h
-DECLARE_mInt64(max_sub_cache_file_size);   // 100MB
-DECLARE_mInt64(file_cache_alive_time_sec); // 1 week
 // file_cache_type is used to set the type of file cache for remote files.
 // "": no cache, "sub_file_cache": split sub files from remote file.
 // "whole_file_cache": the whole file.
 DECLARE_mString(file_cache_type);
-DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_Bool(enable_simdjson_reader);
+DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -935,6 +968,9 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
+
+// The batch size for sending data by brpc streaming client
+DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
@@ -977,8 +1013,9 @@ DECLARE_Bool(enable_java_support);
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
+DECLARE_Bool(enable_debug_points);
+
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_Bool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -988,11 +1025,14 @@ DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
+// only for debug, will be removed after finding out the root cause
+DECLARE_mInt32(file_cache_wait_sec_after_fail); // zero for no waiting and retrying
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1011,18 +1051,18 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
+DECLARE_mInt32(inverted_index_max_buffered_docs);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
 // tree depth for bkd index
 DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
-DECLARE_Bool(inverted_index_compaction_enable);
+DECLARE_mBool(inverted_index_compaction_enable);
+// index by RAM directory
+DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
-// semi-structure configs
-DECLARE_Bool(enable_parse_multi_dimession_array);
 
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
@@ -1038,17 +1078,18 @@ DECLARE_mInt32(tablet_path_check_batch_size);
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
 DECLARE_mInt32(s3_write_buffer_size);
-// the size of the whole s3 buffer pool, which indicates the s3 file writer
-// can at most buffer 50MB data. And the num of multi part upload task is
-// s3_write_buffer_whole_size / s3_write_buffer_size
-DECLARE_mInt32(s3_write_buffer_whole_size);
+// The timeout config for S3 buffer allocation
+DECLARE_mInt32(s3_writer_buffer_allocation_timeout);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
-DECLARE_Bool(enable_shrink_memory);
+DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
+
+// max number of segment cache
+DECLARE_mInt32(segment_cache_capacity);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
@@ -1058,6 +1099,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 
 // max number of hdfs file handle in cache
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
+DECLARE_Int32(max_hdfs_file_handle_cache_time_sec);
+
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 // Apply delete pred in cumu compaction
@@ -1068,10 +1111,10 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
-// the max expiration time of kerberos ticket.
-// If a hdfs filesytem with kerberos authentication live longer
-// than this time, it will be expired.
-DECLARE_mInt64(kerberos_expiration_time_seconds);
+// Allow to specify kerberos credentials cache path.
+DECLARE_mString(kerberos_ccache_path);
+// set krb5.conf path, use "/etc/krb5.conf" by default
+DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
@@ -1095,19 +1138,112 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
+// Whether flatten nested arrays in variant column
+// Notice: TEST ONLY
+DECLARE_mBool(variant_enable_flatten_nested);
+// Threshold of a column as sparse column
+// Notice: TEST ONLY
+DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+// Threshold to estimate a column is sparsed
+// Notice: TEST ONLY
+DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
-// enable window_funnel_function with different modes
-DECLARE_mBool(enable_window_funnel_function_v2);
+DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 
-// whether to enable hdfs hedged read.
-// If set to true, it will be enabled even if user not enable it when creating catalog
-DECLARE_Bool(enable_hdfs_hedged_read);
-// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_thread_num);
-// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
-// Maybe overwritten by the value specified when creating catalog
-DECLARE_Int32(hdfs_hedged_read_threshold_time);
+// The secure path with user files, used in the `local` table function.
+DECLARE_mString(user_files_secure_path);
+
+// This threshold determines how many partitions will be allocated for window function get topn.
+// and if this threshold is exceeded, the remaining data will be pass through to other node directly.
+DECLARE_Int32(partition_topn_partition_threshold);
+
+// If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
+// as an abnormal fe, this will cause be to cancel this fe's related query.
+DECLARE_Int32(fe_expire_duration_seconds);
+
+// If use stop_be.sh --grace, then BE has to wait all running queries to stop to avoiding running query failure
+// , but if the waiting time exceed the limit, then be will exit directly.
+// During this period, FE will not send any queries to BE and waiting for all running queries to stop.
+DECLARE_Int32(grace_shutdown_wait_seconds);
+
+// BitmapValue serialize version.
+DECLARE_Int16(bitmap_serialize_version);
+
+// group commit config
+DECLARE_String(group_commit_wal_path);
+DECLARE_Int32(group_commit_replay_wal_retry_num);
+DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_mInt32(group_commit_relay_wal_threads);
+// This config can be set to limit thread number in group commit request fragment thread pool.
+DECLARE_mInt32(group_commit_insert_threads);
+DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
+DECLARE_Bool(wait_internal_group_commit_finish);
+// Max size(bytes) of group commit queues, used for mem back pressure.
+DECLARE_mInt32(group_commit_queue_mem_limit);
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DECLARE_mString(group_commit_wal_max_disk_limit);
+DECLARE_Bool(group_commit_wait_replay_wal_finish);
+
+// The configuration item is used to lower the priority of the scanner thread,
+// typically employed to ensure CPU scheduling for write operations.
+// Default is 0, which is default value of thread nice value, increase this value
+// to lower the priority of scan threads
+DECLARE_Int32(scan_thread_nice_value);
+// Used to modify the recycle interval of tablet schema cache
+DECLARE_mInt32(tablet_schema_cache_recycle_interval);
+// Granularity is at the column level
+DECLARE_mInt32(tablet_schema_cache_capacity);
+
+// Use `LOG(FATAL)` to replace `throw` when true
+DECLARE_mBool(exit_on_exception);
+
+// cgroup
+DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_mBool(enable_cgroup_cpu_soft_limit);
+
+// This config controls whether the s3 file writer would flush cache asynchronously
+DECLARE_Bool(enable_flush_file_cache_async);
+
+// Remove predicate that is always true for a segment.
+DECLARE_Bool(ignore_always_true_predicate_for_segment);
+
+// Dir of default timezone files
+DECLARE_String(default_tzfiles_path);
+
+// Ingest binlog work pool size
+DECLARE_Int32(ingest_binlog_work_pool_size);
+
+// Download binlog rate limit, unit is KB/s
+DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
+
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
+DECLARE_mInt64(local_exchange_buffer_mem_limit);
+
+DECLARE_mInt64(enable_debug_log_timeout_secs);
+
+DECLARE_mBool(enable_column_type_check);
+
+// Tolerance for the number of partition id 0 in rowset, default 0
+DECLARE_Int32(ignore_invalid_partition_id_rowset_num);
+
+DECLARE_mInt32(report_query_statistics_interval_ms);
+DECLARE_mInt32(query_statistics_reserve_timeout_ms);
+
+// create tablet in partition random robin idx lru size, default 10000
+DECLARE_Int32(partition_disk_index_lru_size);
 
 #ifdef BE_TEST
 // test s3
@@ -1182,7 +1318,8 @@ public:
     // or set `retval` to `defstr`
     // if retval is not set(in case defstr is nullptr), set is_retval_set to false
     template <typename T>
-    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set) const;
+    bool get_or_default(const char* key, const char* defstr, T& retval, bool* is_retval_set,
+                        std::string& rawval) const;
 
     void set(const std::string& key, const std::string& val);
 
@@ -1219,6 +1356,8 @@ std::vector<std::vector<std::string>> get_config_info();
 Status set_fuzzy_config(const std::string& field, const std::string& value);
 
 void set_fuzzy_configs();
+
+void update_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

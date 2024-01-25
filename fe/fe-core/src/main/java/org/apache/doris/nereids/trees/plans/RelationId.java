@@ -21,8 +21,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 
-import java.util.Objects;
-
 /**
  * relation id
  */
@@ -30,18 +28,6 @@ public class RelationId extends Id<RelationId> {
 
     public RelationId(int id) {
         super(id);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        RelationId relationId = (RelationId) o;
-        return id == relationId.id;
     }
 
     /**
@@ -57,12 +43,17 @@ public class RelationId extends Id<RelationId> {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public String toString() {
+        return "RelationId#" + id;
     }
 
     @Override
-    public String toString() {
-        return "RelationId#" + id;
+    public boolean equals(Object obj) {
+        return super.equals(obj);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

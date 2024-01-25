@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_alter_database_property") {
+    def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
+    logger.info("${ret}")
+    if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
+        logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
+        return
+    }
+
     sql "drop database if exists test_alter_database_property"
 
     sql """

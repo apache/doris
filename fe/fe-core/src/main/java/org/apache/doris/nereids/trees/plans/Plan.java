@@ -26,9 +26,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.MutableState;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,7 +43,6 @@ import java.util.stream.Collectors;
  * Abstract class for all plan node.
  */
 public interface Plan extends TreeNode<Plan> {
-
     PlanType getType();
 
     // cache GroupExpression for fast exit from Memo.copyIn.
@@ -55,6 +57,7 @@ public interface Plan extends TreeNode<Plan> {
     boolean canBind();
 
     default boolean bound() {
+        // TODO: avoid to use getLogicalProperties()
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
@@ -62,10 +65,10 @@ public interface Plan extends TreeNode<Plan> {
         return getExpressions().stream().anyMatch(Expression::hasUnbound);
     }
 
-    default boolean childrenBound() {
-        return children()
-                .stream()
-                .allMatch(Plan::bound);
+    default boolean containsSlots(ImmutableSet<Slot> slots) {
+        return getExpressions().stream().anyMatch(
+                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty()
+                        || children().stream().anyMatch(plan -> plan.containsSlots(slots)));
     }
 
     default LogicalProperties computeLogicalProperties() {
@@ -119,6 +122,18 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
+    /**
+     * Get the input relation ids set of the plan.
+     * @return The result is collected from all inputs relations
+     */
+    default Set<RelationId> getInputRelations() {
+        Set<RelationId> relationIdSet = Sets.newHashSet();
+        children().forEach(
+                plan -> relationIdSet.addAll(plan.getInputRelations())
+        );
+        return relationIdSet;
+    }
+
     String treeString();
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
@@ -148,8 +163,13 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shape(String prefix) {
         StringBuilder builder = new StringBuilder();
-        builder.append(prefix).append(shapeInfo()).append("\n");
-        String childPrefix = prefix + "--";
+        String me = this.getClass().getSimpleName();
+        String prefixTail = "";
+        if (!ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
+            builder.append(prefix).append(shapeInfo()).append("\n");
+            prefixTail += "--";
+        }
+        String childPrefix = prefix + prefixTail;
         children().forEach(
                 child -> {
                     builder.append(child.shape(childPrefix));
@@ -164,5 +184,26 @@ public interface Plan extends TreeNode<Plan> {
      */
     default String shapeInfo() {
         return this.getClass().getSimpleName();
+    }
+
+    /**
+     * used in treeString()
+     *
+     * @return "" if groupExpression is empty, o.w. string format of group id
+     */
+    default String getGroupIdAsString() {
+        String groupId;
+        if (getGroupExpression().isPresent()) {
+            groupId = getGroupExpression().get().getOwnerGroup().getGroupId().asInt() + "";
+        } else if (getMutableState(MutableState.KEY_GROUP).isPresent()) {
+            groupId = getMutableState(MutableState.KEY_GROUP).get().toString();
+        } else {
+            groupId = "";
+        }
+        return groupId;
+    }
+
+    default String getGroupIdWithPrefix() {
+        return "@" + getGroupIdAsString();
     }
 }

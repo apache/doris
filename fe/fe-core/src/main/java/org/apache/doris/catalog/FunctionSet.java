@@ -29,6 +29,7 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -203,6 +204,8 @@ public class FunctionSet<T> {
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
+
+    public static final String BITMAP_AGG = "bitmap_agg";
     public static final String COUNT_BY_ENUM = "count_by_enum";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
@@ -343,10 +346,12 @@ public class FunctionSet<T> {
     public Function specializeTemplateFunction(Function templateFunction, Function requestFunction, boolean isVariadic) {
         try {
             boolean hasTemplateType = false;
-            LOG.debug("templateFunction signature: " + templateFunction.signatureString()
-                        + "  return: " + templateFunction.getReturnType());
-            LOG.debug("requestFunction signature: " + requestFunction.signatureString()
-                        + "  return: " + requestFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("templateFunction signature: {}, return type: {}",
+                            templateFunction.signatureString(), templateFunction.getReturnType());
+                LOG.debug("requestFunction signature: {}, return type: {}",
+                            requestFunction.signatureString(), requestFunction.getReturnType());
+            }
             List<Type> newArgTypes = Lists.newArrayList();
             List<Type> newRetType = Lists.newArrayList();
             if (isVariadic) {
@@ -381,26 +386,45 @@ public class FunctionSet<T> {
                 throw new TypeException(templateFunction
                                 + " is not support for template since it's not a ScalarFunction");
             }
-            Type[] args = specializedFunction.getArgs();
+            ArrayList<Type> args = new ArrayList<>();
+            Collections.addAll(args, specializedFunction.getArgs());
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
-            for (int i = 0; i < args.length; i++) {
-                if (args[i].hasTemplateType()) {
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+            int i = 0;
+            for (; i < args.size(); i++) {
+                if (args.get(i).hasTemplateType()) {
                     hasTemplateType = true;
-                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
+                    // if args[i] is template type, and requestFunction.getArgs()[i] NULL_TYPE, we need call function
+                    // deduce to get the specific type
+                    Type deduceType = requestFunction.getArgs()[i];
+                    if (requestFunction.getArgs()[i].isNull()
+                            || (requestFunction.getArgs()[i] instanceof ArrayType
+                            && ((ArrayType) requestFunction.getArgs()[i]).getItemType().isNull())
+                            && FunctionTypeDeducers.DEDUCERS.containsKey(specializedFunction.functionName())) {
+                        deduceType = FunctionTypeDeducers.deduce(specializedFunction.functionName(), i, requestFunction.getArgs());
+                        args.set(i, args.get(i).specializeTemplateType(deduceType == null ? requestFunction.getArgs()[i]
+                                : deduceType, specializedTypeMap, false, enableDecimal256));
+                    } else {
+                        args.set(i, args.get(i).specializeTemplateType(requestFunction.getArgs()[i],
+                                specializedTypeMap, false, enableDecimal256));
+                    }
                 }
             }
+            specializedFunction.setArgs(args);
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
                         specializedFunction.getReturnType().specializeTemplateType(
-                        requestFunction.getReturnType(), specializedTypeMap, true));
+                        requestFunction.getReturnType(), specializedTypeMap, true, enableDecimal256));
             }
-            LOG.debug("specializedFunction signature: " + specializedFunction.signatureString()
-                        + "  return: " + specializedFunction.getReturnType());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("specializedFunction signature: {}, return type: {}",
+                            specializedFunction.signatureString(), specializedFunction.getReturnType());
+            }
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
-            if (inited) {
-                LOG.warn("specializeTemplateFunction exception", e);
+            if (inited && LOG.isDebugEnabled()) {
+                LOG.debug("specializeTemplateFunction exception", e);
             }
             return null;
         }
@@ -417,7 +441,7 @@ public class FunctionSet<T> {
                 newTypes[i] = inputType;
             }
         }
-        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), newTypes);
+        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), 0, newTypes);
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
             return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(newTypes), newRetType, f.hasVarArgs(),
@@ -439,7 +463,20 @@ public class FunctionSet<T> {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
-            if (candicateArgTypes[0] instanceof ArrayType || candicateArgTypes[0] instanceof MapType) {
+            if (candicateArgTypes[0] instanceof ArrayType) {
+                // match is exactly type. but for null type , with in array|map elem can not return true, because for
+                // be will make null_type to uint8
+                // so here meet null_type just make true as allowed, descArgTypes[0]).getItemType().isNull() is for
+                // empty literal like: []|{}
+                if (descArgTypes[0] instanceof ArrayType && ((ArrayType) descArgTypes[0]).getItemType().isNull()) {
+                    return true;
+                }
+                return descArgTypes[0].matchesType(candicateArgTypes[0]);
+            } else if (candicateArgTypes[0] instanceof MapType) {
+                if (descArgTypes[0] instanceof MapType && ((MapType) descArgTypes[0]).getKeyType().isNull()
+                        && ((MapType) descArgTypes[0]).getValueType().isNull()) {
+                    return true;
+                }
                 return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
             return false;
@@ -565,6 +602,8 @@ public class FunctionSet<T> {
     public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
 
     public static final String GROUP_ARRAY = "group_array";
+
+    public static final String ARRAY_AGG = "array_agg";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -1033,9 +1072,18 @@ public class FunctionSet<T> {
             }
 
             if (!Type.JSONB.equals(t)) {
-                for (Type valueType : Type.getTrivialTypes()) {
-                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
                             Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
                             "", "", "", "", "", null, "",
                             true, true, false, true));
                 }
@@ -1278,6 +1326,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
@@ -1292,13 +1350,13 @@ public class FunctionSet<T> {
 
         //vec percentile and percentile_approx
         addBuiltin(AggregateFunction.createBuiltin("percentile",
-                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
-                "",
-                "",
-                "",
-                "",
-                "",
-                false, true, false, true));
+                        Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        false, true, false, true));
 
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
@@ -1377,6 +1435,9 @@ public class FunctionSet<T> {
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
 
+            addBuiltin(AggregateFunction.createBuiltin(ARRAY_AGG, Lists.newArrayList(t), new ArrayType(t), t, "", "", "", "", "",
+                    true, false, true, true));
+
             //first_value/last_value for array
             addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
@@ -1388,6 +1449,22 @@ public class FunctionSet<T> {
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
+                    Lists.newArrayList(new ArrayType(t), Type.BOOLEAN), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
+                    Lists.newArrayList(new ArrayType(t), Type.BOOLEAN), new ArrayType(t), Type.ARRAY,
                     "",
                     "",
                     null,
@@ -1417,6 +1494,10 @@ public class FunctionSet<T> {
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.BIGINT), Type.DOUBLE, Type.BIGINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.LARGEINT,
                 "", "", "", "", "", "", "",
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
@@ -1547,7 +1628,7 @@ public class FunctionSet<T> {
 
             //vec first_value
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "first_value", Lists.newArrayList(t), t, t,
+                    "first_value", Lists.newArrayList(t, Type.BOOLEAN), t, t,
                     "",
                     "",
                     null,
@@ -1564,7 +1645,7 @@ public class FunctionSet<T> {
                     false, false));
             //vec last_value
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                    "last_value", Lists.newArrayList(t), t, t,
+                    "last_value", Lists.newArrayList(t, Type.BOOLEAN), t, t,
                     "",
                     "",
                     "",
@@ -1643,6 +1724,13 @@ public class FunctionSet<T> {
         return builtinFunctions;
     }
 
+    public List<Function> getAllFunctions() {
+        List<Function> functions = Lists.newArrayList();
+        vectorizedFunctions.forEach((k, v) -> functions.addAll(v));
+        tableFunctions.forEach((k, v) -> functions.addAll(v));
+        return functions;
+    }
+
     public static final String EXPLODE_SPLIT = "explode_split";
     public static final String EXPLODE_BITMAP = "explode_bitmap";
     public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
@@ -1712,6 +1800,9 @@ public class FunctionSet<T> {
                     Lists.newArrayList(new ArrayType(subType)), false,
                     "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
         }
+        addTableFunctionWithCombinator(EXPLODE, Type.WILDCARD_DECIMAL, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.WILDCARD_DECIMAL)), false,
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
     }
 
     public boolean isAggFunctionName(String name) {

@@ -22,3 +22,10 @@ ASIA	ASIA	1992	1
 0	nation	0
 1993	nation	0
 
+-- !select_temp_2 --
+1	4	1	1
+2	8	2	2
+
+-- !select --
+1	2
+

@@ -79,6 +79,11 @@ public class AssertNumRowsNode extends PlanNode {
         StringBuilder output = new StringBuilder()
                 .append(prefix).append("assert number of rows: ")
                 .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+
         return output.toString();
     }
 
@@ -89,5 +94,10 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node.setDesiredNumRows(desiredNumOfRows);
         msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
+    }
+
+    @Override
+    public int getNumInstances() {
+        return 1;
     }
 }

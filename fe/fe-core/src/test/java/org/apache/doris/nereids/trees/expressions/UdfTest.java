@@ -40,8 +40,14 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -52,7 +58,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Override
     protected void runBeforeEach() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Test
@@ -69,7 +75,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
 
-        connectContext.setDatabase("default_cluster:test_1");
+        connectContext.setDatabase("test_1");
         Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new IntegerLiteral(3));
         PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -170,5 +176,21 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 .when(relation -> relation.getProjects().size() == 1
                                         && relation.getProjects().get(0).child(0).equals(expected))
                 );
+    }
+
+    @Test
+    public void testReadFromStream() throws Exception {
+        createFunction("create global alias function f8(int) with parameter(n) as hours_add(now(3), n)");
+        Env.getCurrentEnv().getFunctionRegistry().dropUdf(null, "f8",
+                ImmutableList.of(IntegerType.INSTANCE));
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
+        byte[] buffer = outputStream.toByteArray();
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
+        Env.getCurrentEnv().getGlobalFunctionMgr().readFields(new DataInputStream(inputStream));
+
+        Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
+                .findUdfBuilder(connectContext.getDatabase(), "f8").size());
     }
 }

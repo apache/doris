@@ -22,10 +22,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -42,13 +41,13 @@ import java.util.Map;
 
 /** Numbers */
 public class Numbers extends TableValuedFunction {
-    public Numbers(TVFProperties properties) {
+    public Numbers(Properties properties) {
         super("numbers", properties);
     }
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
+        return FunctionSignature.of(BigIntType.INSTANCE, getArgumentsTypes());
     }
 
     @Override
@@ -66,17 +65,23 @@ public class Numbers extends TableValuedFunction {
     public Statistics computeStats(List<Slot> slots) {
         Preconditions.checkArgument(slots.size() == 1);
         try {
-            NumbersTableValuedFunction catalogFunction = (NumbersTableValuedFunction) getCatalogFunction();
-            long rowNum = catalogFunction.getTotalNumbers();
+            NumbersTableValuedFunction numberTvf = (NumbersTableValuedFunction) getCatalogFunction();
+            long rowNum = numberTvf.getTotalNumbers();
 
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
-            ColumnStatistic columnStat = new ColumnStatisticBuilder()
-                    .setCount(rowNum).setNdv(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0)
-                    .setMaxValue(rowNum - 1).setSelectivity(1.0 / rowNum)
-                    .setMinExpr(new IntLiteral(0, Type.BIGINT))
-                    .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT))
-                    .build();
-            columnToStatistics.put(slots.get(0), columnStat);
+            ColumnStatisticBuilder statBuilder = new ColumnStatisticBuilder()
+                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8);
+            if (numberTvf.getUseConst()) { // a column of const value
+                long value = numberTvf.getConstValue();
+                statBuilder = statBuilder.setNdv(1).setMinValue(value).setMaxValue(value)
+                        .setMinExpr(new IntLiteral(value, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(value, Type.BIGINT));
+            } else { // a column of increasing value
+                statBuilder = statBuilder.setNdv(rowNum).setMinValue(0).setMaxValue(rowNum - 1)
+                        .setMinExpr(new IntLiteral(0, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT));
+            }
+            columnToStatistics.put(slots.get(0), statBuilder.build());
             return new Statistics(rowNum, columnToStatistics);
         } catch (Exception t) {
             throw new NereidsException(t.getMessage(), t);
@@ -89,18 +94,9 @@ public class Numbers extends TableValuedFunction {
     }
 
     @Override
-    public PhysicalProperties getPhysicalProperties() {
-        String backendNum = getTVFProperties().getMap().getOrDefault(NumbersTableValuedFunction.BACKEND_NUM, "1");
-        if (backendNum.trim().equals("1")) {
-            return PhysicalProperties.GATHER;
-        }
-        return PhysicalProperties.ANY;
-    }
-
-    @Override
     public Numbers withChildren(List<Expression> children) {
         Preconditions.checkArgument(children().size() == 1
-                && children().get(0) instanceof TVFProperties);
-        return new Numbers((TVFProperties) children.get(0));
+                && children().get(0) instanceof Properties);
+        return new Numbers((Properties) children.get(0));
     }
 }

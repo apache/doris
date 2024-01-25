@@ -622,7 +622,7 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
         order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
                             ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcPg14Table1 limit 3"""
         order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcPg14Table1 UNION (SELECT id as k8 FROM ${dorisExTable1}  UNION SELECT k7 as k8 FROM $jdbcPg14Table1) 
-                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a  limit 3"""
+                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a order by k8 limit 3"""
         order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE EXISTS(SELECT max(id) FROM ${dorisExTable1}) """
         order_qt_sql103 """ SELECT count(*) FROM $jdbcPg14Table1 n WHERE (SELECT count(*) FROM ${dorisExTable1} r WHERE n.k8 = r.id) > 1 """
         order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcPg14Table1 l1 WHERE

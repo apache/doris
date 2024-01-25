@@ -35,6 +35,10 @@ suite("test_get_binlog_case") {
     }
     
     def syncer = getSyncer()
+    if (!syncer.checkEnableFeatureBinlog()) {
+        logger.info("fe enable_feature_binlog is false, skip case test_get_binlog_case")
+        return
+    }
     def seqTableName = "tbl_get_binlog_case"
     def test_num = 0
     def insert_num = 5
@@ -108,8 +112,8 @@ suite("test_get_binlog_case") {
     
     logger.info("=== Test 3.2: no priv user get binlog case ===")
     syncer.context.seq = -1
-    noPrivUser = "no_priv_user"
-    emptyTable = "tbl_empty_test"
+    def noPrivUser = "no_priv_user2"
+    def emptyTable = "tbl_empty_test"
     sql "DROP TABLE IF EXISTS ${emptyTable}"
     sql """
         CREATE TABLE if NOT EXISTS ${emptyTable} 
@@ -124,8 +128,7 @@ suite("test_get_binlog_case") {
             "replication_allocation" = "tag.location.default: 1"
         )
     """
-    sql """DROP USER IF EXISTS ${noPrivUser}"""
-    sql """CREATE USER ${noPrivUser} IDENTIFIED BY '123456'"""
+    sql """CREATE USER IF NOT EXISTS ${noPrivUser} IDENTIFIED BY '123456'"""
     sql """GRANT ALL ON ${context.config.defaultDb}.* TO ${noPrivUser}"""
     sql """GRANT ALL ON TEST_${context.dbName}.${emptyTable} TO ${noPrivUser}"""
     syncer.context.user = "${noPrivUser}"

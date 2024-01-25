@@ -45,6 +45,7 @@ suite("test_dup_table_auto_inc_10000") {
         file 'auto_inc_10000.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_count_max_min "select count(distinct id), max(id), min(id) from ${table1};"
     sql "drop table if exists ${table1};"
 
@@ -76,6 +77,7 @@ suite("test_dup_table_auto_inc_10000") {
         file 'auto_inc_10000.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_count_max_min "select count(distinct id), max(id), min(id) from ${table2};"
     sql "drop table if exists ${table2};"
 
@@ -107,6 +109,7 @@ suite("test_dup_table_auto_inc_10000") {
         file 'auto_inc_10000.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_count_max_min "select count(distinct id), max(id), min(id) from ${table3};"
     sql "drop table if exists ${table3};"
 }

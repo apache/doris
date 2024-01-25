@@ -26,7 +26,6 @@
 #include <list>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/cache/block/block_file_cache.h"
@@ -42,32 +41,33 @@ namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const std::string& cache_path,
-                                               const long modification_time)
+                                               const FileReaderOptions& opts)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    // Use path and modification time to build cache key
-    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
-    _cache_key = IFileCache::hash(unique_path);
-    _cache = FileCacheFactory::instance().get_by_path(_cache_key);
-}
-
-CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const std::string& cache_base_path,
-                                               const std::string& cache_path,
-                                               const long modification_time)
-        : _remote_file_reader(std::move(remote_file_reader)) {
-    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
-    _cache_key = IFileCache::hash(unique_path);
-    _cache = FileCacheFactory::instance().get_by_path(cache_base_path);
-    if (_cache == nullptr) {
-        LOG(WARNING) << "Can't get cache from base path: " << cache_base_path
-                     << ", using random instead.";
-        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+    _is_doris_table = opts.is_doris_table;
+    if (_is_doris_table) {
+        _cache_key = IFileCache::hash(path().filename().native());
+        _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+    } else {
+        // Use path and modification time to build cache key
+        std::string unique_path = fmt::format("{}:{}", path().native(), opts.mtime);
+        _cache_key = IFileCache::hash(unique_path);
+        if (opts.cache_base_path.empty()) {
+            // if cache path is not specified by session variable, chose randomly.
+            _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+        } else {
+            // from query session variable: file_cache_base_path
+            _cache = FileCacheFactory::instance()->get_by_path(opts.cache_base_path);
+            if (_cache == nullptr) {
+                LOG(WARNING) << "Can't get cache from base path: " << opts.cache_base_path
+                             << ", using random instead.";
+                _cache = FileCacheFactory::instance()->get_by_path(_cache_key);
+            }
+        }
     }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
-    close();
+    static_cast<void>(close());
 }
 
 Status CachedRemoteFileReader::close() {
@@ -76,35 +76,47 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
                                                               size_t read_size) const {
-    size_t segment_size =
-            std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
-                     (size_t)config::file_cache_max_file_segment_size);
-    segment_size = BitUtil::next_power_of_two(segment_size);
     size_t left = offset;
     size_t right = offset + read_size - 1;
-    size_t align_left = (left / segment_size) * segment_size;
-    size_t align_right = (right / segment_size + 1) * segment_size;
+    size_t align_left, align_right;
+    if (_is_doris_table) {
+        // when the cache is read_only, we don't need to prefetch datas into cache, so we just read what we need
+        if (IFileCache::read_only()) [[unlikely]] {
+            return std::make_pair(offset, read_size);
+        }
+        align_left = (left / config::file_cache_max_file_segment_size) *
+                     config::file_cache_max_file_segment_size;
+        align_right = (right / config::file_cache_max_file_segment_size + 1) *
+                      config::file_cache_max_file_segment_size;
+    } else {
+        size_t segment_size =
+                std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
+                         (size_t)config::file_cache_max_file_segment_size);
+        segment_size = BitUtil::next_power_of_two(segment_size);
+        align_left = (left / segment_size) * segment_size;
+        align_right = (right / segment_size + 1) * segment_size;
+    }
     align_right = align_right < size() ? align_right : size();
     size_t align_size = align_right - align_left;
     return std::make_pair(align_left, align_size);
 }
 
-Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                            const IOContext* io_ctx) {
-    DCHECK(!closed());
-    DCHECK(io_ctx);
-    if (offset > size()) {
-        return Status::IOError(
-                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
-                            size(), path().native()));
-    }
+Status CachedRemoteFileReader::_read_from_cache(size_t offset, Slice result, size_t* bytes_read,
+                                                const IOContext* io_ctx) {
     size_t bytes_req = result.size;
     bytes_req = std::min(bytes_req, size() - offset);
-    if (UNLIKELY(bytes_req == 0)) {
-        *bytes_read = 0;
+    ReadStatistics stats;
+    // session variable chooses to close file cache for this query
+    if (!io_ctx->read_file_cache) {
+        SCOPED_RAW_TIMER(&stats.remote_read_timer);
+        RETURN_IF_ERROR(_remote_file_reader->read_at(offset, result, bytes_read, io_ctx));
+        DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
+        if (io_ctx->file_cache_stats) {
+            stats.bytes_read += bytes_req;
+            _update_state(stats, io_ctx->file_cache_stats);
+        }
         return Status::OK();
     }
-    ReadStatistics stats;
     auto [align_left, align_size] = _align_size(offset, bytes_req);
     CacheContext cache_context(io_ctx);
     FileBlocksHolder holder = _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
@@ -198,7 +210,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     break;
                 }
                 if (segment_state != FileBlock::State::DOWNLOADING) {
-                    return Status::IOError(
+                    return Status::InternalError(
                             "File Cache State is {}, the cache downloader encounters an error, "
                             "please "
                             "retry it",
@@ -207,7 +219,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             } while (++wait_time < MAX_WAIT_TIME);
         }
         if (UNLIKELY(wait_time) == MAX_WAIT_TIME) {
-            return Status::IOError("Waiting too long for the download to complete");
+            return Status::InternalError("Waiting too long for the download to complete");
         }
         size_t file_offset = current_offset - left;
         {
@@ -219,9 +231,46 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         current_offset = right + 1;
     }
     DCHECK(*bytes_read == bytes_req);
-    _update_state(stats, io_ctx->file_cache_stats);
     DorisMetrics::instance()->s3_bytes_read_total->increment(*bytes_read);
+    if (io_ctx->file_cache_stats) {
+        _update_state(stats, io_ctx->file_cache_stats);
+    }
     return Status::OK();
+}
+
+Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                            const IOContext* io_ctx) {
+    DCHECK(!closed());
+    DCHECK(io_ctx);
+    if (offset > size()) {
+        return Status::InvalidArgument(
+                fmt::format("offset exceeds file size(offset: {), file size: {}, path: {})", offset,
+                            size(), path().native()));
+    }
+    size_t bytes_req = result.size;
+    bytes_req = std::min(bytes_req, size() - offset);
+    if (UNLIKELY(bytes_req == 0)) {
+        *bytes_read = 0;
+        return Status::OK();
+    }
+    Status cache_st = _read_from_cache(offset, result, bytes_read, io_ctx);
+    if (UNLIKELY(!cache_st.ok())) {
+        if (config::file_cache_wait_sec_after_fail > 0) {
+            // only for debug, wait and retry to load data from file cache
+            // return error if failed again
+            LOG(WARNING) << "Failed to read data from file cache, and wait "
+                         << config::file_cache_wait_sec_after_fail
+                         << " seconds to reload data: " << cache_st.to_string();
+            sleep(config::file_cache_wait_sec_after_fail);
+            cache_st = _read_from_cache(offset, result, bytes_read, io_ctx);
+        } else {
+            // fail over to remote file reader, and return the status of remote read
+            LOG(WARNING) << "Failed to read data from file cache, and fail over to remote file: "
+                         << cache_st.to_string();
+            return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
+        }
+    }
+    return cache_st;
 }
 
 void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
@@ -238,7 +287,7 @@ void CachedRemoteFileReader::_update_state(const ReadStatistics& read_stats,
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
     statis->local_io_timer += read_stats.local_read_timer;
-    statis->num_skip_cache_io_total += read_stats.skip_cache ? 1 : 0;
+    statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
     statis->write_cache_io_timer += read_stats.local_write_timer;
 }

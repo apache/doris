@@ -112,6 +112,9 @@ message PGenericType {
         TIME = 35;
         AGG_STATE = 36;
         TIMEV2 = 37;
+        DECIMAL256 = 38;
+        IPV4 = 39;
+        IPV6 = 40;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

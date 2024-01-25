@@ -23,7 +23,6 @@ import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
@@ -32,6 +31,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -44,7 +44,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -53,7 +52,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -400,7 +398,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = idGeneratorBuffer.getNextId();
 
-                Tablet newTablet = new Tablet(mvTabletId);
+                Tablet newTablet = EnvFactory.getInstance().createTablet(mvTabletId);
                 mvIndex.addTablet(newTablet, mvTabletMeta);
                 addedTablets.add(newTablet);
 
@@ -475,6 +473,7 @@ public class MaterializedViewHandler extends AlterHandler {
         // 2. all slot's isKey same with mv column
         // c. Duplicate table:
         // 1. Columns resolved by semantics are legal
+        // 2. Key column not allow float/double type.
 
         // update mv columns
         List<MVColumnItem> mvColumnItemList = addMVClause.getMVColumnItemList();
@@ -490,14 +489,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 // check b.1
                 throw new DdlException("The materialized view of unique table must not has grouping columns");
             }
-            addMVClause.setMVKeysType(olapTable.getKeysType());
 
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !mvColumnItem.isKey()) {
-                    mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
-                }
-
                 if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    mvColumnItem.setIsKey(false);
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
                         if (!addMVClause.isReplay()
                                 && olapTable
@@ -506,6 +501,9 @@ public class MaterializedViewHandler extends AlterHandler {
                                         .isKey()) {
                             mvColumnItem.setIsKey(true);
                         }
+                    }
+                    if (!mvColumnItem.isKey()) {
+                        mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
                     }
                 }
 
@@ -545,21 +543,20 @@ public class MaterializedViewHandler extends AlterHandler {
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
             }
         } else {
-            Set<String> partitionOrDistributedColumnName = olapTable.getPartitionColumnNames();
-            partitionOrDistributedColumnName.addAll(olapTable.getDistributionColumnNames());
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
                 Set<String> names = mvColumnItem.getBaseColumnNames();
                 if (names == null) {
                     throw new DdlException("Base columns is null");
                 }
-                for (String str : names) {
-                    if (partitionOrDistributedColumnName.contains(str) && mvColumnItem.getAggregationType() != null) {
-                        throw new DdlException(
-                                "The partition and distributed columns " + str + " must be key column in mv");
-                    }
-                }
 
                 newMVColumns.add(mvColumnItem.toMVColumn(olapTable));
+            }
+        }
+
+        for (Column column : newMVColumns) {
+            // check c.2
+            if (column.isKey() && column.getType().isFloatingPointType()) {
+                throw new DdlException("Do not support float/double type on key column, you can change it to decimal");
             }
         }
 
@@ -656,7 +653,7 @@ public class MaterializedViewHandler extends AlterHandler {
         for (Column column : olapTable.getSchemaByIndexId(baseIndexId, true)) {
             baseColumnNameToColumn.put(column.getName(), column);
         }
-        LOG.debug("baseSchema:{}", olapTable.getSchemaByIndexId(baseIndexId, true));
+
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
@@ -668,6 +665,10 @@ public class MaterializedViewHandler extends AlterHandler {
                     throw new DdlException("Invalid column order. value should be after key");
                 }
                 if (baseColumn.isKey()) {
+                    if (baseColumn.getType().isFloatingPointType()) {
+                        throw new DdlException(
+                                "Do not support float/double type on group by, you can change it to decimal");
+                    }
                     keysNumOfRollup += 1;
                     hasKey = true;
                 } else {
@@ -747,21 +748,20 @@ public class MaterializedViewHandler extends AlterHandler {
                     keySizeByte += column.getType().getIndexSize();
                     if (theBeginIndexOfValue + 1 > FeConstants.shortkey_max_column_count
                             || keySizeByte > FeConstants.shortkey_maxsize_bytes) {
-                        if (theBeginIndexOfValue == 0 && column.getType().getPrimitiveType().isCharFamily()) {
-                            column.setIsKey(true);
-                            theBeginIndexOfValue++;
+                        if (theBeginIndexOfValue != 0 || !column.getType().getPrimitiveType().isCharFamily()) {
+                            break;
                         }
-                        break;
                     }
                     if (column.getType().isFloatingPointType()) {
                         break;
                     }
+
+                    column.setIsKey(true);
+
                     if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
-                        column.setIsKey(true);
                         theBeginIndexOfValue++;
                         break;
                     }
-                    column.setIsKey(true);
                 }
                 if (theBeginIndexOfValue == 0) {
                     throw new DdlException("The first column could not be float or double");
@@ -1018,11 +1018,9 @@ public class MaterializedViewHandler extends AlterHandler {
             for (Partition partition : olapTable.getPartitions()) {
                 MaterializedIndex rollupIndex = partition.deleteRollupIndex(rollupIndexId);
 
-                if (!Env.isCheckpointThread()) {
-                    // remove from inverted index
-                    for (Tablet tablet : rollupIndex.getTablets()) {
-                        invertedIndex.deleteTablet(tablet.getId());
-                    }
+                // remove from inverted index
+                for (Tablet tablet : rollupIndex.getTablets()) {
+                    invertedIndex.deleteTablet(tablet.getId());
                 }
             }
             String rollupIndexName = olapTable.getIndexNameById(rollupIndexId);
@@ -1212,7 +1210,7 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         if (olapTable.isDuplicateWithoutKey()) {
@@ -1290,16 +1288,5 @@ public class MaterializedViewHandler extends AlterHandler {
     // just for ut
     public Map<Long, Set<Long>> getTableRunningJobMap() {
         return tableRunningJobMap;
-    }
-
-    public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
-            throws UserException {
-        Map<String, TableIf> olapTables = addMVClause.getTables();
-        try {
-            olapTables.values().forEach(TableIf::readLock);
-            Env.getCurrentEnv().createTable(addMVClause);
-        } finally {
-            olapTables.values().forEach(TableIf::readUnlock);
-        }
     }
 }

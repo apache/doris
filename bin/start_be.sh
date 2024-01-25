@@ -30,12 +30,14 @@ OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'daemon' \
+    -l 'console' \
     -- "$@")"
 
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_IN_AWS=0
+RUN_CONSOLE=0
 while true; do
     case "$1" in
     --daemon)
@@ -44,6 +46,10 @@ while true; do
         ;;
     --aws)
         RUN_IN_AWS=1
+        shift
+        ;;
+    --console)
+        RUN_CONSOLE=1
         shift
         ;;
     --)
@@ -69,21 +75,33 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
         echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
         exit 1
     fi
+
+    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+        echo "Please disable swap memory before installation."
+        exit 1
+    fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
-    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
+if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
     exit 1
 fi
 
 # add java libs
-for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
-    if [[ -z "${DORIS_CLASSPATH}" ]]; then
-        export DORIS_CLASSPATH="${f}"
-    else
-        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    fi
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
 done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
@@ -102,8 +120,15 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+# add custom_libs to CLASSPATH
+if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
+    for f in "${DORIS_HOME}/custom_lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
@@ -119,10 +144,12 @@ jdk_version() {
     local result
     local IFS=$'\n'
 
-    if [[ -z "${java_cmd}" ]]; then
+    if ! command -v "${java_cmd}" >/dev/null; then
+        echo "ERROR: invalid java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         result=no_java
         return 1
     else
+        echo "INFO: java_cmd ${java_cmd}" >>"${LOG_DIR}/be.out"
         local version
         # remove \r for Cygwin
         version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
@@ -132,6 +159,7 @@ jdk_version() {
         else
             result="$(echo "${version}" | awk -F '.' '{print $1}')"
         fi
+        echo "INFO: jdk_version ${result}" >>"${LOG_DIR}/be.out"
     fi
     echo "${result}"
     return 0
@@ -183,6 +211,13 @@ if [[ -z "${JAVA_HOME}" ]]; then
     exit 1
 fi
 
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
+
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"
 fi
@@ -198,7 +233,7 @@ if [[ -f "${pidfile}" ]]; then
     fi
 fi
 
-chmod 755 "${DORIS_HOME}/lib/doris_be"
+chmod 550 "${DORIS_HOME}/lib/doris_be"
 echo "start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
@@ -270,16 +305,15 @@ java_version="$(
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
 
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
-        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 else
     if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
     fi
     final_java_opt="${JAVA_OPTS}"
 fi
@@ -287,11 +321,11 @@ fi
 if [[ "${MACHINE_OS}" == "Darwin" ]]; then
     max_fd_limit='-XX:-MaxFDLimit'
 
-    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if ! echo "${final_java_opt}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         final_java_opt="${final_java_opt} ${max_fd_limit}"
     fi
 
-    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\-}" >/dev/null; then
+    if [[ -n "${JAVA_OPTS}" ]] && ! echo "${JAVA_OPTS}" | grep "${max_fd_limit/-/\\-}" >/dev/null; then
         JAVA_OPTS="${JAVA_OPTS} ${max_fd_limit}"
     fi
 fi
@@ -319,7 +353,9 @@ export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
-else
+elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
     export DORIS_LOG_TO_STDERR=1
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+else
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

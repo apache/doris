@@ -45,6 +45,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     public static final ImmutableSet<String> LAMBDA_MAPPED_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER).add("array_exists").add("array_sortby")
             .add("array_first_index").add("array_last_index").add("array_first").add("array_last").add("array_count")
+            .add("element_at")
             .build();
 
     private static final Logger LOG = LogManager.getLogger(LambdaFunctionCallExpr.class);
@@ -59,6 +60,11 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
     public LambdaFunctionCallExpr(LambdaFunctionCallExpr other) {
         super(other);
+    }
+
+    // nereids high order function call expr constructor without finalize/analyze
+    public LambdaFunctionCallExpr(Function function, FunctionParams functionParams) {
+        super(function, functionParams, null, false, functionParams.exprs());
     }
 
     @Override
@@ -108,7 +114,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                         + lambda.debugString());
             }
             fn = new Function(fnName, Arrays.asList(argTypes), ArrayType.create(lambda.getChild(0).getType(), true),
-                    true, true, NullableMode.DEPEND_ON_ARGUMENT);
+                    true, true, NullableMode.CUSTOM);
         } else if (fnName.getFunction().equalsIgnoreCase("array_exists")
                 || fnName.getFunction().equalsIgnoreCase("array_first_index")
                 || fnName.getFunction().equalsIgnoreCase("array_last_index")
@@ -262,5 +268,49 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
         } else {
             msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
         }
+    }
+
+    @Override
+    public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+
+        String fnName = getFnName().getFunction();
+        if (fn != null) {
+            // `array_last` will be replaced with `element_at` function after analysis.
+            // At this moment, using the name `array_last` would generate invalid SQL.
+            fnName = fn.getFunctionName().getFunction();
+        }
+        sb.append(fnName);
+        sb.append("(");
+        int childSize = children.size();
+        Expr lastExpr = getChild(childSize - 1);
+        // eg: select array_map(x->x>10, k1) from table,
+        // but we need analyze each param, so change the function like this in parser
+        // array_map(x->x>10, k1) ---> array_map(k1, x->x>10),
+        // so maybe the lambda expr is the end position. and need this check.
+        boolean lastIsLambdaExpr = (lastExpr instanceof LambdaFunctionExpr);
+        if (lastIsLambdaExpr) {
+            sb.append(lastExpr.toSql());
+            sb.append(", ");
+        }
+        for (int i = 0; i < childSize - 1; ++i) {
+            sb.append(getChild(i).toSql());
+            if (i != childSize - 2) {
+                sb.append(", ");
+            }
+        }
+        // and some functions is only implement as a normal array function;
+        // but also want use as lambda function, select array_sortby(x->x,['b','a','c']);
+        // so we convert to: array_sortby(array('b', 'a', 'c'), array_map(x -> `x`, array('b', 'a', 'c')))
+        if (!lastIsLambdaExpr) {
+            if (childSize > 1) {
+                // some functions don't have lambda expr, so don't need to add ","
+                // such as array_exists(array_map(x->x>3, [1,2,3,6,34,3,11]))
+                sb.append(", ");
+            }
+            sb.append(lastExpr.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
     }
 }

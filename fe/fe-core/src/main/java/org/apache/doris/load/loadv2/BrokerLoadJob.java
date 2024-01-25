@@ -48,6 +48,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -82,6 +83,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     // If set to true, the profile of load job with be pushed to ProfileManager
     private boolean enableProfile = false;
 
+    private boolean enableMemTableOnSinkNode = false;
+
     // for log replay and unit test
     public BrokerLoadJob() {
         super(EtlJobType.BROKER);
@@ -92,8 +95,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
-            enableProfile = true;
+        if (ConnectContext.get() != null) {
+            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
+            enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         }
     }
 
@@ -205,13 +209,15 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
+                        ? this.enableMemTableOnSinkNode : false;
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                        isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
+                        isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                        useNewLoadScanNode(), getPriority());
+                        useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
 
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -229,6 +235,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
                 txnState.addTableIndexes(table);
+                if (isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableList);
@@ -321,7 +330,8 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.update(createTimestamp, getSummaryInfo(true), true);
+        jobProfile.update(createTimestamp, getSummaryInfo(true), true,
+                Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
@@ -399,7 +409,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     @Override
-    protected String getResourceName() {
+    public String getResourceName() {
         StorageBackend.StorageType storageType = brokerDesc.getStorageType();
         if (storageType == StorageBackend.StorageType.BROKER) {
             return brokerDesc.getName();

@@ -50,5 +50,9 @@ Path convert_path(const Path& path, const std::string& namenode) {
     return real_path;
 }
 
+bool is_hdfs(const std::string& path_or_fs) {
+    return path_or_fs.rfind("hdfs://") == 0;
+}
+
 } // namespace io
 } // namespace doris

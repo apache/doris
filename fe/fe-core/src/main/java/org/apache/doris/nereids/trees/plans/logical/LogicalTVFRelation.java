@@ -22,12 +22,14 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,19 +38,22 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** LogicalTableValuedFunctionRelation */
-public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
+public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, BlockFuncDepsPropagation {
 
     private final TableValuedFunction function;
+    private final ImmutableList<String> qualifier;
 
     public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
         super(id, PlanType.LOGICAL_TVF_RELATION);
         this.function = function;
+        qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties);
         this.function = function;
+        qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     @Override
@@ -94,7 +99,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
     public List<Slot> computeOutput() {
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, ImmutableList.of()))
+                .map(col -> SlotReference.fromColumn(col, qualifier))
                 .collect(ImmutableList.toImmutableList());
     }
 

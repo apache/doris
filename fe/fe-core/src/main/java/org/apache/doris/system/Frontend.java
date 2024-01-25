@@ -51,6 +51,7 @@ public class Frontend implements Writable {
 
     private int queryPort;
     private int rpcPort;
+    private int arrowFlightSqlPort;
 
     private long replayedJournalId;
     private long lastStartupTime;
@@ -59,6 +60,8 @@ public class Frontend implements Writable {
     private List<FeDiskInfo> diskInfos;
 
     private boolean isAlive = false;
+
+    private long processUUID = 0;
 
     public Frontend() {
     }
@@ -98,6 +101,10 @@ public class Frontend implements Writable {
         return rpcPort;
     }
 
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
+    }
+
     public boolean isAlive() {
         return isAlive;
     }
@@ -120,6 +127,10 @@ public class Frontend implements Writable {
 
     public long getLastStartupTime() {
         return lastStartupTime;
+    }
+
+    public long getProcessUUID() {
+        return processUUID;
     }
 
     public long getLastUpdateTime() {
@@ -147,13 +158,20 @@ public class Frontend implements Writable {
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();
+            arrowFlightSqlPort = hbResponse.getArrowFlightSqlPort();
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
-            lastStartupTime = hbResponse.getFeStartTime();
+            lastStartupTime = hbResponse.getProcessUUID();
             diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
+            processUUID = hbResponse.getProcessUUID();
         } else {
+            // A non-master node disconnected.
+            // Set startUUID to zero, and be's heartbeat mgr will ignore this hb,
+            // so that its cancel worker will not cancel queries from this fe immediately
+            // until it receives a valid start UUID.
+            processUUID = 0;
             if (isAlive) {
                 isAlive = false;
                 isChanged = true;

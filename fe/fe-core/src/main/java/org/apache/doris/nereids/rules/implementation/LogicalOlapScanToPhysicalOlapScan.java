@@ -60,7 +60,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getPreAggStatus(),
                         olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                         Optional.empty(),
-                        olapScan.getLogicalProperties())
+                        olapScan.getLogicalProperties(),
+                        olapScan.getTableSample())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
@@ -93,7 +94,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 if (hashColumns.size() != hashDistributionInfo.getDistributionColumns().size()) {
                     for (Slot slot : baseOutput) {
                         for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                            if (((SlotReference) slot).getColumn().get().equals(column)) {
+                            // If the length of the column in the bucket key changes after DDL, the length cannot be
+                            // determined. As a result, some bucket fields are lost in the query execution plan.
+                            // So here we use the column name to avoid this problem
+                            if (((SlotReference) slot).getColumn().get().getName().equalsIgnoreCase(column.getName())) {
                                 hashColumns.add(slot.getExprId());
                             }
                         }
@@ -107,7 +111,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 List<ExprId> hashColumns = Lists.newArrayList();
                 for (Slot slot : output) {
                     for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                        if (((SlotReference) slot).getColumn().get().equals(column)) {
+                        // If the length of the column in the bucket key changes after DDL, the length cannot be
+                        // determined. As a result, some bucket fields are lost in the query execution plan.
+                        // So here we use the column name to avoid this problem
+                        if (((SlotReference) slot).getColumn().get().getName().equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }

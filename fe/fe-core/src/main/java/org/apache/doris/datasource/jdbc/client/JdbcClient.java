@@ -26,7 +26,6 @@ import org.apache.doris.common.util.Util;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -44,6 +43,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 @Getter
@@ -52,20 +53,29 @@ public abstract class JdbcClient {
     private static final int HTTP_TIMEOUT_MS = 10000;
     protected static final int JDBC_DATETIME_SCALE = 6;
 
+    private String catalog;
     protected String dbType;
     protected String jdbcUser;
     protected URLClassLoader classLoader = null;
     protected DruidDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
     protected boolean isLowerCaseTableNames;
-    protected String oceanbaseMode = "";
 
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
     // only used when isLowerCaseTableNames = true.
-    protected Map<String, String> lowerTableToRealTable = Maps.newHashMap();
+    protected final ConcurrentHashMap<String, String> lowerDBToRealDB = new ConcurrentHashMap<>();
     // only used when isLowerCaseTableNames = true.
-    protected Map<String, String> lowerDBToRealDB = Maps.newHashMap();
+    protected final ConcurrentHashMap<String, ConcurrentHashMap<String, String>> lowerTableToRealTable
+            = new ConcurrentHashMap<>();
+    // only used when isLowerCaseTableNames = true.
+    protected final ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, String>>>
+            lowerColumnToRealColumn = new ConcurrentHashMap<>();
+
+    private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
+    private final ConcurrentHashMap<String, AtomicBoolean> tableNamesLoadedMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, AtomicBoolean>> columnNamesLoadedMap
+            = new ConcurrentHashMap<>();
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -93,6 +103,7 @@ public abstract class JdbcClient {
     }
 
     protected JdbcClient(JdbcClientConfig jdbcClientConfig) {
+        this.catalog = jdbcClientConfig.getCatalog();
         this.jdbcUser = jdbcClientConfig.getUser();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
         this.isLowerCaseTableNames = Boolean.parseBoolean(jdbcClientConfig.getIsLowerCaseTableNames());
@@ -102,17 +113,16 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
-        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
+        initializeDataSource(jdbcClientConfig);
     }
 
     // Initialize DruidDataSource
-    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private void initializeDataSource(JdbcClientConfig config) {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
             //  and URLClassLoader may load the jar package directly into memory
-            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(driverUrl))};
+            URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
             // set parent ClassLoader to null, we can achieve class loading isolation.
             ClassLoader parent = getClass().getClassLoader();
             ClassLoader classLoader = URLClassLoader.newInstance(urls, parent);
@@ -121,29 +131,36 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(classLoader);
             dataSource = new DruidDataSource();
             dataSource.setDriverClassLoader(classLoader);
-            dataSource.setDriverClassName(driverClass);
-            dataSource.setUrl(jdbcUrl);
-            dataSource.setUsername(jdbcUser);
-            dataSource.setPassword(password);
-            dataSource.setMinIdle(1);
-            dataSource.setInitialSize(1);
-            dataSource.setMaxActive(100);
-            dataSource.setTimeBetweenEvictionRunsMillis(600000);
-            dataSource.setMinEvictableIdleTimeMillis(300000);
+            dataSource.setDriverClassName(config.getDriverClass());
+            dataSource.setUrl(config.getJdbcUrl());
+            dataSource.setUsername(config.getUser());
+            dataSource.setPassword(config.getPassword());
+            dataSource.setMinIdle(config.getMinIdleSize());
+            dataSource.setInitialSize(config.getMinPoolSize());
+            dataSource.setMaxActive(config.getMaxPoolSize());
+            dataSource.setTimeBetweenEvictionRunsMillis(config.getMaxIdleTime() * 2L);
+            dataSource.setMinEvictableIdleTimeMillis(config.getMaxIdleTime());
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
-            dataSource.setMaxWait(5000);
+            dataSource.setMaxWait(config.getMaxWaitTime());
+            dataSource.setKeepAlive(config.isKeepAlive());
+            LOG.info("JdbcExecutor set minPoolSize = " + config.getMinPoolSize()
+                    + ", maxPoolSize = " + config.getMaxPoolSize()
+                    + ", maxIdleTime = " + config.getMaxIdleTime()
+                    + ", maxWaitTime = " + config.getMaxWaitTime()
+                    + ", minIdleSize = " + config.getMinIdleSize()
+                    + ", keepAlive = " + config.isKeepAlive());
         } catch (MalformedURLException e) {
-            throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
+            throw new JdbcClientException("MalformedURLException to load class about " + config.getDriverUrl(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    private static String parseDbType(String jdbcUrl) {
+    public static String parseDbType(String jdbcUrl) {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -160,7 +177,9 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc", e);
+            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s", e,
+                    this.getCatalog());
+            throw new JdbcClientException(errorMessage, e);
         }
         return conn;
     }
@@ -170,7 +189,7 @@ public abstract class JdbcClient {
             if (closeable != null) {
                 try {
                     closeable.close();
-                } catch (Exception  e) {
+                } catch (Exception e) {
                     throw new JdbcClientException("Can not close : ", e);
                 }
             }
@@ -178,8 +197,10 @@ public abstract class JdbcClient {
     }
 
     // This part used to process meta-information of database, table and column.
+
     /**
      * get all database name through JDBC
+     *
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
@@ -200,6 +221,8 @@ public abstract class JdbcClient {
                 if (isLowerCaseTableNames) {
                     lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
                     databaseName = databaseName.toLowerCase();
+                } else {
+                    lowerDBToRealDB.put(databaseName, databaseName);
                 }
                 tempDatabaseNames.add(databaseName);
             }
@@ -231,17 +254,18 @@ public abstract class JdbcClient {
     public List<String> getTablesNameList(String dbName) {
         List<String> tablesName = Lists.newArrayList();
         String[] tableTypes = getTableTypes();
-        if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-        }
-        String finalDbName = dbName;
-        processTable(dbName, null, tableTypes, (rs) -> {
+        String finalDbName = getRealDatabaseName(dbName);
+        processTable(finalDbName, null, tableTypes, (rs) -> {
             try {
                 while (rs.next()) {
                     String tableName = rs.getString("TABLE_NAME");
                     if (isLowerCaseTableNames) {
-                        lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                        lowerTableToRealTable.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                        lowerTableToRealTable.get(finalDbName).put(tableName.toLowerCase(), tableName);
                         tableName = tableName.toLowerCase();
+                    } else {
+                        lowerTableToRealTable.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                        lowerTableToRealTable.get(finalDbName).put(tableName, tableName);
                     }
                     tablesName.add(tableName);
                 }
@@ -254,14 +278,10 @@ public abstract class JdbcClient {
 
     public boolean isTableExist(String dbName, String tableName) {
         final boolean[] isExist = {false};
-        if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
-        }
         String[] tableTypes = getTableTypes();
-        String finalTableName = tableName;
-        String finalDbName = dbName;
-        processTable(dbName, tableName, tableTypes, (rs) -> {
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
+        processTable(finalDbName, finalTableName, tableTypes, (rs) -> {
             try {
                 if (rs.next()) {
                     isExist[0] = true;
@@ -281,23 +301,25 @@ public abstract class JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        // if isLowerCaseTableNames == true, tableName is lower case
-        // but databaseMetaData.getColumns() is case sensitive
-        if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
-        }
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            tableName = modifyTableNameIfNecessary(tableName);
-            rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
+            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
             while (rs.next()) {
-                if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
-                    continue;
-                }
+                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
+                String columnName = rs.getString("COLUMN_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
+                            .put(columnName.toLowerCase(), columnName);
+                    columnName = columnName.toLowerCase();
+                } else {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
+                }
+                field.setColumnName(columnName);
                 field.setDataType(rs.getInt("DATA_TYPE"));
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 /*
@@ -320,7 +342,7 @@ public abstract class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
                     Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
@@ -338,6 +360,70 @@ public abstract class JdbcClient {
                     true, -1));
         }
         return dorisTableSchema;
+    }
+
+    public String getRealDatabaseName(String dbname) {
+        if (lowerDBToRealDB == null
+                || lowerDBToRealDB.isEmpty()
+                || !lowerDBToRealDB.containsKey(dbname)) {
+            loadDatabaseNamesIfNeeded();
+        }
+
+        return lowerDBToRealDB.get(dbname);
+    }
+
+    public String getRealTableName(String dbName, String tableName) {
+        String realDbName = getRealDatabaseName(dbName);
+        if (lowerTableToRealTable == null
+                || lowerTableToRealTable.isEmpty()
+                || !lowerTableToRealTable.containsKey(realDbName)
+                || lowerTableToRealTable.get(realDbName) == null
+                || lowerTableToRealTable.get(realDbName).isEmpty()
+                || !lowerTableToRealTable.get(realDbName).containsKey(tableName)
+                || lowerTableToRealTable.get(realDbName).get(tableName) == null) {
+            loadTableNamesIfNeeded(dbName);
+        }
+
+        return lowerTableToRealTable.get(realDbName).get(tableName);
+    }
+
+    public Map<String, String> getRealColumnNames(String dbName, String tableName) {
+        String realDbName = getRealDatabaseName(dbName);
+        String realTableName = getRealTableName(dbName, tableName);
+        if (lowerColumnToRealColumn == null
+                || lowerColumnToRealColumn.isEmpty()
+                || !lowerColumnToRealColumn.containsKey(realDbName)
+                || lowerColumnToRealColumn.get(realDbName) == null
+                || lowerColumnToRealColumn.get(realDbName).isEmpty()
+                || !lowerColumnToRealColumn.get(realDbName).containsKey(realTableName)
+                || lowerColumnToRealColumn.get(realDbName).get(realTableName) == null
+                || lowerColumnToRealColumn.get(realDbName).get(realTableName).isEmpty()) {
+            loadColumnNamesIfNeeded(dbName, tableName);
+        }
+        return lowerColumnToRealColumn.get(realDbName).get(realTableName);
+    }
+
+    private void loadDatabaseNamesIfNeeded() {
+        if (dbNamesLoaded.compareAndSet(false, true)) {
+            getDatabaseNameList();
+        }
+    }
+
+    private void loadTableNamesIfNeeded(String dbName) {
+        AtomicBoolean isLoaded = tableNamesLoadedMap.computeIfAbsent(dbName, k -> new AtomicBoolean(false));
+        if (isLoaded.compareAndSet(false, true)) {
+            getTablesNameList(dbName);
+        }
+    }
+
+    private void loadColumnNamesIfNeeded(String dbName, String tableName) {
+        ConcurrentHashMap<String, AtomicBoolean> tableMap = columnNamesLoadedMap.computeIfAbsent(dbName,
+                k -> new ConcurrentHashMap<>());
+        AtomicBoolean isLoaded = tableMap.computeIfAbsent(tableName, k -> new AtomicBoolean(false));
+
+        if (isLoaded.compareAndSet(false, true)) {
+            getJdbcColumnsInfo(dbName, tableName);
+        }
     }
 
     // protected methods,for subclass to override
@@ -364,7 +450,7 @@ public abstract class JdbcClient {
     }
 
     protected void processTable(String dbName, String tableName, String[] tableTypes,
-                                Consumer<ResultSet> resultSetConsumer) {
+            Consumer<ResultSet> resultSetConsumer) {
         Connection conn = getConnection();
         ResultSet rs = null;
         try {
@@ -388,8 +474,27 @@ public abstract class JdbcClient {
     }
 
     protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
-                                   String tableName) throws SQLException {
+            String tableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, schemaName, tableName, null);
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     *
+     * @param origStmt, the raw stmt string
+     */
+    public void executeStmt(String origStmt) {
+        Connection conn = getConnection();
+        Statement stmt = null;
+        try {
+            stmt = conn.createStatement();
+            int effectedRows = stmt.executeUpdate(origStmt);
+            LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);
+        } finally {
+            close(stmt, conn);
+        }
     }
 
     @Data
@@ -420,9 +525,10 @@ public abstract class JdbcClient {
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
 
     protected Type createDecimalOrStringType(int precision, int scale) {
-        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         return ScalarType.createStringType();
     }
 }
+

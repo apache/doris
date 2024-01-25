@@ -84,8 +84,10 @@ public class RewriteTopDownJob extends Job {
     public void execute() {
         GroupExpression logicalExpression = group.getLogicalExpression();
         countJobExecutionTimesOfGroupExpressions(logicalExpression);
-        List<Rule> validRules = getValidRules(logicalExpression, rules);
-        for (Rule rule : validRules) {
+        for (Rule rule : rules) {
+            if (rule.isInvalid(disableRules, logicalExpression)) {
+                continue;
+            }
             Preconditions.checkArgument(rule.isRewrite(),
                     "rules must be rewritable in top down job");
             GroupExpressionMatching groupExpressionMatching

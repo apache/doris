@@ -27,7 +27,7 @@ under the License.
 亲爱的社区小伙伴们，我们很高兴地向大家宣布，Apache Doris 2.0-Beta 版本已于 2023 年 7 月 3 日正式发布！**在 2.0-Beta 版本中有超过 255 位贡献者为 Apache Doris 提交了超过 3500 个优化与修复**，欢迎大家下载使用！
 
 > 下载链接：[https://doris.apache.org/download](https://doris.apache.org/download)
-> 
+>
 > GitHub 源码：[https://github.com/apache/doris/tree/branch-2.0](https://github.com/apache/doris/tree/branch-2.0)
 
 
@@ -50,7 +50,7 @@ under the License.
 
 秉持着“**将易用性留给用户、将复杂性留给自己**”的原则，为了克服以上一系列挑战，从理论基础到工程实现、从理想业务场景到极端异常 Case、从内部测试通过到大规模生产可用，我们耗费了更多的时间与精力在功能的开发、验证、持续迭代与精益求精上。值得庆祝的是，在经过近半年的开发、测试与稳定性调优后，Apache Doris 终于迎来了 2.0-Beta 版本的正式发布！而这一版本的成功发布也使得我们的愿景离现实更进一步！
 
-  
+
 
 
 # 盲测性能 10 倍以上提升！
@@ -66,7 +66,7 @@ under the License.
 
 我们对全新查询优化器的执行性能进行了盲测，仅以 TPC-H 22 个 SQL 为例 ，**全新优化器在未进行任何手工调优和 SQL 改写的情况下** **查询耗时**，盲测性能提升了超过 10 倍！而在数十个 2.0 版本用户的真实业务场景中，绝大多数原始 SQL 执行效率得以极大提升，真正解决了人工调优的痛点！
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/26496ceb39734ef3a84e567786008a64~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-1.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/nereids)
 
@@ -91,7 +91,7 @@ under the License.
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/pipeline-execution-engine)
 
-如何开启：` Set enable_pipeline_engine = true  `该功能在 Apache Doris 2.0 版本中将默认开启，BE 在进行查询执行时默认将 SQL 的执行模型转变 Pipeline 的执行方式。`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Apache Doris 默认配置为`0`，此时 Apache Doris 会自动感知每个 BE 的 CPU 核数并把并发度设置为 CPU 核数的一半，用户也可以实际根据自己的实际情况进行调整。对于从老版本升级的用户，建议用户将该参数设置成老版本中`parallel_fragment_exec_instance_num`的值。
+如何开启：` Set enable_pipeline_engine = true  `该功能在 Apache Doris 2.0 版本中将默认开启，BE 在进行查询执行时默认将 SQL 的执行模型转变 Pipeline 的执行方式。`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Apache Doris 默认配置为`0`，此时 Apache Doris 会自动感知每个 BE 的 CPU 核数并把并发度设置为 CPU 核数的一半，用户也可以根据自己的实际情况进行调整。对于从老版本升级的用户，建议用户将该参数设置成老版本中`parallel_fragment_exec_instance_num`的值。
 
 # 查询稳定性进一步提升
 
@@ -116,7 +116,7 @@ properties (
 
 可以通过 `Show` 命令来查看创建的 Workload Group，例如：
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/460c942f42644d879151a51029eba6a6~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-workload.png)
 
 ## 作业排队
 
@@ -126,7 +126,7 @@ properties (
 -   `max_queue_size`查询排队的长度，当队列满了之后，新来的查询会被拒绝；
 -   `queue_timeout`查询在队列中等待的时间，如果查询等待时间超过等待时间查询将会被拒绝，时间单位为毫秒；
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/e458bc2a375d4b59a7cc52f24cdad679~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-log-queue-group.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/](https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/)
 
@@ -213,7 +213,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 在相同硬件配置和数据集的测试表现上，Apache Doris 相对于 ElasticSearch 实现了日志数据写入速度提升 4 倍、存储空间降低 80%、查询性能提升 2 倍，再结合 Apache Doris 2.0 版本引入的冷热数据分层特性，整体性价比提升 10 倍以上。
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/8e56227c5e9040008d34e5803fc6ad5f~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-es-log.png)
 
 除了日志分析场景的优化以外，在复杂数据类型方面，我们增加了全新的数据类型 Map/Struct，包括支持以上类型的高效写入、存储、分析函数以及类型之间的相互嵌套，以更好满足多模态数据分析的支持。
 
@@ -227,7 +227,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 通过以上一系列优化，**Apache Doris 2.0 版本在并发能力上实现了数量级的提升**！在标准 YCSB 基准测试中，单台 16 Core 64G 内存 4*1T 硬盘规格的云服务器上实现了单节点 30000 QPS 的并发表现，较过去版本点查询并发能力提升超 20 倍！基于以上能力，Apache Doris 可以更好应对高并发数据服务场景的需求，替代 HBase 在此类场景中的能力，减少复杂技术栈带来的维护成本以及数据的冗余存储。
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/ac67fa19ddcc41319a21986a3d773aaa~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-ycsb-qps.png)
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query)
 
@@ -253,8 +253,8 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 - 优化了大量小文件场景以及宽表场景的读取性能。通过小文件全量加载、小 IO 合并、数据预读等技术，显著降低远端存储的读取开销，在此类场景下，查询性能最高提升数十倍。
 - 优化了 ORC/Parquet 文件的读取性能，相较于 1.2 版本查询性能提升一倍。
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/f200f4c29e0f49c89aff82b703419cd3~tplv-k3u1fbpfcp-zoom-1.image)
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/a0a4ee700157441ab9d3aa0e2d1e90b6~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-ssb-parquet.png)
+![](/images/release-note-2.0beta-ssb-orc.png)
 
 - 支持湖上数据的本地文件缓存。可以利用本地磁盘缓存 HDFS 或对象存储等远端存储系统上的数据，通过缓存加速访问相同数据的查询。在命中本地文件缓存的情况下，通过 Apache Doris 查询湖上数据的性能可与 Apache Doris 内部表持平，该功能可以极大提升湖上热数据的查询性能。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache](https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache)
 
@@ -262,7 +262,7 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 - 优化了 JDBC Catalog 的数据写回性能。通过 PrepareStmt 和批量方式，用户通过 INSERT INTO 命令、通过 JDBC Catalog 将数据写回到 MySQL、Oracle 等关系型数据库的性能提升数十倍。
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/eb6683520fce4c65beb9cb8757afbb95~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-2.0beta-jdbc.png)
 
 # 支持 Kubernetes 容器化部署
 
@@ -300,4 +300,4 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 如果您在调研、测试以及部署升级 2.0 版本的过程中有任何问题，欢迎提交问卷信息，届时将由社区核心贡献者提供 1-1 专项支持。我们也期待 2.0 版本为更多社区用户提供实时统一的分析体验，相信 Apache Doris 2.0 版本会成为您在实时分析场景中的最理想选择。
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/cf8da42d2f8e42689844bf56e4f1ed1e~tplv-k3u1fbpfcp-zoom-1.image)
+

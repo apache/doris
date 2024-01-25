@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <stdint.h>
-
+#include <cstdint>
 #include <vector>
 
 #include "common/global_types.h"
@@ -28,7 +26,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -56,11 +53,15 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(alloc_resource(state));
-        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
     }
+    Status alloc_resource(RuntimeState* state) override {
+        SCOPED_TIMER(_exec_timer);
+        RETURN_IF_ERROR(ExecNode::alloc_resource(state));
+        return VExpr::open(_vfn_ctxs, state);
+    }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
+    bool need_more_input_data() const { return !_child_block->rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
         if (_num_rows_filtered_counter != nullptr) {
@@ -69,26 +70,28 @@ public:
         ExecNode::release_resource(state);
     }
 
-    Status push(RuntimeState*, Block* input_block, bool eos) override {
+    Status push(RuntimeState* state, Block* input_block, bool eos) override {
+        SCOPED_TIMER(_exec_timer);
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
         }
 
         for (TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_init(input_block));
+            RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
-        RETURN_IF_ERROR(_process_next_child_row());
+        _process_next_child_row();
         return Status::OK();
     }
 
     Status pull(RuntimeState* state, Block* output_block, bool* eos) override {
+        SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(_get_expanded_block(state, output_block, eos));
         reached_limit(output_block, eos);
         return Status::OK();
     }
 
-    Block* get_child_block() { return &_child_block; }
+    std::shared_ptr<Block> get_child_block() { return _child_block; }
 
 private:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);
@@ -102,7 +105,7 @@ private:
 
     bool _roll_table_functions(int last_eos_idx);
 
-    Status _process_next_child_row();
+    void _process_next_child_row();
 
     /*  Now the output tuples for table function node is base_table_tuple + tf1 + tf2 + ...
         But not all slots are used, the real used slots are inside table_function_node.outputSlotIds.
@@ -131,7 +134,7 @@ private:
             return;
         }
         for (auto index : _output_slot_indexs) {
-            auto src_column = _child_block.get_by_position(index).column;
+            auto src_column = _child_block->get_by_position(index).column;
             columns[index]->insert_many_from(*src_column, _cur_child_offset,
                                              _current_row_insert_times);
         }
@@ -139,7 +142,7 @@ private:
     }
     int _current_row_insert_times = 0;
 
-    Block _child_block;
+    std::shared_ptr<Block> _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;

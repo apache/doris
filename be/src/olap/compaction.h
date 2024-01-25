@@ -29,6 +29,7 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
@@ -57,6 +58,8 @@ public:
     virtual Status prepare_compact() = 0;
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
+
+    const std::vector<RowsetSharedPtr>& input_rowsets() { return _input_rowsets; }
 #ifdef BE_TEST
     void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
     RowsetSharedPtr output_rowset();
@@ -64,10 +67,11 @@ public:
 
     RuntimeProfile* runtime_profile() const { return _profile.get(); }
 
+    virtual ReaderType compaction_type() const = 0;
+    virtual std::string compaction_name() const = 0;
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
-    virtual std::string compaction_name() const = 0;
-    virtual ReaderType compaction_type() const = 0;
 
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);
@@ -99,6 +103,7 @@ protected:
 
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+    void _load_segment_to_cache();
 
 protected:
     // the root tracker for this compaction
@@ -114,6 +119,7 @@ protected:
     int64_t _input_index_size;
 
     RowsetSharedPtr _output_rowset;
+    PendingRowsetGuard _pending_rs_guard;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
     enum CompactionState { INITED = 0, SUCCESS = 1 };

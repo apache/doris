@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/operator.h"
 #include "vec/exec/vpartition_sort_node.h"
 
 namespace doris {
@@ -40,17 +41,56 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSourceOperator final
-        : public SourceOperator<PartitionSortSourceOperatorBuilder> {
+class PartitionSortSourceOperator final : public SourceOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : SourceOperator(operator_builder, sort_node) {}
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-OperatorPtr PartitionSortSourceOperatorBuilder::build_operator() {
-    return std::make_shared<PartitionSortSourceOperator>(this, _node);
-}
+class PartitionSortSourceDependency final : public Dependency {
+public:
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
+    ~PartitionSortSourceDependency() override = default;
+};
+
+class PartitionSortSourceOperatorX;
+class PartitionSortSourceLocalState final
+        : public PipelineXLocalState<PartitionSortSourceDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+    using Base = PipelineXLocalState<PartitionSortSourceDependency>;
+    PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
+              _get_sorted_timer(nullptr) {}
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+private:
+    friend class PartitionSortSourceOperatorX;
+    RuntimeProfile::Counter* _get_sorted_timer;
+    std::atomic<int> _sort_idx = 0;
+};
+
+class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
+public:
+    using Base = OperatorX<PartitionSortSourceLocalState>;
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                                 const DescriptorTbl& descs)
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
+
+    Status get_block(RuntimeState* state, vectorized::Block* block,
+                     SourceState& source_state) override;
+
+    bool is_source() const override { return true; }
+
+private:
+    friend class PartitionSortSourceLocalState;
+    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block,
+                            PartitionSortSourceLocalState& local_state);
+};
 
 } // namespace pipeline
 } // namespace doris

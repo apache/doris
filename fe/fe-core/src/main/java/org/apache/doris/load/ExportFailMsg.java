@@ -40,11 +40,6 @@ public class ExportFailMsg implements Writable {
     @SerializedName("msg")
     private String msg;
 
-    public ExportFailMsg() {
-        this.cancelType = CancelType.UNKNOWN;
-        this.msg = "";
-    }
-
     public ExportFailMsg(CancelType cancelType, String msg) {
         this.cancelType = cancelType;
         this.msg = msg;
@@ -54,16 +49,8 @@ public class ExportFailMsg implements Writable {
         return cancelType;
     }
 
-    public void setCancelType(CancelType cancelType) {
-        this.cancelType = cancelType;
-    }
-
     public String getMsg() {
         return msg;
-    }
-
-    public void setMsg(String msg) {
-        this.msg = msg;
     }
 
     @Override

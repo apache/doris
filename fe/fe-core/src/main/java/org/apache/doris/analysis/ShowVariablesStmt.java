@@ -32,10 +32,14 @@ public class ShowVariablesStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowVariablesStmt.class);
     private static final String NAME_COL = "Variable_name";
     private static final String VALUE_COL = "Value";
+    private static final String DEFAULT_VALUE_COL = "Default_Value";
+    private static final String CHANGED_COL = "Changed";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column(NAME_COL, ScalarType.createVarchar(20)))
                     .addColumn(new Column(VALUE_COL, ScalarType.createVarchar(20)))
+                    .addColumn(new Column(DEFAULT_VALUE_COL, ScalarType.createVarchar(20)))
+                    .addColumn(new Column(CHANGED_COL, ScalarType.createVarchar(20)))
                     .build();
 
     private SetType type;
@@ -106,7 +110,7 @@ public class ShowVariablesStmt extends ShowStmt {
 
         // DB: type
         // table: thread id
-        analyzer.setSchemaInfo(type.toSql(), null, null, null);
+        analyzer.setSchemaInfo(null, null, null);
         return selectStmt;
     }
 

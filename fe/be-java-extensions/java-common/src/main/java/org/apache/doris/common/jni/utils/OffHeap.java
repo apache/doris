@@ -34,7 +34,7 @@ public class OffHeap {
 
     private static boolean IS_TESTING = false;
 
-    private static final Unsafe UNSAFE;
+    public static final Unsafe UNSAFE;
 
     public static final int BOOLEAN_ARRAY_OFFSET;
 
@@ -78,12 +78,24 @@ public class OffHeap {
         return UNSAFE.getInt(object, offset);
     }
 
+    public static int[] getInt(Object object, long offset, int length) {
+        int[] result = new int[length];
+        UNSAFE.copyMemory(object, offset, result, INT_ARRAY_OFFSET, (long) length * Integer.BYTES);
+        return result;
+    }
+
     public static void putInt(Object object, long offset, int value) {
         UNSAFE.putInt(object, offset, value);
     }
 
     public static boolean getBoolean(Object object, long offset) {
         return UNSAFE.getBoolean(object, offset);
+    }
+
+    public static boolean[] getBoolean(Object object, long offset, int length) {
+        boolean[] result = new boolean[length];
+        UNSAFE.copyMemory(object, offset, result, BOOLEAN_ARRAY_OFFSET, length);
+        return result;
     }
 
     public static void putBoolean(Object object, long offset, boolean value) {
@@ -94,12 +106,24 @@ public class OffHeap {
         return UNSAFE.getByte(object, offset);
     }
 
+    public static byte[] getByte(Object object, long offset, int length) {
+        byte[] result = new byte[length];
+        UNSAFE.copyMemory(object, offset, result, BYTE_ARRAY_OFFSET, length * Byte.BYTES);
+        return result;
+    }
+
     public static void putByte(Object object, long offset, byte value) {
         UNSAFE.putByte(object, offset, value);
     }
 
     public static short getShort(Object object, long offset) {
         return UNSAFE.getShort(object, offset);
+    }
+
+    public static short[] getShort(Object object, long offset, int length) {
+        short[] result = new short[length];
+        UNSAFE.copyMemory(object, offset, result, SHORT_ARRAY_OFFSET, (long) length * Short.BYTES);
+        return result;
     }
 
     public static void putShort(Object object, long offset, short value) {
@@ -110,6 +134,12 @@ public class OffHeap {
         return UNSAFE.getLong(object, offset);
     }
 
+    public static long[] getLong(Object object, long offset, int length) {
+        long[] result = new long[length];
+        UNSAFE.copyMemory(object, offset, result, LONG_ARRAY_OFFSET, (long) length * Long.BYTES);
+        return result;
+    }
+
     public static void putLong(Object object, long offset, long value) {
         UNSAFE.putLong(object, offset, value);
     }
@@ -118,12 +148,24 @@ public class OffHeap {
         return UNSAFE.getFloat(object, offset);
     }
 
+    public static float[] getFloat(Object object, long offset, int length) {
+        float[] result = new float[length];
+        UNSAFE.copyMemory(object, offset, result, FLOAT_ARRAY_OFFSET, (long) length * Float.BYTES);
+        return result;
+    }
+
     public static void putFloat(Object object, long offset, float value) {
         UNSAFE.putFloat(object, offset, value);
     }
 
     public static double getDouble(Object object, long offset) {
         return UNSAFE.getDouble(object, offset);
+    }
+
+    public static double[] getDouble(Object object, long offset, int length) {
+        double[] result = new double[length];
+        UNSAFE.copyMemory(object, offset, result, DOUBLE_ARRAY_OFFSET, (long) length * Double.BYTES);
+        return result;
     }
 
     public static void putDouble(Object object, long offset, double value) {

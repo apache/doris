@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -32,7 +33,11 @@ import java.util.List;
 public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable {
 
     public IntegralDivide(Expression left, Expression right) {
-        super(left, right, Operator.INT_DIVIDE);
+        super(ImmutableList.of(left, right), Operator.INT_DIVIDE);
+    }
+
+    private IntegralDivide(List<Expression> children) {
+        super(children, Operator.INT_DIVIDE);
     }
 
     @Override
@@ -49,6 +54,6 @@ public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable {
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new IntegralDivide(children.get(0), children.get(1));
+        return new IntegralDivide(children);
     }
 }

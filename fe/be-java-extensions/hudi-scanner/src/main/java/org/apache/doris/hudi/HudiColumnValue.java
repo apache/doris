@@ -17,13 +17,13 @@
 
 package org.apache.doris.hudi;
 
-
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
-import org.apache.doris.common.jni.vec.NativeColumnValue;
 
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
+import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
+import org.apache.spark.sql.catalyst.util.ArrayData;
+import org.apache.spark.sql.catalyst.util.MapData;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -33,41 +33,33 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
-public class HudiColumnValue implements ColumnValue, NativeColumnValue {
-    private boolean isUnsafe;
-    private InternalRow internalRow;
+public class HudiColumnValue implements ColumnValue {
+    private SpecializedGetters data;
     private int ordinal;
-    private int precision;
-    private int scale;
+    private ColumnType columnType;
 
     HudiColumnValue() {
     }
 
-    HudiColumnValue(InternalRow internalRow, int ordinal, int precision, int scale) {
-        this.isUnsafe = internalRow instanceof UnsafeRow;
-        this.internalRow = internalRow;
+    HudiColumnValue(SpecializedGetters data, int ordinal, ColumnType columnType) {
+        this.data = data;
         this.ordinal = ordinal;
-        this.precision = precision;
-        this.scale = scale;
+        this.columnType = columnType;
     }
 
-    public void reset(InternalRow internalRow, int ordinal, int precision, int scale) {
-        this.isUnsafe = internalRow instanceof UnsafeRow;
-        this.internalRow = internalRow;
+    public void reset(SpecializedGetters data, int ordinal, ColumnType columnType) {
+        this.data = data;
         this.ordinal = ordinal;
-        this.precision = precision;
-        this.scale = scale;
+        this.columnType = columnType;
     }
 
-    public void reset(int ordinal, int precision, int scale) {
+    public void reset(int ordinal, ColumnType columnType) {
         this.ordinal = ordinal;
-        this.precision = precision;
-        this.scale = scale;
+        this.columnType = columnType;
     }
 
-    public void reset(InternalRow internalRow) {
-        this.isUnsafe = internalRow instanceof UnsafeRow;
-        this.internalRow = internalRow;
+    public void reset(SpecializedGetters data) {
+        this.data = data;
     }
 
     @Override
@@ -77,42 +69,42 @@ public class HudiColumnValue implements ColumnValue, NativeColumnValue {
 
     @Override
     public boolean isNull() {
-        return internalRow.isNullAt(ordinal);
+        return data.isNullAt(ordinal);
     }
 
     @Override
     public boolean getBoolean() {
-        return internalRow.getBoolean(ordinal);
+        return data.getBoolean(ordinal);
     }
 
     @Override
     public byte getByte() {
-        return internalRow.getByte(ordinal);
+        return data.getByte(ordinal);
     }
 
     @Override
     public short getShort() {
-        return internalRow.getShort(ordinal);
+        return data.getShort(ordinal);
     }
 
     @Override
     public int getInt() {
-        return internalRow.getInt(ordinal);
+        return data.getInt(ordinal);
     }
 
     @Override
     public float getFloat() {
-        return internalRow.getFloat(ordinal);
+        return data.getFloat(ordinal);
     }
 
     @Override
     public long getLong() {
-        return internalRow.getLong(ordinal);
+        return data.getLong(ordinal);
     }
 
     @Override
     public double getDouble() {
-        return internalRow.getDouble(ordinal);
+        return data.getDouble(ordinal);
     }
 
     @Override
@@ -122,78 +114,74 @@ public class HudiColumnValue implements ColumnValue, NativeColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return internalRow.getDecimal(ordinal, precision, scale).toJavaBigDecimal();
+        return data.getDecimal(ordinal, columnType.getPrecision(), columnType.getScale()).toJavaBigDecimal();
     }
 
     @Override
     public String getString() {
-        return internalRow.getUTF8String(ordinal).toString();
+        return data.getUTF8String(ordinal).toString();
     }
 
     @Override
     public byte[] getStringAsBytes() {
-        return internalRow.getUTF8String(ordinal).getBytes();
+        return data.getUTF8String(ordinal).getBytes();
     }
 
     @Override
     public LocalDate getDate() {
-        return LocalDate.ofEpochDay(internalRow.getInt(ordinal));
+        return LocalDate.ofEpochDay(data.getInt(ordinal));
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        long datetime = internalRow.getLong(ordinal);
+        long datetime = data.getLong(ordinal);
         long seconds;
         long nanoseconds;
-        if (precision == 3) {
+        if (columnType.getPrecision() == 3) {
             seconds = datetime / 1000;
             nanoseconds = (datetime % 1000) * 1000000;
-        } else if (precision == 6) {
+        } else if (columnType.getPrecision() == 6) {
             seconds = datetime / 1000000;
             nanoseconds = (datetime % 1000000) * 1000;
         } else {
-            throw new RuntimeException("Hoodie timestamp only support milliseconds and microseconds");
+            throw new RuntimeException("Hoodie timestamp only support milliseconds and microseconds, wrong precision = "
+                    + columnType.getPrecision());
         }
         return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), ZoneId.systemDefault());
     }
 
     @Override
     public byte[] getBytes() {
-        return internalRow.getBinary(ordinal);
+        return data.getBinary(ordinal);
     }
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-
+        ArrayData array = data.getArray(ordinal);
+        for (int i = 0; i < array.numElements(); ++i) {
+            values.add(new HudiColumnValue(array, i, columnType.getChildTypes().get(0)));
+        }
     }
 
     @Override
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
-
+        MapData map = data.getMap(ordinal);
+        ArrayData key = map.keyArray();
+        for (int i = 0; i < key.numElements(); ++i) {
+            keys.add(new HudiColumnValue(key, i, columnType.getChildTypes().get(0)));
+        }
+        ArrayData value = map.valueArray();
+        for (int i = 0; i < value.numElements(); ++i) {
+            values.add(new HudiColumnValue(value, i, columnType.getChildTypes().get(1)));
+        }
     }
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
-
-    }
-
-    @Override
-    public NativeValue getNativeValue(ColumnType.Type type) {
-        if (isUnsafe) {
-            UnsafeRow unsafeRow = (UnsafeRow) internalRow;
-            switch (type) {
-                case CHAR:
-                case VARCHAR:
-                case BINARY:
-                case STRING:
-                    long offsetAndSize = unsafeRow.getLong(ordinal);
-                    int offset = (int) (offsetAndSize >> 32);
-                    int size = (int) offsetAndSize;
-                    return new NativeValue(unsafeRow.getBaseObject(), offset, size);
-                default:
-                    return null;
-            }
+        // todo: support pruned struct fields
+        InternalRow struct = data.getStruct(ordinal, structFieldIndex.size());
+        for (int i : structFieldIndex) {
+            values.add(new HudiColumnValue(struct, i, columnType.getChildTypes().get(i)));
         }
-        return null;
     }
 }

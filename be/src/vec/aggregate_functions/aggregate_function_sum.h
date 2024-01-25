@@ -56,7 +56,12 @@ template <typename T>
 struct AggregateFunctionSumData {
     T sum {};
 
-    void add(T value) { sum += value; }
+    void add(T value) {
+#ifdef __clang__
+#pragma clang fp reassociate(on)
+#endif
+        sum += value;
+    }
 
     void merge(const AggregateFunctionSumData& rhs) { sum += rhs.sum; }
 
@@ -96,7 +101,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        this->data(place).add(column.get_data()[row_num]);
+        this->data(place).add(TResult(column.get_data()[row_num]));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -151,7 +156,7 @@ public:
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = src_data[i];
+            state.sum = TResult(src_data[i]);
         }
     }
 
@@ -225,6 +230,18 @@ struct SumSimple {
 
 template <typename T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
+
+const static std::string DECIMAL256_SUFFIX {"_decimal256"};
+template <typename T, bool level_up>
+struct SumSimpleDecimal256 {
+    /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
+    using ResultType = std::conditional_t<level_up, DisposeDecimal256<T, NearestFieldType<T>>, T>;
+    using AggregateDataType = AggregateFunctionSumData<ResultType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionSumSimpleDecimal256 = typename SumSimpleDecimal256<T, true>::Function;
 
 // do not level up return type for agg reader
 template <typename T>

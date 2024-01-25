@@ -74,8 +74,8 @@ public:
             bool is_key, const std::vector<uint32_t>& column_group,
             vectorized::RowSourcesBuffer* row_source_buf,
             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment,
-            Statistics* stats_output);
+            RowsetWriter* dst_rowset_writer, int64_t max_rows_per_segment, Statistics* stats_output,
+            std::vector<uint32_t> key_group_cluster_key_idxes);
 
     // for segcompaction
     static Status vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
@@ -86,6 +86,12 @@ public:
                                              segment_v2::SegmentWriter& dst_segment_writer,
                                              int64_t max_rows_per_segment, Statistics* stats_output,
                                              uint64_t* index_size, KeyBoundsPB& key_bounds);
+
+    // for mow with cluster key table, the key group also contains cluster key columns.
+    // the `key_group_cluster_key_idxes` marks the positions of cluster key columns in key group.
+    static void _generate_key_group_cluster_key_idxes(
+            TabletSchemaSPtr tablet_schema, std::vector<std::vector<uint32_t>>& column_groups,
+            std::vector<uint32_t>& key_group_cluster_key_idxes);
 };
 
 } // namespace doris

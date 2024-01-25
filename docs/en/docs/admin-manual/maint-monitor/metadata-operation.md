@@ -124,7 +124,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 		* begin to generate new image: image.xxxx
 		*  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
 		*  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
-		*  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
+		*  push image.xxx to other nodes. totally xx nodes, push succeeded xx nodes
 		* QE service start
 		* thrift server started
 
@@ -189,14 +189,14 @@ FE may fail to start bdbje and synchronize between FEs for some reasons. Phenome
 
 3. The following operations are performed on the FE nodes selected in step 2.
 
-	1. If the node is an OBSERVER, first change the `role=OBSERVER` in the `meta_dir/image/ROLE` file to `role=FOLLOWER`. (Recovery from the OBSERVER node will be more cumbersome, first follow the steps here, followed by a separate description)
-	2. Add configuration in fe.conf: `metadata_failure_recovery=true`.
-	3. Run `sh bin/start_fe.sh` to start the FE
-	4. If normal, the FE will start in the role of MASTER, similar to the description in the previous section `Start a single node FE`. You should see the words `transfer from XXXX to MASTER` in fe.log.
-	5. After the start-up is completed, connect to the FE first, and execute some query imports to check whether normal access is possible. If the operation is not normal, it may be wrong. It is recommended to read the above steps carefully and try again with the metadata previously backed up. If not, the problem may be more serious.
-	6. If successful, through the `show frontends;` command, you should see all the FEs you added before, and the current FE is master.
-	7. Delete the `metadata_failure_recovery=true` configuration item in fe.conf, or set it to `false`, and restart the FE (**Important**).
-
+	1. Modify fe.conf
+       - If the node is an OBSERVER, first change the `role=OBSERVER` in the `meta_dir/image/ROLE` file to `role=FOLLOWER`. (Recovery from the OBSERVER node will be more cumbersome, first follow the steps here, followed by a separate description)
+       - If fe.version < 2.0.2, add configuration in fe.conf: `metadata_failure_recovery=true`.
+	2. Run `sh bin/start_fe.sh  --metadata_failure_recovery` to start the FE
+	3. If normal, the FE will start in the role of MASTER, similar to the description in the previous section `Start a single node FE`. You should see the words `transfer from XXXX to MASTER` in fe.log.
+	4. After the start-up is completed, connect to the FE first, and execute some query imports to check whether normal access is possible. If the operation is not normal, it may be wrong. It is recommended to read the above steps carefully and try again with the metadata previously backed up. If not, the problem may be more serious.
+	5. If successful, through the `show frontends;` command, you should see all the FEs you added before, and the current FE is master.
+    6. **If FE version < 2.0.2**, delete the `metadata_failure_recovery=true` configuration item in fe.conf, or set it to `false`, and restart the FE (**Important**).
 
 	> If you are recovering metadata from an OBSERVER node, after completing the above steps, you will find that the current FE role is OBSERVER, but `IsMaster` appears as `true`. This is because the "OBSERVER" seen here is recorded in Doris's metadata, but whether it is master or not, is recorded in bdbje's metadata. Because we recovered from an OBSERVER node, there was inconsistency. Please take the following steps to fix this problem (we will fix it in a later version):
 
@@ -207,7 +207,7 @@ FE may fail to start bdbje and synchronize between FEs for some reasons. Phenome
 	> 5. After confirming that the new FOLLOWER is working properly, the new FOLLOWER metadata is used to perform a failure recovery operation again.
 	> 6. The purpose of the above steps is to manufacture a metadata of FOLLOWER node artificially, and then use this metadata to restart fault recovery. This avoids inconsistencies in recovering metadata from OBSERVER.
 
-	>The meaning of `metadata_failure_recovery = true` is to empty the metadata of `bdbje`. In this way, bdbje will not contact other FEs before, but start as a separate FE. This parameter needs to be set to true only when restoring startup. After recovery, it must be set to false. Otherwise, once restarted, the metadata of bdbje will be emptied again, which will make other FEs unable to work properly.
+	>The meaning of `metadata_failure_recovery` is to empty the metadata of `bdbje`. In this way, bdbje will not contact other FEs before, but start as a separate FE. This parameter needs to be set to true only when restoring startup. After recovery, it must be set to false. Otherwise, once restarted, the metadata of bdbje will be emptied again, which will make other FEs unable to work properly.
 
 4. After the successful execution of step 3, we delete the previous FEs from the metadata by using the `ALTER SYSTEM DROP FOLLOWER/OBSERVER` command and add them again by adding new FEs.
 
@@ -241,10 +241,11 @@ FE currently has the following ports
 * http_port: http port, also used to push image
 * rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
+* arrow_flight_sql_port: Arrow Flight SQL connection port
 
 1. edit_log_port
 
-	If this port needs to be replaced, it needs to be restored with reference to the operations in the `Failure Recovery` section. Because the port has been persisted into bdbje's own metadata (also recorded in Doris's own metadata), it is necessary to clear bdbje's metadata by setting `metadata_failure_recovery=true`.
+	If this port needs to be replaced, it needs to be restored with reference to the operations in the `Failure Recovery` section. Because the port has been persisted into bdbje's own metadata (also recorded in Doris's own metadata), it is necessary to clear bdbje's metadata by setting `metadata_failure_recovery` when Fe start.
 
 2. http_port
 
@@ -258,6 +259,10 @@ FE currently has the following ports
 
 	After modifying the configuration, restart FE directly. This only affects mysql's connection target.
 
+5. arrow_flight_sql_port
+
+	After modifying the configuration, restart FE directly. This only affects arrow flight sql server connection target.
+
 ### Recover metadata from FE memory
 In some extreme cases, the image file on the disk may be damaged, but the metadata in the memory is intact. At this point, we can dump the metadata from the memory and replace the image file on the disk to recover the metadata. the entire non-stop query service operation steps are as follows:
 
@@ -269,7 +274,7 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
 
-    Since 1.2.0, it is recommanded to use following method to verify the `image_mem` file:
+    Since 1.2.0, it is recommended to use following method to verify the `image_mem` file:
 
     ```
     sh start_fe.sh --image path_to_image_mem
@@ -297,7 +302,7 @@ First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`,
 
 At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
 
-This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc "/bdbje";`.
 
 ```
 mysql> show proc "/bdbje";
@@ -375,7 +380,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 4. The size of the `bdb/` directory is very large, reaching several Gs or more.
 
-	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push successed YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
+	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push succeeded YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
 
 	At the same time, you can add the configuration in the FE configuration file: `edit_log_roll_num = xxxx`. This parameter sets the number of metadata journals and makes an image once. The default is 50000. This number can be reduced appropriately to make images more frequent, thus speeding up the deletion of old journals.
 
@@ -393,7 +398,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 8. Configuration of FE `master_sync_policy`, `replica_sync_policy`, and `txn_rollback_limit.`
 
-	`master_sync_policy` is used to specify whether fsync (), `replica_sync_policy` is called when Leader FE writes metadata log, and `replica_sync_policy` is used to specify whether other Follower FE calls fsync () when FE HA deploys synchronous metadata. In earlier versions of Oris, these two parameters defaulted to `WRITE_NO_SYNC`, i.e., fsync () was not called. In the latest version of Oris, the default has been changed to `SYNC`, that is, fsync () is called. Calling fsync () significantly reduces the efficiency of metadata disk writing. In some environments, IOPS may drop to several hundred and the latency increases to 2-3ms (but it's still enough for Doris metadata manipulation). Therefore, we recommend the following configuration:
+	`master_sync_policy` is used to specify whether fsync (), `replica_sync_policy` is called when Leader FE writes metadata log, and `replica_sync_policy` is used to specify whether other Follower FE calls fsync () when FE HA deploys synchronous metadata. In earlier versions of Doris, these two parameters defaulted to `WRITE_NO_SYNC`, i.e., fsync () was not called. In the latest version of Doris, the default has been changed to `SYNC`, that is, fsync () is called. Calling fsync () significantly reduces the efficiency of metadata disk writing. In some environments, IOPS may drop to several hundred and the latency increases to 2-3ms (but it's still enough for Doris metadata manipulation). Therefore, we recommend the following configuration:
 
 	1. For a single Follower FE deployment, `master_sync_policy` is set to `SYNC`, which prevents the loss of metadata due to the downtime of the FE system.
 	2. For multi-Follower FE deployment, we can set `master_sync_policy` and `replica_sync_policy` to `WRITE_NO_SYNC`, because we think that the probability of simultaneous outage of multiple systems is very low.

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.typecoercion;
 
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
 
@@ -34,5 +34,5 @@ import java.util.List;
  */
 public interface ExpectsInputTypes {
 
-    List<AbstractDataType> expectedInputTypes();
+    List<DataType> expectedInputTypes();
 }

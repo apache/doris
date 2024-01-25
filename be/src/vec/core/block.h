@@ -22,9 +22,9 @@
 
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <list>
 #include <memory>
@@ -41,7 +41,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -86,10 +85,15 @@ private:
 public:
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
-    Block(const ColumnsWithTypeAndName& data_);
-    Block(const PBlock& pblock);
+    Block(ColumnsWithTypeAndName data_);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
+
+    ~Block() = default;
+    Block(const Block& block) = default;
+    Block& operator=(const Block& p) = default;
+    Block(Block&& block) = default;
+    Block& operator=(Block&& other) = default;
 
     void reserve(size_t count);
     // Make sure the nammes is useless when use block
@@ -101,9 +105,6 @@ public:
     /// insert the column to the end
     void insert(const ColumnWithTypeAndName& elem);
     void insert(ColumnWithTypeAndName&& elem);
-    /// insert the column to the end, if there is no column with that name yet
-    void insert_unique(const ColumnWithTypeAndName& elem);
-    void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
     /// remove the column at the [start, end)
@@ -131,35 +132,6 @@ public:
         return data[position];
     }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
-
-    // need exception safety
-    Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
-                                     size_t batch_size) {
-        // Only the additional deleted filter condition need to materialize column be at the end of the block
-        // We should not to materialize the column of query engine do not need. So here just return OK.
-        // Eg:
-        //      `delete from table where a = 10;`
-        //      `select b from table;`
-        // a column only effective in segment iterator, the block from query engine only contain the b column.
-        // so the `block_cid >= data.size()` is true
-        if (block_cid >= data.size()) {
-            return Status::OK();
-        }
-
-        MutableColumnPtr raw_res_ptr = this->get_by_position(block_cid).column->assume_mutable();
-        raw_res_ptr->reserve(batch_size);
-
-        // adapt for outer join change column to nullable
-        if (raw_res_ptr->is_nullable() && !input_col_ptr->is_nullable()) {
-            auto col_ptr_nullable =
-                    reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
-            col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
-            raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
-        }
-
-        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
-    }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
@@ -197,7 +169,7 @@ public:
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
-    Names get_names() const;
+    std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 
     DataTypePtr get_data_type(size_t index) const {
@@ -239,6 +211,8 @@ public:
     Block clone_empty() const;
 
     Columns get_columns() const;
+    Columns get_columns_and_convert();
+
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns() const;
@@ -285,7 +259,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
+    void append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
@@ -309,7 +283,9 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    std::unique_ptr<Block> create_same_struct_block(size_t size) const;
+    Status deserialize(const PBlock& pblock);
+
+    std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
       * Returns negative number, 0, or positive number  (*this) n-th row is less, equal, greater than rhs m-th row respectively.
@@ -395,6 +371,10 @@ public:
 
     void clear_same_bit() { row_same_bit.clear(); }
 
+    // return string contains use_count() of each columns
+    // for debug purpose.
+    std::string print_use_count();
+
 private:
     void erase_impl(size_t position);
 };
@@ -410,7 +390,7 @@ class MutableBlock {
 private:
     MutableColumns _columns;
     DataTypes _data_types;
-    Names _names;
+    std::vector<std::string> _names;
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
@@ -452,7 +432,7 @@ public:
 
     MutableColumns& mutable_columns() { return _columns; }
 
-    void set_muatable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
+    void set_mutable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
 
     DataTypes& data_types() { return _data_types; }
 
@@ -573,8 +553,8 @@ public:
         return Status::OK();
     }
 
+    // move to columns' data to a Block. this will invalidate
     Block to_block(int start_column = 0);
-
     Block to_block(int start_column, int end_column);
 
     void swap(MutableBlock& other) noexcept;
@@ -582,8 +562,9 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const int* row_begin, const int* row_end);
+    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
+    void add_rows(const Block* block, std::vector<int64_t> rows);
 
     /// remove the column with the specified name
     void erase(const String& name);
@@ -596,7 +577,10 @@ public:
         _names.clear();
     }
 
+    // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
+    // reset columns by types and names.
+    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 
@@ -609,7 +593,7 @@ public:
         return res;
     }
 
-    Names& get_names() { return _names; }
+    std::vector<std::string>& get_names() { return _names; }
 
     bool has(const std::string& name) const;
 

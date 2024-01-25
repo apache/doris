@@ -62,10 +62,18 @@ public enum AlterOpType {
         COMPATIBILITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
         // can modify multi column comments at same time
         COMPATIBILITY_MATRIX[MODIFY_COLUMN_COMMENT.ordinal()][MODIFY_COLUMN_COMMENT.ordinal()] = true;
+        // can drop multi partition at same time
+        COMPATIBILITY_MATRIX[DROP_PARTITION.ordinal()][DROP_PARTITION.ordinal()] = true;
+
     }
 
     public boolean needCheckCapacity() {
         return this == ADD_ROLLUP || this == SCHEMA_CHANGE || this == ADD_PARTITION || this == ENABLE_FEATURE;
     }
 
+    public boolean mtmvAllowOp() {
+        return this == MODIFY_TABLE_PROPERTY || this == MODIFY_DISTRIBUTION || this == MODIFY_TABLE_COMMENT
+                || this == ADD_PARTITION || this == DROP_PARTITION || this == REPLACE_PARTITION
+                || this == MODIFY_PARTITION;
+    }
 }

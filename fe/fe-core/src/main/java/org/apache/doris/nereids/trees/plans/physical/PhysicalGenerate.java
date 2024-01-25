@@ -106,9 +106,6 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         PhysicalGenerate<?> that = (PhysicalGenerate<?>) o;
         return generators.equals(that.generators)
                 && generatorOutput.equals(that.generatorOutput);
@@ -116,7 +113,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), generators, generatorOutput);
+        return Objects.hash(generators, generatorOutput);
     }
 
     @Override

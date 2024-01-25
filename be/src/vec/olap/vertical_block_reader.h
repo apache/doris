@@ -26,12 +26,11 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -58,13 +57,7 @@ public:
     // Initialize VerticalBlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_block_with_aggregation(Block* block, bool* eof) override {
-        auto res = (this->*_next_block_func)(block, eof);
-        if (UNLIKELY(res.is_io_error())) {
-            _tablet->increase_io_error_times();
-        }
-        return res;
-    }
+    Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     uint64_t merged_rows() const override {
         DCHECK(_vcollect_iter);

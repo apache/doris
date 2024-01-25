@@ -27,14 +27,14 @@ suite("test_javaudf_agg_map") {
     try {
         try_sql("DROP FUNCTION IF EXISTS mapii(Map<Int,Int>);")
         try_sql("DROP FUNCTION IF EXISTS mapid(Map<Int,Double>);")
-        try_sql("DROP TABLE IF EXISTS db")
+        try_sql("DROP TABLE IF EXISTS db_agg_map")
         sql """
-             CREATE TABLE IF NOT EXISTS db(
+             CREATE TABLE IF NOT EXISTS db_agg_map(
                         `id` INT NULL COMMENT "",
                         `i` INT NULL COMMENT "",
-   						`d` Double NULL COMMENT "",
-   					    `mii` Map<INT, INT> NULL COMMENT "",
-   					    `mid` Map<INT, Double> NULL COMMENT ""
+                        `d` Double NULL COMMENT "",
+                        `mii` Map<INT, INT> NULL COMMENT "",
+                        `mid` Map<INT, Double> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
@@ -42,8 +42,8 @@ suite("test_javaudf_agg_map") {
             "replication_allocation" = "tag.location.default: 1",
             "storage_format" = "V2");
         """
-        sql """ INSERT INTO db VALUES(1, 10,1.1,{1:1,10:1,100:1},{1:1.1,11:11.1});   """
-        sql """ INSERT INTO db VALUES(2, 20,2.2,{2:2,20:2,200:2},{2:2.2,22:22.2});   """
+        sql """ INSERT INTO db_agg_map VALUES(1, 10,1.1,{1:1,10:1,100:1},{1:1.1,11:11.1});   """
+        sql """ INSERT INTO db_agg_map VALUES(2, 20,2.2,{2:2,20:2,200:2},{2:2.2,22:22.2});   """
 
         sql """
           
@@ -66,13 +66,13 @@ suite("test_javaudf_agg_map") {
         """
 
 
-        qt_select_1 """ select mapid(mid) from db; """
+        qt_select_1 """ select mapid(mid) from db_agg_map; """
 
-        qt_select_2 """ select mapii(mii) from db; """
+        qt_select_2 """ select mapii(mii) from db_agg_map; """
 
     } finally {
         try_sql("DROP FUNCTION IF EXISTS mapii(Map<Int,Int>);")
         try_sql("DROP FUNCTION IF EXISTS mapid(Map<Int,Double>);")
-        try_sql("DROP TABLE IF EXISTS db")
+        try_sql("DROP TABLE IF EXISTS db_agg_map")
     }
 }

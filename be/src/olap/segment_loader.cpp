@@ -24,20 +24,16 @@
 
 namespace doris {
 
-SegmentLoader* SegmentLoader::_s_instance = nullptr;
-
-void SegmentLoader::create_global_instance(size_t capacity) {
-    DCHECK(_s_instance == nullptr);
-    static SegmentLoader instance(capacity);
-    _s_instance = &instance;
+SegmentLoader* SegmentLoader::instance() {
+    return ExecEnv::GetInstance()->segment_loader();
 }
 
 bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.encode());
+    auto lru_handle = cache()->lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = SegmentCacheHandle(_cache.get(), lru_handle);
+    handle->push_segment(cache(), lru_handle);
     return true;
 }
 
@@ -45,50 +41,52 @@ void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::Cache
                           SegmentCacheHandle* handle) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
         SegmentCache::CacheValue* cache_value = (SegmentCache::CacheValue*)value;
-        cache_value->segments.clear();
+        cache_value->segment.reset();
         delete cache_value;
     };
 
-    int64_t meta_mem_usage = 0;
-    for (auto segment : value.segments) {
-        meta_mem_usage += segment->meta_mem_usage();
-    }
-
-    auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentCache::CacheValue),
-                                     deleter, CachePriority::NORMAL, meta_mem_usage);
-    *handle = SegmentCacheHandle(_cache.get(), lru_handle);
+    auto lru_handle = cache()->insert(key.encode(), &value, 1, deleter, CachePriority::NORMAL,
+                                      value.segment->meta_mem_usage());
+    handle->push_segment(cache(), lru_handle);
 }
 
 void SegmentCache::erase(const SegmentCache::CacheKey& key) {
-    _cache->erase(key.encode());
+    cache()->erase(key.encode());
 }
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache) {
-    SegmentCache::CacheKey cache_key(rowset->rowset_id());
-    if (_segment_cache->lookup(cache_key, cache_handle)) {
-        cache_handle->owned = false;
+    if (cache_handle->is_inited()) {
         return Status::OK();
     }
-    cache_handle->owned = !use_cache;
-
-    std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_IF_ERROR(rowset->load_segments(&segments));
-
-    if (use_cache) {
-        // memory of SegmentCache::CacheValue will be handled by SegmentCache
-        SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
-        cache_value->segments = std::move(segments);
-        _segment_cache->insert(cache_key, *cache_value, cache_handle);
-    } else {
-        cache_handle->segments = std::move(segments);
+    for (int64_t i = 0; i < rowset->num_segments(); i++) {
+        SegmentCache::CacheKey cache_key(rowset->rowset_id(), i);
+        if (_segment_cache->lookup(cache_key, cache_handle)) {
+            continue;
+        }
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(rowset->load_segment(i, &segment));
+        if (use_cache && !config::disable_segment_cache) {
+            // memory of SegmentCache::CacheValue will be handled by SegmentCache
+            SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
+            cache_value->segment = std::move(segment);
+            _segment_cache->insert(cache_key, *cache_value, cache_handle);
+        } else {
+            cache_handle->push_segment(std::move(segment));
+        }
     }
-
+    cache_handle->set_inited();
     return Status::OK();
 }
 
 void SegmentLoader::erase_segment(const SegmentCache::CacheKey& key) {
     _segment_cache->erase(key);
+}
+
+void SegmentLoader::erase_segments(const RowsetId& rowset_id, int64_t num_segments) {
+    for (int64_t i = 0; i < num_segments; i++) {
+        erase_segment(SegmentCache::CacheKey(rowset_id, i));
+    }
 }
 
 } // namespace doris

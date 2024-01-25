@@ -151,6 +151,34 @@ CREATE TABLE catalog_pg_test.test12 (
    uuid_value uuid
 );
 
+CREATE TABLE catalog_pg_test.test_all_types (
+    ID INT NOT NULL,
+    char_value char(100),
+    varchar_value varchar(128),
+    date_value date,
+    smallint_value smallint,
+    int_value int,
+    bigint_value bigint,
+    timestamp_value timestamp,
+    decimal_value decimal(10, 3),
+    bit_value bit,
+    real_value real,
+    cidr_value cidr,
+    inet_value inet,
+    macaddr_value macaddr,
+    bitn_value bit(10),
+    bitnv_value bit varying(10),
+    serial4_value serial4,
+    jsonb_value jsonb,
+    point_value point,
+    line_value line,
+    lseg_value lseg,
+    box_value box,
+    path_value path,
+    polygon_value polygon,
+    circle_value circle
+);
+
 CREATE TABLE catalog_pg_test.test_insert (
    id varchar(128),
    name varchar(128),
@@ -177,4 +205,61 @@ CREATE TABLE catalog_pg_test.jsonb_test (
     id serial PRIMARY KEY,
     type varchar(10),
     value jsonb
+);
+
+CREATE TABLE catalog_pg_test.person_r (
+    age int not null,
+    city varchar not null
+)
+    PARTITION BY RANGE (age);
+
+
+create table catalog_pg_test.person_r1 partition of catalog_pg_test.person_r for values from (MINVALUE) to (10);
+create table catalog_pg_test.person_r2 partition of catalog_pg_test.person_r for values from (11) to (20);
+create table catalog_pg_test.person_r3 partition of catalog_pg_test.person_r for values from (21) to (30);
+create table catalog_pg_test.person_r4 partition of catalog_pg_test.person_r for values from (31) to (MAXVALUE);
+
+CREATE TABLE catalog_pg_test.tb_test_alarm (
+    id varchar(64) NOT NULL,
+    alarm_type varchar(10) NOT NULL,
+    happen_time timestamptz NOT NULL,
+    CONSTRAINT tb_test_pk PRIMARY KEY (id)
+);
+
+create table catalog_pg_test.tb_test_alarm_2020_12 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_11 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_10 () inherits (catalog_pg_test.tb_test_alarm);
+create table catalog_pg_test.tb_test_alarm_2020_09 () inherits (catalog_pg_test.tb_test_alarm);
+
+
+--创建分区函数
+CREATE OR REPLACE FUNCTION alarm_partition_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.happen_time >= '2020-09-01 00:00:00' and NEW.happen_time <= '2020-09-30 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_09 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-10-01 00:00:00' and NEW.happen_time <= '2020-10-31 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_10 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-11-01 00:00:00' and NEW.happen_time <= '2020-11-30 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_11 VALUES (NEW.*);
+    ELSIF NEW.happen_time >= '2020-12-01 00:00:00' and NEW.happen_time <= '2020-12-31 23:59:59'
+    THEN
+        INSERT INTO catalog_pg_test.tb_test_alarm_2020_12 VALUES (NEW.*);
+END IF;
+RETURN NULL;
+END;
+$$
+LANGUAGE plpgsql;
+
+--挂载分区Trigger
+CREATE TRIGGER insert_almart_partition_trigger
+    BEFORE INSERT ON catalog_pg_test.tb_test_alarm
+    FOR EACH ROW EXECUTE PROCEDURE alarm_partition_trigger();
+
+CREATE TABLE catalog_pg_test.num_zero (
+    id varchar(20) NULL,
+    num numeric NULL
 );

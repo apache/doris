@@ -39,4 +39,27 @@ suite("test_autobucket") {
     assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
 
     sql "drop table if exists autobucket_test"
+
+
+    sql "drop table if exists autobucket_test_min_buckets"
+    result = sql """
+        CREATE TABLE `autobucket_test_min_buckets` (
+          `user_id` largeint(40) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "estimate_partition_size" = "1M"
+        )
+        """
+
+    default_min_buckets = 1 // in Config.java
+    result = sql "show partitions from autobucket_test_min_buckets"
+    logger.info("${result}")
+    // XXX: buckets at pos(8), next maybe impl by sql meta
+    assertEquals(Integer.valueOf(result.get(0).get(8)), default_min_buckets)
+
+    sql "drop table if exists autobucket_test_min_buckets"
 }

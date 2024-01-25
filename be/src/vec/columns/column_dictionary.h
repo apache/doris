@@ -67,6 +67,7 @@ public:
 
     [[noreturn]] StringRef get_data_at(size_t n) const override {
         LOG(FATAL) << "get_data_at not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -77,8 +78,8 @@ public:
         LOG(FATAL) << "insert_range_from not supported in ColumnDictionary";
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         LOG(FATAL) << "insert_indices_from not supported in ColumnDictionary";
     }
 
@@ -105,8 +106,6 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
-    void protect() override {}
-
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
@@ -114,14 +113,11 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
-    }
-
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in ColumnDictionary";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -140,22 +136,19 @@ public:
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
-
-    void get_extremes(Field& min, Field& max) const override {
-        LOG(FATAL) << "get_extremes not supported in ColumnDictionary";
-    }
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
 
@@ -168,32 +161,39 @@ public:
 
     [[noreturn]] StringRef get_raw_data() const override {
         LOG(FATAL) << "get_raw_data not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
         LOG(FATAL) << "structure_equals not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
         LOG(FATAL) << "filter not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not supported in ColumnDictionary";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
@@ -203,10 +203,11 @@ public:
 
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
+        __builtin_unreachable();
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
         StringRef strings[sel_size];
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
@@ -288,9 +289,7 @@ public:
     }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
-    uint32_t get_crc32_hash_value(uint32_t idx) const {
-        return _dict.get_crc32_hash_value(_codes[idx], _type);
-    }
+
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
@@ -304,6 +303,10 @@ public:
         return _rowset_segment_id;
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
+    }
+
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_empty() const { return _dict.empty(); }
@@ -314,7 +317,16 @@ public:
         if (is_dict_sorted() && !is_dict_code_converted()) {
             convert_dict_codes_if_necessary();
         }
-        auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
+        // if type is OLAP_FIELD_TYPE_CHAR, we need to construct TYPE_CHAR PredicateColumnType,
+        // because the string length will different from varchar and string which needed to be processed after.
+        auto create_column = [this]() -> MutableColumnPtr {
+            if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                return vectorized::PredicateColumnType<TYPE_CHAR>::create();
+            }
+            return vectorized::PredicateColumnType<TYPE_STRING>::create();
+        };
+
+        auto res = create_column();
         res->reserve(_codes.capacity());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
@@ -376,31 +388,6 @@ public:
         }
 
         inline uint32_t get_hash_value(T code, FieldType type) const {
-            if (_compute_hash_value_flags[code]) {
-                return _hash_values[code];
-            } else {
-                auto& sv = (*_dict_data)[code];
-                // The char data is stored in the disk with the schema length,
-                // and zeros are filled if the length is insufficient
-
-                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
-                // Remove the suffix 0
-                // When writing data, use the CharField::consume function to fill in the trailing 0.
-
-                // For dictionary data of char type, sv.size is the schema length,
-                // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
-                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    len = strnlen(sv.data, sv.size);
-                }
-                uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
-                _hash_values[code] = hash_val;
-                _compute_hash_value_flags[code] = 1;
-                return _hash_values[code];
-            }
-        }
-
-        inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
             if (_compute_hash_value_flags[code]) {
                 return _hash_values[code];
             } else {

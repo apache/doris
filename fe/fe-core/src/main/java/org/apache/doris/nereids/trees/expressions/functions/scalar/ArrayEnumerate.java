@@ -25,21 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
-import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,22 +39,8 @@ public class ArrayEnumerate extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(BooleanType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(SmallIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(BigIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(LargeIntType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DateTimeType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DateType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DateV2Type.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(DecimalV3Type.WILDCARD)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(VarcharType.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(StringType.INSTANCE))
+            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                    .args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
     );
 
     /**

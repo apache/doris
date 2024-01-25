@@ -78,7 +78,7 @@ private:
 
     /// For each object, a pointer to the object and a function that deletes it.
     struct Element {
-        void* obj;
+        void* obj = nullptr;
         DeleteFn delete_fn;
     };
 

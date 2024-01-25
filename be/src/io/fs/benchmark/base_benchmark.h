@@ -63,13 +63,13 @@ public:
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
             Status st = this->init();
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 bm_log("Benchmark {} init error: {}", _name, st.to_string());
                 return;
             }
             for (auto _ : state) {
                 st = this->run(state);
-                if (st != Status::OK()) {
+                if (!st.ok()) {
                     bm_log("Benchmark {} run error: {}", _name, st.to_string());
                     return;
                 }
@@ -128,7 +128,7 @@ public:
             size_t size = std::min(buffer_size, (size_t)remaining_size);
             data.size = size;
             status = reader->read_at(offset, data, &bytes_read);
-            if (status != Status::OK() || bytes_read < 0) {
+            if (!status.ok() || bytes_read < 0) {
                 bm_log("reader read_at error: {}", status.to_string());
                 break;
             }
@@ -171,7 +171,7 @@ public:
             size_t size = std::min(buffer_size, (size_t)remaining_size);
             data.size = size;
             status = writer->append(data);
-            if (status != Status::OK()) {
+            if (!status.ok()) {
                 bm_log("writer append error: {}", status.to_string());
                 break;
             }

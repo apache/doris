@@ -106,6 +106,10 @@ execute_process(COMMAND bash "-c" "uname -m"
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
 message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "aarch64" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "arm64")
+    set (ARCH_ARM 1)
+endif()
+
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
@@ -158,10 +162,13 @@ set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 include (cmake/thirdparty.cmake)
 
-option(BUILD_JAVA OFF)
-option(BUILD_CPP_TESTS OFF)
-option(STOP_BUILD_ON_WARNING OFF)
-option(BUILD_LIBHDFSPP OFF)
+find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
+
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+set(BUILD_JAVA OFF)
+set(BUILD_CPP_TESTS OFF)
+set(STOP_BUILD_ON_WARNING OFF)
+set(BUILD_LIBHDFSPP OFF)
 SET(PROTOBUF_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
@@ -181,12 +188,8 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-if (USE_BTHREAD_SCANNER)
-    set(USE_BTHREAD ON)
-else()
-    set(USE_BTHREAD OFF)
-endif()
-
+# disable clucene bthread supported.
+set(USE_BTHREAD OFF)
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
@@ -203,7 +206,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
+    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 # Check if functions are supported in this platform. All flags will generated
@@ -223,14 +226,17 @@ function(TRY_TO_CHANGE_LINKER LINKER_COMMAND LINKER_NAME)
     endif()
 endfunction()
 
-# In terms of performance, mold> lld> gold> ld
-set(CUSTUM_LINKER_COMMAND "ld")
-TRY_TO_CHANGE_LINKER("mold" "mold")
-TRY_TO_CHANGE_LINKER("lld" "LLD")
-TRY_TO_CHANGE_LINKER("gold" "GNU gold")
-if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+if (NOT OS_MACOSX) # MACOSX's lld will core dump
+    # In terms of performance, mold> lld> gold> ld
+    set(CUSTUM_LINKER_COMMAND "ld")
+    TRY_TO_CHANGE_LINKER("mold" "mold")
+    TRY_TO_CHANGE_LINKER("lld" "LLD")
+    TRY_TO_CHANGE_LINKER("gold" "GNU gold")
+    if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
+    endif()
 endif()
+
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
@@ -255,7 +261,8 @@ if (COMPILER_GCC)
     add_compile_options(-fdiagnostics-color=always
                         -Wno-nonnull
                         -Wno-stringop-overread
-                        -Wno-stringop-overflow)
+                        -Wno-stringop-overflow
+                        -Wno-array-bounds)
 endif ()
 
 if (COMPILER_CLANG)
@@ -263,8 +270,9 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
-    add_compile_options(-fcolor-diagnostics 
+    add_compile_options(-fcolor-diagnostics
                         -Wpedantic
+                        -Wshadow-field
                         -Wunused
                         -Wunused-command-line-argument
                         -Wunused-exception-parameter
@@ -273,6 +281,7 @@ if (COMPILER_CLANG)
                         -Wunused-member-function
                         -Wunused-macros)
     add_compile_options(-Wno-vla-extension)
+    add_compile_options(-Wno-gnu-statement-expression)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         if (NOT OS_MACOSX)
@@ -297,12 +306,18 @@ if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
 endif()
 
+# simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
     endif()
 endif()
+
+if (ARCH_ARM)
+    add_compile_options(-march=armv8-a+crc)
+endif()
+#
 
 if (WITH_MYSQL)
     add_compile_options(-DDORIS_WITH_MYSQL)
@@ -334,12 +349,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-# Use Bthread to separate computation and IO
-# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
-if (USE_BTHREAD_SCANNER)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
-endif()
-
 if (ENABLE_STACKTRACE)
     add_compile_options(-DENABLE_STACKTRACE)
 endif()
@@ -365,7 +374,7 @@ set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
+set(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEFINED_BEHAVIOR_SANITIZER")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
@@ -420,7 +429,7 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+if ("${DORIS_JAVA_HOME}" STREQUAL "")
     set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
@@ -443,28 +452,6 @@ set(KRB5_LIBS
     gssapi_krb5
     k5crypto)
 
-set(AWS_LIBS
-    aws-sdk-s3
-    aws-sdk-core
-    aws-sdk-transfer
-    aws-checksums
-    aws-c-io
-    aws-c-event-stream
-    aws-c-common
-    aws-c-cal
-    aws-s2n
-    aws-c-s3
-    aws-c-auth
-    aws-crt-cpp
-    aws-c-compression
-    aws-c-http
-    aws-c-mqtt
-    aws-sdk-s3-crt)
-
-if (OS_MACOSX)
-    list(REMOVE_ITEM AWS_LIBS aws-s2n)
-endif()
-
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -482,8 +469,10 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    GeoType
     Vec
     Pipeline
+    Cloud
     ${WL_END_GROUP}
 )
 
@@ -494,64 +483,8 @@ find_package(absl)
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
-    backtrace
-    rocksdb
-    cyrus-sasl
-    libs2
-    snappy
     Boost::date_time
-    thrift
-    thriftnb
-    glog
-    re2
-    hyperscan
-    pprof
-    lz4
-    libevent
-    libevent_pthreads
-    idn
-    gsasl
-    curl
-    libz
-    libbz2
-    gflags
-    brpc
-    protobuf
-    openssl
-    crypto
-    leveldb
-    bitshuffle
-    roaring
-    fmt
-    jemalloc
-    jemalloc_arrow
-    brotlicommon
-    brotlidec
-    brotlienc
-    zstd
-    arrow
-    parquet
-    odbc
-    cctz
-    minizip
-    opentelemetry_common
-    opentelemetry_exporter_zipkin_trace
-    opentelemetry_resources
-    opentelemetry_version
-    opentelemetry_exporter_ostream_span
-    opentelemetry_trace
-    opentelemetry_http_client_curl
-    opentelemetry_exporter_otlp_http
-    opentelemetry_exporter_otlp_http_client
-    opentelemetry_otlp_recordable
-    opentelemetry_proto
-    ${AWS_LIBS}
-    # put this after lz4 to avoid using lz4 lib in librdkafka
-    librdkafka_cpp
-    librdkafka
-    xml2
-    lzma
-    simdjson
+    ${COMMON_THIRDPARTY}
 )
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -578,8 +511,15 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flat_hash_set
-        absl::str_format
+        absl::flags_internal
+        absl::flags_reflection
+        absl::random_internal_pool_urbg
+        absl::random_internal_randen
+        absl::random_internal_seed_material
+        absl::spinlock_wait
+        absl::status
+        absl::statusor
+        absl::strings
     )
 endif()
 
@@ -593,7 +533,7 @@ if (OS_MACOSX)
     )
 endif()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -719,10 +659,10 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE)
 endif ()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
     if (NOT OS_MACOSX)
@@ -751,7 +691,7 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
-if (ENABLE_PCH) 
+if (ENABLE_PCH)
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
@@ -782,12 +722,15 @@ add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/cloud)
 
-if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
+option(BUILD_META_TOOL "Build meta tool" OFF)
+if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
-if (BUILD_INDEX_TOOL AND BUILD_INDEX_TOOL STREQUAL "ON")
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/index-tools)
 endif()
 
@@ -795,7 +738,7 @@ add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 
@@ -823,4 +766,5 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+
 

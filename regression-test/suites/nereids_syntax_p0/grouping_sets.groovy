@@ -143,7 +143,7 @@ suite("test_nereids_grouping_sets") {
               SELECT k1, k2, SUM(k3) FROM groupingSetsTable
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
+        exception "java.sql.SQLException: errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
     }
 
     test {
@@ -151,7 +151,7 @@ suite("test_nereids_grouping_sets") {
               SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM groupingSetsTable
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
+        exception "java.sql.SQLException: errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
     }
 
     order_qt_select """

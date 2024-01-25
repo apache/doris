@@ -29,6 +29,7 @@ import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Random;
@@ -52,7 +53,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
     private static final Logger LOG = LogManager.getLogger(TwoDimensionalGreedyRebalanceAlgo.class);
 
     private final EqualSkewOption equalSkewOption;
-    private static final Random rand = new Random(System.currentTimeMillis());
+    private static final Random rand = new SecureRandom();
 
     public static class PartitionMove {
         Long partitionId;
@@ -288,8 +289,13 @@ public class TwoDimensionalGreedyRebalanceAlgo {
      */
     public static boolean applyMove(PartitionMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
                                     TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
-        // Update the total counts
-        moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
+        try {
+            // Update the total counts
+            moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
+        } catch (IllegalStateException e) {
+            LOG.info("{} apply failed, {}", move, e.getMessage());
+            return false;
+        }
 
         try {
             PartitionBalanceInfo partitionBalanceInfo = null;

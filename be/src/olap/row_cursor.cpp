@@ -210,34 +210,6 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
     return _init_scan_key(schema, scan_keys);
 }
 
-// TODO(yingchun): parameter 'TabletSchemaSPtr  schema' is not used
-Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
-    // allocate memory for string type(char, varchar, hll, array)
-    // The memory allocated in this function is used in aggregate and copy function
-    if (_variable_len == 0 && _string_field_count == 0) {
-        return Status::OK();
-    }
-    DCHECK(_variable_buf == nullptr) << "allocate memory twice";
-    RETURN_IF_ERROR(_alloc_buf());
-    // init slice of char, varchar, hll type
-    char* fixed_ptr = _fixed_buf;
-    char* variable_ptr = _variable_buf;
-    char** long_text_ptr = _long_text_buf;
-    for (auto cid : _schema->column_ids()) {
-        fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        if (_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
-            slice->data = *(long_text_ptr);
-            slice->size = DEFAULT_TEXT_LENGTH;
-            ++long_text_ptr;
-        } else if (_variable_len > 0) {
-            variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
-        }
-    }
-    return Status::OK();
-}
-
 Status RowCursor::build_max_key() {
     for (auto cid : _schema->column_ids()) {
         const Field* field = column_schema(cid);

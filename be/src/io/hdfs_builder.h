@@ -36,9 +36,10 @@ const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 const std::string TICKET_CACHE_PATH = "/tmp/krb5cc_doris_";
 
 class HDFSCommonBuilder {
-    friend Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder);
-    friend Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
-                                    HDFSCommonBuilder* builder);
+    friend Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
+                                      HDFSCommonBuilder* builder);
+    friend Status create_hdfs_builder(const std::map<std::string, std::string>& properties,
+                                      HDFSCommonBuilder* builder);
 
 public:
     HDFSCommonBuilder() {}
@@ -55,20 +56,20 @@ public:
     Status init_hdfs_builder();
 
     hdfsBuilder* get() { return hdfs_builder; }
-    bool is_need_kinit() const { return need_kinit; }
-    Status run_kinit();
+    bool is_kerberos() const { return kerberos_login; }
+    Status check_krb_params();
 
 private:
     hdfsBuilder* hdfs_builder = nullptr;
-    bool need_kinit {false};
+    bool kerberos_login {false};
     std::string hdfs_kerberos_keytab;
     std::string hdfs_kerberos_principal;
 };
 
 THdfsParams parse_properties(const std::map<std::string, std::string>& properties);
 
-Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder);
-Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
-                         HDFSCommonBuilder* builder);
+Status create_hdfs_builder(const THdfsParams& hdfsParams, HDFSCommonBuilder* builder);
+Status create_hdfs_builder(const std::map<std::string, std::string>& properties,
+                           HDFSCommonBuilder* builder);
 
 } // namespace doris

@@ -20,7 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -35,6 +37,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -48,6 +51,8 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -62,6 +67,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -70,6 +76,8 @@ import java.util.Optional;
 public abstract class ExternalCatalog
             implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
+
+    public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -97,6 +105,9 @@ public abstract class ExternalCatalog
     private ExternalSchemaCache schemaCache;
     private String comment;
 
+    public ExternalCatalog() {
+    }
+
     public ExternalCatalog(long catalogId, String name, InitCatalogLog.Type logType, String comment) {
         this.id = catalogId;
         this.name = name;
@@ -104,12 +115,21 @@ public abstract class ExternalCatalog
         this.comment = com.google.common.base.Strings.nullToEmpty(comment);
     }
 
+    public Configuration getConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
+
     protected List<String> listDatabaseNames() {
         throw new UnsupportedOperationException("Unsupported operation: "
                 + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
         // set some default properties when creating catalog
     }
 
@@ -202,8 +222,10 @@ public abstract class ExternalCatalog
      * "access_controller.properties.prop1" = "xxx",
      * "access_controller.properties.prop2" = "yyy",
      * )
+     * <p>
+     * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
-    public void initAccessController() {
+    public void initAccessController(boolean isDryRun) {
         Map<String, String> properties = getCatalogProperty().getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
@@ -223,7 +245,7 @@ public abstract class ExternalCatalog
         }
 
         // 3. create access controller
-        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties, isDryRun);
     }
 
     // init schema related objects
@@ -233,16 +255,21 @@ public abstract class ExternalCatalog
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
-        List<String> allDatabases = listDatabaseNames();
+        List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
+
+        allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
+        allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
-            // Exclude database map take effect with higher priority over include database map
-            if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                continue;
-            }
-            if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                continue;
+            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+                // Exclude database map take effect with higher priority over include database map
+                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
+                    continue;
+                }
             }
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
@@ -260,15 +287,15 @@ public abstract class ExternalCatalog
                 initCatalogLog.addCreateDb(dbId, dbName);
             }
         }
+
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
-        long currentTime = System.currentTimeMillis();
-        lastUpdateTime = currentTime;
+        lastUpdateTime = System.currentTimeMillis();
         initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
-    public void setUninitialized(boolean invalidCache) {
+    public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
@@ -350,6 +377,9 @@ public abstract class ExternalCatalog
     @Nullable
     @Override
     public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+        if (StringUtils.isEmpty(dbName)) {
+            return null;
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {
@@ -357,10 +387,18 @@ public abstract class ExternalCatalog
             return null;
         }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
-        if (!dbNameToId.containsKey(realDbName)) {
-            return null;
+        if (dbNameToId.containsKey(realDbName)) {
+            return idToDb.get(dbNameToId.get(realDbName));
+        } else {
+            // This maybe a information_schema db request, and information_schema db name is case insensitive.
+            // So, we first extract db name to check if it is information_schema.
+            // Then we reassemble the origin cluster name with lower case db name,
+            // and finally get information_schema db from the name map.
+            if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                return idToDb.get(dbNameToId.get(InfoSchemaDb.DATABASE_NAME));
+            }
         }
-        return idToDb.get(dbNameToId.get(realDbName));
+        return null;
     }
 
     @Nullable
@@ -393,7 +431,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
@@ -404,11 +441,6 @@ public abstract class ExternalCatalog
 
     public void rollBackCatalogProps(Map<String, String> props) {
         catalogProperty.rollBackCatalogProps(props);
-    }
-
-    private void modifyComment(Map<String, String> props) {
-        setComment(props.getOrDefault("comment", comment));
-        props.remove("comment");
     }
 
     public long getLastUpdateTime() {
@@ -463,6 +495,9 @@ public abstract class ExternalCatalog
 
     protected ExternalDatabase<? extends ExternalTable> getDbForInit(String dbName, long dbId,
                                                                      InitCatalogLog.Type logType) {
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+            return new ExternalInfoSchemaDatabase(this, dbId);
+        }
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, dbName);
@@ -486,13 +521,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    /**
-     * External catalog has no cluster semantics.
-     */
-    protected static String getRealTableName(String tableName) {
-        return ClusterNamespace.getNameFromFullName(tableName);
-    }
-
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
@@ -511,9 +539,6 @@ public abstract class ExternalCatalog
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
-        if (this instanceof HMSExternalCatalog) {
-            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
-        }
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -534,11 +559,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 
@@ -577,8 +602,36 @@ public abstract class ExternalCatalog
         return ret;
     }
 
+    public String bindBrokerName() {
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSExternalCatalog.BIND_BROKER_NAME)) {
+            return properties.get(HMSExternalCatalog.BIND_BROKER_NAME);
+        }
+        return null;
+    }
+
     @Override
-    public Collection<DatabaseIf> getAllDbs() {
+    public Collection<DatabaseIf<? extends TableIf>> getAllDbs() {
+        makeSureInitialized();
         return new HashSet<>(idToDb.values());
     }
+
+    @Override
+    public boolean enableAutoAnalyze() {
+        // By default, external catalog disables auto analyze, uses could set catalog property to enable it:
+        // "enable.auto.analyze" = true
+        Map<String, String> properties = catalogProperty.getProperties();
+        boolean ret = false;
+        if (properties.containsKey(ENABLE_AUTO_ANALYZE)
+                && properties.get(ENABLE_AUTO_ANALYZE).equalsIgnoreCase("true")) {
+            ret = true;
+        }
+        return ret;
+    }
+
+    @Override
+    public ConcurrentHashMap<Long, DatabaseIf> getIdToDb() {
+        return new ConcurrentHashMap<>(idToDb);
+    }
 }
+

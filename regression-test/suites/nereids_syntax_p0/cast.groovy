@@ -219,6 +219,10 @@ suite("cast") {
     qt_varchar """select cast(cast("1" as varchar(1)) as time)"""
     qt_string """select cast(cast("1" as string) as time)"""
 
+    qt_string_to_array "select cast('[1, 2, 3]' as array<int>)"
+    qt_string_to_map "select cast('{1:1,2:2,3:3}' as map<int, int>)"
+    qt_string_to_struct "select cast('{1,2,3}' as struct<a:int, b:int, c:int>)"
+
     // boolean
     test {
         sql """select cast(k0 as time) ct from test order by ct;"""
@@ -229,6 +233,11 @@ suite("cast") {
         sql """select cast(k5 as time) ct from test order by ct;"""
         exception "cannot cast"
     }
+    test {
+        sql "select cast(12 as decimalv3(2,1))"
+        exception "Arithmetic overflow"
+    }
+
     // date
     test {
         sql """select cast(k10 as time) ct from test order by ct;"""

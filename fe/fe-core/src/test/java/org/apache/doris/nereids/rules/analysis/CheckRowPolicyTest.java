@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -56,7 +57,7 @@ import java.util.List;
 public class CheckRowPolicyTest extends TestWithFeService {
 
     private static String dbName = "check_row_policy";
-    private static String fullDbName = "default_cluster:" + dbName;
+    private static String fullDbName = "" + dbName;
     private static String tableName = "table1";
     private static String userName = "user1";
     private static String policyName = "policy1";
@@ -86,19 +87,23 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 KeysType.PRIMARY_KEYS);
         // create user
         UserIdentity user = new UserIdentity(userName, "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        tablePattern.analyze();
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        grantStmt.analyze(analyzer);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
     }
 
     @Test
     public void checkUser() throws AnalysisException, org.apache.doris.common.AnalysisException {
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
 
         useUser("root");
@@ -113,7 +118,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
@@ -122,7 +128,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkOnePolicy() throws Exception {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable,
+                Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "

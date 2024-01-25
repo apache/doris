@@ -29,7 +29,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -43,10 +42,9 @@ struct FileInfo;
 
 class HdfsFileSystemHandle {
 public:
-    HdfsFileSystemHandle(hdfsFS fs, bool cached, bool is_kerberos)
+    HdfsFileSystemHandle(hdfsFS fs, bool cached)
             : hdfs_fs(fs),
               from_cache(cached),
-              _is_kerberos(is_kerberos),
               _ref_cnt(0),
               _create_time(_now()),
               _last_access_time(0),
@@ -76,11 +74,7 @@ public:
 
     int ref_cnt() { return _ref_cnt; }
 
-    bool invalid() {
-        return _invalid ||
-               (_is_kerberos &&
-                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000 / 2);
-    }
+    bool invalid() { return _invalid; }
 
     void set_invalid() { _invalid = true; }
 
@@ -90,7 +84,6 @@ public:
     const bool from_cache;
 
 private:
-    const bool _is_kerberos;
     // the number of referenced client
     std::atomic<int> _ref_cnt;
     // For kerberos authentication, we need to save create time so that
@@ -122,9 +115,10 @@ public:
 
 protected:
     Status connect_impl() override;
-    Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const FileDescription& fd, const Path& abs_path,
-                              FileReaderSPtr* reader) override;
+    Status create_file_impl(const Path& file, FileWriterPtr* writer,
+                            const FileWriterOptions* opts) override;
+    Status open_file_internal(const Path& file, FileReaderSPtr* reader,
+                              const FileReaderOptions& opts) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
@@ -134,16 +128,11 @@ protected:
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                      bool* exists) override;
     Status rename_impl(const Path& orig_name, const Path& new_name) override;
-    Status rename_dir_impl(const Path& orig_name, const Path& new_name) override;
 
     Status upload_impl(const Path& local_file, const Path& remote_file) override;
     Status batch_upload_impl(const std::vector<Path>& local_files,
                              const std::vector<Path>& remote_files) override;
-    Status direct_upload_impl(const Path& remote_file, const std::string& content) override;
-    Status upload_with_checksum_impl(const Path& local_file, const Path& remote_file,
-                                     const std::string& checksum) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
-    Status direct_download_impl(const Path& remote_file, std::string* content) override;
 
 private:
     Status delete_internal(const Path& path, int is_recursive);
@@ -153,11 +142,11 @@ private:
     HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
                    RuntimeProfile* profile);
     const THdfsParams& _hdfs_params;
-    std::string _namenode;
+    std::string _fs_name;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
-    HdfsFileSystemHandle* _fs_handle;
-    RuntimeProfile* _profile;
+    HdfsFileSystemHandle* _fs_handle = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 } // namespace io
 } // namespace doris

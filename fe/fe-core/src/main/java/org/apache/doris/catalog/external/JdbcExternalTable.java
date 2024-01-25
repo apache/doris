@@ -18,8 +18,13 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.JdbcAnalysisTask;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;
@@ -62,11 +67,6 @@ public class JdbcExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         makeSureInitialized();
         return jdbcTable.toThrift();
@@ -83,6 +83,11 @@ public class JdbcExternalTable extends ExternalTable {
         String fullDbName = this.dbName + "." + this.name;
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
         jdbcTable.setExternalTableName(fullDbName);
+        jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
+        jdbcTable.setRealTableName(
+                ((JdbcExternalCatalog) catalog).getJdbcClient().getRealTableName(this.dbName, this.name));
+        jdbcTable.setRealColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRealColumnNames(this.dbName,
+                this.name));
         jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
         jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());
         jdbcTable.setJdbcUser(jdbcCatalog.getJdbcUser());
@@ -91,6 +96,39 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setDriverUrl(jdbcCatalog.getDriverUrl());
         jdbcTable.setResourceName(jdbcCatalog.getResource());
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
+        jdbcTable.setMinPoolSize(jdbcCatalog.getMinPoolSize());
+        jdbcTable.setMaxPoolSize(jdbcCatalog.getMaxPoolSize());
+        jdbcTable.setMaxIdleTime(jdbcCatalog.getMaxIdleTime());
+        jdbcTable.setMaxWaitTime(jdbcCatalog.getMaxWaitTime());
+        jdbcTable.setKeepAlive(jdbcCatalog.getKeepAlive());
         return jdbcTable;
+    }
+
+    @Override
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+        makeSureInitialized();
+        return new JdbcAnalysisTask(info);
+    }
+
+    @Override
+    public long getRowCount() {
+        makeSureInitialized();
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+        if (tableStats != null) {
+            long rowCount = tableStats.rowCount;
+            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+            return rowCount;
+        }
+        return 1;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        return getRowCount();
+    }
+
+    @Override
+    public long estimatedRowCount() {
+        return getRowCount();
     }
 }

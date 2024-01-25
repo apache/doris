@@ -74,7 +74,7 @@ public class CreateResourceStmtTest {
         properties = Maps.newHashMap();
         properties.put("type", "odbc_catalog");
         stmt = new CreateResourceStmt(true, false, resourceName2, properties);
-        Config.enable_odbc_table = true;
+        Config.enable_odbc_mysql_broker_table = true;
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName2, stmt.getResourceName());
         Assert.assertEquals(Resource.ResourceType.ODBC_CATALOG, stmt.getResourceType());

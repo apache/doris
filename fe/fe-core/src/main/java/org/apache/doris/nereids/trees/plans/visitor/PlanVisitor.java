@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -173,6 +174,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
 
     public R visitLogicalHaving(LogicalHaving<? extends Plan> having, C context) {
         return visit(having, context);
+    }
+
+    public R visitLogicalInlineTable(LogicalInlineTable logicalInlineTable, C context) {
+        return visit(logicalInlineTable, context);
     }
 
     public R visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, C context) {

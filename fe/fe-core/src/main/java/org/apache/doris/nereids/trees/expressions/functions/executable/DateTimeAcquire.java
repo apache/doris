@@ -86,18 +86,19 @@ public class DateTimeAcquire {
         return DateLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
-    /**
-     * date acquire function: current_time
-     */
-    @ExecFunction(name = "curtime", argTypes = {}, returnType = "DATETIME")
-    public static Expression curTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    }
+    // comment these function temporally until we support TimeLiteral
+    // /**
+    //  * date acquire function: current_time
+    //  */
+    // @ExecFunction(name = "curtime", argTypes = {}, returnType = "TIME")
+    // public static Expression curTime() {
+    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+    // }
 
-    @ExecFunction(name = "current_time", argTypes = {}, returnType = "DATETIME")
-    public static Expression currentTime() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
-    }
+    // @ExecFunction(name = "current_time", argTypes = {}, returnType = "TIME")
+    // public static Expression currentTime() {
+    //     return DateTimeLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+    // }
 
     /**
      * date transformation function: unix_timestamp

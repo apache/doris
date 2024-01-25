@@ -23,10 +23,9 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-using DoubleQuantileState = QuantileState<double>;
 
 TEST(QuantileStateTest, merge) {
-    DoubleQuantileState empty;
+    QuantileState empty;
     EXPECT_EQ(EMPTY, empty._type);
     empty.add_value(1);
     EXPECT_EQ(SINGLE, empty._type);
@@ -38,7 +37,7 @@ TEST(QuantileStateTest, merge) {
     EXPECT_EQ(3, empty.get_value_by_percentile(0.5));
     EXPECT_EQ(5, empty.get_value_by_percentile(1));
 
-    DoubleQuantileState another;
+    QuantileState another;
     another.add_value(6);
     another.add_value(7);
     another.add_value(8);

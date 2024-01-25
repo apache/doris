@@ -42,6 +42,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
+import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -94,12 +95,12 @@ public class HashJoinNode extends JoinNodeBase {
 
         if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
                 || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-            tupleIds.addAll(outer.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
         } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         } else {
-            tupleIds.addAll(outer.getTupleIds());
-            tupleIds.addAll(inner.getTupleIds());
+            tupleIds.addAll(outer.getOutputTupleIds());
+            tupleIds.addAll(inner.getOutputTupleIds());
         }
 
         for (Expr eqJoinPredicate : eqJoinConjuncts) {
@@ -276,7 +277,17 @@ public class HashJoinNode extends JoinNodeBase {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts =
-                newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+                newEqJoinConjuncts.stream().map(entity -> {
+                            BinaryPredicate predicate = (BinaryPredicate) entity;
+                            if (predicate.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
+                                Preconditions.checkArgument(predicate.getChildren().size() == 2);
+                                if (!predicate.getChild(0).isNullable() || !predicate.getChild(1).isNullable()) {
+                                    predicate.setOp(BinaryPredicate.Operator.EQ);
+                                }
+                            }
+                            return predicate;
+                        }
+                ).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
         computeOutputTuple(analyzer);
@@ -730,6 +741,7 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
+        msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
     }
 
     @Override
@@ -811,6 +823,22 @@ public class HashJoinNode extends JoinNodeBase {
         @Override
         public String toString() {
             return description;
+        }
+
+        public TJoinDistributionType toThrift() {
+            switch (this) {
+                case NONE:
+                    return TJoinDistributionType.NONE;
+                case BROADCAST:
+                    return TJoinDistributionType.BROADCAST;
+                case PARTITIONED:
+                    return TJoinDistributionType.PARTITIONED;
+                case BUCKET_SHUFFLE:
+                    return TJoinDistributionType.BUCKET_SHUFFLE;
+                default:
+                    Preconditions.checkArgument(false, "Unknown DistributionMode: " + toString());
+            }
+            return TJoinDistributionType.NONE;
         }
     }
 

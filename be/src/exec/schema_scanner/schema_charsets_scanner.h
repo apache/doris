@@ -40,9 +40,9 @@ public:
 
 private:
     struct CharsetStruct {
-        const char* charset;
-        const char* default_collation;
-        const char* description;
+        const char* charset = nullptr;
+        const char* default_collation = nullptr;
+        const char* description = nullptr;
         int64_t maxlen;
     };
 

@@ -57,7 +57,7 @@ public class GlobalFunctionMgr extends MetaObject {
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        FunctionUtil.readFields(in, name2Function);
+        FunctionUtil.readFields(in, null, name2Function);
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {

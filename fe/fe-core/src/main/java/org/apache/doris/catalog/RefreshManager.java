@@ -17,12 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -30,7 +27,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.DdlExecutor;
 
 import com.google.common.collect.Maps;
@@ -64,13 +60,8 @@ public class RefreshManager {
             throw new DdlException("Catalog " + catalogName + " doesn't exist.");
         }
 
-        if (catalog.getName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            // Process internal catalog iceberg external table refresh.
-            refreshInternalCtlIcebergTable(stmt, env);
-        } else {
-            // Process external catalog table refresh
-            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName, false);
-        }
+        // Process external catalog table refresh
+        env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName, false);
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);
     }
 
@@ -84,40 +75,9 @@ public class RefreshManager {
             throw new DdlException("Catalog " + catalogName + " doesn't exist.");
         }
 
-        if (catalog.getName().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            // Process internal catalog iceberg external db refresh.
-            refreshInternalCtlIcebergDb(dbName, env);
-        } else {
-            // Process external catalog db refresh
-            refreshExternalCtlDb(dbName, catalog, stmt.isInvalidCache());
-        }
+        // Process external catalog db refresh
+        refreshExternalCtlDb(dbName, catalog, stmt.isInvalidCache());
         LOG.info("Successfully refresh db: {}", dbName);
-    }
-
-    private void refreshInternalCtlIcebergDb(String dbName, Env env) throws DdlException {
-        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
-
-        // 0. build iceberg property
-        // Since we have only persisted database properties with key-value format in DatabaseProperty,
-        // we build IcebergProperty here, before checking database type.
-        db.getDbProperties().checkAndBuildProperties();
-        // 1. check database type
-        if (!db.getDbProperties().getIcebergProperty().isExist()) {
-            throw new DdlException("Only support refresh Iceberg database.");
-        }
-
-        // 2. only drop iceberg table in the database
-        // Current database may have other types of table, which is not allowed to drop.
-        for (Table table : db.getTables()) {
-            if (table instanceof IcebergTable) {
-                DropTableStmt dropTableStmt =
-                        new DropTableStmt(true, new TableName(null, dbName, table.getName()), true);
-                env.dropTable(dropTableStmt);
-            }
-        }
-
-        // 3. register iceberg database to recreate iceberg table
-        env.getIcebergTableCreationRecordMgr().registerDb(db);
     }
 
     private void refreshExternalCtlDb(String dbName, CatalogIf catalog, boolean invalidCache) throws DdlException {
@@ -135,29 +95,6 @@ public class RefreshManager {
         log.setDbId(db.getId());
         log.setInvalidCache(invalidCache);
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
-    }
-
-    private void refreshInternalCtlIcebergTable(RefreshTableStmt stmt, Env env) throws UserException {
-        // 0. check table type
-        Database db = env.getInternalCatalog().getDbOrDdlException(stmt.getDbName());
-        Table table = db.getTableNullable(stmt.getTblName());
-        if (!(table instanceof IcebergTable)) {
-            throw new DdlException("Only support refresh Iceberg table.");
-        }
-
-        // 1. get iceberg properties
-        Map<String, String> icebergProperties = ((IcebergTable) table).getIcebergProperties();
-        icebergProperties.put(IcebergProperty.ICEBERG_TABLE, ((IcebergTable) table).getIcebergTbl());
-        icebergProperties.put(IcebergProperty.ICEBERG_DATABASE, ((IcebergTable) table).getIcebergDb());
-
-        // 2. drop old table
-        DropTableStmt dropTableStmt = new DropTableStmt(true, stmt.getTableName(), true);
-        env.dropTable(dropTableStmt);
-
-        // 3. create new table
-        CreateTableStmt createTableStmt = new CreateTableStmt(true, true,
-                stmt.getTableName(), "ICEBERG", icebergProperties, "");
-        env.createTable(createTableStmt);
     }
 
     public void addToRefreshMap(long catalogId, Integer[] sec) {

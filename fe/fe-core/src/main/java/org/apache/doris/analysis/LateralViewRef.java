@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -78,6 +78,9 @@ public class LateralViewRef extends TableRef {
         desc = analyzer.registerTableRef(this);
         explodeSlotRef = new SlotRef(new TableName(null, null, viewName), columnName);
         explodeSlotRef.analyze(analyzer);
+        explodeSlotRef.getDesc().setIsNullable(
+                explodeSlotRef.getDesc().getIsNullable() || relatedTableRef.getDesc().getSlots()
+                        .stream().anyMatch(slotDescriptor -> slotDescriptor.getIsNullable()));
         isAnalyzed = true;  // true now that we have assigned desc
     }
 
@@ -120,12 +123,6 @@ public class LateralViewRef extends TableRef {
             originSlotRef.getDesc().setIsMaterialized(true);
         }
         explodeSlotRef.getDesc().setIsMaterialized(true);
-
-        for (Expr expr : baseTblSmap.getLhs()) {
-            if (expr instanceof SlotRef && ((SlotRef) expr).getDesc().getIsNullable()) {
-                explodeSlotRef.getDesc().setIsNullable(true);
-            }
-        }
     }
 
     // The default table name must be origin table name
@@ -143,13 +140,13 @@ public class LateralViewRef extends TableRef {
             }
             if (tableName.getDb() != null && !tableName.getDb().equalsIgnoreCase(relatedTableName.getDb())) {
                 // db2.t1 lateral view explode_split(db1.t1.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableRef.toSql());
             }
 
             if (tableName.getTbl() != null) {
-                switch (Config.lower_case_table_names) {
+                switch (GlobalVariable.lowerCaseTableNames) {
                     case 0:
                         if (tableName.getTbl().equals(relatedTableName.getTbl())) {
                             // t1 lateral view explode_split(t1.k1, ",")
@@ -170,7 +167,7 @@ public class LateralViewRef extends TableRef {
                                 + "when config.lower_case_table_names is not 0, 1 or 2");
                 }
                 // t1 lateral view explode_split(t2.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toMySql()
+                throw new AnalysisException("The column " + slotRef.toSql()
                         + " in lateral view must come from the origin table "
                         + relatedTableName.toSql());
             }

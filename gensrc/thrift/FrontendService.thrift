@@ -308,12 +308,15 @@ struct TGetDbsParams {
   3: optional string user_ip    // deprecated
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
+  6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
 }
 
-// getDbNames returns a list of database names and catalog names
+// getDbNames returns a list of database names , database ids and catalog names ,catalog ids
 struct TGetDbsResult {
   1: optional list<string> dbs
   2: optional list<string> catalogs
+  3: optional list<i64> db_ids
+  4: optional list<i64> catalog_ids
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -351,6 +354,15 @@ struct TListTableStatusResult {
     1: required list<TTableStatus> tables
 }
 
+struct TTableMetadataNameIds {
+    1: optional string name
+    2: optional i64 id 
+}
+
+struct TListTableMetadataNameIdsResult {
+    1: optional list<TTableMetadataNameIds> tables 
+}
+
 // getTableNames returns a list of unqualified table names
 struct TGetTablesResult {
   1: list<string> tables
@@ -378,6 +390,29 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
+
+struct TQueryStatistics {
+    // A thrift structure identical to the PQueryStatistics structure.
+    1: optional i64 scan_rows
+    2: optional i64 scan_bytes
+    3: optional i64 returned_rows
+    4: optional i64 cpu_ms
+    5: optional i64 max_peak_memory_bytes
+    6: optional i64 current_used_memory_bytes
+    7: optional i64 workload_group_id
+}
+
+struct TReportWorkloadRuntimeStatusParams {
+    1: optional i64 backend_id
+    2: map<string, TQueryStatistics> query_statistics_map
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -391,6 +426,7 @@ struct TReportExecStatusParams {
   3: optional i32 backend_num
 
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   4: optional Types.TUniqueId fragment_instance_id
 
   // Status of fragment execution; any error status means it's done.
@@ -403,6 +439,7 @@ struct TReportExecStatusParams {
 
   // cumulative profile
   // required in V1
+  // Move to TDetailedReportParams for pipelineX
   7: optional RuntimeProfile.TRuntimeProfileTree profile
 
   // New errors that have not been reported to the coordinator
@@ -432,14 +469,25 @@ struct TReportExecStatusParams {
 
   20: optional PaloInternalService.TQueryType query_type
 
+  // Move to TDetailedReportParams for pipelineX
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
+
+  24: optional TQueryStatistics query_statistics
+
+  25: TReportWorkloadRuntimeStatusParams report_workload_runtime_status
 }
 
 struct TFeResult {
     1: required FrontendServiceVersion protocolVersion
     2: required Status.TStatus status
+
+    // For cloud
+    1000: optional string cloud_cluster
+    1001: optional bool noAuth
 }
 
 struct TMasterOpRequest {
@@ -469,6 +517,12 @@ struct TMasterOpRequest {
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
+    25: optional string defaultCatalog
+    26: optional string defaultDatabase
+
+    // selectdb cloud
+    1000: optional string cloud_cluster
+    1001: optional bool noAuth;
 }
 
 struct TColumnDefinition {
@@ -493,6 +547,8 @@ struct TMasterOpResult {
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
     5: optional string status;
+    6: optional i32 statusCode;
+    7: optional string errMessage;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -515,6 +571,8 @@ struct TLoadTxnBeginRequest {
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
+    13: optional string auth_code_uuid
+    14: optional i64 table_id
 }
 
 struct TLoadTxnBeginResult {
@@ -544,6 +602,7 @@ struct TBeginTxnResult {
     2: optional i64 txn_id
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    5: optional Types.TNetworkAddress master_address
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -609,6 +668,18 @@ struct TStreamLoadPutRequest {
     48: optional i64 backend_id
     49: optional i32 version // version 1 means use load_sql
     50: optional string label
+    // only valid when file type is CSV
+    51: optional i8 enclose
+    // only valid when file type is CSV
+    52: optional i8 escape
+    53: optional bool memtable_on_sink_node;
+    54: optional bool group_commit // deprecated
+    55: optional i32 stream_per_node;
+    56: optional string group_commit_mode
+
+    // For cloud
+    1000: optional string cloud_cluster
+    1001: optional i64 table_id
 }
 
 struct TStreamLoadPutResult {
@@ -616,6 +687,13 @@ struct TStreamLoadPutResult {
     // valid when status is OK
     2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    // used for group commit
+    4: optional i64 base_schema_version
+    5: optional i64 db_id
+    6: optional i64 table_id
+    7: optional bool wait_internal_group_commit_finish = false
+    8: optional i64 group_commit_interval_ms
+    9: optional i64 group_commit_data_bytes
 }
 
 struct TStreamLoadMultiTablePutResult {
@@ -623,11 +701,6 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
-}
-
-// StreamLoadWith request status
-struct TStreamLoadWithLoadStatusRequest {
-    1: optional Types.TUniqueId loadId
 }
 
 struct TStreamLoadWithLoadStatusResult {
@@ -679,6 +752,8 @@ struct TLoadTxnCommitRequest {
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
+    16: optional i64 table_id
+    17: optional string auth_code_uuid
 }
 
 struct TLoadTxnCommitResult {
@@ -702,6 +777,7 @@ struct TCommitTxnRequest {
 
 struct TCommitTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxn2PCRequest {
@@ -715,6 +791,10 @@ struct TLoadTxn2PCRequest {
     8: optional i64 auth_code
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
+    11: optional string label
+
+    // For cloud
+    1000: optional string auth_code_uuid
 }
 
 struct TLoadTxn2PCResult {
@@ -737,6 +817,7 @@ struct TRollbackTxnRequest {
 
 struct TRollbackTxnResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TLoadTxnRollbackRequest {
@@ -753,6 +834,8 @@ struct TLoadTxnRollbackRequest {
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
+    14: optional string auth_code_uuid
+    15: optional string label
 }
 
 struct TLoadTxnRollbackResult {
@@ -797,6 +880,8 @@ struct TFrontendPingFrontendResult {
     6: required string version
     7: optional i64 lastStartupTime
     8: optional list<TDiskInfo> diskInfos
+    9: optional i64 processUUID
+    10: optional i32 arrowFlightSqlPort
 }
 
 struct TPropertyVal {
@@ -840,6 +925,10 @@ struct TMetadataTableRequestParams {
   4: optional list<string> columns_name
   5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
   6: optional Types.TUserIdentity current_user_ident
+  7: optional PlanNodes.TQueriesMetadataParams queries_metadata_params
+  8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
+  9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
+  10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -851,23 +940,6 @@ struct TFetchSchemaTableDataRequest {
 struct TFetchSchemaTableDataResult {
   1: required Status.TStatus status
   2: optional list<Data.TRow> data_batch;
-}
-
-// Only support base table add columns
-struct TAddColumnsRequest {
-    1: optional i64 table_id
-    2: optional list<TColumnDef> addColumns
-    3: optional string table_name
-    4: optional string db_name
-    5: optional bool allow_type_conflict
-}
-
-// Only support base table add columns
-struct TAddColumnsResult {
-    1: optional Status.TStatus status
-    2: optional i64 table_id
-    3: optional list<Descriptors.TColumn> allColumns
-    4: optional i32 schema_version
 }
 
 struct TMySqlLoadAcquireTokenResult {
@@ -998,6 +1070,9 @@ enum TBinlogType {
   ALTER_DATABASE_PROPERTY = 8,
   MODIFY_TABLE_PROPERTY = 9,
   BARRIER = 10,
+  MODIFY_PARTITIONS = 11,
+  REPLACE_PARTITIONS = 12,
+  TRUNCATE_TABLE = 13,
 }
 
 struct TBinlog {
@@ -1018,6 +1093,7 @@ struct TGetBinlogResult {
     3: optional list<TBinlog> binlogs
     4: optional string fe_version
     5: optional i64 fe_meta_version
+    6: optional Types.TNetworkAddress master_address
 }
 
 struct TGetTabletReplicaInfosRequest {
@@ -1051,10 +1127,12 @@ struct TGetSnapshotResult {
     1: optional Status.TStatus status
     2: optional binary meta
     3: optional binary job_info
+    4: optional Types.TNetworkAddress master_address
 }
 
 struct TTableRef {
     1: optional string table
+    3: optional string alias_name
 }
 
 struct TRestoreSnapshotRequest {
@@ -1074,6 +1152,7 @@ struct TRestoreSnapshotRequest {
 
 struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 struct TGetMasterTokenRequest {
@@ -1085,6 +1164,7 @@ struct TGetMasterTokenRequest {
 struct TGetMasterTokenResult {
     1: optional Status.TStatus status
     2: optional string token
+    3: optional Types.TNetworkAddress master_address
 }
 
 typedef TGetBinlogRequest TGetBinlogLagRequest
@@ -1092,11 +1172,16 @@ typedef TGetBinlogRequest TGetBinlogLagRequest
 struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: optional string colStats;
+    2: list<string> statsRows;
+}
+
+struct TInvalidateFollowerStatsCacheRequest {
+    1: optional string key;
 }
 
 struct TAutoIncrementRangeRequest {
@@ -1111,6 +1196,145 @@ struct TAutoIncrementRangeResult {
     1: optional Status.TStatus status
     2: optional i64 start
     3: optional i64 length
+}
+
+struct TCreatePartitionRequest {
+    1: optional i64 txn_id
+    2: optional i64 db_id
+    3: optional i64 table_id
+    // for each partition column's partition values. [missing_rows, partition_keys]->Left bound(for range) or Point(for list)
+    4: optional list<list<Exprs.TStringLiteral>> partitionValues
+}
+
+struct TCreatePartitionResult {
+    1: optional Status.TStatus status
+    2: optional list<Descriptors.TOlapTablePartition> partitions
+    3: optional list<Descriptors.TTabletLocation> tablets
+    4: optional list<Descriptors.TNodeInfo> nodes
+}
+
+struct TGetMetaReplica {
+    1: optional i64 id
+}
+
+struct TGetMetaTablet {
+    1: optional i64 id
+    2: optional list<TGetMetaReplica> replicas
+}
+
+struct TGetMetaIndex {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTablet> tablets
+}
+
+struct TGetMetaPartition {
+    1: optional i64 id
+    2: optional string name
+    3: optional string key
+    4: optional string range
+    5: optional bool is_temp
+    6: optional list<TGetMetaIndex> indexes
+}
+
+struct TGetMetaTable {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool in_trash
+    4: optional list<TGetMetaPartition> partitions
+}
+
+struct TGetMetaDB {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool only_table_names
+    4: optional list<TGetMetaTable> tables
+}
+
+struct TGetMetaRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string user_ip
+    5: optional string token
+    6: optional TGetMetaDB db
+    // trash
+}
+
+struct TGetMetaReplicaMeta {
+    1: optional i64 id
+    2: optional i64 backend_id
+    3: optional i64 version
+}
+
+struct TGetMetaTabletMeta {
+    1: optional i64 id
+    2: optional list<TGetMetaReplicaMeta> replicas
+}
+
+struct TGetMetaIndexMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTabletMeta> tablets
+}
+
+struct TGetMetaPartitionMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional string key
+    4: optional string range
+    5: optional i64 visible_version
+    6: optional bool is_temp
+    7: optional list<TGetMetaIndexMeta> indexes
+}
+
+struct TGetMetaTableMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool in_trash
+    4: optional list<TGetMetaPartitionMeta> partitions
+}
+
+struct TGetMetaDBMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTableMeta> tables
+}
+
+struct TGetMetaResult {
+    1: required Status.TStatus status
+    2: optional TGetMetaDBMeta db_meta
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TGetBackendMetaRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string user_ip
+    5: optional string token
+    6: optional i64 backend_id
+}
+
+struct TGetBackendMetaResult {
+    1: required Status.TStatus status
+    2: optional list<Types.TBackend> backends
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TColumnInfo {
+  1: optional string column_name
+  2: optional i64 column_id
+}
+
+struct TGetColumnInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetColumnInfoResult {
+    1: optional Status.TStatus status
+    2: optional list<TColumnInfo> columns
 }
 
 service FrontendService {
@@ -1129,6 +1353,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListTableMetadataNameIdsResult listTableMetadataNameIds(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
@@ -1151,15 +1376,12 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
-    TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(1: TStreamLoadWithLoadStatusRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
-
-    TAddColumnsResult addColumns(1: TAddColumnsRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
@@ -1182,4 +1404,14 @@ service FrontendService {
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
+
+    TCreatePartitionResult createPartition(1: TCreatePartitionRequest request)
+
+    TGetMetaResult getMeta(1: TGetMetaRequest request)
+
+    TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
+
+    TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
+
+    Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 }

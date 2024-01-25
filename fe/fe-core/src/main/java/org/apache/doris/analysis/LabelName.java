@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -62,7 +61,6 @@ public class LabelName implements Writable {
             }
             dbName = analyzer.getDefaultDb();
         }
-        dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
         FeNameFormat.checkLabel(labelName);
     }
 

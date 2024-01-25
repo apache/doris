@@ -43,26 +43,37 @@ class Arena;
 
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
 public:
-    DataTypeDateTimeV2SerDe(int scale) : scale(scale) {};
+    DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
+            : DataTypeNumberSerDe<UInt64>(nesting_level), scale(scale) {};
 
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override;
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override;
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
-                                int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "not support read arrow array to uint64 column";
-    }
+                                int end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     template <bool is_binary_format>

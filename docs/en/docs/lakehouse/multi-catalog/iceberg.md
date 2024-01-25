@@ -53,7 +53,30 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### Create Catalog based on Iceberg API
 
-Use the Iceberg API to access metadata, and support services such as Hive, REST, DLF and Glue as Iceberg's Catalog.
+Use the Iceberg API to access metadata, and support services such as Hadoop File System, Hive, REST, DLF and Glue as Iceberg's Catalog.
+
+#### Hadoop Catalog
+
+```sql
+CREATE CATALOG iceberg_hadoop PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
+);
+```
+
+```sql
+CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-nameservice/dir/key',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
 
 #### Hive Metastore
 
@@ -72,6 +95,8 @@ CREATE CATALOG iceberg PROPERTIES (
 ```
 
 #### AWS Glue
+
+> When connecting Glue, if it's not on the EC2 environment, need copy the `~/.aws` from the EC2 environment to the current environment. And can also download and configure the [AWS Cli tools](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), which also creates the `.aws` directory under the current user directory.
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
@@ -133,16 +158,42 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `hive.metastore.uris`: Dataproc Metastore URI，See in Metastore Services ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
 
-### Iceberg On S3
+### Iceberg On Object Storage
 
 If the data is stored on S3, the following parameters can be used in properties:
 
 ```
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
-"s3.endpoint" = "http://endpoint-uri"
-"s3.region" = "your-region"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+"s3.endpoint" = "s3.us-east-1.amazonaws.com"
+"s3.region" = "us-east-1"
+```
+
+The data is stored on Alibaba Cloud OSS:
+
+```
+"oss.access_key" = "ak"
+"oss.secret_key" = "sk"
+"oss.endpoint" = "oss-cn-beijing-internal.aliyuncs.com"
+"oss.region" = "oss-cn-beijing"
+```
+
+The data is stored on Tencent Cloud COS:
+
+```
+"cos.access_key" = "ak"
+"cos.secret_key" = "sk"
+"cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+"cos.region" = "ap-beijing"
+```
+
+The data is stored on Huawei Cloud OBS:
+
+```
+"obs.access_key" = "ak"
+"obs.secret_key" = "sk"
+"obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com"
+"obs.region" = "cn-north-4"
 ```
 
 ## Column type mapping
@@ -163,4 +214,4 @@ You can use the `FOR TIME AS OF` and `FOR VERSION AS OF` statements to read hist
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) table function to query the snapshot information of the specified table.
+In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) table function to query the snapshot information of the specified table.

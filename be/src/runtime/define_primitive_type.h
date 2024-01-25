@@ -17,8 +17,14 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "gutil/integral_types.h"
 namespace doris {
-enum PrimitiveType {
+
+using PrimitiveNative = uint8_t;
+
+enum PrimitiveType : PrimitiveNative {
     INVALID_TYPE = 0,
     TYPE_NULL,     /* 1 */
     TYPE_BOOLEAN,  /* 2 */
@@ -57,6 +63,11 @@ enum PrimitiveType {
     TYPE_VARIANT,         /* 32 */
     TYPE_LAMBDA_FUNCTION, /* 33 */
     TYPE_AGG_STATE,       /* 34 */
+    TYPE_DECIMAL256,      /* 35 */
+    TYPE_IPV4,            /* 36 */
+    TYPE_IPV6             /* 37 */
 };
 
-}
+constexpr PrimitiveNative BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
+constexpr PrimitiveNative END_OF_PRIMITIVE_TYPE = TYPE_DECIMAL256;
+} // namespace doris

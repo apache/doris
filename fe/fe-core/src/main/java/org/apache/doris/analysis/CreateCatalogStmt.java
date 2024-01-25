@@ -122,9 +122,14 @@ public class CreateCatalogStmt extends DdlStmt {
         }
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
-            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));
+            stringBuilder.append(new PrintableMap<>(properties, "=", true, true, true));
             stringBuilder.append("\n)");
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

@@ -84,4 +84,32 @@ suite("test_cast_null") {
     qt_sql4 """
         select 'abc' like null;
     """
+
+    sql """
+        drop table if exists test_table_tabc;
+    """
+
+    sql """
+        CREATE TABLE `test_table_tabc` (
+        `k1` DECIMAL(12, 5) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+        );
+    """
+    sql """insert into test_table_tabc values(1.0);"""
+
+    qt_sql5 """select k1 <> '' from test_table_tabc;"""
+
+    sql """
+        drop table if exists test_table_tabc;
+    """
 }

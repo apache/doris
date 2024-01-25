@@ -48,6 +48,10 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == T || (is_string_type(input_type) && is_string_type(T));
+    }
+
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (_specific_filter->is_not_in()) {
             return true;
@@ -58,13 +62,13 @@ public:
             // no non-null values
             return false;
         } else {
-            max_value = *reinterpret_cast<const CppType*>(statistic.second->cell_ptr());
+            max_value = get_zone_map_value<T, CppType>(statistic.second->cell_ptr());
         }
 
-        CppType min_value =
-                statistic.first->is_null() /* contains null values */
-                        ? 0
-                        : *reinterpret_cast<const CppType*>(statistic.first->cell_ptr());
+        CppType min_value = statistic.first->is_null() /* contains null values */
+                                    ? 0
+                                    : get_zone_map_value<T, CppType>(statistic.first->cell_ptr());
+        ;
         return _specific_filter->contains_any(min_value, max_value);
     }
 
@@ -101,6 +105,7 @@ private:
     SpecificFilter* _specific_filter; // owned by _filter
 
     int get_filter_id() const override { return _filter->get_filter_id(); }
+    bool is_filter() const override { return true; }
 };
 
 template <PrimitiveType T>

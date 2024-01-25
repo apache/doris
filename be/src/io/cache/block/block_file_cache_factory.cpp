@@ -31,15 +31,15 @@
 #include "io/cache/block/block_file_cache_settings.h"
 #include "io/cache/block/block_lru_file_cache.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 class TUniqueId;
 
 namespace io {
 
-FileCacheFactory& FileCacheFactory::instance() {
-    static FileCacheFactory ret;
-    return ret;
+FileCacheFactory* FileCacheFactory::instance() {
+    return ExecEnv::GetInstance()->file_cache_factory();
 }
 
 size_t FileCacheFactory::try_release() {
@@ -58,25 +58,36 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
-Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
-                                           const FileCacheSettings& file_cache_settings) {
+void FileCacheFactory::create_file_cache(const std::string& cache_base_path,
+                                         const FileCacheSettings& file_cache_settings,
+                                         Status* status) {
     if (config::clear_file_cache) {
         auto fs = global_local_filesystem();
         bool res = false;
-        fs->exists(cache_base_path, &res);
+        static_cast<void>(fs->exists(cache_base_path, &res));
         if (res) {
-            fs->delete_directory(cache_base_path);
+            static_cast<void>(fs->delete_directory(cache_base_path));
         }
     }
 
     std::unique_ptr<IFileCache> cache =
             std::make_unique<LRUFileCache>(cache_base_path, file_cache_settings);
-    RETURN_IF_ERROR(cache->initialize());
-    _path_to_cache[cache_base_path] = cache.get();
-    _caches.push_back(std::move(cache));
+    *status = cache->initialize();
+    if (!status->ok()) {
+        return;
+    }
+
+    {
+        // the create_file_cache() may be called concurrently,
+        // so need to protect it with lock
+        std::lock_guard<std::mutex> lock(_cache_mutex);
+        _path_to_cache[cache_base_path] = cache.get();
+        _caches.push_back(std::move(cache));
+    }
     LOG(INFO) << "[FileCache] path: " << cache_base_path
               << " total_size: " << file_cache_settings.total_size;
-    return Status::OK();
+    *status = Status::OK();
+    return;
 }
 
 CloudFileCachePtr FileCacheFactory::get_by_path(const IFileCache::Key& key) {

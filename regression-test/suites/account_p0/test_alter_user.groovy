@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_alter_user", "account") {
+suite("test_alter_user", "account,nonConcurrent") {
 
     sql """drop user if exists test_auth_user2"""
     sql """drop user if exists test_auth_user3"""
@@ -31,7 +31,7 @@ suite("test_alter_user", "account") {
     sql """set global password_history=1""" // set to 1
     test {
         sql """alter user test_auth_user2 identified by '12345'"""
-        exception "Cannot use these credentials for 'default_cluster:test_auth_user2'@'%' because they contradict the password history policy"
+        exception "Cannot use these credentials for 'test_auth_user2'@'%' because they contradict the password history policy"
     }
 
     sql """alter user test_auth_user2 password_history 0"""
@@ -46,7 +46,7 @@ suite("test_alter_user", "account") {
     sql """alter user test_auth_user2 identified by 'abc123456'"""
     test {
         sql """alter user test_auth_user2 identified by 'abc12345'"""
-        exception "Cannot use these credentials for 'default_cluster:test_auth_user2'@'%' because they contradict the password history policy"
+        exception "Cannot use these credentials for 'test_auth_user2'@'%' because they contradict the password history policy"
     }
     result1 = connect(user = 'test_auth_user2', password = 'abc123456', url = context.config.jdbcUrl) {
         sql 'select 1'
@@ -72,20 +72,20 @@ suite("test_alter_user", "account") {
         connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
     } 
     try {
         connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
     } 
     // login with correct password but also failed
     try {
         connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3'@'%'. Account is blocked for 86400 second(s) (86400 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3'@'%'. Account is blocked for 86400 second(s) (86400 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
     } 
 
     // unlock user and login again
@@ -101,20 +101,20 @@ suite("test_alter_user", "account") {
         connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
     } 
     try {
         connect(user = 'test_auth_user3', password = 'wrong', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3"), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
     } 
     // login with correct password but also failed
     try {
         connect(user = 'test_auth_user3', password = '12345', url = context.config.jdbcUrl) {}
         assertTrue(false. "should not be able to login")
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Access denied for user 'default_cluster:test_auth_user3'@'%'. Account is blocked for 5 second(s) (5 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3'@'%'. Account is blocked for 5 second(s) (5 second(s) remaining) due to 2 consecutive failed logins."), e.getMessage())
     } 
     // sleep 5 second to unlock account
     sleep(5000)
@@ -139,7 +139,7 @@ suite("test_alter_user", "account") {
     }
     sql """set global validate_password_policy=NONE"""
 
-    // 5. text expire
+    // 5. test expire
     sql """create user test_auth_user4 identified by '12345' PASSWORD_EXPIRE INTERVAL 5 SECOND"""
     sql """grant all on *.* to test_auth_user4"""
     result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
@@ -159,6 +159,48 @@ suite("test_alter_user", "account") {
     sql """grant all on *.* to test_auth_user4"""
     result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
         sql 'select 1'
+    }
+
+    // 7. test after expire, reset password
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345' PASSWORD_EXPIRE INTERVAL 5 SECOND"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+    sleep(6000)
+    sql """set password for 'test_auth_user4' = password('123')"""
+    result2 = connect(user = 'test_auth_user4', password = '123', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+    sleep(6000)
+    try {
+        connect(user = 'test_auth_user4', password = '123', url = context.config.jdbcUrl) {}
+        assertTrue(false. "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Your password has expired. To log in you must change it using a client that supports expired passwords."), e.getMessage())
+    }
+
+    // 8. test password not expiration
+    sql """drop user test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345'"""
+    sql """grant all on *.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+    sleep(1000)
+    result2 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+
+    // 9. test user default database privileges
+    sql """drop user if exists test_auth_user4"""
+    sql """create user test_auth_user4 identified by '12345'"""
+    sql """grant SELECT_PRIV on regression_test.* to test_auth_user4"""
+    result1 = connect(user = 'test_auth_user4', password = '12345', url = context.config.jdbcUrl) {
+        sql 'select 1'
+        sql 'use information_schema'
+        sql 'use mysql'
     }
 }
 

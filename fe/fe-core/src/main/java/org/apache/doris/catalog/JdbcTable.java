@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.Setter;
@@ -47,7 +49,12 @@ import java.util.stream.Collectors;
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
     private static final String TABLE = "table";
+    private static final String REAL_DATABASE = "real_database";
+    private static final String REAL_TABLE = "real_table";
+    private static final String REAL_COLUMNS = "real_columns";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
     private static final String URL = "jdbc_url";
@@ -59,6 +66,12 @@ public class JdbcTable extends Table {
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
     private String resourceName;
     private String externalTableName;
+
+    // real name only for jdbc catalog
+    private String realDatabaseName;
+    private String realTableName;
+    private Map<String, String> realColumnNames;
+
     private String jdbcTypeName;
 
     private String jdbcUrl;
@@ -67,6 +80,12 @@ public class JdbcTable extends Table {
     private String driverClass;
     private String driverUrl;
     private String checkSum;
+
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int maxIdleTime = 30000;
+    private int maxWaitTime = 5000;
+    private boolean keepAlive = false;
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
@@ -100,11 +119,10 @@ public class JdbcTable extends Table {
 
     public String getInsertSql(List<String> insertCols) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
-
-        sb.append(databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append(getProperRealFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
         sb.append("(");
         List<String> transformedInsertCols = insertCols.stream()
-                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .map(col -> getProperRealColumnName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
                 .collect(Collectors.toList());
         sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
@@ -151,6 +169,26 @@ public class JdbcTable extends Table {
         return getFromJdbcResourceOrDefault(JdbcResource.DRIVER_URL, driverUrl);
     }
 
+    public int getMinPoolSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MIN_POOL_SIZE, String.valueOf(minPoolSize)));
+    }
+
+    public int getMaxPoolSize() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_POOL_SIZE, String.valueOf(maxPoolSize)));
+    }
+
+    public int getMaxIdleTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_IDLE_TIME, String.valueOf(maxIdleTime)));
+    }
+
+    public int getMaxWaitTime() {
+        return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.MAX_WAIT_TIME, String.valueOf(maxWaitTime)));
+    }
+
+    public boolean getKeepAlive() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.KEEP_ALIVE, String.valueOf(keepAlive)));
+    }
+
     private String getFromJdbcResourceOrDefault(String key, String defaultVal) {
         if (Strings.isNullOrEmpty(resourceName)) {
             return defaultVal;
@@ -173,6 +211,11 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setJdbcMinPoolSize(getMinPoolSize());
+        tJdbcTable.setJdbcMaxPoolSize(getMaxPoolSize());
+        tJdbcTable.setJdbcMaxIdleTime(getMaxIdleTime());
+        tJdbcTable.setJdbcMaxWaitTime(getMaxWaitTime());
+        tJdbcTable.setJdbcKeepAlive(getKeepAlive());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.JDBC_TABLE, fullSchema.size(), 0,
                 getName(), "");
         tTableDescriptor.setJdbcTable(tJdbcTable);
@@ -192,6 +235,9 @@ public class JdbcTable extends Table {
         serializeMap.put(DRIVER_CLASS, driverClass);
         serializeMap.put(DRIVER_URL, driverUrl);
         serializeMap.put(CHECK_SUM, checkSum);
+        serializeMap.put(REAL_DATABASE, realDatabaseName);
+        serializeMap.put(REAL_TABLE, realTableName);
+        serializeMap.put(REAL_COLUMNS, objectMapper.writeValueAsString(realColumnNames));
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -226,6 +272,15 @@ public class JdbcTable extends Table {
         driverClass = serializeMap.get(DRIVER_CLASS);
         driverUrl = serializeMap.get(DRIVER_URL);
         checkSum = serializeMap.get(CHECK_SUM);
+        realDatabaseName = serializeMap.get(REAL_DATABASE);
+        realTableName = serializeMap.get(REAL_TABLE);
+        String realColumnNamesJson = serializeMap.get(REAL_COLUMNS);
+        if (realColumnNamesJson != null) {
+            realColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
+            });
+        } else {
+            realColumnNames = Maps.newHashMap();
+        }
     }
 
     public String getResourceName() {
@@ -234,6 +289,31 @@ public class JdbcTable extends Table {
 
     public String getJdbcTable() {
         return externalTableName;
+    }
+
+    public String getRealDatabaseName() {
+        return realDatabaseName;
+    }
+
+    public String getRealTableName() {
+        return realTableName;
+    }
+
+    public String getProperRealFullTableName(TOdbcTableType tableType) {
+        if (realDatabaseName == null || realTableName == null) {
+            return databaseProperName(tableType, externalTableName);
+        } else {
+            return properNameWithRealName(tableType, realDatabaseName) + "." + properNameWithRealName(tableType,
+                    realTableName);
+        }
+    }
+
+    public String getProperRealColumnName(TOdbcTableType tableType, String columnName) {
+        if (realColumnNames == null || realColumnNames.isEmpty() || !realColumnNames.containsKey(columnName)) {
+            return databaseProperName(tableType, columnName);
+        } else {
+            return properNameWithRealName(tableType, realColumnNames.get(columnName));
+        }
     }
 
     public String getTableTypeName() {
@@ -331,18 +411,17 @@ public class JdbcTable extends Table {
      * @param wrapEnd The character(s) to be added at the end of each name component.
      * @param toUpperCase If true, convert the name to upper case.
      * @param toLowerCase If true, convert the name to lower case.
-     * <p>
-     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
-     * <p>
-     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
-     * the function will treat the entire string as one name component.
-     * If there is a '.', the function will treat the string before the first '.' as the schema name
-     * and the string after the '.' as the table name.
-     *
+     *         <p>
+     *         Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     *         <p>
+     *         The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     *         the function will treat the entire string as one name component.
+     *         If there is a '.', the function will treat the string before the first '.' as the schema name
+     *         and the string after the '.' as the table name.
      * @return The formatted name.
      */
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
-                                    boolean toLowerCase) {
+            boolean toLowerCase) {
         int index = name.indexOf(".");
         if (index == -1) { // No dot in the name
             String newName = toUpperCase ? name.toUpperCase() : name;
@@ -359,18 +438,18 @@ public class JdbcTable extends Table {
 
     /**
      * Formats a database name according to the database type.
-     *
+     * <p>
      * Rules:
      * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
      * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
      * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
-     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * Example: mySchema.myTable -> "mySchema"."myTable"
      * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
      * For other types, the name is returned as is.
      *
      * @param tableType The database type.
      * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
-     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     *         as one name component. If '.', treats string before first '.' as schema name and after as table name.
      * @return The formatted name.
      */
     public static String databaseProperName(TOdbcTableType tableType, String name) {
@@ -392,5 +471,29 @@ public class JdbcTable extends Table {
             default:
                 return name;
         }
+    }
+
+    public static String properNameWithRealName(TOdbcTableType tableType, String name) {
+        switch (tableType) {
+            case MYSQL:
+            case OCEANBASE:
+                return formatNameWithRealName(name, "`", "`");
+            case SQLSERVER:
+                return formatNameWithRealName(name, "[", "]");
+            case POSTGRESQL:
+            case CLICKHOUSE:
+            case TRINO:
+            case PRESTO:
+            case OCEANBASE_ORACLE:
+            case ORACLE:
+            case SAP_HANA:
+                return formatNameWithRealName(name, "\"", "\"");
+            default:
+                return name;
+        }
+    }
+
+    public static String formatNameWithRealName(String name, String wrapStart, String wrapEnd) {
+        return wrapStart + name + wrapEnd;
     }
 }

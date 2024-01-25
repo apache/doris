@@ -61,11 +61,6 @@ public class EsExternalTable extends ExternalTable {
     }
 
     @Override
-    public String getMysqlType() {
-        return type.name();
-    }
-
-    @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TEsTable tEsTable = new TEsTable();
@@ -97,6 +92,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setSeeds(esCatalog.getNodes());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
+        esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
         return esTable;
     }
 }

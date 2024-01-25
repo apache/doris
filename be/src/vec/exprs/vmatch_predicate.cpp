@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -43,13 +44,19 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
+using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     _inverted_index_ctx->parser_type =
             get_inverted_index_parser_type_from_string(node.match_predicate.parser_type);
     _inverted_index_ctx->parser_mode = node.match_predicate.parser_mode;
+    _inverted_index_ctx->char_filter_map = node.match_predicate.char_filter_map;
+    _analyzer = InvertedIndexReader::create_analyzer(_inverted_index_ctx.get());
+    _inverted_index_ctx->analyzer = _analyzer.get();
 }
+
+VMatchPredicate::~VMatchPredicate() = default;
 
 Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                                 VExprContext* context) {
@@ -62,9 +69,14 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
-
-    _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                               argument_template, _data_type);
+    // result column always not null
+    if (_data_type->is_nullable()) {
+        _function = SimpleFunctionFactory::instance().get_function(
+                _fn.name.function_name, argument_template, remove_nullable(_data_type));
+    } else {
+        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
+                                                                   argument_template, _data_type);
+    }
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -79,17 +91,24 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     _function_name = _fn.name.function_name;
-
+    _prepare_finished = true;
     return Status::OK();
 }
 
 Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
+    DCHECK(_prepare_finished);
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    }
     RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
-    if (scope == FunctionContext::THREAD_LOCAL) {
+    if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _inverted_index_ctx);
     }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
+    }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -99,6 +118,7 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // TODO: not execute const expr again, but use the const column in function context
     doris::vectorized::ColumnNumbers arguments(_children.size());
     for (int i = 0; i < _children.size(); ++i) {
@@ -113,6 +133,11 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    if (_data_type->is_nullable()) {
+        auto nested = block->get_by_position(num_columns_without_result).column;
+        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create(block->rows(), 0));
+        block->replace_by_position(num_columns_without_result, nullable);
+    }
     return Status::OK();
 }
 

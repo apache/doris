@@ -59,17 +59,12 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
     bool use_default_implementation_for_nulls() const override { return false; }
-    ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
-            size_t /*number_of_arguments*/) const override {
-        return {0};
-    }
-
     DataTypePtr get_return_type_impl(const DataTypes&) const override {
         return std::make_shared<DataTypeUInt8>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
         if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Return the negated null map.

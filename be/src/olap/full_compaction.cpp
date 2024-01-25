@@ -48,31 +48,21 @@ FullCompaction::~FullCompaction() {}
 
 Status FullCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT>("Full compaction init failed");
+        return Status::Error<INVALID_ARGUMENT, false>("Full compaction init failed");
     }
 
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
 
 Status FullCompaction::execute_compact_impl() {
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED>("get_clone_occurred failed");
-    }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
@@ -88,7 +78,7 @@ Status FullCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,
                                                                      _output_rowset, last_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     return Status::OK();
 }
@@ -117,19 +107,24 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
                 _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     }
     std::vector<RowsetSharedPtr> output_rowsets(1, _output_rowset);
-    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 
 Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
     if (rowsets.empty()) {
-        return Status::Error<FULL_MISS_VERSION>("There is no input rowset when do full compaction");
+        return Status::Error<FULL_MISS_VERSION, false>(
+                "There is no input rowset when do full compaction");
     }
     const RowsetSharedPtr& last_rowset = rowsets.back();
     const RowsetSharedPtr& first_rowset = rowsets.front();
     if (last_rowset->version() != _tablet->max_version() || first_rowset->version().first != 0) {
-        return Status::Error<FULL_MISS_VERSION>(
+        return Status::Error<FULL_MISS_VERSION, false>(
                 "Full compaction rowsets' versions not equal to all exist rowsets' versions. "
                 "full compaction rowsets max version={}-{}"
                 ", current rowsets max version={}-{}"
@@ -146,8 +141,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     std::vector<RowsetSharedPtr> tmp_rowsets {};
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                   << _tablet->tablet_id();
         return Status::OK();
@@ -156,8 +150,8 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     int64_t max_version = _tablet->max_version().second;
     DCHECK(max_version >= rowset->version().second);
     if (max_version > rowset->version().second) {
-        _tablet->capture_consistent_rowsets({rowset->version().second + 1, max_version},
-                                            &tmp_rowsets);
+        RETURN_IF_ERROR(_tablet->capture_consistent_rowsets(
+                {rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
 
     for (const auto& it : tmp_rowsets) {
@@ -168,6 +162,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
 
     std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
+    SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     for (const auto& it : _tablet->rowset_map()) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;

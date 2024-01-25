@@ -58,7 +58,7 @@ public class BinlogGcer extends MasterDaemon {
             if (tombstones != null && !tombstones.isEmpty()) {
                 LOG.info("tomebstones size: {}", tombstones.size());
             } else {
-                LOG.info("no gc binlogg");
+                LOG.info("no gc binlog");
                 return;
             }
 

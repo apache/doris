@@ -82,6 +82,7 @@ If you need to get the actual result, you need to use the corresponding [merge](
 ```
 If you want to aggregate only the agg_state without getting the actual result during the process, you can use the [union](../..//sql-functions/combinators/union.md) function.
 
+For more examples, see [datatype_p0/agg_state](https://github.com/apache/doris/tree/master/regression-test/suites/datatype_p0/agg_state)
 ### keywords
 
     AGG_STATE

@@ -245,7 +245,7 @@ static inline void a_or_l(volatile void *p, long v)
 
 #ifndef a_crash
 #define a_crash a_crash
-static inline void a_crash()
+static inline void a_crash(void)
 {
 	*(volatile char *)0=0;
 }

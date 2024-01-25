@@ -1,0 +1,88 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "doc": {
+      "properties": {
+        "test1": {
+          "type": "keyword"
+        },
+        "test2": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 256
+            }
+          }
+        },
+        "test3": {
+          "type": "double"
+        },
+        "test4": {
+          "type": "date"
+        },
+        "test5": {
+          "type": "long"
+        },
+        "c_bool": {
+          "type": "boolean"
+        },
+        "c_byte": {
+          "type": "byte"
+        },
+        "c_short": {
+          "type": "short"
+        },
+        "c_integer": {
+          "type": "integer"
+        },
+        "c_long": {
+          "type": "long"
+        },
+        "c_float": {
+          "type": "float"
+        },
+        "c_half_float": {
+          "type": "half_float"
+        },
+        "c_double": {
+          "type": "double"
+        },
+        "c_scaled_float": {
+          "type": "scaled_float",
+          "scaling_factor": 0.01
+        },
+        "c_date": {
+          "type": "date",
+          "format": "yyyy-MM-dd"
+        },
+        "c_datetime": {
+          "type": "date",
+          "format": "yyyy-MM-dd HH:mm:ss"
+        },
+        "c_keyword": {
+          "type": "keyword"
+        },
+        "c_text": {
+          "type": "text"
+        },
+        "c_ip": {
+          "type": "ip"
+        },
+        "c_person": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            },
+            "age": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

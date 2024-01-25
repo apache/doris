@@ -26,11 +26,13 @@ RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
         : _filter_id(filter_id),
           _runtime_filter_descs(runtime_filters),
           _row_descriptor_ref(row_descriptor),
-          _conjuncts_ref(conjuncts) {}
+          _conjuncts_ref(conjuncts) {
+    _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
+}
 
-Status RuntimeFilterConsumer::init(RuntimeState* state) {
+Status RuntimeFilterConsumer::init(RuntimeState* state, bool is_global) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_register_runtime_filter(is_global));
     return Status::OK();
 }
 
@@ -43,7 +45,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     profile->add_info_string("RuntimeFilters: ", ss.str());
 }
 
-Status RuntimeFilterConsumer::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter(bool is_global) {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
@@ -56,12 +58,18 @@ Status RuntimeFilterConsumer::_register_runtime_filter() {
             // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
             // 2. This filter is bloom filter (only bloom filter should be used for merging)
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
+                    filter_desc, _state->query_options(), _filter_id, false, is_global));
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
+                    filter_desc.filter_id, _filter_id, &runtime_filter));
+        } else if (is_global) {
+            // For pipelineX engine, runtime filter is global iff data distribution is ignored.
+            RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
+                    filter_desc, _state->query_options(), _filter_id, false, is_global));
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
                     filter_desc.filter_id, _filter_id, &runtime_filter));
         } else {
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), _filter_id, false));
+                    filter_desc, _state->query_options(), _filter_id, false, is_global));
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(
                     filter_desc.filter_id, _filter_id, &runtime_filter));
         }
@@ -72,7 +80,7 @@ Status RuntimeFilterConsumer::_register_runtime_filter() {
 }
 
 bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
-    if (!_blocked_by_rf) {
+    if (!*_blocked_by_rf) {
         return true;
     }
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
@@ -81,8 +89,17 @@ bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
             return false;
         }
     }
-    _blocked_by_rf = false;
+    *_blocked_by_rf = false;
     return true;
+}
+
+void RuntimeFilterConsumer::init_runtime_filter_dependency(
+        doris::pipeline::RuntimeFilterDependency* _runtime_filter_dependency) {
+    _runtime_filter_dependency->set_blocked_by_rf(_blocked_by_rf);
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        _runtime_filter_dependency->add_filters(runtime_filter);
+    }
 }
 
 Status RuntimeFilterConsumer::_acquire_runtime_filter() {
@@ -99,14 +116,14 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
                    !_runtime_filter_ctxs[i].apply_mark) {
-            _blocked_by_rf = true;
+            *_blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
             DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
             _is_all_rf_applied = false;
         }
     }
     RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
-    if (_blocked_by_rf) {
+    if (*_blocked_by_rf) {
         return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
     }
 

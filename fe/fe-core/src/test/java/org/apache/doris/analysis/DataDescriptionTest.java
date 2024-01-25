@@ -29,7 +29,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -68,13 +67,10 @@ public class DataDescriptionTest {
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new Expectations() {
             {
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = SystemInfoService.DEFAULT_CLUSTER;
 
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 Env.getCurrentEnv();
                 minTimes = 0;
@@ -131,9 +127,9 @@ public class DataDescriptionTest {
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
-        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
-        Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
-        Assert.assertEquals("1 = 1", desc.getDeleteCondition().toSql());
+        Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE (1 = 1) DELETE ON (1 = 1)", desc.toString());
+        Assert.assertEquals("(1 = 1)", desc.getWhereExpr().toSql());
+        Assert.assertEquals("(1 = 1)", desc.getDeleteCondition().toSql());
         Assert.assertEquals(",", desc.getColumnSeparator());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
@@ -172,7 +168,7 @@ public class DataDescriptionTest {
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
         String sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
-                + " SET (`k1` = alignment_timestamp('day', `k2`))";
+                + " SET ((`k1` = alignment_timestamp('day', `k2`)))";
         Assert.assertEquals(sql, desc.toString());
 
         // replace_value func
@@ -187,7 +183,7 @@ public class DataDescriptionTest {
                                                   false, Lists.newArrayList((Expr) predicate));
         desc.analyze("testDb");
         sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
-                + " SET (`k1` = replace_value('-', '10'))";
+                + " SET ((`k1` = replace_value('-', '10')))";
         Assert.assertEquals(sql, desc.toString());
 
         // replace_value null
@@ -202,7 +198,7 @@ public class DataDescriptionTest {
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
         sql = "APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
-                + " SET (`k1` = replace_value('', NULL))";
+                + " SET ((`k1` = replace_value('', NULL)))";
         Assert.assertEquals(sql, desc.toString());
 
         // data from table and set bitmap_dict
@@ -214,7 +210,7 @@ public class DataDescriptionTest {
                                    "testHiveTable", false, Lists.newArrayList(predicate),
                 null, LoadTask.MergeType.APPEND, null, null);
         desc.analyze("testDb");
-        sql = "APPEND DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
+        sql = "APPEND DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET ((`k1` = bitmap_dict(`k2`)))";
         Assert.assertEquals(sql, desc.toSql());
 
         Map<String, String> properties = Maps.newHashMap();
@@ -391,11 +387,11 @@ public class DataDescriptionTest {
                         Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"), 0,
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
-        Assert.assertEquals("default_cluster:testDb", db);
-        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
-        db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
-        Assert.assertEquals("testCluster:testDb1", db);
-        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
+        Assert.assertEquals("testDb", db);
+        Assert.assertEquals("testDb", desc.getDbName());
+        db = desc.analyzeFullDbName("testDb1", analyzer);
+        Assert.assertEquals("testDb1", db);
+        Assert.assertEquals("testDb1", desc.getDbName());
 
         desc.analyze("testDb1");
         Assert.assertEquals(1, desc.getFilePaths().size());
@@ -413,7 +409,7 @@ public class DataDescriptionTest {
                 + "COLUMNS TERMINATED BY '010203' "
                 + "LINES TERMINATED BY '040506' "
                 + "(k1, k2, v1) "
-                + "SET (`k1` = bitmap_dict('day', `k2`))";
+                + "SET ((`k1` = bitmap_dict('day', `k2`)))";
         Assert.assertEquals(sql, desc.toSql());
     }
 

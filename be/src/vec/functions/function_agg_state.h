@@ -52,7 +52,6 @@ public:
 
     size_t get_number_of_arguments() const override { return _argument_types.size(); }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     String get_name() const override { return fmt::format("{}_state", _agg_function->get_name()); }
@@ -62,7 +61,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto col = _agg_function->create_serialize_column();
         std::vector<const IColumn*> agg_columns;
         std::vector<ColumnPtr> save_columns;
@@ -86,7 +85,7 @@ public:
             agg_columns.push_back(column);
         }
         _agg_function->streaming_agg_serialize_to_column(agg_columns.data(), col, input_rows_count,
-                                                         &arena);
+                                                         &(context->get_arena()));
         block.replace_by_position(result, std::move(col));
         return Status::OK();
     }
@@ -95,7 +94,6 @@ private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     AggregateFunctionPtr _agg_function;
-    Arena arena;
 };
 
 } // namespace doris::vectorized

@@ -22,8 +22,8 @@ suite("test_date_runtime_filter") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName} (
                 c0 int,
-                c2 date,
-                c3 datetime
+                c2 datev1,
+                c3 datetimev1
             )
             DISTRIBUTED BY HASH(c0) BUCKETS 5 properties("replication_num" = "1");
         """

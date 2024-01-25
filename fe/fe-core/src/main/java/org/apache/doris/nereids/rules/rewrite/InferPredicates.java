@@ -25,18 +25,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
+ * <pre>
  * The logic is as follows:
  * 1. poll up bottom predicate then infer additional predicates
  *   for example:
@@ -49,9 +49,9 @@ import java.util.stream.Collectors;
  *      select * from (select * from t1 where t1.id = 1) t join t2 on t.id = t2.id and t2.id = 1
  * 2. put these predicates into `otherJoinConjuncts` , these predicates are processed in the next
  *   round of predicate push-down
+ * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PredicatePropagation propagation = new PredicatePropagation();
     private final PullUpPredicates pollUpPredicates = new PullUpPredicates();
 
     @Override
@@ -62,31 +62,37 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
         join = visitChildren(this, join, context);
+        if (join.isMarkJoin()) {
+            return join;
+        }
         Plan left = join.left();
         Plan right = join.right();
         Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
-        List<Expression> otherJoinConjuncts = Lists.newArrayList(join.getOtherJoinConjuncts());
         switch (join.getJoinType()) {
             case INNER_JOIN:
             case CROSS_JOIN:
             case LEFT_SEMI_JOIN:
             case RIGHT_SEMI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
-                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                left = inferNewPredicate(left, expressions);
+                right = inferNewPredicate(right, expressions);
                 break;
             case LEFT_OUTER_JOIN:
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(right, expressions));
+                right = inferNewPredicate(right, expressions);
                 break;
             case RIGHT_OUTER_JOIN:
             case RIGHT_ANTI_JOIN:
-                otherJoinConjuncts.addAll(inferNewPredicate(left, expressions));
+                left = inferNewPredicate(left, expressions);
                 break;
             default:
-                return join;
+                break;
         }
-        return join.withOtherJoinConjuncts(otherJoinConjuncts);
+        if (left != join.left() || right != join.right()) {
+            return join.withChildren(left, right);
+        } else {
+            return join;
+        }
     }
 
     @Override
@@ -106,7 +112,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> baseExpressions = pullUpPredicates(left);
         baseExpressions.addAll(pullUpPredicates(right));
         condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(propagation.infer(baseExpressions));
+        baseExpressions.addAll(PredicatePropagation.infer(baseExpressions));
         return baseExpressions;
     }
 
@@ -114,12 +120,12 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         return Sets.newHashSet(plan.accept(pollUpPredicates, null));
     }
 
-    private List<Expression> inferNewPredicate(Plan plan, Set<Expression> expressions) {
-        List<Expression> predicates = expressions.stream()
-                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(
-                        c.getInputSlots())).collect(Collectors.toList());
+    private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
+        Set<Expression> predicates = expressions.stream()
+                .filter(c -> !c.getInputSlots().isEmpty() && plan.getOutputSet().containsAll(c.getInputSlots()))
+                .collect(Collectors.toSet());
         predicates.removeAll(plan.accept(pollUpPredicates, null));
-        return predicates;
+        return PlanUtils.filterOrSelf(predicates, plan);
     }
 }
 

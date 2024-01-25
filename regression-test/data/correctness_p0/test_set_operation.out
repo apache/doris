@@ -2,3 +2,11 @@
 -- !sql --
 1
 
+-- !select1 --
+aaaa
+bbbb
+
+-- !select1 --
+aaaa
+bbbb
+

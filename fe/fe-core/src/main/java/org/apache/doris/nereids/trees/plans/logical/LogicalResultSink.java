@@ -19,43 +19,33 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
  * result sink
  */
-public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Sink {
-
-    private final List<NamedExpression> outputExprs;
+public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+        implements Sink, PropagateFuncDeps {
 
     public LogicalResultSink(List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_RESULT_SINK, child);
-        this.outputExprs = outputExprs;
+        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);
     }
 
     public LogicalResultSink(List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_RESULT_SINK, groupExpression, logicalProperties, child);
-        this.outputExprs = outputExprs;
-    }
-
-    public List<NamedExpression> getOutputExprs() {
-        return outputExprs;
+        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, groupExpression, logicalProperties, child);
     }
 
     @Override
@@ -71,11 +61,6 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return outputExprs;
-    }
-
-    @Override
     public LogicalResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalResultSink<>(outputExprs, groupExpression, Optional.of(getLogicalProperties()), child());
     }
@@ -88,35 +73,13 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
-    public List<Slot> computeOutput() {
-        return outputExprs.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+    public LogicalResultSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
+        return new LogicalResultSink<>(outputExprs, Optional.empty(), Optional.empty(), child());
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalResultSink[" + id.asInt() + "]",
                 "outputExprs", outputExprs);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        LogicalResultSink<?> that = (LogicalResultSink<?>) o;
-        return Objects.equals(outputExprs, that.outputExprs);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), outputExprs);
     }
 }

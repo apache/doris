@@ -17,7 +17,10 @@
 // under the License.
 
 suite("test_partial_update_schema_change", "p0") {
-     // test add value column
+
+    /* ============================================== light schema change cases: ============================================== */
+
+    // test add value column
     def tableName = "test_partial_update_light_schema_change_add_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -70,7 +73,7 @@ suite("test_partial_update_schema_change", "p0") {
     def try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -192,7 +195,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -314,7 +317,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -398,7 +401,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -410,7 +413,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -501,7 +504,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -618,6 +621,8 @@ suite("test_partial_update_schema_change", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
+    /* ============================================== schema change cases: ============================================== */
+
     // test add value column
     tableName = "test_partial_update_schema_change_add_column"
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -670,7 +675,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -791,7 +796,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -908,7 +913,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -991,7 +996,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -1002,7 +1007,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
@@ -1088,7 +1093,7 @@ suite("test_partial_update_schema_change", "p0") {
     try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
-        Thread.sleep(1000)
+        Thread.sleep(1200)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }

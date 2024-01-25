@@ -21,6 +21,7 @@ import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.GlueProperties;
+import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -55,7 +56,7 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.addAll(Arrays.asList(S3Properties.SECRET_KEY, ObsProperties.SECRET_KEY, OssProperties.SECRET_KEY,
-                GCSProperties.SECRET_KEY, CosProperties.SECRET_KEY, GlueProperties.SECRET_KEY,
+                GCSProperties.SECRET_KEY, CosProperties.SECRET_KEY, GlueProperties.SECRET_KEY, MCProperties.SECRET_KEY,
                 DLFProperties.SECRET_KEY));
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);

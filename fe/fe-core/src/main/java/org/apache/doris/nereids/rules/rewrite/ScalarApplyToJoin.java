@@ -18,12 +18,13 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -56,15 +57,13 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(
                 new AssertNumRowsElement(
                         1, apply.getSubqueryExpr().toString(),
-                        apply.isNeedAddSubOutputToProjects()
+                        apply.isInProject()
                             ? AssertNumRowsElement.Assertion.EQ : AssertNumRowsElement.Assertion.LE),
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                apply.getSubCorrespondingConjunct().isPresent()
-                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConjunct().get())
-                    : ExpressionUtils.EMPTY_CONDITION,
-                JoinHint.NONE,
+                ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
     }
@@ -83,15 +82,11 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
             throw new AnalysisException("correlationFilter can't be null in correlatedToJoin");
         }
 
-        return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+        return new LogicalJoin<>(
+                apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                ExpressionUtils.extractConjunction(
-                    apply.getSubCorrespondingConjunct().isPresent()
-                        ? ExpressionUtils.and(
-                            (Expression) apply.getSubCorrespondingConjunct().get(),
-                            correlationFilter.get())
-                        : correlationFilter.get()),
-                JoinHint.NONE,
+                ExpressionUtils.extractConjunction(correlationFilter.get()),
+                new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
                 apply.children());
     }

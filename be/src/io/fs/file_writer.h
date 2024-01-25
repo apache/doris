@@ -21,17 +21,27 @@
 
 #include "common/status.h"
 #include "gutil/macros.h"
-#include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/path.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace io {
+class FileSystem;
+
+// Only affects remote file writers
+struct FileWriterOptions {
+    bool write_file_cache = false;
+    bool is_cold_data = false;
+    bool sync_file_data = true;        // Whether flush data into storage system
+    int64_t file_cache_expiration = 0; // Absolute time
+};
 
 class FileWriter {
 public:
-    FileWriter(Path&& path, FileSystemSPtr fs) : _path(std::move(path)), _fs(fs) {}
+    // FIXME(plat1ko): FileWriter should be interface
+    FileWriter(Path&& path, std::shared_ptr<FileSystem> fs) : _path(std::move(path)), _fs(fs) {}
+    FileWriter() = default;
     virtual ~FileWriter() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
@@ -39,14 +49,9 @@ public:
     // Normal close. Wait for all data to persist before returning.
     virtual Status close() = 0;
 
-    // Abnormal close and remove this file.
-    virtual Status abort() = 0;
-
     Status append(const Slice& data) { return appendv(&data, 1); }
 
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
-
-    virtual Status write_at(size_t offset, const Slice& data) = 0;
 
     // Call this method when there is no more data to write.
     // FIXME(cyx): Does not seem to be an appropriate interface for file system?
@@ -54,17 +59,24 @@ public:
 
     const Path& path() const { return _path; }
 
-    size_t bytes_appended() const { return _bytes_appended; }
+    size_t bytes_appended() const {
+        DBUG_EXECUTE_IF("FileWriter.bytes_appended.zero_bytes_appended", { return 0; });
+        return _bytes_appended;
+    }
 
-    FileSystemSPtr fs() const { return _fs; }
+    std::shared_ptr<FileSystem> fs() const { return _fs; }
+
+    bool is_closed() { return _closed; }
 
 protected:
     Path _path;
     size_t _bytes_appended = 0;
-    FileSystemSPtr _fs;
+    std::shared_ptr<FileSystem> _fs;
     bool _closed = false;
     bool _opened = false;
 };
+
+using FileWriterPtr = std::unique_ptr<FileWriter>;
 
 } // namespace io
 } // namespace doris

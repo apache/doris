@@ -58,8 +58,8 @@ public:
     size_t get_node_count() const { return _node_count; }
 
 private:
-    ResultNode* _head;
-    ResultNode* _tail;
+    ResultNode* _head = nullptr;
+    ResultNode* _tail = nullptr;
     size_t _node_count;
 };
 

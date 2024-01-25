@@ -43,6 +43,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
@@ -213,8 +214,8 @@ public class DeleteHandlerTest {
         };
     }
 
-    @Test(expected = DdlException.class)
-    public void testUnQuorumTimeout() throws DdlException, QueryStateException {
+    @Test
+    public void testUnQuorumTimeout() throws DdlException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -231,8 +232,9 @@ public class DeleteHandlerTest {
                 minTimes = 0;
             }
         };
-        deleteHandler.process(deleteStmt);
-        Assert.fail();
+        QueryState state = connectContext.getState();
+        deleteHandler.process(deleteStmt, state);
+        Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.ERR);
     }
 
     @Test
@@ -265,11 +267,9 @@ public class DeleteHandlerTest {
             }
         };
 
-        try {
-            deleteHandler.process(deleteStmt);
-        } catch (QueryStateException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
+        QueryState state = connectContext.getState();
+        deleteHandler.process(deleteStmt, state);
+        Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.OK);
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -310,11 +310,9 @@ public class DeleteHandlerTest {
             }
         };
 
-        try {
-            deleteHandler.process(deleteStmt);
-        } catch (QueryStateException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
+        QueryState state = connectContext.getState();
+        deleteHandler.process(deleteStmt, state);
+        Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.OK);
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -324,7 +322,7 @@ public class DeleteHandlerTest {
         }
     }
 
-    @Test(expected = DdlException.class)
+    @Test
     public void testCommitFail(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
@@ -368,20 +366,8 @@ public class DeleteHandlerTest {
             }
         };
 
-        try {
-            deleteHandler.process(deleteStmt);
-        } catch (DdlException e) {
-            Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
-            Collection<DeleteJob> jobs = idToDeleteJob.values();
-            Assert.assertEquals(1, jobs.size());
-            for (DeleteJob job : jobs) {
-                Assert.assertEquals(job.getState(), DeleteState.FINISHED);
-            }
-            throw e;
-        } catch (QueryStateException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
-        Assert.fail();
+        deleteHandler.process(deleteStmt, connectContext.getState());
+        Assert.assertSame(connectContext.getState().getStateType(), QueryState.MysqlStateType.ERR);
     }
 
     @Test
@@ -423,12 +409,9 @@ public class DeleteHandlerTest {
                 minTimes = 0;
             }
         };
-
-        try {
-            deleteHandler.process(deleteStmt);
-        } catch (QueryStateException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
+        QueryState state = connectContext.getState();
+        deleteHandler.process(deleteStmt, state);
+        Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.OK);
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -471,11 +454,9 @@ public class DeleteHandlerTest {
             }
         };
 
-        try {
-            deleteHandler.process(deleteStmt);
-        } catch (QueryStateException e) {
-            // CHECKSTYLE IGNORE THIS LINE
-        }
+        QueryState state = connectContext.getState();
+        deleteHandler.process(deleteStmt, state);
+        Assert.assertSame(state.getStateType(), QueryState.MysqlStateType.OK);
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();

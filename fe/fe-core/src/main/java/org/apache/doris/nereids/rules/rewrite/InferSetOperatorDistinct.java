@@ -66,6 +66,7 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
     }
 
     // if children exist NLJ, we can't infer distinct
+    // because NLJ could generate bitmap runtime filter. and it will execute failed when we do infer distinct.
     private boolean rejectNLJ(Plan plan) {
         if (plan instanceof LogicalProject) {
             plan = plan.child(0);

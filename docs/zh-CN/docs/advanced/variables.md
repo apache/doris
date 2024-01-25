@@ -111,7 +111,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `auto_increment_increment`
 
-  用于兼容 MySQL 客户端。无实际作用。
+  用于兼容 MySQL 客户端。无实际作用。虽然 Doris 已经有了 [AUTO_INCREMENT](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE#column_definition_list) 功能，但这个参数并不会对 AUTO_INCREMENT 的行为产生影响。auto_increment_offset 也是如此。
 
 - `autocommit`
 
@@ -245,7 +245,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
      转发到 Master 可以查看启动时间、最后一次心跳信息。
 
-  4. `SHOW TABLET;`/`ADMIN SHOW REPLICA DISTRIBUTION;`/`ADMIN SHOW REPLICA STATUS;`
+  4. `SHOW TABLET;`/`SHOW REPLICA DISTRIBUTION;`/`SHOW REPLICA STATUS;`
 
      转发到 Master 可以查看 Master FE 元数据中存储的 tablet 信息。正常情况下，不同 FE 元数据中 tablet 信息应该是一致的。当出现问题时，可以通过这个方法比较当前 FE 和 Master FE 元数据的差异。
 
@@ -362,7 +362,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `query_timeout`
 
-  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 5 分钟，单位为秒。
+  用于设置查询超时。该变量会作用于当前连接中所有的查询语句，对于 INSERT 语句推荐使用insert_timeout。默认为 15 分钟，单位为秒。
 
 - `insert_timeout`
   <version since="dev"></version>用于设置针对 INSERT 语句的超时。该变量仅作用于 INSERT 语句，建议在 INSERT 行为易持续较长时间的场景下设置。默认为 4 小时，单位为秒。由于旧版本用户会通过延长 query_timeout 来防止 INSERT 语句超时，insert_timeout 在 query_timeout 大于自身的情况下将会失效, 以兼容旧版本用户的习惯。
@@ -385,15 +385,15 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `sql_select_limit`
 
-  用于兼容 MySQL 客户端。无实际作用。
+  用于设置 select 语句的默认返回行数，包括 insert 语句的 select 从句。默认不限制。
 
 - `system_time_zone`
 
-  显示当前系统时区。不可更改。
+  集群初始化时设置为当前系统时区。不可更改。
 
 - `time_zone`
 
-  用于设置当前会话的时区。时区会对某些时间函数的结果产生影响。关于时区，可以参阅 [这里](./time-zone.md)。
+  用于设置当前会话的时区。默认值为 `system_time_zone` 的值。时区会对某些时间函数的结果产生影响。关于时区，可以参阅 [时区](./time-zone)文档。
 
 - `tx_isolation`
 
@@ -563,6 +563,14 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     用于调试目的。在Unique Key MoW表中，当发现读取表的数据结果有误的时候，把此变量的值设置为`true`，将会把被delete bitmap标记删除的数据当成正常数据读取。
 
+* `skip_missing_version`
+
+    有些极端场景下，表的 Tablet 下的所有的所有副本都有版本缺失，使得这些 Tablet 没有办法被恢复，导致整张表都不能查询。这个变量可以用来控制查询的行为，当设置为`true`时，查询会忽略 FE partition 中记录的 visibleVersion，使用 replica version。如果 Be 上的 Replica 有缺失的版本，则查询会直接跳过这些缺失的版本，只返回仍存在版本的数据。此外，查询将会总是选择所有存活的 BE 中所有 Replica 里 lastSuccessVersion 最大的那一个，这样可以尽可能的恢复更多的数据。这个变量应该只在上述紧急情况下才被设置为`true`，仅用于临时让表恢复查询。注意，此变量与 use_fix_replica 变量冲突，当 use_fix_replica 变量不等于 -1 时，此变量会不起作用
+
+* `skip_bad_tablet`
+
+    在某些情况下，用户某张单副本表中有大量数据，如果其中某个Tablet损坏，将导致整张表无法查询。如果用户不关心数据的完整性，他们可以使用此变量暂时跳过坏的Tablet进行查询，并将剩余数据导入到新表中。
+
 * `default_password_lifetime`
 
  	默认的密码过期时间。默认值为 0，即表示不过期。单位为天。该参数只有当用户的密码过期属性为 DEFAULT 值时，才启用。如：
@@ -579,7 +587,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
  	CREATE USER user1 IDENTIFIED BY "12345" PASSWORD_HISTORY DEFAULT;
  	ALTER USER user1 PASSWORD_HISTORY DEFAULT;
 	```
-	
+
 * `validate_password_policy`
 
 	密码强度校验策略。默认为 `NONE` 或 `0`，即不做校验。可以设置为 `STRONG` 或 `2`。当设置为 `STRONG` 或 `2` 时，通过 `ALTER USER` 或 `SET PASSWORD` 命令设置密码时，密码必须包含“大写字母”，“小写字母”，“数字”和“特殊字符”中的3项，并且长度必须大于等于8。特殊字符包括：`~!@#$%^&*()_+|<>,.?/:;'[]{}"`。
@@ -627,13 +635,13 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
     <version since="1.2.0"></version>
 
-    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
+    使用固定replica进行查询。replica从0开始，如果use_fix_replica为0，则使用最小的，如果use_fix_replica为1，则使用第二个最小的，依此类推。默认值为-1，表示未启用。
 
 * `dry_run_query`
 
     <version since="dev"></version>
 
-    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。默认为 false。
+    如果设置为true，对于查询请求，将不再返回实际结果集，而仅返回行数。对于导入和insert，Sink 丢掉了数据，不会有实际的写发生。额默认为 false。
 
     该参数可以用于测试返回大量数据集时，规避结果集传输的耗时，重点关注底层查询执行的耗时。
 
@@ -657,6 +665,37 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `enable_strong_consistency_read`
 
   用以开启强一致读。Doris 默认支持同一个会话内的强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。
+
+* `truncate_char_or_varchar_columns`
+
+  是否按照表的 schema 来截断 char 或者 varchar 列。默认为 false。
+
+  因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。
+
+* `jdbc_clickhouse_query_final`
+
+  是否在使用 JDBC Catalog 功能查询 ClickHouse 时增加 final 关键字，默认为 false
+
+  用于 ClickHouse 的 ReplacingMergeTree 表引擎查询去重
+
+* `enable_memtable_on_sink_node`
+
+  <version since="2.1.0">
+  是否在数据导入中启用 MemTable 前移，默认为 false
+  </version>
+
+  在 DataSink 节点上构建 MemTable，并通过 brpc streaming 发送 segment 到其他 BE。
+  该方法减少了多副本之间的重复工作，并且节省了数据序列化和反序列化的时间。
+
+* `enable_unique_key_partial_update`
+
+  <version since="2.0.2">
+  是否在对insert into语句启用部分列更新的语义，默认为 false。需要注意的是，控制insert语句是否开启严格模式的会话变量`enable_insert_strict`的默认值为true，即insert语句默认开启严格模式，而在严格模式下进行部分列更新不允许更新不存在的key。所以，在使用insert语句进行部分列更新的时候如果希望能插入不存在的key，需要在`enable_unique_key_partial_update`设置为true的基础上同时将`enable_insert_strict`设置为false。
+  </version>
+
+* `describe_extend_variant_column`
+
+  是否展示 variant 的拆解列。默认为 false。
 
 ***
 

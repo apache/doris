@@ -23,6 +23,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
@@ -31,7 +33,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 public abstract class Planner {
 
@@ -59,6 +64,17 @@ public abstract class Planner {
             }
             return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
         }
+        if (explainOptions.isTree()) {
+            // print the plan tree
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanTree(builder.getTreeRoot());
+        }
 
         // print text plan
         org.apache.doris.thrift.TExplainLevel
@@ -77,10 +93,22 @@ public abstract class Planner {
         if (explainLevel == org.apache.doris.thrift.TExplainLevel.VERBOSE) {
             appendTupleInfo(str);
         }
+        appendHintInfo(str);
         return str.toString();
     }
 
+    public Map<Integer, String> getExplainStringMap() {
+        Map<Integer, String> planNodeMap = new HashMap<Integer, String>();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            fragment.getExplainStringMap(planNodeMap);
+        }
+        return planNodeMap;
+    }
+
     public void appendTupleInfo(StringBuilder stringBuilder) {}
+
+    public void appendHintInfo(StringBuilder stringBuilder) {}
 
     public List<PlanFragment> getFragments() {
         return fragments;
@@ -93,5 +121,9 @@ public abstract class Planner {
     public abstract DescriptorTable getDescTable();
 
     public abstract List<RuntimeFilter> getRuntimeFilters();
+
+    public abstract Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt);
+
+    public abstract void addHook(PlannerHook hook);
 
 }

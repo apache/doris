@@ -17,6 +17,8 @@
 
 docker
 docker-compose
+filelock
 jsonpickle
 prettytable
 pymysql
+python-dateutil

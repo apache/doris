@@ -65,8 +65,8 @@ public:
 private:
     mutable std::shared_mutex _rwlock;
     Field _orderby_extrem {Field::Types::Null};
-    std::shared_ptr<ColumnPredicate> _predictate {nullptr};
-    TabletSchemaSPtr _tablet_schema;
+    std::shared_ptr<ColumnPredicate> _predictate;
+    TabletSchemaSPtr _tablet_schema = nullptr;
     std::unique_ptr<Arena> _predicate_arena;
     std::function<std::string(const Field&)> _get_value_fn;
     bool _nulls_first = true;
@@ -148,9 +148,9 @@ private:
 
     static std::string get_decimalv2_value(const Field& field) {
         // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
-        //   it is DecimalV2Value and Decimal128 can not convert to it implicitly
-        using ValueType = Decimal128::NativeType;
-        auto v = field.get<DecimalField<Decimal128>>();
+        //   it is DecimalV2Value and Decimal128V2 can not convert to it implicitly
+        using ValueType = Decimal128V2::NativeType;
+        auto v = field.get<DecimalField<Decimal128V2>>();
         // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
         //   is always 9 for DECIMALV2
         return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
@@ -170,8 +170,14 @@ private:
 
     static std::string get_decimal128_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType;
-        auto v = field.get<DecimalField<Decimal128I>>();
+        auto v = field.get<DecimalField<Decimal128V3>>();
         return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
+    }
+
+    static std::string get_decimal256_value(const Field& field) {
+        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL256>::CppType;
+        auto v = field.get<DecimalField<Decimal256>>();
+        return cast_to_string<TYPE_DECIMAL256, ValueType>(v.get_value(), v.get_scale());
     }
 };
 

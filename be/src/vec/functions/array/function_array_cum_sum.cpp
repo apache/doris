@@ -70,13 +70,13 @@ public:
             return_type = std::make_shared<DataTypeInt128>();
         } else if (which.is_float32() || which.is_float64()) {
             return_type = std::make_shared<DataTypeFloat64>();
-        } else if (which.is_decimal128() && !which.is_decimal128i()) {
+        } else if (which.is_decimal128v2() && !which.is_decimal128v3()) {
             // decimalv2
-            return_type = std::make_shared<DataTypeDecimal<Decimal128>>(
-                    DataTypeDecimal<Decimal128>::max_precision(), scale);
+            return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                    DataTypeDecimal<Decimal128V2>::max_precision(), scale);
         } else if (which.is_decimal()) {
-            return_type = std::make_shared<DataTypeDecimal<Decimal128I>>(
-                    DataTypeDecimal<Decimal128I>::max_precision(), scale);
+            return_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                    DataTypeDecimal<Decimal128V3>::max_precision(), scale);
         }
         if (return_type) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
@@ -90,7 +90,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) override {
+                        const size_t result, size_t input_rows_count) const override {
         auto src_arg = block.get_by_position(arguments[0]);
         ColumnPtr src_column = src_arg.column->convert_to_full_column_if_const();
 
@@ -133,7 +133,7 @@ public:
 private:
     bool _execute_by_type(DataTypePtr src_nested_type, const IColumn& src_column,
                           const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) {
+                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         bool res = false;
         WhichDataType which(remove_nullable(src_nested_type));
         if (which.is_uint8()) {
@@ -161,17 +161,17 @@ private:
             res = _execute_number<Float64, Float64>(src_column, src_offsets, src_null_map,
                                                     res_nested_ptr);
         } else if (which.is_decimal32()) {
-            res = _execute_number<Decimal32, Decimal128I>(src_column, src_offsets, src_null_map,
-                                                          res_nested_ptr);
+            res = _execute_number<Decimal32, Decimal128V3>(src_column, src_offsets, src_null_map,
+                                                           res_nested_ptr);
         } else if (which.is_decimal64()) {
-            res = _execute_number<Decimal64, Decimal128I>(src_column, src_offsets, src_null_map,
-                                                          res_nested_ptr);
-        } else if (which.is_decimal128i()) {
-            res = _execute_number<Decimal128I, Decimal128I>(src_column, src_offsets, src_null_map,
-                                                            res_nested_ptr);
-        } else if (which.is_decimal128()) {
-            res = _execute_number<Decimal128, Decimal128>(src_column, src_offsets, src_null_map,
-                                                          res_nested_ptr);
+            res = _execute_number<Decimal64, Decimal128V3>(src_column, src_offsets, src_null_map,
+                                                           res_nested_ptr);
+        } else if (which.is_decimal128v3()) {
+            res = _execute_number<Decimal128V3, Decimal128V3>(src_column, src_offsets, src_null_map,
+                                                              res_nested_ptr);
+        } else if (which.is_decimal128v2()) {
+            res = _execute_number<Decimal128V2, Decimal128V2>(src_column, src_offsets, src_null_map,
+                                                              res_nested_ptr);
         }
 
         return res;
@@ -179,7 +179,7 @@ private:
 
     template <typename Element, typename Result>
     bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) {
+                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ColVecResult = ColumnVectorOrDecimal<Result>;
 
@@ -217,7 +217,8 @@ private:
     template <typename Element, typename Result>
     void _compute_cum_sum(const PaddedPODArray<Element>& src_datas,
                           const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, PaddedPODArray<Result>& res_datas) {
+                          const NullMapType& src_null_map,
+                          PaddedPODArray<Result>& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
             // [1, null, 2, 3] -> [1, null, 3, 6]

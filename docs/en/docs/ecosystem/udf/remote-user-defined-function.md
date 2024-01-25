@@ -81,16 +81,26 @@ PROPERTIES (["key"="value"][,...])
 ```
 Instructions:
 
-1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set。
-2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4)。
-3. PROPERTIES中`type`Indicates the UDF call type, which is Native by default. Rpc is transmitted when Rpc UDF is used。
-4. name: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`。
+1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set.
+2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4).
+3. PROPERTIES中`type`Indicates the UDF call type, which is Native by default. Rpc is transmitted when Rpc UDF is used.
+4. name: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`.
 
 Sample:
 ```sql
-CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
-  "SYMBOL"="add_int",
-  "OBJECT_FILE"="127.0.0.1:9090",
+CREATE FUNCTION rpc_add_two(INT,INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_two",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_one(INT) RETURNS INT PROPERTIES (
+  "SYMBOL"="add_int_one",
+  "OBJECT_FILE"="127.0.0.1:9114",
+  "TYPE"="RPC"
+);
+CREATE FUNCTION rpc_add_string(varchar(30)) RETURNS varchar(30) PROPERTIES (
+  "SYMBOL"="add_string",
+  "OBJECT_FILE"="127.0.0.1:9114",
   "TYPE"="RPC"
 );
 ```
@@ -107,3 +117,34 @@ When you no longer need UDF functions, you can delete a UDF function by the foll
 
 ## Example
 Examples of rpc server implementations and cpp/java/python languages are provided in the `samples/doris-demo/` directory. See the `README.md` in each directory for details on how to use it.
+For example, rpc_add_string
+```
+mysql >select rpc_add_string('doris');
++-------------------------+
+| rpc_add_string('doris') |
++-------------------------+
+| doris_rpc_test          |
++-------------------------+
+```
+The logs will be displayed.
+
+```
+INFO: fnCall request=function_name: "add_string"
+args {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris"
+}
+INFO: fnCall res=result {
+  type {
+    id: STRING
+  }
+  has_null: false
+  string_value: "doris_rpc_test"
+}
+status {
+  status_code: 0
+}
+```

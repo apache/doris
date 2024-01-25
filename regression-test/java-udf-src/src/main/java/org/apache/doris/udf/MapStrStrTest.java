@@ -24,10 +24,14 @@ import java.util.*;
 public class MapStrStrTest extends UDF {
     public String evaluate(HashMap<String, String> hashMap) {
         StringBuffer sb = new StringBuffer();
+        Set<String> sortSet = new TreeSet<String>();
         for (Map.Entry<String, String> entry : hashMap.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
-            sb.append((key + value));
+            sortSet.add(key + value);
+        }
+        for (String item : sortSet) {
+            sb.append(item);
         }
         String ans = sb.toString();
         return ans;

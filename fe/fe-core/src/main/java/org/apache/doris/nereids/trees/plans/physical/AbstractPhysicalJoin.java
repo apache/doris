@@ -17,23 +17,28 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
@@ -41,6 +46,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Abstract class for all physical join node.
@@ -53,7 +61,7 @@ public abstract class AbstractPhysicalJoin<
     protected final JoinType joinType;
     protected final List<Expression> hashJoinConjuncts;
     protected final List<Expression> otherJoinConjuncts;
-    protected final JoinHint hint;
+    protected final DistributeHint hint;
     protected final Optional<MarkJoinSlotReference> markJoinSlotReference;
     protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
 
@@ -69,7 +77,7 @@ public abstract class AbstractPhysicalJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
@@ -89,7 +97,7 @@ public abstract class AbstractPhysicalJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
@@ -146,9 +154,6 @@ public abstract class AbstractPhysicalJoin<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         AbstractPhysicalJoin<?, ?> that = (AbstractPhysicalJoin<?, ?>) o;
         return joinType == that.joinType
                 && hashJoinConjuncts.equals(that.hashJoinConjuncts)
@@ -159,7 +164,7 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
+        return Objects.hash(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
     }
 
     /**
@@ -172,7 +177,7 @@ public abstract class AbstractPhysicalJoin<
     }
 
     @Override
-    public JoinHint getHint() {
+    public DistributeHint getDistributeHint() {
         return hint;
     }
 
@@ -216,5 +221,49 @@ public abstract class AbstractPhysicalJoin<
                 .addAll(isMarkJoin()
                         ? ImmutableList.of(markJoinSlotReference.get()) : ImmutableList.of())
                 .build();
+    }
+
+    public Set<Slot> getConditionSlot() {
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
+    }
+
+    @Override
+    public String toString() {
+        List<Object> args = Lists.newArrayList("type", joinType,
+                "stats", statistics,
+                "hashCondition", hashJoinConjuncts,
+                "otherCondition", otherJoinConjuncts);
+        if (markJoinSlotReference.isPresent()) {
+            args.add("isMarkJoin");
+            args.add("true");
+        }
+        if (markJoinSlotReference.isPresent()) {
+            args.add("MarkJoinSlotReference");
+            args.add(markJoinSlotReference.get());
+        }
+        if (hint.distributeType != DistributeType.NONE) {
+            args.add("hint");
+            args.add(hint.getExplainString());
+        }
+        if (!runtimeFilters.isEmpty()) {
+            args.add("runtimeFilters");
+            args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
+        }
+        return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                args.toArray());
+    }
+
+    /**
+     * true if this is a broadcast join
+     */
+    public boolean isBroadCastJoin() {
+        if (child(1) instanceof PhysicalDistribute) {
+            DistributionSpec distSpec = ((PhysicalDistribute) child(1)).getDistributionSpec();
+            if (distSpec instanceof DistributionSpecReplicated) {
+                return true;
+            }
+        }
+        return false;
     }
 }

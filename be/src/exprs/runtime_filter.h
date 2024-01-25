@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -35,13 +34,13 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
@@ -69,14 +68,50 @@ class VExprContext;
 struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
+namespace pipeline {
+class RuntimeFilterTimer;
+} // namespace pipeline
+
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
-    BITMAP_FILTER = 4
+    BITMAP_FILTER = 4,
+    MIN_FILTER = 5, // only min
+    MAX_FILTER = 6  // only max
 };
+
+static RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
+    switch (desc->type) {
+    case TRuntimeFilterType::BLOOM: {
+        return RuntimeFilterType::BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::MIN_MAX: {
+        if (desc->__isset.min_max_type) {
+            if (desc->min_max_type == TMinMaxRuntimeFilterType::MIN) {
+                return RuntimeFilterType::MIN_FILTER;
+            } else if (desc->min_max_type == TMinMaxRuntimeFilterType::MAX) {
+                return RuntimeFilterType::MAX_FILTER;
+            }
+        }
+        return RuntimeFilterType::MINMAX_FILTER;
+    }
+    case TRuntimeFilterType::IN: {
+        return RuntimeFilterType::IN_FILTER;
+    }
+    case TRuntimeFilterType::IN_OR_BLOOM: {
+        return RuntimeFilterType::IN_OR_BLOOM_FILTER;
+    }
+    case TRuntimeFilterType::BITMAP: {
+        return RuntimeFilterType::BITMAP_FILTER;
+    }
+    default: {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Invalid runtime filter type!");
+    }
+    }
+}
 
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
@@ -97,14 +132,26 @@ struct RuntimeFilterParams {
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
 };
+struct FilterFuncBase {
+public:
+    void set_filter_id(int filter_id) {
+        if (_filter_id == -1) {
+            _filter_id = filter_id;
+        }
+    }
 
+    [[nodiscard]] int get_filter_id() const { return _filter_id; }
+
+private:
+    int _filter_id = -1;
+};
 struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
             : request(req), data(data_stream), pool(obj_pool) {}
-    const PPublishFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    const PPublishFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
+    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
@@ -114,15 +161,15 @@ struct UpdateRuntimeFilterParamsV2 {
             : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    ObjectPool* pool = nullptr;
 };
 
 struct MergeRuntimeFilterParams {
     MergeRuntimeFilterParams(const PMergeFilterRequest* req,
                              butil::IOBufAsZeroCopyInputStream* data_stream)
             : request(req), data(data_stream) {}
-    const PMergeFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
+    const PMergeFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
 };
 
 enum RuntimeFilterState {
@@ -138,11 +185,11 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
+    IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                   const TRuntimeFilterDesc* desc, bool is_global = false, int parallel_tasks = -1)
             : _state(state),
               _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
+              _filter_id(desc->filter_id),
               _is_broadcast_join(true),
               _has_remote_target(false),
               _has_local_target(false),
@@ -153,34 +200,23 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(_state->enable_pipeline_exec()) {}
-
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool)
-            : _query_ctx(query_ctx),
-              _pool(pool),
-              _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              _filter_id(-1),
-              _is_broadcast_join(true),
-              _has_remote_target(false),
-              _has_local_target(false),
-              _rf_state(RuntimeFilterState::NOT_READY),
-              _rf_state_atomic(RuntimeFilterState::NOT_READY),
-              _role(RuntimeFilterRole::PRODUCER),
-              _expr_order(-1),
-              _always_true(false),
-              _is_ignored(false),
-              registration_time_(MonotonicMillis()),
-              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()) {}
+              _wait_infinitely(_state->runtime_filter_wait_infinitely),
+              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _enable_pipeline_exec(_state->enable_pipeline_exec),
+              _runtime_filter_type(get_runtime_filter_type(desc)),
+              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
+                                to_string(_runtime_filter_type))),
+              _profile(new RuntimeProfile(_name)),
+              _is_global(is_global),
+              _parallel_build_tasks(parallel_tasks) {}
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                         const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
-
-    static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                         const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
+    static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
+                         const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
+                         bool build_bf_exactly = false, bool is_global = false,
+                         int parallel_tasks = 0);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -188,14 +224,11 @@ public:
     void copy_from_other(IRuntimeFilter* other);
 
     // insert data to build filter
-    // only used for producer
-    void insert(const void* data);
-    void insert(const StringRef& data);
-    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
+    void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish();
+    Status publish(bool publish_local = false);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -228,7 +261,7 @@ public:
     // if return true , filter is ready to use
     bool await();
     // this function will be called if a runtime filter sent by rpc
-    // it will nodify all wait threads
+    // it will notify all wait threads
     void signal();
 
     // init filter with desc
@@ -245,23 +278,21 @@ public:
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
     // for ut
-    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
-    void set_ignored() { _is_ignored = true; }
-
-    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
+    void set_ignored(const std::string& msg);
 
     // for ut
     bool is_bloomfilter();
@@ -271,17 +302,14 @@ public:
     Status join_rpc();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(RuntimeFilterParamsContext* state, const TNetworkAddress* addr,
+                          bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
     std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
-
-    static bool enable_use_batch(bool use_batch, PrimitiveType type) {
-        return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
-    }
 
     int filter_id() const { return _filter_id; }
 
@@ -292,6 +320,12 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             return std::string("bloomfilter");
+        }
+        case RuntimeFilterType::MIN_FILTER: {
+            return std::string("only_min");
+        }
+        case RuntimeFilterType::MAX_FILTER: {
+            return std::string("only_max");
         }
         case RuntimeFilterType::MINMAX_FILTER: {
             return std::string("minmax");
@@ -307,6 +341,27 @@ public:
         }
     }
 
+    // For pipelineX & Producer
+    int32_t wait_time_ms() const {
+        int32_t res = 0;
+        if (wait_infinitely()) {
+            res = _state->execution_timeout;
+            // Convert to ms
+            res *= 1000;
+        } else {
+            res = _rf_wait_time_ms;
+        }
+        return res;
+    }
+
+    bool wait_infinitely() const;
+
+    int64_t registration_time() const { return registration_time_; }
+
+    void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
+
+    Status merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num);
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -316,7 +371,8 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                  ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down() { _is_push_down = true; }
@@ -344,14 +400,11 @@ protected:
         }
     }
 
-    RuntimeState* _state = nullptr;
-    QueryContext* _query_ctx = nullptr;
-    ObjectPool* _pool;
+    RuntimeFilterParamsContext* _state = nullptr;
+    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper;
-    // runtime filter type
-    RuntimeFilterType _runtime_filter_type;
+    RuntimePredicateWrapper* _wrapper = nullptr;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -368,8 +421,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    Mutex _inner_mutex;
-    ConditionVariable _inner_cv;
+    std::mutex _inner_mutex;
+    std::condition_variable _inner_cv;
 
     bool _is_push_down = false;
 
@@ -387,19 +440,35 @@ protected:
 
     std::shared_ptr<RPCContext> _rpc_context;
 
-    // parent profile
-    // only effect on consumer
-    std::unique_ptr<RuntimeProfile> _profile;
-
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
+    /// runtime filter wait time will be ignored if wait_infinitely is true
+    const bool _wait_infinitely;
+    const int32_t _rf_wait_time_ms;
 
     const bool _enable_pipeline_exec;
 
-    bool _profile_init = false;
-    std::mutex _profile_mutex;
+    std::atomic<bool> _profile_init = false;
+    // runtime filter type
+    RuntimeFilterType _runtime_filter_type;
     std::string _name;
+    // parent profile
+    // only effect on consumer
+    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile::Counter* _merge_local_rf_timer = nullptr;
     bool _opt_remote_rf;
+    // `_is_global` indicates whether this runtime filter is global on this BE.
+    // All runtime filters should be merged on each BE if it is global.
+    // This is improvement for pipelineX.
+    const bool _is_global = false;
+    std::mutex _local_merge_mutex;
+    // There are `_parallel_build_tasks` pipeline tasks to build runtime filter.
+    // We should call `signal` once all runtime filters are done and merged to one
+    // (e.g. `_merged_rf_num` is equal to `_parallel_build_tasks`).
+    int _merged_rf_num = 0;
+    const int _parallel_build_tasks = -1;
+
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };
 
 // avoid expose RuntimePredicateWrapper
@@ -413,143 +482,4 @@ public:
 private:
     WrapperPtr _wrapper;
 };
-
-// copied from expr.h since it is only used in runtime filter
-
-template <PrimitiveType T>
-Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
-                                 int scale = 0) {
-    if constexpr (T == TYPE_BOOLEAN) {
-        auto origin_value = reinterpret_cast<const bool*>(data);
-        TBoolLiteral boolLiteral;
-        (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
-        boolLiteral.__set_value(*origin_value);
-        (*node).__set_bool_literal(boolLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
-    } else if constexpr (T == TYPE_TINYINT) {
-        auto origin_value = reinterpret_cast<const int8_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
-    } else if constexpr (T == TYPE_SMALLINT) {
-        auto origin_value = reinterpret_cast<const int16_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
-    } else if constexpr (T == TYPE_INT) {
-        auto origin_value = reinterpret_cast<const int32_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
-    } else if constexpr (T == TYPE_BIGINT) {
-        auto origin_value = reinterpret_cast<const int64_t*>(data);
-        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
-        TIntLiteral intLiteral;
-        intLiteral.__set_value(*origin_value);
-        (*node).__set_int_literal(intLiteral);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
-    } else if constexpr (T == TYPE_LARGEINT) {
-        auto origin_value = reinterpret_cast<const int128_t*>(data);
-        (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
-        TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
-        (*node).__set_large_int_literal(large_int_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const vectorized::VecDateTimeValue*>(data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        if (origin_value->type() == TimeType::TIME_DATE) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
-        } else if (origin_value->type() == TimeType::TIME_DATETIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
-        } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
-        }
-    } else if constexpr (T == TYPE_DATEV2) {
-        auto origin_value =
-                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateV2ValueType>*>(data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        auto origin_value =
-                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
-                        data);
-        TDateLiteral date_literal;
-        char convert_buffer[30];
-        origin_value->to_string(convert_buffer);
-        date_literal.__set_value(convert_buffer);
-        (*node).__set_date_literal(date_literal);
-        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
-    } else if constexpr (T == TYPE_DECIMALV2) {
-        auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string());
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL32) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        auto origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
-        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(origin_value->to_string(scale));
-        (*node).__set_decimal_literal(decimal_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
-    } else if constexpr (T == TYPE_FLOAT) {
-        auto origin_value = reinterpret_cast<const float*>(data);
-        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
-        TFloatLiteral float_literal;
-        float_literal.__set_value(*origin_value);
-        (*node).__set_float_literal(float_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
-    } else if constexpr (T == TYPE_DOUBLE) {
-        auto origin_value = reinterpret_cast<const double*>(data);
-        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
-        TFloatLiteral float_literal;
-        float_literal.__set_value(*origin_value);
-        (*node).__set_float_literal(float_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
-    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        auto origin_value = reinterpret_cast<const StringRef*>(data);
-        (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
-        TStringLiteral string_literal;
-        string_literal.__set_value(origin_value->to_string());
-        (*node).__set_string_literal(string_literal);
-        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
-    } else {
-        return Status::InvalidArgument("Invalid argument type!");
-    }
-    return Status::OK();
-}
-
 } // namespace doris

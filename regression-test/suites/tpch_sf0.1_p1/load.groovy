@@ -78,4 +78,5 @@ suite("load") {
     def table = "revenue1"
     sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    sql """ sync """
 }

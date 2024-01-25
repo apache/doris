@@ -44,11 +44,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -56,13 +56,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -84,10 +84,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Version 2 of RollupJob.
@@ -132,10 +132,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     // optional
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
-
-    // The rollup job will wait all transactions before this txn id finished, then send the rollup tasks.
-    @SerializedName(value = "watershedTxnId")
-    protected long watershedTxnId = -1;
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
@@ -196,15 +192,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AnalysisException("error happens when parsing create materialized view stmt: " + origStmt, e);
         }
-        String clusterName = db.getClusterName();
-        // It's almost impossible that db's cluster name is null, just in case
-        // because before user want to create database, he must first enter a cluster
-        // which means that cluster is set to current ConnectContext
-        // then when createDBStmt is executed, cluster name is set to Database
-        if (clusterName == null || clusterName.length() == 0) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        connectContext.setCluster(clusterName);
         connectContext.setDatabase(db.getFullName());
         analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
@@ -217,7 +204,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * 3. Get a new transaction id, then set job's state to WAITING_TXN
      */
     @Override
-    protected void runPendingJob() throws AlterCancelException {
+    protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
@@ -288,8 +275,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                                 tbl.getTimeSeriesCompactionFileCountThreshold(),
                                 tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
+                                tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                 tbl.storeRowColumn(),
-                                tbl.isDynamicSchema(),
                                 binlogConfig);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
@@ -307,8 +294,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
-            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
-                    Config.max_create_table_timeout_second * 1000L);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(totalReplicaNum);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -325,9 +311,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg = countDownLatch.getStatus().getErrorMsg();
                 } else {
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
-                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
                 LOG.warn("failed to create rollup replicas for job: {}, {}", jobId, errMsg);
@@ -345,8 +332,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.jobState = JobState.WAITING_TXN;
 
         // write edit log
@@ -400,6 +386,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.readLock();
+        Map<Object, List<TColumn>> tcloumnsPool  = Maps.newHashMap();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -473,11 +460,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
 
+
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
+                                tcloumnsPool,
                                 whereClause);
                         rollupBatchTask.addTask(rollupTask);
                     }
@@ -525,7 +514,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("rollup task failed after try three times: " + task.getErrorMsg());
+                    LOG.warn("rollup task failed: " + task.getErrorMsg());
                     if (!failedAgentTasks.containsKey(task.getTabletId())) {
                         failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
                     } else {
@@ -639,8 +628,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         return true;
     }
 

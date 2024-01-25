@@ -55,8 +55,6 @@ public class S3Properties extends BaseProperties {
     // required by storage policy
     public static final String ROOT_PATH = "s3.root.path";
     public static final String BUCKET = "s3.bucket";
-    public static final String VIRTUAL_BUCKET = "s3.virtual.bucket";
-    public static final String VIRTUAL_KEY = "s3.virtual.key";
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
     public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
@@ -152,6 +150,8 @@ public class S3Properties extends BaseProperties {
             } else if (entry.getKey().startsWith(MinioProperties.MINIO_PREFIX)) {
                 String s3Key = entry.getKey().replace(MinioProperties.MINIO_PREFIX, S3Properties.S3_PREFIX);
                 s3Properties.put(s3Key, entry.getValue());
+            } else {
+                s3Properties.put(entry.getKey(), entry.getValue());
             }
         }
         return s3Properties;

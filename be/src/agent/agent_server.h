@@ -26,6 +26,8 @@
 namespace doris {
 
 class TaskWorkerPool;
+class PriorTaskWorkerPool;
+class ReportWorker;
 class TopicSubscriber;
 class ExecEnv;
 class TAgentPublishRequest;
@@ -33,6 +35,7 @@ class TAgentResult;
 class TAgentTaskRequest;
 class TMasterInfo;
 class TSnapshotRequest;
+class StorageEngine;
 
 // Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
@@ -44,23 +47,27 @@ public:
     void submit_tasks(TAgentResult& agent_result, const std::vector<TAgentTaskRequest>& tasks);
 
     // TODO(lingbin): make the agent_result to be a pointer, because it will be modified.
-    void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
-    void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
+    static void make_snapshot(StorageEngine& engine, TAgentResult& agent_result,
+                              const TSnapshotRequest& snapshot_request);
+    static void release_snapshot(StorageEngine& engine, TAgentResult& agent_result,
+                                 const std::string& snapshot_path);
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
     // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
+    TopicSubscriber* get_topic_subscriber() { return _topic_subscriber.get(); }
+
 private:
-    DISALLOW_COPY_AND_ASSIGN(AgentServer);
+    void start_workers(ExecEnv* exec_env);
 
     // Reference to the ExecEnv::_master_info
     const TMasterInfo& _master_info;
 
     std::unique_ptr<TaskWorkerPool> _create_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _drop_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _push_load_workers;
+    std::unique_ptr<PriorTaskWorkerPool> _push_load_workers;
     std::unique_ptr<TaskWorkerPool> _publish_version_workers;
     std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
     std::unique_ptr<TaskWorkerPool> _push_delete_workers;
@@ -73,9 +80,9 @@ private:
 
     // These 3 worker-pool do not accept tasks from FE.
     // It is self triggered periodically and reports to Fe master
-    std::unique_ptr<TaskWorkerPool> _report_task_workers;
-    std::unique_ptr<TaskWorkerPool> _report_disk_state_workers;
-    std::unique_ptr<TaskWorkerPool> _report_tablet_workers;
+    std::unique_ptr<ReportWorker> _report_task_workers;
+    std::unique_ptr<ReportWorker> _report_disk_state_workers;
+    std::unique_ptr<ReportWorker> _report_tablet_workers;
 
     std::unique_ptr<TaskWorkerPool> _upload_workers;
     std::unique_ptr<TaskWorkerPool> _download_workers;

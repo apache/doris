@@ -95,11 +95,11 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
         LOG(FATAL) << "offsets_column must be a ColumnUInt64";
     }
 
-    if (!offsets_concrete->empty() && nested_column) {
+    if (!offsets_concrete->empty() && data) {
         auto last_offset = offsets_concrete->get_data().back();
 
         /// This will also prevent possible overflow in offset.
-        if (nested_column->size() != last_offset) {
+        if (data->size() != last_offset) {
             LOG(FATAL) << "offsets_column has data inconsistent with nested_column";
         }
     }
@@ -254,6 +254,26 @@ StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
     return res;
 }
 
+int ColumnArray::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
+    // since column type is complex, we can't use this function
+    const auto& rhs = assert_cast<const ColumnArray&>(rhs_);
+
+    size_t lhs_size = size_at(n);
+    size_t rhs_size = rhs.size_at(m);
+    size_t min_size = std::min(lhs_size, rhs_size);
+    for (size_t i = 0; i < min_size; ++i) {
+        if (int res = get_data().compare_at(offset_at(n) + i, rhs.offset_at(m) + i, *rhs.data.get(),
+                                            nan_direction_hint);
+            res) {
+            // if res != 0 , here is something different ,just return
+            return res;
+        }
+    }
+
+    // then we check size of array
+    return lhs_size < rhs_size ? -1 : (lhs_size == rhs_size ? 0 : 1);
+}
+
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
     pos += sizeof(array_size);
@@ -288,8 +308,8 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
                     hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
                                                       sizeof(elem_size), hash);
                 } else {
-                    get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
-                                                     nullptr);
+                    get_data().update_xxHash_with_value(offsets_column[i - 1], offsets_column[i],
+                                                        hash, nullptr);
                 }
             }
         }
@@ -300,15 +320,15 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
                 hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&elem_size),
                                                   sizeof(elem_size), hash);
             } else {
-                get_data().update_crc_with_value(offsets_column[i - 1], offsets_column[i], hash,
-                                                 nullptr);
+                get_data().update_xxHash_with_value(offsets_column[i - 1], offsets_column[i], hash,
+                                                    nullptr);
             }
         }
     }
 }
 
 // for every array row calculate crcHash
-void ColumnArray::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_data) const {
     auto& offsets_column = get_offsets();
     if (null_data) {
@@ -354,9 +374,10 @@ void ColumnArray::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnArray::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type,
+                                         uint32_t rows, uint32_t offset,
                                          const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -374,13 +395,21 @@ void ColumnArray::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveT
 }
 
 void ColumnArray::insert(const Field& x) {
-    const Array& array = doris::vectorized::get<const Array&>(x);
-    size_t size = array.size();
-    for (size_t i = 0; i < size; ++i) get_data().insert(array[i]);
-    get_offsets().push_back(get_offsets().back() + size);
+    if (x.is_null()) {
+        get_data().insert(Null());
+        get_offsets().push_back(get_offsets().back() + 1);
+    } else {
+        const auto& array = doris::vectorized::get<const Array&>(x);
+        size_t size = array.size();
+        for (size_t i = 0; i < size; ++i) {
+            get_data().insert(array[i]);
+        }
+        get_offsets().push_back(get_offsets().back() + size);
+    }
 }
 
 void ColumnArray::insert_from(const IColumn& src_, size_t n) {
+    DCHECK(n < src_.size());
     const ColumnArray& src = assert_cast<const ColumnArray&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
@@ -421,8 +450,8 @@ void ColumnArray::reserve(size_t n) {
 
 //please check you real need size in data column, because it's maybe need greater size when data is string column
 void ColumnArray::resize(size_t n) {
-    get_offsets().resize(n);
-    get_data().resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnArray::byte_size() const {
@@ -431,11 +460,6 @@ size_t ColumnArray::byte_size() const {
 
 size_t ColumnArray::allocated_bytes() const {
     return get_data().allocated_bytes() + get_offsets().allocated_bytes();
-}
-
-void ColumnArray::protect() {
-    get_data().protect();
-    get_offsets().protect();
 }
 
 ColumnPtr ColumnArray::convert_to_full_column_if_const() const {
@@ -482,6 +506,10 @@ void ColumnArray::insert_range_from(const IColumn& src, size_t start, size_t len
         for (size_t i = 0; i < length; ++i)
             cur_offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
     }
+}
+
+double ColumnArray::get_ratio_of_default_rows(double sample_ratio) const {
+    return get_ratio_of_default_rows_impl<ColumnArray>(sample_ratio);
 }
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
@@ -796,47 +824,11 @@ size_t ColumnArray::filter_nullable(const Filter& filter) {
     return result_size;
 }
 
-void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                      const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnArray::insert_default();
-        } else {
-            ColumnArray::insert_from(src, *x);
-        }
+void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                      const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnArray::insert_from(src, *x);
     }
-}
-
-Status ColumnArray::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    auto to = reinterpret_cast<vectorized::ColumnArray*>(col_ptr);
-    auto& to_offsets = to->get_offsets();
-
-    size_t element_size = 0;
-    size_t max_offset = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        element_size += size_at(sel[i]);
-        max_offset = std::max(max_offset, offset_at(sel[i]));
-    }
-    if (max_offset > std::numeric_limits<uint16_t>::max()) {
-        return Status::IOError("array elements too large than uint16_t::max");
-    }
-
-    to_offsets.reserve(to_offsets.size() + sel_size);
-    auto nested_sel = std::make_unique<uint16_t[]>(element_size);
-    size_t nested_sel_size = 0;
-    for (size_t i = 0; i < sel_size; ++i) {
-        auto row_off = offset_at(sel[i]);
-        auto row_size = size_at(sel[i]);
-        to_offsets.push_back(to_offsets.back() + row_size);
-        for (auto j = 0; j < row_size; ++j) {
-            nested_sel[nested_sel_size++] = row_off + j;
-        }
-    }
-
-    if (nested_sel_size > 0) {
-        return data->filter_by_selector(nested_sel.get(), nested_sel_size, &to->get_data());
-    }
-    return Status::OK();
 }
 
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
@@ -864,42 +856,35 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-void ColumnArray::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+void ColumnArray::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
     if (target_size == 0) {
         return;
     }
-    auto total_size = get_offsets().size();
-    // |---------------------|-------------------------|-------------------------|
-    // [0, begin)             [begin, begin + count_sz)  [begin + count_sz, size())
-    //  do not need to copy    copy counts[n] times       do not need to copy
-    IColumn::Offsets replicate_offsets(total_size, 0);
-    // copy original data at offset n counts[n] times
-    auto begin = 0, end = 0;
-    while (begin < target_size) {
-        while (end < target_size && indexs[begin] == indexs[end]) {
-            end++;
+
+    auto& dst_col = assert_cast<ColumnArray&>(column);
+    auto& dst_data_col = dst_col.get_data();
+    auto& dst_offsets = dst_col.get_offsets();
+    dst_offsets.reserve(target_size);
+
+    PODArray<uint32> data_indices_to_replicate;
+
+    for (size_t i = 0; i < target_size; ++i) {
+        const auto index = indices[i];
+        const auto start = offset_at(index);
+        const auto length = size_at(index);
+        dst_offsets.push_back(dst_offsets.back() + length);
+        if (UNLIKELY(length == 0)) {
+            continue;
         }
-        long index = indexs[begin];
-        replicate_offsets[index] = end - begin;
-        begin = end;
+
+        data_indices_to_replicate.reserve(data_indices_to_replicate.size() + length);
+        for (size_t j = start; j != start + length; ++j) {
+            data_indices_to_replicate.push_back(j);
+        }
     }
 
-    // ignored
-    for (size_t i = 1; i < total_size; ++i) {
-        replicate_offsets[i] += replicate_offsets[i - 1];
-    }
-
-    auto rep_res = replicate(replicate_offsets);
-    if (!rep_res) {
-        LOG(WARNING) << "ColumnArray replicate failed, replicate_offsets count="
-                     << replicate_offsets.size() << ", max=" << replicate_offsets.back();
-        return;
-    }
-    auto& rep_res_arr = typeid_cast<const ColumnArray&>(*rep_res);
-
-    ColumnArray& res_arr = typeid_cast<ColumnArray&>(column);
-    res_arr.data = rep_res_arr.get_data_ptr();
-    res_arr.offsets = rep_res_arr.get_offsets_ptr();
+    get_data().replicate(data_indices_to_replicate.data(), data_indices_to_replicate.size(),
+                         dst_data_col);
 }
 
 template <typename T>

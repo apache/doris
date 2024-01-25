@@ -32,10 +32,10 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -108,8 +108,12 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+    const std::vector<std::string>& column_paths() const { return _column_paths; };
 
     bool is_auto_increment() const { return _is_auto_increment; }
+
+    const std::string& col_default_value() const { return _col_default_value; }
+    PrimitiveType col_type() const { return _col_type; }
 
 private:
     friend class DescriptorTbl;
@@ -129,6 +133,7 @@ private:
     const std::string _col_name_lower_case;
 
     const int32_t _col_unique_id;
+    const PrimitiveType _col_type;
 
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
@@ -143,8 +148,10 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+    const std::vector<std::string> _column_paths;
 
     const bool _is_auto_increment;
+    const std::string _col_default_value;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -311,6 +318,11 @@ public:
     const std::string& jdbc_table_name() const { return _jdbc_table_name; }
     const std::string& jdbc_user() const { return _jdbc_user; }
     const std::string& jdbc_passwd() const { return _jdbc_passwd; }
+    int32_t jdbc_min_pool_size() const { return _jdbc_min_pool_size; }
+    int32_t jdbc_max_pool_size() const { return _jdbc_max_pool_size; }
+    int32_t jdbc_max_idle_time() const { return _jdbc_max_idle_time; }
+    int32_t jdbc_max_wait_time() const { return _jdbc_max_wait_time; }
+    bool jdbc_keep_alive() const { return _jdbc_keep_alive; }
 
 private:
     std::string _jdbc_resource_name;
@@ -321,6 +333,11 @@ private:
     std::string _jdbc_table_name;
     std::string _jdbc_user;
     std::string _jdbc_passwd;
+    int32_t _jdbc_min_pool_size;
+    int32_t _jdbc_max_pool_size;
+    int32_t _jdbc_max_idle_time;
+    int32_t _jdbc_max_wait_time;
+    bool _jdbc_keep_alive;
 };
 
 class TupleDescriptor {
@@ -367,6 +384,15 @@ public:
         return false;
     }
 
+    bool has_bitmap_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_bitmap_type()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     TupleId id() const { return _id; }
 
     std::string debug_string() const;
@@ -381,7 +407,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;

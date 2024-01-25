@@ -70,7 +70,7 @@ For the memory statistics results of historical queries, you can view the `peakM
   - StorageEngine:, the memory consumed by the storage engine during loading the data directory, a subset of Orphan.
   - SegCompaction: The memory sum of all SegCompaction tasks, a subset of Orphan.
   - SegmentMeta: memory use by segment meta data such as footer or index page, a subset of Orphan.
-  - TabletManager: The memory consumed by the storage engine get, add, and delte Tablet, a subset of Orphan.
+  - TabletManager: The memory consumed by the storage engine get, add, and delete Tablet, a subset of Orphan.
   - BufferAllocator: Only used for memory multiplexing in the non-vectorized Partitioned Agg process, a subset of Orphan.
 
 - DataPageCache: Used to cache data Pages to speed up Scan.
@@ -78,7 +78,7 @@ For the memory statistics results of historical queries, you can view the `peakM
 - SegmentCache: Used to cache opened Segments, such as index information.
 - DiskIO: Used to cache Disk IO data, only used in non-vectorization.
 - ChunkAllocator: Used to cache power-of-2 memory blocks, and reuse memory at the application layer.
-- LastestSuccessChannelCache: Used to cache the LoadChannel of the import receiver.
+- LastSuccessChannelCache: Used to cache the LoadChannel of the import receiver.
 - DeleteBitmap AggCache: Gets aggregated delete_bitmap on rowset_id and version.
 
 ### Query Type `/mem_tracker?type=query`

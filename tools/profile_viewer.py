@@ -1,5 +1,4 @@
-
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,313 +16,301 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import re
+import subprocess
+import json
+import requests
 import os
-import sys
-#dot dig -T png -o dig.png
+import re
+import argparse
 
-exchanges = {}
-
-class Node:
-    TERMINAL_NODE_TYPES={'VEXCHANGE_NODE', 'VNewOlapScanNode'}
-    def __init__(self, id, type, frid):
-        self.id = id
-        self.frid = frid
-        self.type = type
-        self.parent = None
-        self.children = []
-        self.rows = 0
-        m = re.search("VNewOlapScanNode\((.*)\)", type)
-        if m != None:
-            self.table = m.group(1)
-            self.type = 'VNewOlapScanNode'
-        else:
-            self.table = ""
-
-    def set_data(self, data):
-        self.data = data
-
-    def parse(self):
-        for line in self.data:
-            m = re.search(".*RowsReturned:.+\(([\d]+)\)", line)
-            if m!= None:
-                self.rows = int(m.group(1))
-                break
-            else:
-                m = re.search(".*RowsReturned:.+([\d]+)", line)
-                if m != None:
-                    self.rows = int(m.group(1))
-                    break
-
-    def build_tree(self, nodes):
-        if self.type in Node.TERMINAL_NODE_TYPES:
-            return 0
-        self.children.append(nodes[0])
-        consume = 1 + nodes[0].build_tree(nodes[1:])
-        if self.type.find("JOIN") > 0:
-            self.children.append(nodes[consume])
-            consume = consume + 1 + nodes[consume].build_tree(nodes[consume+1:])
-        return consume
-
-    def __repr__(self):
-        if self.type == 'VNewOlapScanNode':
-            return "{}_{}".format(self.table, self.id)
-        return "{}_{}".format(self.type, self.id)
-
-    def to_label(self):
-        name = self.type
-        if self.type == 'VNewOlapScanNode':
-            name = self.table
-        return '"{}\\n#{}FR{}"'.format(name, self.id, self.frid)
-
-    def show(self, indent):
-        print("{}{}".format(indent, self))
-        for ch in self.children:
-            ch.show("  " + indent)
-
-    def to_dot(self, dot):
-        dot = dot + "\n{}[label={}]".format(self, self.to_label())
-        for ch in reversed(self.children):
-            dot = dot + "\n{}->{}[label={}]".format(ch, self, ch.rows)
-        for ch in self.children:
-            dot = ch.to_dot(dot)
-        return dot
-class Instance:
-    def __init__(self, id, frid):
-        self.id = id
-        self.frid = frid
-        self.target = ""
-        self.srcs = []
-        self.nodes = []
-        self.has_build_tree = False
-
-    def set_data(self, data):
-        self.data = data
-
-    def build_tree(self):
-        if self.has_build_tree:
-            return
-        self.has_build_tree = True
-        self.root = self.nodes[0]
-        self.root.build_tree(self.nodes[1:])
-        
-    def parse(self):
-        pos = 0
-        for line in self.data:
-            pos = pos + 1
-            m = re.search("\s+VDataStreamSender  \(dst_id=(\d+),.*", line)
-            if m != None:
-                self.target = m.group(1)
-                break
-
-        for line in self.data:
-            m = re.search("\s+VEXCHANGE_NODE  \(id=(\d+)\):.*", line)
-            if m != None:
-                self.srcs.append(m.group(1))
-        
-        prev = 0
-        pos = 0
-        for line in self.data:
-            m = re.search("\s+([^\s]+N[o|O][d|D][e|E][^\s]*)  \(id=(\d+)\.*", line)
-            if m != None:
-                type = m.group(1)
-                id = m.group(2)
-                node = Node(id, type, self.frid)
-                if node.type == 'VEXCHANGE_NODE':
-                    exchanges[id] = node
-                if prev != 0:
-                    #self.nodes
-                    self.nodes[-1].set_data(self.data[prev : pos])
-                self.nodes.append(node)
-                prev = pos
-            pos = pos + 1
-        self.nodes[-1].set_data(self.data[prev : pos])
-
-        for node in self.nodes:
-            node.parse()
-        self.build_tree()
+FE_HOST = "http://127.0.0.1:8030"
+MYSQL = "mysql -h:: -P9030 -u root "
+DB = "tpcds_sf100"
+WORK_DIR="./tmp/"
 
 
-    def show(self):
-        self.root.show(" ")
+def execute_command(cmd: str):
+    result = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    return result.stdout
+
+def sql(query):
+    print("exec sql: " + query)
+    cmd = MYSQL + " -D " + DB + " -e \"" + query + "\""
+    result = execute_command(cmd)
+    return result
+
+def last_query_id():
+    # 'YWRtaW46' is the base64 encoded result for 'admin:'
+    headers = {'Authorization': 'BASIC YWRtaW46'}
+    query_info_url = FE_HOST + '/rest/v2/manager/query/query_info'
+    resp_wrapper = requests.get(query_info_url, headers=headers)
+    resp_text = resp_wrapper.text
+    qinfo = json.loads(resp_text)
+    assert qinfo['msg'] == 'success'
+    assert len(qinfo['data']['rows']) > 0
+    return qinfo['data']['rows'][0][0]
+
+def get_profile(query_id):
+    profile_url = FE_HOST + "/rest/v2/manager/query/profile/json/" + query_id
+    headers = {'Authorization': 'BASIC YWRtaW46'}
+    resp_wrapper = requests.get(profile_url, headers=headers)
+    resp_text = resp_wrapper.text
+
+    prof = json.loads(resp_text)
+    assert prof['msg'] == 'success', "query failed"
+    data = prof['data']['profile'].replace("\\n", "")
+    return data.replace("\\u003d", "=")
+
+def get_fragments(obj): 
+    return obj['children'][2]['children'][0]['children']
+
+
+def get_children(obj):
+    return obj['children']
 
 class Fragment:
-    def __init__(self, id):
-        self.id = id
-        self.target = ""
-        self.srcs = []
+    def __init__(self, obj):
+        self.name = obj['name']
         self.instances = []
-        self.children = []
-        self.parent = None
-
-    def set_data(self, data):
-        self.data = data
-    
-    def get_instance_id(self, line):
-        m = re.search("\s+Instance  (\w+-\w+)", line)
-        is_inst = m != None
-        return (is_inst, m.group(1) if is_inst else "")
-
-    def parse(self):
-        pos = 1
-        (is_inst, inst_id) = self.get_instance_id(self.data[pos])
-        inst = Instance(inst_id, self.id)
-        self.instances.append(inst)
-        size = len(self.data)
-        prev = pos
-        while pos < size - 1:
-            pos = pos + 1
-            (is_inst, inst_id) = self.get_instance_id(self.data[pos])
-            if is_inst:
-                inst.set_data(self.data[prev : pos])
-                inst = Instance(inst_id, self.id)
-                self.instances.append(inst)
-                prev = pos
-            
-        inst.set_data(self.data[prev : pos])    
+        for child in get_children(obj):
+            self.instances.append(Instance(child))
+        # the merged instance. merge corresponding Node.rows
+        self.merged = Instance(get_children(obj)[0])
+        self.merged.clear()
+        self.merge_instances()
         
+        m=re.search("Instance ([\w|\d]+-[\w|\d]+) ", self.merged.name)
+        assert m != None, "cannot find instance id: " + self.merged.name
+        self.first_inst_id = m.group(1)
+        
+
+    def merge_instances(self):
         for inst in self.instances:
-            inst.parse()
-        self.srcs = self.instances[0].srcs
-        self.target = self.instances[0].target
+            self.merged.merge(inst)
 
+    def register(self, node_map):
+        self.merged.register(node_map)
 
-    def show(self, indent):
-        print("{}{}".format(indent, self.id))
-        for fr in self.children:
-            fr.show(indent+"  ")
+class Instance:
+    def __init__(self, obj):
+        self.name = obj['name']
+        assert(len(get_children(obj)) > 1)
+        self.sender = Node(get_children(obj)[0])
+        self.dst_id = self.sender.get_dst_id()
 
-    def sum_nodes(self, nodes):
-        sum = 0
-        for node in nodes:
-            sum = sum + node.rows
-        nodes[0].rows = sum
-        for (i, ch) in enumerate(nodes[0].children):
-            chs = [node.children[i] for node in nodes]
-            self.sum_nodes(chs)
+        self.root = Node(get_children(obj)[1])
+        if (len(get_children(obj)) > 2):
+            self.pipe = Node(get_children(obj)[2])
 
-    def zip_instances(self, instances):
-        '''sum rows of same nodes in different instance'''
-        roots = [inst.root for inst in instances]
-        self.sum_nodes(roots)
+    def clear(self):
+        self.root.clear()
+
+    def merge(self, other):
+        self.root.merge(other.root)
+
+    def register(self, node_map):
+        self.root.register(node_map)
+
+class Node:
+    def __init__(self, obj):
+        self.obj = obj
+        self.name = self.get_name(obj)
+        if self.name == "RuntimeFilter":
+            self.rf_id = self.get_rf_id(obj)
+            self.id = -1
+            self.caption = self.name + "_" + str(self.rf_id)
+        else:
+            self.id = self.get_id(obj)
+            self.caption = self.name + "_" + str(self.id)
+
+        self.rows = obj['rowsReturned']
+        self.total_time = obj['totalTime']
+        self.children = []
+        for child in obj['children']:
+            self.children.append(Node(child))
+
+    def get_name(self, obj):
+        name = obj['name']
+        m=re.search("(\S+)", obj['name'])
+        if m != None:
+            name = m.group(1)
+        return name.replace("(", '_').replace(")", '').replace(':', '')
+
+    def get_id(self, obj):
+        m=re.search("id=([\d]+)", self.obj['name'])
+        if m != None:
+            return int(m.group(1))
+        else:
+            return -1
+
+    def get_rf_id(self, obj):
+        m=re.search("id = ([\d]+)", self.obj['name'])
+        if m != None:
+            return int(m.group(1))
+        else:
+            return -1
+        
+    def get_dst_id(self):
+        m=re.search("dst_id=([\d]+)", self.obj['name'])
+        if m != None:
+            return int(m.group(1))
+        else:
+            return -1
+        
+    def clear(self):
+        self.rows = 0
+        self.total_time = ""
+        for child in self.children:
+            child.clear()
+
+    def register(self, node_map):
+        node_map[self.id] = self
+        for child in self.children:
+            child.register(node_map)
+
+    def merge(self, other):
+        assert(self.name == other.name)
+        self.rows += other.rows
+        self.total_time += "/" + other.total_time
+        childCount =len(self.children)
+        if self.name.find("ScanNode") > 0:
+            return
+        assert(childCount == len(other.children))
+        for i in range(childCount):
+            self.children[i].merge(other.children[i])
+
+    def tree(self, prefix):
+        print(prefix + self.name + " id=" + str(self.id) + " rows=" + str(self.rows))
+        for child in self.children:
+            child.tree(prefix + "--")
 
     def to_dot(self):
-        inst = self.instances[0]
-        dot = ""
-        dot = inst.root.to_dot(dot)
-        return dot
-
-class Tree:
-    def __init__(self, fragments):
-        self.fragments = fragments
-
-    def build(self):
-        src_fr_map = {}
-        for fr in self.fragments:
-            if fr.target == "":
-                self.root = fr
-            for src in fr.srcs:
-                src_fr_map[src] = fr
-        for fr in self.fragments:
-            if fr.target != "":
-                parent = src_fr_map.get(fr.target)
-                
-                parent.children.append(fr)
-                fr.parent = parent
-
-    def show(self):
-        self.root.show("  ")    
-
-def load_profile(profile):
-    with open(profile, 'r') as f:
-        l = f.readlines()
-        return l
-
-def get_fragment_id(line):
-    #line in format : Fragment /d+:
-    #len("Fragment  "):10
-    line = line.strip()
-    return line[10:-1]
-
-def is_fragment_begin(line):
-    line = line.strip()
-    return line.startswith("Fragment")
-
-def cut_fragment(data):
-    fragments = []
-    prev = 0
-    pos = 0
-    total_len = len(data)
-    #skip some lines not in fragment
-    for line in data:
-        if is_fragment_begin(line):
-            break
-        prev = prev + 1
-    pos = prev
-    fr_id = get_fragment_id(data[pos])
-    pos = pos + 1
-    current_fr = Fragment(fr_id)
-    fragments = []
-    fragments.append(current_fr)
-    while pos < total_len:
-        line = data[pos]
-        if is_fragment_begin(line):
-            current_fr.set_data(data[prev : pos])
-            fr_id = get_fragment_id(line)
-            current_fr = Fragment(fr_id)
-            fragments.append(current_fr) 
-            prev = pos
+        content = ""
+        list = self.children
+        if list != None:
+            list.reverse()
+        for child in list:
+            if child.id != -1:
+                content += "{}->{}[label={}]\n".format(child.caption, self.caption, child.rows)
+        for child in list:
+            if child.id != -1:
+                content += child.to_dot()
+        return content
             
-        pos = pos + 1
+def keep_alpha_numeric(input_str):  
+    # 使用正则表达式只保留大写字母、小写字母和数字  
+    pattern = r'[^A-Za-z0-9]'  
+    result = re.sub(pattern, '', input_str)  
+    return result 
 
-    current_fr.set_data(data[prev: pos - 1])
-    for fr in fragments:
-        fr.parse()
-    return fragments
+def to_dot_file(root, dot_file, title):
+    title = keep_alpha_numeric(title)
+    header = """
+            digraph BPMN {
+                rankdir=BT;
+                node[style="rounded,filled" color="lightgoldenrodyellow" ]
+            """
+    label = "label = \"" + title + "\"\n"
+    tail = "}"
+    with open(dot_file, 'w') as f:
+        f.write(header)
+        f.write(label)
+        f.write(root.to_dot())
+        f.write(tail)
+
+def draw_proile(query_id, title=""):
+    print("query_id: " + query_id)
+    prof = get_profile(query_id)
+    if title == "":
+        title = query_id
+    prf_file = WORK_DIR + title + ".profile"
+    png_file = WORK_DIR + title + ".png"
+    dot_file = WORK_DIR + title + ".dot"
+    with open(prf_file, "w") as f:
+        f.write(prof)
+    obj = json.loads(prof.replace("\n", ""))
+    fragments = []
+    node_map={}
+    for json_fr in get_fragments(obj):
+        fr = Fragment(json_fr)
+        fr.register(node_map)
+        fragments.append(fr)
+    root_fr = fragments[0]
+    for fr in fragments[1:]:
+        exchange = node_map[fr.merged.dst_id]
+        exchange.children.append(fr.merged.root)
+    
+    root_fr.merged.root.tree("")
+    
+    to_dot_file(root_fr.merged.root, dot_file, title)
+    cmd = "dot {} -T png -o {}".format(dot_file, png_file)
+    print(cmd)
+    status = os.system(cmd)
+    if status != 0:
+        print("convert to png failed")
+    else:
+        print("generate " + png_file)
+
+def exec_sql_and_draw(sql_file):
+    if not os.path.isdir(WORK_DIR):
+        os.mkdir(WORK_DIR)
+    with open(sql_file, 'r') as f:
+        #trim sql comments
+        query = ""
+        for line in f.readlines():
+            pos = line.find("--")
+            if pos == -1:
+                query += line
+            else:
+                query += line[:pos]
+        sql("set global enable_nereids_planner=true")
+        sql("set global enable_pipeline_engine=true")
+        sql("set global enable_profile=true")
+        sql("set global runtime_filter_type=2")
+        sql("set global enable_runtime_filter_prune=false")
+        sql("set global runtime_filter_wait_time_ms=9000000")
+        sql(query)
+        query_id = last_query_id()
+        return query_id
+
 
 def print_usage():
     print("""
     USAGE:
-        python profile_viewer.py [PATH_TO_PROFILE]
+    1. execute a sql file, and draw its profile  
+          python3 profile_viewer.py -f [path to sql file]
+    2. draw a given profile
+          python3 profile_viewer.py -qid [query_id]
     
     graphviz is required(https://graphviz.org/)
-    on linux: apt install graphvize
-    on mac: brew install graphvize
+    on linux: apt install graphviz
+    on mac: brew install graphviz
     """)
-
+    
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print_usage()
-        exit(0)
-    prf_file = sys.argv[1]
-    if not os.path.exists(prf_file):
-        print("{} is not a file".format(prf_file))
-        exit(0)
-
-    data = load_profile(prf_file)
-    fragements = []
-    fragments = cut_fragment(data)
-    dot_header = """digraph BPMN {
-    rankdir=BT;
-    node[shape=rectanble style="rounded,filled" color="lightgoldenrodyellow" ]
+    USAGE ="""
+    1. execute a sql file, and draw its profile  
+          python3 profile_viewer.py -f [path to sql file] -t [png title]
+    2. draw a given profile
+          python3 profile_viewer.py -qid [query_id] -t [png title]
+    
+    graphviz is required(https://graphviz.org/)
+    on linux: apt install graphviz
+    on mac: brew install graphviz
     """
-    dot_tail = "}"
-    with open(prf_file+".dot", "w") as f:
-        f.write(dot_header)
-        for fr in fragments:
-            # print("fr{}:{} <-{}".format(fr.id, fr.target, fr.srcs))
-            fr.zip_instances(fr.instances)
-            f.write(fr.to_dot())
-            if fr.target != "":
-                f.write("\n{}->{}[label={}]".format(fr.instances[0].root, exchanges[fr.target], fr.instances[0].root.rows))
-        f.write(dot_tail)
-    cmd = "dot {} -T png -o {}".format(prf_file+".dot", prf_file+".png")
-    status = os.system(cmd)
-    if status != 0:
-        print("convert failed")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--file", help="sql file", dest="sql_file", type=str, default ="")
+    parser.add_argument("-qid", "--query_id", help="query id", dest="query_id", type=str, default="")
+    parser.add_argument("-t", "--title", help="query title", dest="title", type=str, default="")
+
+    args = parser.parse_args()
+    if args.sql_file == ""  and args.query_id == "":
+        print(USAGE)
+        exit(0)
+    title = args.title
+    if args.query_id == "":
+        query_id = exec_sql_and_draw(args.sql_file)
+        draw_proile(query_id, title)
     else:
-        print("generate " + prf_file + ".png")
-        
-
-
+        draw_proile(args.query_id, title)
 

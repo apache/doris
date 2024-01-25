@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
+import org.apache.doris.thrift.TResultBatch;
 
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
@@ -53,6 +54,10 @@ public class RowBatchBuilder {
 
     public int getRowSize() {
         return rowSize;
+    }
+
+    public int getDataSize() {
+        return dataSize;
     }
 
     public RowBatchBuilder(CacheAnalyzer.CacheMode model) {
@@ -91,16 +96,28 @@ public class RowBatchBuilder {
 
     public void copyRowData(RowBatch rowBatch) {
         batchSize++;
-        rowSize += rowBatch.getBatch().getRowsSize();
-        for (ByteBuffer buf : rowBatch.getBatch().getRows()) {
-            byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
-            dataSize += bytes.length;
-            rowList.add(bytes);
+        TResultBatch resultBatch = rowBatch.getBatch();
+        // for empty result set, the resultBatch will be null
+        rowSize += resultBatch == null ? 0 : resultBatch.getRowsSize();
+        if (resultBatch != null) {
+            for (ByteBuffer buf : rowBatch.getBatch().getRows()) {
+                byte[] bytes = Arrays.copyOfRange(buf.array(), buf.position(), buf.limit());
+                dataSize += bytes.length;
+                rowList.add(bytes);
+            }
         }
     }
 
+    public void clear() {
+        rowList = Lists.newArrayList();
+        cachePartMap = new HashMap<>();
+        batchSize = 0;
+        rowSize = 0;
+        dataSize = 0;
+    }
+
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
-            String sql, long partitionKey, long lastVersion, long lastestTime) {
+            String sql, long partitionKey, long lastVersion, long lastestTime, long partitionNum) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
                     .setSqlKey(CacheProxy.getMd5(sql))
@@ -112,6 +129,7 @@ public class RowBatchBuilder {
                                 .setPartitionKey(partitionKey)
                                 .setLastVersion(lastVersion)
                                 .setLastVersionTime(lastestTime)
+                                .setPartitionNum(partitionNum)
                                 .build()).setDataSize(dataSize).addAllRows(
                                 rowList.stream().map(row -> ByteString.copyFrom(row))
                                         .collect(Collectors.toList()))).build();

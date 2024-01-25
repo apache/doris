@@ -24,8 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -161,8 +163,10 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
-                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
+            if (!(predicate instanceof BinaryExpression)
+                    && (!(predicate instanceof Not) || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException("Unsupported correlated subquery with"
+                        + " non-equals correlated predicate " + predicate.toSql());
             }
 
             BinaryExpression binaryExpression;
@@ -255,5 +259,34 @@ public class Utils {
 
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    public static <T> List<T> copyRequiredMutableList(List<T> list) {
+        return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
+    }
+
+    /**
+     * Normalize the name to lower underscore style, return default name if the name is empty.
+     */
+    public static String normalizeName(String name, String defaultName) {
+        if (StringUtils.isEmpty(name)) {
+            return defaultName;
+        }
+        if (name.contains("$")) {
+            name = name.replace("$", "_");
+        }
+        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
+    }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
     }
 }

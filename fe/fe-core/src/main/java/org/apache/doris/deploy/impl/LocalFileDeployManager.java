@@ -87,8 +87,7 @@ public class LocalFileDeployManager extends DeployManager {
         FileChannel channel = null;
         FileLock lock = null;
         BufferedReader bufferedReader = null;
-        try {
-            FileInputStream stream = new FileInputStream(clusterInfoFile);
+        try (FileInputStream stream = new FileInputStream(clusterInfoFile)) {
             channel = stream.getChannel();
             lock = channel.lock(0, Long.MAX_VALUE, true);
 

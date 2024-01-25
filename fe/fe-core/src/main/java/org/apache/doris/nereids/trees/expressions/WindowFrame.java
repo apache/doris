@@ -21,6 +21,8 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,6 +42,7 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     public WindowFrame(FrameUnitsType frameUnits, FrameBoundary leftBoundary, FrameBoundary rightBoundary) {
+        super(ImmutableList.of());
         this.frameUnits = frameUnits;
         this.leftBoundary = leftBoundary;
         this.rightBoundary = rightBoundary;

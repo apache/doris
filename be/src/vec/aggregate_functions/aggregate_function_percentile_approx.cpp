@@ -26,14 +26,21 @@ template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::string& name,
                                                                  const DataTypes& argument_types,
                                                                  const bool result_is_nullable) {
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    WhichDataType which(argument_type);
+    if (which.idx != TypeIndex::Float64) {
+        return nullptr;
+    }
     if (argument_types.size() == 1) {
         return creator_without_type::create<AggregateFunctionPercentileApproxMerge<is_nullable>>(
                 remove_nullable(argument_types), result_is_nullable);
-    } else if (argument_types.size() == 2) {
+    }
+    if (argument_types.size() == 2) {
         return creator_without_type::create<
                 AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
                 remove_nullable(argument_types), result_is_nullable);
-    } else if (argument_types.size() == 3) {
+    }
+    if (argument_types.size() == 3) {
         return creator_without_type::create<
                 AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
                 remove_nullable(argument_types), result_is_nullable);

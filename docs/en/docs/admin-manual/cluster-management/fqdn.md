@@ -30,9 +30,9 @@ under the License.
 
 This article introduces how to enable the use of Apache Doris based on FQDN (Fully Qualified Domain Name). FQDN is the complete domain name of a specific computer or host on the Internet.
 
-After Doris supports FQDN, communication between nodes is entirely based on FQDN. When adding various types of nodes, the FQDN should be directly specified. For example, the command to add a BE node is' ALT SYSTEM ADD BACK END "be_host: eartbeat_service_port",
+After Doris supports FQDN, communication between nodes is entirely based on FQDN. When adding various types of nodes, the FQDN should be directly specified. For example, the command to add a BE node is' ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port",
 
-'be_host' was previously the IP address of the BE node. After starting the FQDN, be_ The host should specify the FQDN of the BE node.
+'be_host' was previously the IP address of the BE node. After starting the FQDN, be_host should specify the FQDN of the BE node.
 
 ## Preconditions
 
@@ -65,7 +65,7 @@ After Doris supports FQDN, communication between nodes is entirely based on FQDN
 
 After an unexpected restart of the Pod, K8s cannot guarantee that the Pod's IP will not change, but it can ensure that the domain name remains unchanged. Based on this feature, when Doris enables FQDN, it can ensure that the Pod can still provide services normally after an unexpected restart.
 
-Please refer to the method for deploying Doris in K8s[Kubernetes Deployment](../../install/k8s-deploy.md)
+Please refer to the method for deploying Doris in K8s[Kubernetes Deployment](../../install/k8s-deploy/operator-deploy.md)
 
 ### Server change IP
 
@@ -76,13 +76,17 @@ After deploying the cluster according to 'Enable FQDN for new cluster', if you w
 Precondition: The current program supports the syntax 'Alter SYSTEM MODIFY FRONTEND'<fe_ip>:<edit_log_port>'HOSTNAME'<fe_hostname>',
 If not, upgrade to a version that supports the syntax
 
+>Note that.
+>
+> At least three followers are required to perform the following operations, otherwise the cluster may not start properly
+
 Next, follow the steps below:
 
 1. Perform the following operations on the Follower and Observer nodes one by one (and finally on the Master node):
 
    1. Stop the node.
    2. Check if the node has stopped. Execute 'show frontends' through the MySQL client to view the Alive status of the FE node until it becomes false
-   3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`
+   3. set FQDN for node: `ALTER SYSTEM MODIFY FRONTEND "<fe_ip>:<edit_log_port>" HOSTNAME "<fe_hostname>"`(After stopping the master, a new master node will be selected and used to execute SQL statements)
    4. Modify node configuration. Modify the 'conf/fe. conf' file in the FE root directory and add the configuration: `enable_fqdn_mode = true`
    5. Start the node.
 

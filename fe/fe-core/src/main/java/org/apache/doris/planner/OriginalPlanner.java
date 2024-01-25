@@ -24,31 +24,29 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TFetchOption;
@@ -56,10 +54,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,6 +63,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -149,6 +145,13 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     * Return hint information.
+     */
+    @Override
+    public void appendHintInfo(StringBuilder str) {
+    }
+
+    /**
      * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
@@ -172,8 +175,6 @@ public class OriginalPlanner extends Planner {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
         }
-
-        checkColumnPrivileges(singleNodePlan);
 
         // TODO chenhao16 , no used materialization work
         // compute referenced slots before calling computeMemLayout()
@@ -211,7 +212,7 @@ public class OriginalPlanner extends Planner {
         }
         checkAndSetTopnOpt(singleNodePlan);
 
-        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
+        if ((queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) && !(statement instanceof InsertStmt)) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
@@ -247,9 +248,14 @@ public class OriginalPlanner extends Planner {
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             List<Expr> exprs = statement.getResultExprs();
-            List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
-            rootFragment.setOutputExprs(resExprs);
+            if (analyzer.getContext().getConnectionId() == 0) {
+                // stream load tvf
+                rootFragment.setOutputExprs(exprs);
+            } else {
+                List<Expr> resExprs = Expr.substituteList(exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer,
+                        true);
+                rootFragment.setOutputExprs(resExprs);
+            }
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
@@ -257,6 +263,7 @@ public class OriginalPlanner extends Planner {
             LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
+        rootFragment.setResultSinkType(ConnectContext.get().getResultSinkType());
         LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
@@ -310,66 +317,6 @@ public class OriginalPlanner extends Planner {
                     }
                 }
             }
-        }
-    }
-
-    private void checkColumnPrivileges(PlanNode singleNodePlan) throws UserException {
-        if (ConnectContext.get() == null) {
-            return;
-        }
-        // 1. collect all columns from all scan nodes
-        List<ScanNode> scanNodes = Lists.newArrayList();
-        singleNodePlan.collect((PlanNode planNode) -> planNode instanceof ScanNode, scanNodes);
-        // catalog : <db.table : column>
-        Map<String, HashMultimap<TableName, String>> ctlToTableColumnMap = Maps.newHashMap();
-        for (ScanNode scanNode : scanNodes) {
-            if (!scanNode.needToCheckColumnPriv()) {
-                continue;
-            }
-            TupleDescriptor tupleDesc = scanNode.getTupleDesc();
-            TableIf table = tupleDesc.getTable();
-            if (table == null) {
-                continue;
-            }
-            TableName tableName = getFullQualifiedTableNameFromTable(table);
-            for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-                if (!slotDesc.isMaterialized()) {
-                    continue;
-                }
-                Column column = slotDesc.getColumn();
-                if (column == null) {
-                    continue;
-                }
-                HashMultimap<TableName, String> tableColumnMap = ctlToTableColumnMap.get(tableName.getCtl());
-                if (tableColumnMap == null) {
-                    tableColumnMap = HashMultimap.create();
-                    ctlToTableColumnMap.put(tableName.getCtl(), tableColumnMap);
-                }
-                tableColumnMap.put(tableName, column.getName());
-                LOG.debug("collect column {} in {}", column.getName(), tableName);
-            }
-        }
-        // 2. check privs
-        // TODO: only support SELECT_PRIV now
-        PrivPredicate wanted = PrivPredicate.SELECT;
-        for (Map.Entry<String, HashMultimap<TableName, String>> entry : ctlToTableColumnMap.entrySet()) {
-            Env.getCurrentEnv().getAccessManager().checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(),
-                    entry.getKey(), entry.getValue(), wanted);
-        }
-    }
-
-    private TableName getFullQualifiedTableNameFromTable(TableIf table) throws AnalysisException {
-        if (table instanceof Table) {
-            String dbName = ClusterNamespace.getNameFromFullName(((Table) table).getQualifiedDbName());
-            if (Strings.isNullOrEmpty(dbName)) {
-                throw new AnalysisException("failed to get db name from table " + table.getName());
-            }
-            return new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, table.getName());
-        } else if (table instanceof ExternalTable) {
-            ExternalTable extTable = (ExternalTable) table;
-            return new TableName(extTable.getCatalog().getName(), extTable.getDbName(), extTable.getName());
-        } else {
-            throw new AnalysisException("table " + table.getName() + " is not internal or external table instance");
         }
     }
 
@@ -709,4 +656,36 @@ public class OriginalPlanner extends Planner {
             LOG.info("failed to collect query stat: {}", e.getMessage());
         }
     }
+
+    @Override
+    public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
+        if (!(parsedStmt instanceof SelectStmt)) {
+            return Optional.empty();
+        }
+        SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
+        List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
+        List<Column> columns = new ArrayList<>(selectItems.size());
+        List<String> columnLabels = parsedSelectStmt.getColLabels();
+        List<String> data = new ArrayList<>();
+        for (int i = 0; i < selectItems.size(); i++) {
+            SelectListItem item = selectItems.get(i);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(i);
+            if (expr instanceof LiteralExpr) {
+                columns.add(new Column(columnName, expr.getType()));
+                data.add(((LiteralExpr) expr).getStringValueInFe());
+            } else {
+                return Optional.empty();
+            }
+        }
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        return Optional.of(resultSet);
+    }
+
+    @Override
+    public void addHook(PlannerHook hook) {}
 }

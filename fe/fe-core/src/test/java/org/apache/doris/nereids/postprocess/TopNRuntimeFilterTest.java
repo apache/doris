@@ -20,6 +20,7 @@ package org.apache.doris.nereids.postprocess;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -41,12 +42,11 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .rewrite()
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
-        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertTrue(plan.children().get(0).child(0) instanceof PhysicalDeferMaterializeTopN);
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        Assertions.assertInstanceOf(PhysicalDeferMaterializeTopN.class, plan.children().get(0).child(0));
         PhysicalDeferMaterializeTopN<? extends Plan> localTopN
                 = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
-        Assertions.assertTrue(localTopN.getPhysicalTopN()
-                .getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
+        Assertions.assertTrue(localTopN.getPhysicalTopN().isEnableRuntimeFilter());
     }
 
     // topn rf do not apply on string-like and float column
@@ -57,11 +57,26 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .rewrite()
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
-        new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertTrue(plan.children().get(0).child(0) instanceof PhysicalDeferMaterializeTopN);
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        Assertions.assertInstanceOf(PhysicalDeferMaterializeTopN.class, plan.children().get(0).child(0));
         PhysicalDeferMaterializeTopN<? extends Plan> localTopN
                 = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
-        Assertions.assertFalse(localTopN.getPhysicalTopN()
-                .getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
+        Assertions.assertFalse(localTopN.getPhysicalTopN().isEnableRuntimeFilter());
+    }
+
+    @Test
+    public void testNotUseTopNRfForComplexCase() {
+        String sql = "select * from (select 1) tl join (select * from customer order by c_custkey limit 5) tb";
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        Assertions.assertInstanceOf(PhysicalTopN.class, plan.child(0).child(0).child(1).child(0));
+        Assertions.assertEquals(SortPhase.LOCAL_SORT, ((PhysicalTopN<? extends Plan>) plan
+                .child(0).child(0).child(1).child(0)).getSortPhase());
+        PhysicalTopN<? extends Plan> localTopN = (PhysicalTopN<? extends Plan>) plan
+                .child(0).child(0).child(1).child(0);
+        Assertions.assertFalse(localTopN.isEnableRuntimeFilter());
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
 import org.apache.doris.nereids.rules.Rule;
@@ -36,17 +37,22 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -54,41 +60,49 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableListMultimap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -133,23 +147,26 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalProject().thenApply(ctx -> {
                     LogicalProject<Plan> project = ctx.root;
                     List<NamedExpression> boundProjections =
-                            bindSlot(project.getProjects(), project.children(), ctx.cascadesContext);
-                    List<NamedExpression> boundExceptions = bindSlot(project.getExcepts(), project.children(),
-                            ctx.cascadesContext);
-                    boundProjections = flatBoundStar(boundProjections, boundExceptions);
+                            bindSlot(project.getProjects(), project.child(), ctx.cascadesContext);
+                    if (boundProjections.stream().anyMatch(BoundStar.class::isInstance)) {
+                        List<NamedExpression> boundExceptions = project.getExcepts().isEmpty() ? ImmutableList.of()
+                                : bindSlot(project.getExcepts(), project.child(), ctx.cascadesContext);
+                        boundProjections = flatBoundStar(boundProjections, boundExceptions);
+                    }
                     boundProjections = boundProjections.stream()
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
-                    return new LogicalProject<>(boundProjections, project.child(), project.isDistinct());
+                    return project.withProjects(boundProjections);
                 })
             ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     Set<Expression> boundConjuncts = filter.getConjuncts().stream()
-                            .map(expr -> bindSlot(expr, filter.children(), ctx.cascadesContext))
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
-                            .collect(Collectors.toCollection(LinkedHashSet::new));
+                            .map(expr -> bindSlot(expr, filter.child(), ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
+                            .collect(ImmutableSet.toImmutableSet());
                     return new LogicalFilter<>(boundConjuncts, filter.child());
                 })
             ),
@@ -160,7 +177,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> lj = new LogicalJoin<>(using.getJoinType() == JoinType.CROSS_JOIN
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
-                            using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
+                            using.getOtherJoinConjuncts(), using.getDistributeHint(), using.getMarkJoinSlotReference(),
                             using.children());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
@@ -201,14 +218,16 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalJoin<Plan, Plan> join = ctx.root;
                     List<Expression> cond = join.getOtherJoinConjuncts().stream()
                             .map(expr -> bindSlot(expr, join.children(), ctx.cascadesContext))
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts().stream()
                             .map(expr -> bindSlot(expr, join.children(), ctx.cascadesContext))
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
-                            hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
+                            hashJoinConjuncts, cond, join.getDistributeHint(), join.getMarkJoinSlotReference(),
                             join.children());
                 })
             ),
@@ -216,8 +235,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalAggregate().thenApply(ctx -> {
                     LogicalAggregate<Plan> agg = ctx.root;
                     List<NamedExpression> output = agg.getOutputExpressions().stream()
-                            .map(expr -> bindSlot(expr, agg.children(), ctx.cascadesContext))
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindSlot(expr, agg.child(), ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
 
                     // The columns referenced in group by are first obtained from the child's output,
@@ -270,14 +289,30 @@ public class BindExpression implements AnalysisRuleFactory {
                      group_by_key is bound on t1.a
                     */
                     duplicatedSlotNames.forEach(childOutputsToExpr::remove);
-                    output.stream()
-                            .filter(ne -> ne instanceof Alias)
-                            .map(Alias.class::cast)
-                            // agg function cannot be bound with group_by_key
-                            .filter(alias -> !alias.child()
-                                    .anyMatch(expr -> expr instanceof AggregateFunction))
-                            .forEach(alias -> childOutputsToExpr.putIfAbsent(alias.getName(), alias.child()));
+                    for (int i = 0; i < output.size(); i++) {
+                        if (!(output.get(i) instanceof Alias)) {
+                            continue;
+                        }
+                        Alias alias = (Alias) output.get(i);
+                        if (alias.child().anyMatch(expr -> expr instanceof AggregateFunction)) {
+                            continue;
+                        }
+                        /*
+                            Alias(x) has been bound by binding agg's output
+                            we add x to childOutputsToExpr, so when binding group by exprs later, we can use x directly
+                            and won't bind it again
+                            select
+                              p_cycle_time / (select max(p_cycle_time) from log_event_8)  as 'x',
+                              count(distinct case_id) as 'y'
+                            from
+                              log_event_8
+                            group by
+                              x
+                         */
+                        childOutputsToExpr.putIfAbsent(alias.getName(), output.get(i).child(0));
+                    }
 
+                    Set<Expression> boundedGroupByExpressions = Sets.newHashSet();
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
@@ -285,7 +320,9 @@ public class BindExpression implements AnalysisRuleFactory {
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
                                         if (childOutputsToExpr.containsKey(name)) {
-                                            return childOutputsToExpr.get(name);
+                                            Expression expression = childOutputsToExpr.get(name);
+                                            boundedGroupByExpressions.add(expression);
+                                            return expression;
                                         }
                                     }
                                 }
@@ -318,27 +355,24 @@ public class BindExpression implements AnalysisRuleFactory {
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> {
-                                Expression e = binder.bind(expression);
-                                if (e instanceof UnboundSlot) {
-                                    return childBinder.bind(e);
+                                if (boundedGroupByExpressions.contains(expression)) {
+                                    // expr has been bound by binding agg's output
+                                    return expression;
+                                } else {
+                                    // bind slot for unbound exprs
+                                    Expression e = binder.bind(expression);
+                                    if (e instanceof UnboundSlot) {
+                                        return childBinder.bind(e);
+                                    }
+                                    return e;
                                 }
-                                return e;
                             })
                             .collect(Collectors.toList());
-                    List<Expression> unboundGroupBys = Lists.newArrayList();
-                    Predicate<List<Expression>> hasUnBound = (exprs) -> exprs.stream().anyMatch(
-                            expression -> {
-                                if (expression.anyMatch(UnboundSlot.class::isInstance)) {
-                                    unboundGroupBys.add(expression);
-                                    return true;
-                                }
-                                return false;
-                            });
-                    if (hasUnBound.test(groupBy)) {
-                        throw new AnalysisException("cannot bind GROUP BY KEY: " + unboundGroupBys.get(0).toSql());
-                    }
+                    groupBy.forEach(expression -> checkBoundExceptLambda(expression, ctx.root));
                     groupBy = groupBy.stream()
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            // bind function for unbound exprs or return old expr if it's bound by binding agg's output
+                            .map(expr -> boundedGroupByExpressions.contains(expr) ? expr
+                                    : bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
                     checkIfOutputAliasNameDuplicatedForGroupBy(groupBy, output);
                     return agg.withGroupByAndOutput(groupBy, output);
@@ -348,8 +382,8 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalRepeat().thenApply(ctx -> {
                     LogicalRepeat<Plan> repeat = ctx.root;
                     List<NamedExpression> output = repeat.getOutputExpressions().stream()
-                            .map(expr -> bindSlot(expr, repeat.children(), ctx.cascadesContext))
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindSlot(expr, repeat.child(), ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
 
                     // The columns referenced in group by are first obtained from the child's output,
@@ -381,12 +415,25 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<List<Expression>> groupingSets = replacedGroupingSets
                             .stream()
                             .map(groupingSet -> groupingSet.stream()
-                                    .map(expr -> bindSlot(expr, repeat.children(), ctx.cascadesContext))
-                                    .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                                    .map(expr -> bindSlot(expr, repeat.child(), ctx.cascadesContext))
+                                    .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
                                     .collect(ImmutableList.toImmutableList()))
                             .collect(ImmutableList.toImmutableList());
                     List<NamedExpression> newOutput = adjustNullableForRepeat(groupingSets, output);
                     groupingSets.forEach(list -> checkIfOutputAliasNameDuplicatedForGroupBy(list, newOutput));
+
+                    // check all GroupingScalarFunction inputSlots must be from groupingExprs
+                    Set<Slot> groupingExprs = groupingSets.stream()
+                            .flatMap(Collection::stream).map(expr -> expr.getInputSlots())
+                            .flatMap(Collection::stream).collect(Collectors.toSet());
+                    Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils
+                            .collect(newOutput, GroupingScalarFunction.class::isInstance);
+                    for (GroupingScalarFunction function : groupingScalarFunctions) {
+                        if (!groupingExprs.containsAll(function.getInputSlots())) {
+                            throw new AnalysisException("Column in " + function.getName()
+                                    + " does not exist in GROUP BY clause.");
+                        }
+                    }
                     return repeat.withGroupSetsAndOutput(groupingSets, newOutput);
                 })
             ),
@@ -417,17 +464,25 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalProject<Plan> project = sort.child();
                     return bindSort(sort, project, ctx.cascadesContext);
                 })
-            ), RuleType.BINDING_SORT_SLOT.build(
+            ),
+            RuleType.BINDING_SORT_SLOT.build(
                 logicalSort(logicalCTEConsumer()).thenApply(ctx -> {
                     LogicalSort<LogicalCTEConsumer> sort = ctx.root;
                     LogicalCTEConsumer cteConsumer = sort.child();
                     return bindSort(sort, cteConsumer, ctx.cascadesContext);
                 })
+            ),
+            RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalCTEAnchor()).thenApply(ctx -> {
+                    LogicalSort<LogicalCTEAnchor<Plan, Plan>> sort = ctx.root;
+                    LogicalCTEAnchor<Plan, Plan> cteAnchor = sort.child();
+                    return bindSort(sort, cteAnchor, ctx.cascadesContext);
+                })
             ), RuleType.BINDING_SORT_SLOT.build(
-                logicalSort(logicalCTE()).thenApply(ctx -> {
-                    LogicalSort<LogicalCTE<Plan>> sort = ctx.root;
-                    LogicalCTE<Plan> cteConsumer = sort.child();
-                    return bindSort(sort, cteConsumer, ctx.cascadesContext);
+                logicalSort(logicalOneRowRelation()).thenApply(ctx -> {
+                    LogicalSort<LogicalOneRowRelation> sort = ctx.root;
+                    LogicalOneRowRelation oneRowRelation = sort.child();
+                    return bindSort(sort, oneRowRelation, ctx.cascadesContext);
                 })
             ),
             RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
@@ -437,7 +492,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .stream()
                             .map(orderKey -> {
                                 Expression item = bindSlot(orderKey.getExpr(), sort.child(), ctx.cascadesContext);
-                                item = bindFunction(item, ctx.cascadesContext);
+                                item = bindFunction(item, ctx.root, ctx.cascadesContext);
                                 return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                             }).collect(Collectors.toList());
                     return new LogicalSort<>(sortItemList, sort.child());
@@ -449,10 +504,11 @@ public class BindExpression implements AnalysisRuleFactory {
                     Aggregate<Plan> childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
-                                expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
+                                expr = bindSlot(expr, childPlan.child(), ctx.cascadesContext, false);
                                 return bindSlot(expr, childPlan, ctx.cascadesContext, false);
                             })
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toSet());
                     checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
                             childPlan.getOutputExpressions());
@@ -468,12 +524,33 @@ public class BindExpression implements AnalysisRuleFactory {
                                 expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
                                 return bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
                             })
-                            .map(expr -> bindFunction(expr, ctx.cascadesContext))
+                            .map(expr -> bindFunction(expr, ctx.root, ctx.cascadesContext))
+                            .map(expr -> TypeCoercionUtils.castIfNotSameType(expr, BooleanType.INSTANCE))
                             .collect(Collectors.toSet());
                     checkIfOutputAliasNameDuplicatedForGroupBy(ImmutableList.copyOf(boundConjuncts),
                             childPlan.getOutput().stream().map(NamedExpression.class::cast)
                                     .collect(Collectors.toList()));
                     return new LogicalHaving<>(boundConjuncts, having.child());
+                })
+            ),
+            RuleType.BINDING_INLINE_TABLE_SLOT.build(
+                logicalInlineTable().thenApply(ctx -> {
+                    LogicalInlineTable logicalInlineTable = ctx.root;
+                    // ensure all expressions are valid.
+                    List<LogicalPlan> relations
+                            = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
+                    for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
+                        if (logicalInlineTable.getConstantExprsList().get(i).stream()
+                                .anyMatch(DefaultValueSlot.class::isInstance)) {
+                            throw new AnalysisException("Default expression"
+                                    + " can't exist in SELECT statement at row " + (i + 1));
+                        }
+                        relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                                logicalInlineTable.getConstantExprsList().get(i)));
+                    }
+                    // construct union all tree
+                    return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1,
+                            relations, Qualifier.ALL);
                 })
             ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
@@ -483,7 +560,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     List<NamedExpression> projects = oneRowRelation.getProjects()
                             .stream()
                             .map(project -> bindSlot(project, ImmutableList.of(), ctx.cascadesContext))
-                            .map(project -> bindFunction(project, ctx.cascadesContext))
+                            .map(project -> bindFunction(project, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
                 })
@@ -510,15 +587,22 @@ public class BindExpression implements AnalysisRuleFactory {
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
                     List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
-                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+                    ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList.builder();
+                    Builder<Plan> newChildren = ImmutableList.builder();
                     for (int i = 0; i < childrenProjections.size(); i++) {
+                        Plan newChild;
                         if (childrenProjections.stream().allMatch(SlotReference.class::isInstance)) {
-                            newChildren.add(setOperation.child(i));
+                            newChild = setOperation.child(i);
                         } else {
-                            newChildren.add(new LogicalProject<>(childrenProjections.get(i), setOperation.child(i)));
+                            newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i));
                         }
+                        newChildren.add(newChild);
+                        childrenOutputs.add(newChild.getOutput().stream()
+                                .map(SlotReference.class::cast)
+                                .collect(ImmutableList.toImmutableList()));
                     }
-                    setOperation = (LogicalSetOperation) setOperation.withChildren(newChildren.build());
+                    setOperation = setOperation.withChildrenAndTheirOutputs(
+                            newChildren.build(), childrenOutputs.build());
                     List<NamedExpression> newOutputs = setOperation.buildNewOutputs();
                     return setOperation.withNewOutputs(newOutputs);
                 })
@@ -527,11 +611,11 @@ public class BindExpression implements AnalysisRuleFactory {
                 logicalGenerate().thenApply(ctx -> {
                     LogicalGenerate<Plan> generate = ctx.root;
                     List<Function> boundSlotGenerators
-                            = bindSlot(generate.getGenerators(), generate.children(), ctx.cascadesContext);
+                            = bindSlot(generate.getGenerators(), generate.child(), ctx.cascadesContext);
                     List<Function> boundFunctionGenerators = boundSlotGenerators.stream()
-                            .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.cascadesContext))
+                            .map(f -> bindTableGeneratingFunction((UnboundFunction) f, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    ImmutableList.Builder<Slot> slotBuilder = ImmutableList.builder();
+                    Builder<Slot> slotBuilder = ImmutableList.builder();
                     for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
                         Function generator = boundFunctionGenerators.get(i);
                         UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
@@ -558,11 +642,24 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_RESULT_SINK.build(
-                unboundResultSink().then(sink -> {
-                    List<NamedExpression> outputExprs = sink.child().getOutput().stream()
-                            .map(NamedExpression.class::cast)
-                            .collect(ImmutableList.toImmutableList());
-                    return new LogicalResultSink<>(outputExprs, sink.child());
+                unboundResultSink().thenApply(ctx -> {
+                    LogicalSink<Plan> sink = ctx.root;
+                    if (ctx.connectContext.getState().isQuery()) {
+                        List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                                .map(NamedExpression.class::cast)
+                                .collect(ImmutableList.toImmutableList());
+                        return new LogicalResultSink<>(outputExprs, sink.child());
+                    }
+                    // Should infer column name for expression when query command
+                    final ImmutableListMultimap.Builder<ExprId, Integer> exprIdToIndexMapBuilder =
+                            ImmutableListMultimap.builder();
+                    List<Slot> childOutput = sink.child().getOutput();
+                    for (int index = 0; index < childOutput.size(); index++) {
+                        exprIdToIndexMapBuilder.put(childOutput.get(index).getExprId(), index);
+                    }
+                    InferPlanOutputAlias aliasInfer = new InferPlanOutputAlias(childOutput);
+                    sink.child().accept(aliasInfer, exprIdToIndexMapBuilder.build());
+                    return new LogicalResultSink<>(aliasInfer.getOutputs(), sink.child());
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
@@ -589,7 +686,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 .map(orderKey -> {
                     Expression item = bindSlot(orderKey.getExpr(), plan, ctx, true, false);
                     item = bindSlot(item, plan.children(), ctx, true, false);
-                    item = bindFunction(item, ctx);
+                    item = bindFunction(item, sort, ctx);
                     return new OrderKey(item, orderKey.isAsc(), orderKey.isNullFirst());
                 }).collect(Collectors.toList());
         return new LogicalSort<>(sortItemList, sort.child());
@@ -612,10 +709,13 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private <E extends Expression> List<E> bindSlot(
-            List<E> exprList, List<Plan> inputs, CascadesContext cascadesContext) {
-        return exprList.stream()
-            .map(expr -> bindSlot(expr, inputs, cascadesContext))
-            .collect(Collectors.toList());
+            List<E> exprList, Plan input, CascadesContext cascadesContext) {
+        List<E> slots = new ArrayList<>(exprList.size());
+        for (E expr : exprList) {
+            E result = bindSlot(expr, input, cascadesContext);
+            slots.add(result);
+        }
+        return slots;
     }
 
     private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
@@ -641,9 +741,10 @@ public class BindExpression implements AnalysisRuleFactory {
 
     private <E extends Expression> E bindSlot(E expr, List<Plan> inputs, CascadesContext cascadesContext,
             boolean enableExactMatch, boolean bindSlotInOuterScope) {
-        List<Slot> boundedSlots = inputs.stream()
-                .flatMap(input -> input.getOutput().stream())
-                .collect(Collectors.toList());
+        List<Slot> boundedSlots = new ArrayList<>();
+        for (Plan input : inputs) {
+            boundedSlots.addAll(input.getOutput());
+        }
         return (E) new SlotBinder(toScope(cascadesContext, boundedSlots), cascadesContext,
                 enableExactMatch, bindSlotInOuterScope).bind(expr);
     }
@@ -654,8 +755,9 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     @SuppressWarnings("unchecked")
-    private <E extends Expression> E bindFunction(E expr, CascadesContext cascadesContext) {
-        return (E) FunctionBinder.INSTANCE.rewrite(expr, new ExpressionRewriteContext(cascadesContext));
+    private <E extends Expression> E bindFunction(E expr, Plan plan, CascadesContext cascadesContext) {
+        return (E) FunctionBinder.INSTANCE.rewrite(checkBoundExceptLambda(expr, plan),
+                new ExpressionRewriteContext(cascadesContext));
     }
 
     /**
@@ -693,9 +795,9 @@ public class BindExpression implements AnalysisRuleFactory {
         FunctionRegistry functionRegistry = env.getFunctionRegistry();
 
         String functionName = unboundTVFRelation.getFunctionName();
-        TVFProperties arguments = unboundTVFRelation.getProperties();
+        Properties arguments = unboundTVFRelation.getProperties();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
-        BoundFunction function = functionBuilder.build(functionName, arguments);
+        Expression function = functionBuilder.build(functionName, arguments);
         if (!(function instanceof TableValuedFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
@@ -705,30 +807,29 @@ public class BindExpression implements AnalysisRuleFactory {
     private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
         Set<String> nameSlots = new HashSet<>();
         for (Slot s : childOutputs) {
-            if (nameSlots.contains(s.getName())) {
+            if (nameSlots.contains(s.getInternalName())) {
                 throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
                         + "'" + " in inline view: '" + subQueryAlias + "'");
             } else {
-                nameSlots.add(s.getName());
+                nameSlots.add(s.getInternalName());
             }
         }
     }
 
-    private BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
+    private BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction, Plan plan,
             CascadesContext cascadesContext) {
         List<Expression> boundArguments = unboundFunction.getArguments().stream()
-                .map(e -> bindFunction(e, cascadesContext))
+                .map(e -> bindFunction(e, plan, cascadesContext))
                 .collect(Collectors.toList());
         FunctionRegistry functionRegistry = cascadesContext.getConnectContext().getEnv().getFunctionRegistry();
 
         String functionName = unboundFunction.getName();
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments);
-        BoundFunction function = functionBuilder.build(functionName, boundArguments);
+        Expression function = functionBuilder.build(functionName, boundArguments);
         if (!(function instanceof TableGeneratingFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
         }
-        function = (BoundFunction) TypeCoercionUtils.processBoundFunction(function);
-        return function;
+        return (BoundFunction) TypeCoercionUtils.processBoundFunction((BoundFunction) function);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(List<Expression> expressions,
@@ -755,5 +856,24 @@ public class BindExpression implements AnalysisRuleFactory {
                 && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
             throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
         }
+    }
+
+    private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
+        if (expression instanceof Lambda) {
+            return expression;
+        }
+        if (expression instanceof UnboundSlot) {
+            UnboundSlot unboundSlot = (UnboundSlot) expression;
+            String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+            if (tableName.isEmpty()) {
+                tableName = "table list";
+            }
+            throw new AnalysisException("Unknown column '"
+                    + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
+                    + "' in '" + tableName + "' in "
+                    + plan.getType().toString().substring("LOGICAL_".length()) + " clause");
+        }
+        expression.children().forEach(e -> checkBoundExceptLambda(e, plan));
+        return expression;
     }
 }

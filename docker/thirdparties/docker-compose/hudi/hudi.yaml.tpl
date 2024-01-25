@@ -19,7 +19,10 @@ version: "3.3"
 
 networks:
   doris--hudi:
-    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.37.0.0/24
 
 services:
 

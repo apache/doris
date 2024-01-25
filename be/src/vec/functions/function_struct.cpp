@@ -74,7 +74,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto result_col = block.get_by_position(result).type->create_column();
         auto struct_column = typeid_cast<ColumnStruct*>(result_col.get());
         if (!struct_column) {

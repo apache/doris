@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -26,6 +27,8 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
+import org.apache.doris.catalog.ColocateGroupSchema;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -36,10 +39,13 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -47,6 +53,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -70,18 +77,36 @@ public class AlterTest {
     private static String runningDir = "fe/mocked/AlterTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext connectContext;
-    private static Backend be;
+
+    private static Map<Long, Tag> backendTags;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         Config.enable_storage_policy = true;
-        UtFrameUtils.createDorisCluster(runningDir);
+        Config.disable_balance = true;
+        Config.schedule_batch_size = 400;
+        Config.schedule_slot_num_per_hdd_path = 100;
+        Config.enable_odbc_mysql_broker_table = true;
+        UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
-        be = Env.getCurrentSystemInfo().getIdToBackend().values().asList().get(0);
+        List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
+
+        Map<String, String> tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "group_a");
+        backends.get(2).setTagMap(tagMap);
+        backends.get(3).setTagMap(tagMap);
+
+        tagMap = Maps.newHashMap();
+        tagMap.put(Tag.TYPE_LOCATION, "group_b");
+        backends.get(4).setTagMap(tagMap);
+
+        backendTags = Maps.newHashMap();
+        backends.forEach(be -> backendTags.put(be.getId(), be.getLocationTag()));
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -116,6 +141,37 @@ public class AlterTest {
                 + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
+
+        createTable("CREATE TABLE test.colocate_tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_1');");
+
+        createTable("CREATE TABLE test.colocate_tbl2\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_2');");
+
+        createTable("CREATE TABLE test.colocate_tbl3 (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"colocate_with\" = \"group_3\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"32\",\n"
+                + "\"dynamic_partition.replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");\n");
 
         createTable(
                 "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
@@ -160,6 +216,18 @@ public class AlterTest {
                 "CREATE STORAGE POLICY testPolicy2\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
+        createRemoteStoragePolicy(
+                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
+                        + "  \"cooldown_ttl\" = \"1\"\n" + ");");
+
+        createTable("CREATE TABLE test.tbl_remote1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
+                + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01') ('storage_policy' = 'testPolicy'),\n"
+                + "    PARTITION p3 values less than('2020-04-01'),\n"
+                + "    PARTITION p4 values less than('2020-05-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES" + "(" + "    'replication_num' = '1',\n" + "    'in_memory' = 'false',\n"
+                + "    'storage_medium' = 'SSD',\n" + "    'storage_cooldown_time' = '2100-05-09 00:00:00'\n" + ");");
+
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01'),\n"
@@ -184,7 +252,7 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        Config.enable_odbc_table = true;
+        Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
     }
@@ -249,8 +317,38 @@ public class AlterTest {
     }
 
     @Test
+    public void alterTableModifyRepliaAlloc() throws Exception {
+        String[] tables = new String[]{"test.colocate_tbl1", "test.colocate_tbl2"};
+        final String errChangeReplicaAlloc = "Cannot change replication allocation of colocate table";
+        for (int i = 0; i < tables.length; i++) {
+            String sql = "alter table " + tables[i] + " set ('default.replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt2));
+
+            sql = "alter table " + tables[i] + " modify partition (*) set (\n"
+                + "'replication_allocation' = 'tag.location.default:1')";
+            AlterTableStmt alterTableStmt3 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                    () -> Env.getCurrentEnv().alterTable(alterTableStmt3));
+        }
+
+        String sql = "alter table test.colocate_tbl1 set ('replication_allocation' = 'tag.location.default:1')";
+        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt1));
+
+        sql = "alter table test.colocate_tbl3 set (\n"
+            + "'dynamic_partition.replication_allocation' = 'tag.location.default:1'\n"
+            + " );";
+        AlterTableStmt alterTableStmt4 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
+                () -> Env.getCurrentEnv().alterTable(alterTableStmt4));
+    }
+
+    @Test
     public void alterTableModifyComment() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         Table tbl = db.getTableOrMetaException("tbl5");
 
         // table comment
@@ -330,7 +428,7 @@ public class AlterTest {
                 + "'dynamic_partition.buckets' = '3'\n"
                 + " );";
         alterTable(stmt, false);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertTrue(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
@@ -370,21 +468,16 @@ public class AlterTest {
 
         // set un-partitioned table's real replication num
         // first we need to change be's tag
-        Map<String, String> originTagMap = be.getTagMap();
-        Map<String, String> tagMap = Maps.newHashMap();
-        tagMap.put(Tag.TYPE_LOCATION, "group1");
-        be.setTagMap(tagMap);
         OlapTable tbl2 = (OlapTable) db.getTableOrMetaException("tbl2");
         Partition partition = tbl2.getPartition(tbl2.getName());
         Assert.assertEquals(Short.valueOf("1"),
                 Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
-        stmt = "alter table test.tbl2 set ('replication_allocation' = 'tag.location.group1:1');";
+        stmt = "alter table test.tbl2 set ('replication_allocation' = 'tag.location.group_a:1');";
         alterTable(stmt, false);
         Assert.assertEquals((short) 1, (short) tbl2.getPartitionInfo().getReplicaAllocation(partition.getId())
-                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group1")));
+                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")));
         Assert.assertEquals((short) 1, (short) tbl2.getTableProperty().getReplicaAllocation()
-                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group1")));
-        be.setTagMap(originTagMap);
+                .getReplicaNumByTag(Tag.createNotCheck(Tag.TYPE_LOCATION, "group_a")));
 
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
         // add partition without set replication num, and default num is 3.
@@ -434,7 +527,7 @@ public class AlterTest {
                 + "'dynamic_partition.buckets' = '3'\n"
                 + " );";
         alterTable(stmt, false);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl6");
         Assert.assertTrue(tbl.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals(4, tbl.getIndexIdToSchema().size());
@@ -483,7 +576,7 @@ public class AlterTest {
     // test batch update range partitions' properties
     @Test
     public void testBatchUpdatePartitionProperties() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl4 = (OlapTable) db.getTableOrMetaException("tbl4");
         Partition p1 = tbl4.getPartition("p1");
         Partition p2 = tbl4.getPartition("p2");
@@ -561,7 +654,7 @@ public class AlterTest {
 
     @Test
     public void testAlterRemoteStorageTableDataProperties() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tblRemote = (OlapTable) db.getTableOrMetaException("tbl_remote");
         Partition p1 = tblRemote.getPartition("p1");
         Partition p2 = tblRemote.getPartition("p2");
@@ -597,8 +690,13 @@ public class AlterTest {
         }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
-        // alter remote_storage
+        // alter remote_storage to one not exist policy
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicy3')";
+        alterTable(stmt, true);
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter remote_storage to one another one which points to another resource
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicyAnotherResource')";
         alterTable(stmt, true);
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
@@ -616,6 +714,35 @@ public class AlterTest {
     }
 
     @Test
+    public void testAlterRemoteStorageTableDataPropertiesPolicy() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tblRemote = (OlapTable) db.getTableOrMetaException("tbl_remote1");
+        Partition p1 = tblRemote.getPartition("p1");
+        Partition p2 = tblRemote.getPartition("p2");
+        Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(p2.getId()), "testPolicy");
+        Partition p3 = tblRemote.getPartition("p3");
+        Partition p4 = tblRemote.getPartition("p4");
+
+        DateLiteral dateLiteral = new DateLiteral("2100-05-09 00:00:00", Type.DATETIME);
+        long cooldownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty oldDataPropertyWithPolicy = new DataProperty(TStorageMedium.SSD, cooldownTimeMs, "testPolicy");
+        List<Partition> partitionList = Lists.newArrayList(p1, p3, p4);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(partition.getId()), "");
+        }
+        Assert.assertEquals(oldDataPropertyWithPolicy, tblRemote.getPartitionInfo().getDataProperty(p2.getId()));
+
+        // alter recover to old state
+        String stmt = "alter table test.tbl_remote1 modify partition (p1, p3, p4) set ("
+                + "'storage_policy' = 'testPolicy')";
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(tblRemote.getPartitionInfo().getStoragePolicy(partition.getId()), "testPolicy");
+        }
+
+    }
+
+    @Test
     public void testDynamicPartitionDropAndAdd() throws Exception {
         // test day range
         String stmt = "alter table test.tbl3 set (\n"
@@ -629,7 +756,7 @@ public class AlterTest {
         alterTable(stmt, false);
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl3");
         Assert.assertEquals(4, tbl.getPartitionNames().size());
         Assert.assertNull(tbl.getPartition("p1"));
@@ -681,7 +808,7 @@ public class AlterTest {
                 + ");";
         createTable(createOlapTblStmt);
         String alterStmt = "alter table test." + tableName + " set (\"dynamic_partition.enable\" = \"true\");";
-        String errorMsg = "errCode = 2, detailMessage = Table default_cluster:test.no_dynamic_table is not a dynamic partition table. "
+        String errorMsg = "errCode = 2, detailMessage = Table test.no_dynamic_table is not a dynamic partition table. "
                 + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.";
         alterTableWithExceptionMsg(alterStmt, errorMsg);
         // test set dynamic properties in a no dynamic partition table
@@ -789,7 +916,7 @@ public class AlterTest {
         createTable(stmt2);
         createTable(stmt3);
         createTable(stmt4);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
 
         // table name -> tabletIds
         Map<String, List<Long>> tblNameToTabletIds = Maps.newHashMap();
@@ -901,7 +1028,7 @@ public class AlterTest {
                 + "PROPERTIES(\"replication_num\" = \"1\");";
 
         createTable(stmt);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
 
         String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
         alterTable(modifyBucketNumStmt, false);
@@ -1024,7 +1151,7 @@ public class AlterTest {
         // external table support add column
         stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
         alterTable(stmt, false);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         Table odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
         Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
@@ -1033,20 +1160,20 @@ public class AlterTest {
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k7";
         alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
 
         // external table support modify column
         stmt = "alter table test.odbc_table modify column k6 bigint after k5";
         alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
         Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
 
         // external table support reorder column
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         odbcTable = db.getTableOrMetaException("odbc_table");
         Assert.assertEquals(odbcTable.getBaseSchema().stream()
                 .map(column -> column.getName())
@@ -1077,7 +1204,7 @@ public class AlterTest {
         // external table support rename operation
         stmt = "alter table test.odbc_table rename oracle_table";
         alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         odbcTable = db.getTableNullable("oracle_table");
         Assert.assertNotNull(odbcTable);
         odbcTable = db.getTableNullable("odbc_table");
@@ -1103,7 +1230,7 @@ public class AlterTest {
                 + ");";
         createTable(createOlapTblStmt);
 
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
 
         String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
@@ -1130,6 +1257,145 @@ public class AlterTest {
         String sql = "drop resource remote_s3";
         DropResourceStmt stmt = (DropResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().getResourceMgr().dropResource(stmt);
+    }
+
+    @Test
+    public void testModifyColocateGroupReplicaAlloc() throws Exception {
+        Config.enable_round_robin_create_tablet = true;
+
+        createTable("CREATE TABLE test.col_tbl0\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
+                + "DISTRIBUTED BY HASH(k2) BUCKETS 4\n"
+                + "PROPERTIES('replication_num' = '2', 'colocate_with' = 'mod_group_0');");
+
+        createTable("CREATE TABLE test.col_tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 4\n"
+                + "PROPERTIES('replication_num' = '2', 'colocate_with' = 'mod_group_1');");
+
+        createTable("CREATE TABLE test.col_tbl2 (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 4\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"2\",\n"
+                + "\"colocate_with\" = \"mod_group_2\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"2\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"4\",\n"
+                + "\"dynamic_partition.replication_num\" = \"2\"\n"
+                + ");\n");
+
+        Env env = Env.getCurrentEnv();
+        Database db = env.getInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl2 = (OlapTable) db.getTableOrMetaException("col_tbl2");
+        for (int j = 0; true; j++) {
+            Thread.sleep(2000);
+            if (tbl2.getAllPartitions().size() > 0) {
+                break;
+            }
+            if (j >= 5) {
+                Assert.assertTrue("dynamic table not create partition", false);
+            }
+        }
+
+        RebalancerTestUtil.updateReplicaPathHash();
+
+        ReplicaAllocation newReplicaAlloc = new ReplicaAllocation();
+        newReplicaAlloc.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);
+        newReplicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "group_a"), (short) 1);
+        newReplicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "group_b"), (short) 1);
+
+        for (int i = 0; i < 3; i++) {
+            String groupName = "mod_group_" + i;
+            String sql = "alter colocate group test." + groupName
+                    + " set ( 'replication_allocation' = '" + newReplicaAlloc.toCreateStmt() + "')";
+            String fullGroupName = GroupId.getFullGroupName(db.getId(), groupName);
+            AlterColocateGroupStmt stmt = (AlterColocateGroupStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            DdlExecutor.execute(env, stmt);
+
+            ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(fullGroupName);
+            Assert.assertNotNull(groupSchema);
+            Assert.assertEquals(newReplicaAlloc, groupSchema.getReplicaAlloc());
+
+            OlapTable tbl = (OlapTable) db.getTableOrMetaException("col_tbl" + i);
+            Assert.assertEquals(newReplicaAlloc, tbl.getDefaultReplicaAllocation());
+            for (Partition partition : tbl.getAllPartitions()) {
+                Assert.assertEquals(newReplicaAlloc,
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()));
+            }
+
+            if (i == 2) {
+                Assert.assertEquals(newReplicaAlloc,
+                        tbl.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation());
+            }
+        }
+
+        Config.enable_round_robin_create_tablet = false;
+
+        for (int k = 0; true; k++) {
+            Thread.sleep(1000); // sleep to wait dynamic partition scheduler run
+            boolean allStable = true;
+            for (int i = 0; i < 3; i++) {
+                String fullGroupName = GroupId.getFullGroupName(db.getId(), "mod_group_" + i);
+                ColocateGroupSchema groupSchema = env.getColocateTableIndex().getGroupSchema(fullGroupName);
+                Assert.assertNotNull(groupSchema);
+
+                if (env.getColocateTableIndex().isGroupUnstable(groupSchema.getGroupId())) {
+                    allStable = false;
+                    if (k >= 120) {
+                        Assert.assertTrue(fullGroupName + " is unstable", false);
+                    }
+                    continue;
+                }
+
+                Map<Long, Integer> backendReplicaNum = Maps.newHashMap();
+                OlapTable tbl = (OlapTable) db.getTableOrMetaException("col_tbl" + i);
+                int tabletNum = 0;
+                for (Partition partition : tbl.getAllPartitions()) {
+                    for (MaterializedIndex idx : partition.getMaterializedIndices(
+                                MaterializedIndex.IndexExtState.VISIBLE)) {
+                        for (Tablet tablet : idx.getTablets()) {
+                            Map<Tag, Short> allocMap = Maps.newHashMap();
+                            tabletNum++;
+                            for (Replica replica : tablet.getReplicas()) {
+                                long backendId = replica.getBackendId();
+                                Tag tag = backendTags.get(backendId);
+                                Assert.assertNotNull(tag);
+                                short oldNum = allocMap.getOrDefault(tag, (short) 0);
+                                allocMap.put(tag, (short) (oldNum + 1));
+                                backendReplicaNum.put(backendId, backendReplicaNum.getOrDefault(backendId, 0) + 1);
+                            }
+                            Assert.assertEquals(newReplicaAlloc.getAllocMap(), allocMap);
+                        }
+                    }
+                }
+
+                Assert.assertTrue(tabletNum > 0);
+
+                for (Map.Entry<Long, Integer> entry : backendReplicaNum.entrySet()) {
+                    long backendId = entry.getKey();
+                    int replicaNum = entry.getValue();
+                    Tag tag = backendTags.get(backendId);
+                    int sameTagReplicaNum = tabletNum * newReplicaAlloc.getAllocMap().getOrDefault(tag, (short) 0);
+                    int sameTagBeNum = (int) (backendTags.values().stream().filter(t -> t.equals(tag)).count());
+                    Assert.assertEquals("backend " + backendId + " failed: " + " all backend replica num: "
+                            + backendReplicaNum + ", all backend tag: " + backendTags,
+                            sameTagReplicaNum / sameTagBeNum, replicaNum);
+                }
+            }
+
+            if (allStable) {
+                break;
+            }
+        }
     }
 
     @Test

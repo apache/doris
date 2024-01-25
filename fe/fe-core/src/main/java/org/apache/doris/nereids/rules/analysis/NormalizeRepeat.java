@@ -54,21 +54,24 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** NormalizeRepeat
- * eg: select sum(k2 + 1), grouping(k1) from t1 group by grouping sets ((k1));
+ * eg: select sum(b + 1), grouping(a+1) from t1 group by grouping sets ((b+1));
  * Original Plan:
- *     +-- GroupingSets(
- *         keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
- *         outputs:sum(k2#2 + 1) as `sum(k2 + 1)`#3, group(grouping_prefix(k1#1)#7) as `grouping(k1 + 1)`#4
+ * LogicalRepeat ( groupingSets=[[(a#0 + 1)]],
+ *                 outputExpressions=[sum((b#1 + 1)) AS `sum((b + 1))`#2,
+ *                 Grouping((a#0 + 1)) AS `Grouping((a + 1))`#3] )
+ *      +--LogicalOlapScan (t1)
  *
  * After:
- * Project(sum((k2 + 1)#8) AS `sum((k2 + 1))`#9, grouping(GROUPING_PREFIX_(k1#1)#7)) as `grouping(k1)`#10)
- *   +-- Aggregate(
- *          keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
- *          outputs:[(K2 + 1)#8), grouping_prefix(k1#1)#7]
- *         +-- GropingSets(
- *             keys:[k1#1, grouping_id()#0, grouping_prefix(k1#1)#7]
- *             outputs:k1#1, (k2 + 1)#8, grouping_id()#0, grouping_prefix(k1#1)#7
- *             +-- Project(k1#1, (K2#2 + 1) as `(k2 + 1)`#8)
+ * LogicalAggregate[62] ( groupByExpr=[(a + 1)#4, GROUPING_ID#7, GROUPING_PREFIX_(a + 1)#6],
+ *                        outputExpr=[sum((b + 1)#5) AS `sum((b + 1))`#2,
+ *                                    GROUPING_PREFIX_(a + 1)#6 AS `GROUPING_PREFIX_(a + 1)`#3] )
+ *    +--LogicalRepeat ( groupingSets=[[(a + 1)#4]],
+ *                       outputExpressions=[(a + 1)#4,
+ *                                          (b + 1)#5,
+ *                                          GROUPING_ID#7,
+ *                                          GROUPING_PREFIX_(a + 1)#6] )
+ *      +--LogicalProject[60] ( projects=[(a#0 + 1) AS `(a + 1)`#4, (b#1 + 1) AS `(b + 1)`#5], excepts=[]
+ *          +--LogicalOlapScan ( t1 )
  */
 public class NormalizeRepeat extends OneAnalysisRuleFactory {
     @Override

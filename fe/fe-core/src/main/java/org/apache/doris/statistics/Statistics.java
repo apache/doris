@@ -17,65 +17,36 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 public class Statistics {
-    private static int K_BYTES = 1024;
+    private static final int K_BYTES = 1024;
 
     private final double rowCount;
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
+    private final int widthInJoinCluster;
 
     // the byte size of one tuple
     private double tupleSize;
 
-    @Deprecated
-    private double width;
-
-    @Deprecated
-    private double penalty;
-
-    /**
-     * after filter, compute the new ndv of a column
-     * @param ndv original ndv of column
-     * @param newRowCount the row count of table after filter
-     * @param oldRowCount the row count of table before filter
-     * @return the new ndv after filter
-     */
-    public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
-        if (newRowCount > oldRowCount) {
-            return ndv;
-        }
-        double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
-        double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
-        return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
-    }
-
-    public Statistics(Statistics another) {
-        this.rowCount = another.rowCount;
-        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
-        this.width = another.width;
-        this.penalty = another.penalty;
-    }
-
     public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this.rowCount = rowCount;
-        this.expressionToColumnStats = expressionToColumnStats;
+        this(rowCount, 1, expressionToColumnStats);
     }
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats, double width,
-            double penalty) {
+    public Statistics(double rowCount, int widthInJoinCluster,
+                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
         this.rowCount = rowCount;
+        this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
-        this.width = width;
-        this.penalty = penalty;
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -90,52 +61,46 @@ public class Statistics {
         return rowCount;
     }
 
-    /*
-     * Return a stats with new rowCount and fix each column stats.
-     */
     public Statistics withRowCount(double rowCount) {
-        if (Double.isNaN(rowCount)) {
-            return this;
-        }
-        Statistics statistics = new Statistics(rowCount, new HashMap<>(expressionToColumnStats), width, penalty);
-        statistics.fix(rowCount, StatsMathUtil.nonZeroDivisor(this.rowCount));
-        return statistics;
+        return new Statistics(rowCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
     /**
      * Update by count.
      */
-    public Statistics updateRowCountOnly(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
-        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
-            ColumnStatistic columnStatistic = entry.getValue();
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-            columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
-            columnStatisticBuilder.setCount(rowCount);
-            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
-        }
+    public Statistics withRowCountAndEnforceValid(double rowCount) {
+        Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
+        statistics.enforceValid();
         return statistics;
     }
 
-    /**
-     * Fix by sel.
-     */
-    public void fix(double newRowCount, double originRowCount) {
-        double sel = newRowCount / originRowCount;
+    public void enforceValid() {
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
-            columnStatisticBuilder.setNdv(computeNdv(columnStatistic.ndv, newRowCount, originRowCount));
-            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * sel, newRowCount));
-            columnStatisticBuilder.setCount(newRowCount);
-            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
+            if (!checkColumnStatsValid(columnStatistic)) {
+                double ndv = Math.min(columnStatistic.ndv, rowCount);
+                ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+                columnStatisticBuilder.setNdv(ndv);
+                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
+                columnStatisticBuilder.setCount(rowCount);
+                columnStatistic = columnStatisticBuilder.build();
+                expressionToColumnStats.put(entry.getKey(), columnStatistic);
+            }
         }
+    }
+
+    public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
+        return columnStatistic.ndv <= rowCount
+                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
     }
 
     public Statistics withSel(double sel) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
-        return withRowCount(rowCount * sel);
+        if (Double.isNaN(rowCount)) {
+            return this;
+        }
+        double newCount = rowCount * sel;
+        return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
@@ -143,9 +108,10 @@ public class Statistics {
         return this;
     }
 
-    public Statistics merge(Statistics statistics) {
-        expressionToColumnStats.putAll(statistics.expressionToColumnStats);
-        return this;
+    public boolean isInputSlotsUnknown(Set<Slot> inputs) {
+        return inputs.stream()
+                .allMatch(s -> expressionToColumnStats.containsKey(s)
+                        && expressionToColumnStats.get(s).isUnKnown);
     }
 
     private double computeTupleSize() {
@@ -164,7 +130,9 @@ public class Statistics {
     }
 
     public double dataSizeFactor() {
-        return computeTupleSize() / K_BYTES;
+        double lowerBound = 0.03;
+        double upperBound = 0.07;
+        return Math.min(Math.max(computeTupleSize() / K_BYTES, lowerBound), upperBound);
     }
 
     @Override
@@ -179,23 +147,7 @@ public class Statistics {
             return "-Infinite";
         }
         DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
-    }
-
-    public void setWidth(double width) {
-        this.width = width;
-    }
-
-    public void setPenalty(double penalty) {
-        this.penalty = penalty;
-    }
-
-    public double getWidth() {
-        return width;
-    }
-
-    public double getPenalty() {
-        return penalty;
+        return format.format(rowCount) + " " + widthInJoinCluster;
     }
 
     public int getBENumber() {
@@ -210,25 +162,8 @@ public class Statistics {
         return zero;
     }
 
-    public boolean almostUniqueExpression(Expression expr) {
-        ExpressionEstimation estimator = new ExpressionEstimation();
-        double ndvErrorThreshold = 0.9;
-        ColumnStatistic colStats = expr.accept(estimator, this);
-        if (colStats.ndv > colStats.count * ndvErrorThreshold) {
-            return true;
-        }
-        return false;
-    }
-
-    public boolean isStatsUnknown(Expression expr) {
-        ExpressionEstimation estimator = new ExpressionEstimation();
-        ColumnStatistic colStats = expr.accept(estimator, this);
-        return colStats.isUnKnown;
-    }
-
     /**
      * merge this and other colStats.ndv, choose min
-     * @param other
      */
     public void updateNdv(Statistics other) {
         for (Expression expr : expressionToColumnStats.keySet()) {
@@ -247,10 +182,14 @@ public class Statistics {
         StringBuilder builder = new StringBuilder();
         builder.append(prefix).append("rows=").append(rowCount).append("\n");
         builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
-
+        builder.append(prefix).append("width=").append(widthInJoinCluster).append("\n");
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
         }
         return builder.toString();
+    }
+
+    public int getWidthInJoinCluster() {
+        return widthInJoinCluster;
     }
 }

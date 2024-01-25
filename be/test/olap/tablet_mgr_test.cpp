@@ -41,6 +41,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -54,8 +55,10 @@ class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
-        EXPECT_TRUE(
-                io::global_local_filesystem()->delete_and_create_directory(_engine_data_path).ok());
+        auto st = io::global_local_filesystem()->delete_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(_engine_data_path);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(
                 io::global_local_filesystem()->create_directory(_engine_data_path + "/meta").ok());
 
@@ -65,22 +68,18 @@ public:
         EngineOptions options;
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        k_engine = new StorageEngine(options);
-        _data_dir = new DataDir(_engine_data_path, 1000000000);
-        _data_dir->init();
+        k_engine = std::make_unique<StorageEngine>(options);
+        _data_dir = new DataDir(*k_engine, _engine_data_path, 1000000000);
+        static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
     }
 
     virtual void TearDown() {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-        }
-        SAFE_DELETE(k_engine);
         _tablet_mgr = nullptr;
     }
-    StorageEngine* k_engine = nullptr;
+    std::unique_ptr<StorageEngine> k_engine;
 
 private:
     DataDir* _data_dir = nullptr;
@@ -109,7 +108,8 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    RuntimeProfile profile("CreateTablet");
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
@@ -123,7 +123,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     EXPECT_TRUE(check_meta_st == Status::OK());
 
     // retry create should be successfully
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     Status drop_st = _tablet_mgr->drop_tablet(111, create_tablet_req.replica_id, false);
@@ -155,6 +155,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     col3.__set_aggregation_type(TAggregationType::REPLACE);
     cols.push_back(col3);
 
+    RuntimeProfile profile("CreateTablet");
     TTabletSchema tablet_schema;
     tablet_schema.__set_short_key_column_count(1);
     tablet_schema.__set_schema_hash(3333);
@@ -168,7 +169,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
 
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
@@ -190,6 +191,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
+    RuntimeProfile profile("CreateTablet");
     TColumnType col_type;
     col_type.__set_type(TPrimitiveType::SMALLINT);
     TColumn col1;
@@ -210,7 +212,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs, &profile);
     EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);

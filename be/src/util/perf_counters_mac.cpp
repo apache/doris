@@ -21,6 +21,9 @@ namespace doris {
 
 int64_t PerfCounters::_vm_rss = 0;
 std::string PerfCounters::_vm_rss_str = "";
+int64_t PerfCounters::_vm_hwm = 0;
+int64_t PerfCounters::_vm_peak = 0;
+int64_t PerfCounters::_vm_size = 0;
 
 void PerfCounters::refresh_proc_status() {}
 

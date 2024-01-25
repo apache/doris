@@ -22,12 +22,13 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <string.h>
+#include <streamvbyte.h>
 
+#include <cstring>
 #include <limits>
 #include <type_traits>
-#include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
@@ -122,9 +123,9 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     }
     if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        __int128_t value = StringParser::string_to_int<__int128>(
-                node.large_int_literal.value.c_str(), node.large_int_literal.value.size(),
-                &parse_result);
+        auto value = StringParser::string_to_int<__int128>(node.large_int_literal.value.c_str(),
+                                                           node.large_int_literal.value.size(),
+                                                           &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
             value = MAX_INT128;
         }
@@ -136,6 +137,7 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
         return Float64(node.float_literal.value);
     }
+    LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
 
@@ -161,38 +163,87 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 template <typename T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    return sizeof(uint32_t) + column.size() * sizeof(FieldType);
+    if (be_exec_version >= USE_NEW_SERDE) {
+        auto size = sizeof(T) * column.size();
+        if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            return sizeof(uint32_t) + size;
+        } else {
+            return sizeof(uint32_t) + sizeof(size_t) +
+                   std::max(size, streamvbyte_max_compressedbytes(upper_int32(size)));
+        }
+    } else {
+        return sizeof(uint32_t) + column.size() * sizeof(FieldType);
+    }
 }
 
 template <typename T>
 char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
                                        int be_exec_version) const {
-    // row num
-    const auto row_num = column.size();
-    *reinterpret_cast<uint32_t*>(buf) = row_num;
-    buf += sizeof(uint32_t);
-    // column data
-    auto ptr = column.convert_to_full_column_if_const();
-    const auto* origin_data = assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
-    memcpy(buf, origin_data, row_num * sizeof(FieldType));
-    buf += row_num * sizeof(FieldType);
+    if (be_exec_version >= USE_NEW_SERDE) {
+        // row num
+        const auto mem_size = column.size() * sizeof(T);
+        *reinterpret_cast<uint32_t*>(buf) = mem_size;
+        buf += sizeof(uint32_t);
+        // column data
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto* origin_data = assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(buf, origin_data, mem_size);
+            return buf + mem_size;
+        }
 
-    return buf;
+        auto encode_size =
+                streamvbyte_encode(reinterpret_cast<const uint32_t*>(origin_data),
+                                   upper_int32(mem_size), (uint8_t*)(buf + sizeof(size_t)));
+        *reinterpret_cast<size_t*>(buf) = encode_size;
+        buf += sizeof(size_t);
+        return buf + encode_size;
+    } else {
+        // row num
+        const auto row_num = column.size();
+        *reinterpret_cast<uint32_t*>(buf) = row_num;
+        buf += sizeof(uint32_t);
+        // column data
+        auto ptr = column.convert_to_full_column_if_const();
+        const auto* origin_data = assert_cast<const ColumnVector<T>&>(*ptr.get()).get_data().data();
+        memcpy(buf, origin_data, row_num * sizeof(FieldType));
+        buf += row_num * sizeof(FieldType);
+
+        return buf;
+    }
 }
 
 template <typename T>
 const char* DataTypeNumberBase<T>::deserialize(const char* buf, IColumn* column,
                                                int be_exec_version) const {
-    // row num
-    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
-    buf += sizeof(uint32_t);
-    // column data
-    auto& container = assert_cast<ColumnVector<T>*>(column)->get_data();
-    container.resize(row_num);
-    memcpy(container.data(), buf, row_num * sizeof(FieldType));
-    buf += row_num * sizeof(FieldType);
+    if (be_exec_version >= USE_NEW_SERDE) {
+        // row num
+        uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
+        buf += sizeof(uint32_t);
+        // column data
+        auto& container = assert_cast<ColumnVector<T>*>(column)->get_data();
+        container.resize(mem_size / sizeof(T));
+        if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
+            memcpy(container.data(), buf, mem_size);
+            return buf + mem_size;
+        }
 
-    return buf;
+        size_t encode_size = *reinterpret_cast<const size_t*>(buf);
+        buf += sizeof(size_t);
+        streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
+                           upper_int32(mem_size));
+        return buf + encode_size;
+    } else {
+        // row num
+        uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
+        buf += sizeof(uint32_t);
+        // column data
+        auto& container = assert_cast<ColumnVector<T>*>(column)->get_data();
+        container.resize(row_num);
+        memcpy(container.data(), buf, row_num * sizeof(FieldType));
+        buf += row_num * sizeof(FieldType);
+        return buf;
+    }
 }
 
 template <typename T>

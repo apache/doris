@@ -15,6 +15,12 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
+insert into show_test_do_not_modify.ex_tb0 values (111, 'abc'), (112, 'abd'), (113, 'abe'),(114, 'abf'),(115, 'abg');
+
+insert into show_test_do_not_modify.ex_tb1 values ('{"k1":"v1", "k2":"v2"}');
+
+insert into show_test_do_not_modify.ex_tb2 values (123, '10'), (123, '15'), (123, '20');
+
 insert into doris_test.test1 values
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 0, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
 (true, 'abc', 'efg', '2022-10-01', 3.4, 1, 2, 1, 100000, 1.2, '2022-10-02 12:59:01', 24.000),
@@ -1146,3 +1152,11 @@ VALUES ('2023-06-17 10:00:00', '2023-06-17 10:00:01.1', '2023-06-17 10:00:02.22'
 SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'STRICT_TRANS_TABLES',''));
 INSERT INTO doris_test.dt_null
 VALUES ('2023-06-17 10:00:00'),('0000-00-00 00:00:00');
+
+
+insert into doris_test.test_key_word values (1, 1), (2, 2);
+
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_DATE',''));
+SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'NO_ZERO_IN_DATE',''));
+
+insert into doris_test.test_zd (id,d_z) VALUES (1,'0000-00-00'),(2,'2022-01-01');

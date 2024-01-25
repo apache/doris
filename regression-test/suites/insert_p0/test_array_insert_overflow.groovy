@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_array_insert_overflow") {
+
+    // TODO: remove it after we add implicit cast check in Nereids
+    sql "set enable_nereids_dml=false"
+
     def testTable = "test_array_insert_overflow"
 
     sql """

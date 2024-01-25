@@ -36,12 +36,15 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.planner.external.FileScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -52,6 +55,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -61,6 +65,8 @@ import com.google.common.collect.TreeRangeSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,6 +85,10 @@ public abstract class ScanNode extends PlanNode {
     protected String sortColumn = null;
     protected Analyzer analyzer;
     protected List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
+    protected PartitionInfo partitionsInfo = null;
+
+    // create a mapping between output slot's id and project expr
+    Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
@@ -126,7 +136,8 @@ public abstract class ScanNode extends PlanNode {
         if (PrimitiveType.typeWithPrecision.contains(dstType) && PrimitiveType.typeWithPrecision.contains(srcType)
                 && !slotDesc.getType().equals(expr.getType())) {
             return expr.castTo(slotDesc.getType());
-        } else if (dstType != srcType) {
+        } else if (dstType != srcType || slotDesc.getType().isAggStateType() && expr.getType().isAggStateType()
+                && !slotDesc.getType().equals(expr.getType())) {
             return expr.castTo(slotDesc.getType());
         } else {
             return expr;
@@ -145,6 +156,13 @@ public abstract class ScanNode extends PlanNode {
      */
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
+    // If scan is key search, should not enable the shared scan opt to prevent the performance problem
+    // 1. where contain the eq or in expr of key column slot
+    // 2. key column slot is distribution column and first column
+    protected boolean isKeySearch() {
+        return false;
+    }
+
     /**
      * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
      * In the projection process, some slots may be removed. So call this to update the slots info.
@@ -154,37 +172,60 @@ public abstract class ScanNode extends PlanNode {
             Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
     }
 
-    // TODO(ML): move it into PrunerOptimizer
-    public void computeColumnFilter(List<Column> columns) {
-        for (Column column : columns) {
-            SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
-            if (null == slotDesc) {
-                continue;
-            }
-            // Set `columnFilters` all the time because `DistributionPruner` also use this.
-            // Maybe we could use `columnNameToRange` for `DistributionPruner` and
-            // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
-            PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts);
-            if (null != keyFilter) {
-                columnFilters.put(column.getName(), keyFilter);
-            }
+    private void computeColumnFilter(Column column, SlotDescriptor slotDesc, PartitionInfo partitionsInfo) {
+        // Set `columnFilters` all the time because `DistributionPruner` also use this.
+        // Maybe we could use `columnNameToRange` for `DistributionPruner` and
+        // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
+        PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts, partitionsInfo);
+        if (null != keyFilter) {
+            columnFilters.put(column.getName(), keyFilter);
+        }
 
-            ColumnRange columnRange = createColumnRange(slotDesc, conjuncts);
-            if (columnRange != null) {
-                columnNameToRange.put(column.getName(), columnRange);
+        ColumnRange columnRange = createColumnRange(slotDesc, conjuncts, partitionsInfo);
+        if (columnRange != null) {
+            columnNameToRange.put(column.getName(), columnRange);
+        }
+    }
+
+    // TODO(ML): move it into PrunerOptimizer
+    public void computeColumnsFilter(List<Column> columns, PartitionInfo partitionsInfo) {
+        if (columns.size() > conjuncts.size()) {
+            Set<SlotRef> slotRefs = Sets.newHashSet();
+            for (Expr conjunct : conjuncts) {
+                conjunct.collect(SlotRef.class, slotRefs);
+            }
+            for (SlotRef slotRef : slotRefs) {
+                SlotDescriptor slotDesc = slotRef.getDesc();
+                if (null == slotDesc) {
+                    continue;
+                }
+                Column column = slotDesc.getColumn();
+                if (column == null) {
+                    continue;
+                }
+                computeColumnFilter(column, slotDesc, partitionsInfo);
+            }
+        } else {
+            for (Column column : columns) {
+                SlotDescriptor slotDesc = desc.getColumnSlot(column.getName());
+                if (null == slotDesc) {
+                    continue;
+                }
+                computeColumnFilter(column, slotDesc, partitionsInfo);
             }
         }
     }
 
-    public void computeColumnFilter() {
+    public void computeColumnsFilter() {
         // for load scan node, table is null
+        // partitionsInfo maybe null for other scan node, eg: ExternalScanNode...
         if (desc.getTable() != null) {
-            computeColumnFilter(desc.getTable().getBaseSchema());
+            computeColumnsFilter(desc.getTable().getBaseSchema(), partitionsInfo);
         }
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,
-            List<Expr> conjuncts) {
+            List<Expr> conjuncts, PartitionInfo partitionsInfo) {
         ColumnRange result = ColumnRange.create();
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
@@ -202,7 +243,7 @@ public abstract class ScanNode extends PlanNode {
                 List<Range<ColumnBound>> disjunctiveRanges = Lists.newArrayList();
                 Set<Boolean> hasIsNull = Sets.newHashSet();
                 boolean allMatch = disjunctivePredicates.stream().allMatch(e -> {
-                    ColumnRanges ranges = expressionToRanges(e, desc);
+                    ColumnRanges ranges = expressionToRanges(e, desc, partitionsInfo);
                     switch (ranges.type) {
                         case IS_NULL:
                             hasIsNull.add(true);
@@ -222,7 +263,7 @@ public abstract class ScanNode extends PlanNode {
                 }
             } else {
                 // Try to get column filter from conjunctive predicates.
-                ColumnRanges ranges = expressionToRanges(expr, desc);
+                ColumnRanges ranges = expressionToRanges(expr, desc, partitionsInfo);
                 switch (ranges.type) {
                     case IS_NULL:
                         result.setHasConjunctiveIsNull(true);
@@ -240,7 +281,7 @@ public abstract class ScanNode extends PlanNode {
     }
 
     public static ColumnRanges expressionToRanges(Expr expr,
-            SlotDescriptor desc) {
+            SlotDescriptor desc, PartitionInfo partitionsInfo) {
         if (expr instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) expr;
             if (isNullPredicate.isSlotRefChildren() && !isNullPredicate.isNotNull()) {
@@ -251,8 +292,10 @@ public abstract class ScanNode extends PlanNode {
         List<Range<ColumnBound>> result = Lists.newArrayList();
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binPred = (BinaryPredicate) expr;
-            Expr slotBinding = binPred.getSlotBinding(desc.getId());
-
+            ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
+                    ? partitionsInfo.getPartitionExprs()
+                    : null;
+            Expr slotBinding = binPred.getSlotBinding(desc.getId(), partitionExprs);
             if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                 return ColumnRanges.createFailure();
             }
@@ -305,15 +348,15 @@ public abstract class ScanNode extends PlanNode {
             ColumnRanges rightChildRange = null;
             switch (compoundPredicate.getOp()) {
                 case AND:
-                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
-                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc, partitionsInfo);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc, partitionsInfo);
                     return leftChildRange.intersectRanges(rightChildRange);
                 case OR:
-                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
-                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc);
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc, partitionsInfo);
+                    rightChildRange = expressionToRanges(compoundPredicate.getChild(1), desc, partitionsInfo);
                     return leftChildRange.unionRanges(rightChildRange);
                 case NOT:
-                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc);
+                    leftChildRange = expressionToRanges(compoundPredicate.getChild(0), desc, partitionsInfo);
                     return leftChildRange.complementOfRanges();
                 default:
                     throw new RuntimeException("unknown OP in compound predicate: "
@@ -328,7 +371,8 @@ public abstract class ScanNode extends PlanNode {
         }
     }
 
-    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts) {
+    private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
+            PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
         for (Expr expr : conjuncts) {
             if (!expr.isBound(desc.getId())) {
@@ -341,7 +385,11 @@ public abstract class ScanNode extends PlanNode {
                     continue;
                 }
 
-                Expr slotBinding = binPredicate.getSlotBinding(desc.getId());
+                ArrayList<Expr> partitionExprs = (partitionsInfo != null && partitionsInfo.enableAutomaticPartition())
+                        ? partitionsInfo.getPartitionExprs()
+                        : null;
+                Expr slotBinding = binPredicate.getSlotBinding(desc.getId(), partitionExprs);
+
                 if (slotBinding == null || !slotBinding.isConstant() || !(slotBinding instanceof LiteralExpr)) {
                     continue;
                 }
@@ -561,6 +609,7 @@ public abstract class ScanNode extends PlanNode {
                         }
                         newRhs.add(new SlotRef(slotDesc));
                         allOutputSlotIds.add(slotDesc.getId());
+                        outputSlotToProjectExpr.put(slotDesc.getId(), rhsExpr);
                     } else {
                         newRhs.add(rhs.get(i));
                     }
@@ -569,6 +618,45 @@ public abstract class ScanNode extends PlanNode {
                 }
             }
             outputSmap.updateRhsExprs(newRhs);
+        }
+    }
+
+    @Override
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+        if (outputTupleDesc != null && requiredSlotIdSet != null) {
+            Preconditions.checkNotNull(outputSmap);
+            ArrayList<SlotId> materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
+            Preconditions.checkState(projectList != null && projectList.size() <= materializedSlotIds.size(),
+                    "projectList's size should be less than materializedSlotIds's size");
+            boolean hasNewSlot = false;
+            if (projectList.size() < materializedSlotIds.size()) {
+                // need recreate projectList based on materializedSlotIds
+                hasNewSlot = true;
+            }
+
+            // find new project expr from outputSmap based on requiredSlotIdSet
+            ArrayList<SlotId> allSlots = outputTupleDesc.getAllSlotIds();
+            for (SlotId slotId : requiredSlotIdSet) {
+                if (!materializedSlotIds.contains(slotId) && allSlots.contains(slotId)) {
+                    SlotDescriptor slot = outputTupleDesc.getSlot(slotId.asInt());
+                    for (Expr expr : outputSmap.getRhs()) {
+                        if (expr instanceof SlotRef && ((SlotRef) expr).getSlotId() == slotId) {
+                            slot.setIsMaterialized(true);
+                            outputSlotToProjectExpr.put(slotId, expr.getSrcSlotRef());
+                            hasNewSlot = true;
+                        }
+                    }
+                }
+            }
+
+            if (hasNewSlot) {
+                // recreate the project list
+                projectList.clear();
+                materializedSlotIds = outputTupleDesc.getMaterializedSlotIds();
+                for (SlotId slotId : materializedSlotIds) {
+                    projectList.add(outputSlotToProjectExpr.get(slotId));
+                }
+            }
         }
     }
 
@@ -618,5 +706,33 @@ public abstract class ScanNode extends PlanNode {
         location.setBackendId(be.getId());
         scanRangeLocation.addToLocations(location);
         return scanRangeLocation;
+    }
+
+    // some scan should not enable the shared scan opt to prevent the performance problem
+    // 1. is key search
+    // 2. session variable not enable_shared_scan
+    public boolean shouldDisableSharedScan(ConnectContext context) {
+        return isKeySearch() || context == null
+                || !context.getSessionVariable().getEnableSharedScan()
+                || !context.getSessionVariable().getEnablePipelineEngine()
+                || context.getSessionVariable().getEnablePipelineXEngine()
+                || this instanceof FileScanNode
+                || getShouldColoScan();
+    }
+
+    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+        return context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && context.getSessionVariable().getEnablePipelineXEngine()
+                && !fragment.isHasNullAwareLeftAntiJoin()
+                && getScanRangeNum() < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+    }
+
+    public int getScanRangeNum() {
+        return Integer.MAX_VALUE;
+    }
+
+    public boolean haveLimitAndConjunts() {
+        return hasLimit() && !conjuncts.isEmpty();
     }
 }

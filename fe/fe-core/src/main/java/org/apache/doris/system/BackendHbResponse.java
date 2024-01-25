@@ -37,18 +37,26 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int httpPort;
     @SerializedName(value = "brpcPort")
     private int brpcPort;
+    @SerializedName(value = "arrowFlightSqlPort")
+    private int arrowFlightSqlPort;
     @SerializedName(value = "nodeRole")
     private String nodeRole = Tag.VALUE_MIX;
-    private long beStartTime;
+
+    // We need to broadcast be start time to all frontends,
+    // it will be used to check if query on this backend should be canceled.
+    @SerializedName(value = "beStartTime")
+    private long beStartTime = 0;
     private String host;
     private String version = "";
+    @SerializedName(value = "isShutDown")
+    private boolean isShutDown = false;
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
     public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
-            String version, String nodeRole) {
+            String version, String nodeRole, boolean isShutDown, int arrowFlightSqlPort) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -59,6 +67,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.beStartTime = beStartTime;
         this.version = version;
         this.nodeRole = nodeRole;
+        this.isShutDown = isShutDown;
+        this.arrowFlightSqlPort = arrowFlightSqlPort;
     }
 
     public BackendHbResponse(long beId, String errMsg) {
@@ -92,6 +102,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return brpcPort;
     }
 
+    public int getArrowFlightSqlPort() {
+        return arrowFlightSqlPort;
+    }
+
     public long getBeStartTime() {
         return beStartTime;
     }
@@ -104,6 +118,10 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         return nodeRole;
     }
 
+    public boolean isShutDown() {
+        return isShutDown;
+    }
+
     @Override
     protected void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -111,6 +129,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         bePort = in.readInt();
         httpPort = in.readInt();
         brpcPort = in.readInt();
+        arrowFlightSqlPort = in.readInt();
     }
 
     @Override
@@ -122,6 +141,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         sb.append(", bePort: ").append(bePort);
         sb.append(", httpPort: ").append(httpPort);
         sb.append(", brpcPort: ").append(brpcPort);
+        sb.append(", arrowFlightSqlPort: ").append(arrowFlightSqlPort);
         return sb.toString();
     }
 

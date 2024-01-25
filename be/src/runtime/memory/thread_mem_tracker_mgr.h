@@ -33,17 +33,20 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/stack_util.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
 public:
-    ThreadMemTrackerMgr() {}
+    ThreadMemTrackerMgr() = default;
 
     ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
-        if (_init) flush_untracked_mem();
+        if (_init) {
+            flush_untracked_mem();
+        }
     }
 
     bool init();
@@ -76,7 +79,7 @@ public:
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
-    void consume(int64_t size, bool large_memory_check = false);
+    void consume(int64_t size, int skip_large_memory_check = 0);
     void flush_untracked_mem();
 
     bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
@@ -91,8 +94,8 @@ public:
     }
 
     void disable_wait_gc() { _wait_gc = false; }
-    bool wait_gc() { return _wait_gc; }
-    void cancel_fragment(const std::string& exceed_msg);
+    [[nodiscard]] bool wait_gc() const { return _wait_gc; }
+    void cancel_instance(const std::string& exceed_msg);
 
     std::string print_debug_string() {
         fmt::memory_buffer consumer_tracker_buf;
@@ -107,7 +110,7 @@ public:
     }
 
 private:
-    // is false: ExecEnv::GetInstance()->initialized() = false when thread local is initialized
+    // is false: ExecEnv::ready() = false when thread local is initialized
     bool _init = false;
     // Cache untracked mem.
     int64_t _untracked_mem = 0;
@@ -160,9 +163,9 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     _consumer_tracker_stack.pop_back();
 }
 
-inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
+inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_check) {
     _untracked_mem += size;
-    if (!ExecEnv::GetInstance()->initialized()) {
+    if (!_init && !ExecEnv::ready()) {
         return;
     }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
@@ -174,14 +177,17 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
         !_stop_consume) {
         flush_untracked_mem();
     }
-    // Large memory alloc should use allocator.h
-    // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (large_memory_check && size > doris::config::large_memory_check_bytes) {
+
+    if (skip_large_memory_check == 0 && doris::config::large_memory_check_bytes > 0 &&
+        size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(
-                "malloc or new large memory: {}, looking forward to using Allocator, this is just "
-                "a warning, not prevent memory alloc, stacktrace:\n{}",
-                size, get_stack_trace());
+                "malloc or new large memory: {}, {}, this is just a warning, not prevent memory "
+                "alloc, stacktrace:\n{}",
+                size,
+                is_attach_query() ? "in query or load: " + print_id(_fragment_instance_id)
+                                  : "not in query or load",
+                get_stack_trace());
         _stop_consume = false;
     }
 }

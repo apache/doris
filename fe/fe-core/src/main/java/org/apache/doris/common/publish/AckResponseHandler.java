@@ -30,15 +30,24 @@ public class AckResponseHandler extends ResponseHandler {
         this.listener = listener;
     }
 
+    public AckResponseHandler(Collection<Backend> nodes) {
+        super(nodes);
+        this.listener = null;
+    }
+
     @Override
     public void onResponse(Backend node) {
         super.onResponse(node);
-        listener.onResponse(node);
+        if (listener != null) {
+            listener.onResponse(node);
+        }
     }
 
     @Override
     public void onFailure(Backend node, Throwable t) {
         super.onFailure(node, t);
-        listener.onFailure(node, t);
+        if (listener != null) {
+            listener.onFailure(node, t);
+        }
     }
 }

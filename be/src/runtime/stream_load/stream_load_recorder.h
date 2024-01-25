@@ -52,7 +52,7 @@ public:
 
 private:
     std::string _root_path;
-    rocksdb::DBWithTTL* _db;
+    rocksdb::DBWithTTL* _db = nullptr;
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 
     std::atomic<int64_t> _last_compaction_time;

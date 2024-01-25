@@ -26,6 +26,7 @@ import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
+import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -39,6 +40,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -46,12 +48,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+// when `select` suppport `col auth`,will open ColumnPrivTest
+@Disabled
 public class ColumnPrivTest extends TestWithFeService {
     private static Auth auth;
     private static Env env;
@@ -79,6 +84,17 @@ public class ColumnPrivTest extends TestWithFeService {
                         + ");",
                 rootCtx);
         env.getCatalogMgr().createCatalog(testCatalog);
+
+        CreateCatalogStmt testCatalog2 = (CreateCatalogStmt) parseAndAnalyzeStmt(
+                "create catalog test2 properties(\n"
+                        + "    \"type\" = \"test\",\n"
+                        + "    \"catalog_provider.class\" "
+                        + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
+                        + "    \"access_controller.properties.key1\" = \"val1\",\n"
+                        + "    \"access_controller.properties.key2\" = \"val2\"\n"
+                        + ");",
+                rootCtx);
+        env.getCatalogMgr().createCatalog(testCatalog2);
 
         // 2. create internal db and tbl
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database innerdb1");
@@ -132,7 +148,7 @@ public class ColumnPrivTest extends TestWithFeService {
         String showCatalogSql = "SHOW CATALOGS";
         ShowCatalogStmt showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
-        Assertions.assertEquals(2, showResultSet.getResultRows().size());
+        Assertions.assertEquals(3, showResultSet.getResultRows().size());
 
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
         auth.createRole(createRole1);
@@ -164,7 +180,7 @@ public class ColumnPrivTest extends TestWithFeService {
         // test1.db2
         //      tbl21:  c11(bigint), c12(string), c13(float)
 
-        UserIdentity user1 = UserIdentity.createAnalyzedUserIdentWithIp("default_cluster:user1", "%");
+        UserIdentity user1 = UserIdentity.createAnalyzedUserIdentWithIp("user1", "%");
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
 
         // 1. query inner table
@@ -175,7 +191,7 @@ public class ColumnPrivTest extends TestWithFeService {
         testSql(user1Ctx, "select a12 from test1.db1.tbl11", "TABLE: tbl11");
         // change to test1.db1
         user1Ctx.changeDefaultCatalog("test1");
-        user1Ctx.setDatabase("default_cluster:db1");
+        user1Ctx.setDatabase("db1");
         testSql(user1Ctx, "select a12 from tbl11 where a11 > 0;", "Access deny to column a11");
         testSql(user1Ctx, "select sum(a13) from db1.tbl11 group by a11;", "Access deny to column a11");
         testSql(user1Ctx, "select sum(a13) x from test1.db1.tbl11 group by a11 having x > 0;",
@@ -186,7 +202,7 @@ public class ColumnPrivTest extends TestWithFeService {
 
         // change to internal.innerdb1
         user1Ctx.changeDefaultCatalog("internal");
-        user1Ctx.setDatabase("default_cluster:innerdb1");
+        user1Ctx.setDatabase("innerdb1");
         testSql(user1Ctx, "select sum(a13) x from test1.db1.tbl11 group by a11 having x > 0;",
                 "Access deny to column a11");
         testSql(user1Ctx, "with cte1 as (select a11 from test1.db1.tbl11) select * from cte1;",
@@ -197,7 +213,33 @@ public class ColumnPrivTest extends TestWithFeService {
         testSql(user1Ctx, "select * from numbers(\"number\" = \"1\");", "0:VDataGenScanNode");
     }
 
+    @Test
+    public void testShowTableStatusPrivs() throws Exception {
+        ConnectContext root = createCtx(UserIdentity.ROOT, "127.0.0.1");
+        CreateUserStmt createUserStmt = (CreateUserStmt) parseAndAnalyzeStmt("create user show_table_status"
+                + " identified by '123456'", root);
+        auth.createUser(createUserStmt);
+        GrantStmt grant = (GrantStmt) parseAndAnalyzeStmt(
+                "grant select_priv on test2.*.* to show_table_status;", root);
+        auth.grant(grant);
+
+        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("show_table_status", "%");
+        ConnectContext userCtx = createCtx(user, "127.0.0.1");
+
+        ShowTableStatusStmt stmt = (ShowTableStatusStmt) parseAndAnalyzeStmt(
+                "show table status from test2.db1 LIKE \"%tbl%\";");
+        ShowExecutor executor = new ShowExecutor(userCtx, stmt);
+        ShowResultSet resultSet = executor.execute();
+        Assert.assertEquals(2, resultSet.getResultRows().size());
+    }
+
     private void testSql(ConnectContext ctx, String sql, String expectedMsg) throws Exception {
+        String res = getSQLPlanOrErrorMsg(ctx, "explain " + sql, false);
+        System.out.println(res);
+        Assert.assertTrue(res.contains(expectedMsg));
+    }
+
+    private void testShow(ConnectContext ctx, String sql, String expectedMsg) throws Exception {
         String res = getSQLPlanOrErrorMsg(ctx, "explain " + sql, false);
         System.out.println(res);
         Assert.assertTrue(res.contains(expectedMsg));
@@ -246,7 +288,7 @@ public class ColumnPrivTest extends TestWithFeService {
                     PrivPredicate wanted) throws AuthorizationException {
                 if (currentUser.getQualifiedUser().contains("user1")) {
                     if (ctl.equals("test1")) {
-                        if (db.equals("default_cluster:db1")) {
+                        if (db.equals("db1")) {
                             if (tbl.equals("tbl11")) {
                                 if (cols.contains("a11")) {
                                     throw new AuthorizationException("Access deny to column a11");

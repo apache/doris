@@ -15,14 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.hive.HMSCachedClient;
+
+import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -47,10 +51,13 @@ public abstract class MetastoreEvent {
     protected final String tblName;
 
     // eventId of the event. Used instead of calling getter on event everytime
-    private final long eventId;
+    protected final long eventId;
+
+    // eventTime of the event. Used instead of calling getter on event everytime
+    protected final long eventTime;
 
     // eventType from the NotificationEvent
-    private final MetastoreEventType eventType;
+    protected final MetastoreEventType eventType;
 
     // Actual notificationEvent object received from Metastore
     protected final NotificationEvent metastoreNotificationEvent;
@@ -58,21 +65,24 @@ public abstract class MetastoreEvent {
     protected final String catalogName;
 
     // for test
-    protected MetastoreEvent(long eventId, String catalogName, String dbName, String tblName) {
+    protected MetastoreEvent(long eventId, String catalogName, String dbName,
+                             String tblName, MetastoreEventType eventType) {
         this.eventId = eventId;
+        this.eventTime = -1L;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
-        this.eventType = null;
+        this.eventType = eventType;
         this.metastoreNotificationEvent = null;
         this.event = null;
     }
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
-        this.dbName = event.getDbName();
+        this.dbName = event.getDbName().toLowerCase(Locale.ROOT);
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
+        this.eventTime = event.getEventTime() * 1000L;
         this.eventType = MetastoreEventType.from(event.getEventType());
         this.metastoreNotificationEvent = event;
         this.catalogName = catalogName;
@@ -97,7 +107,6 @@ public abstract class MetastoreEvent {
     /**
      * Checks if the given event can be batched into this event. Default behavior is
      * to return false which can be overridden by a sub-class.
-     * The current version is relatively simple to process batch events, so all that need to be processed are true.
      *
      * @param event The event under consideration to be batched into this event.
      * @return false if event cannot be batched into this event; otherwise true.
@@ -139,7 +148,7 @@ public abstract class MetastoreEvent {
 
     /**
      * Process the information available in the NotificationEvent.
-     * Better not to call (direct/indirect) apis of {@link org.apache.doris.datasource.hive.PooledHiveMetaStoreClient}
+     * Better not to call (direct/indirect) apis of {@link HMSCachedClient}
      * during handling hms events (Reference to https://github.com/apache/doris/pull/19120).
      * Try to add some fallback strategies if it is highly necessary.
      */
@@ -163,8 +172,8 @@ public abstract class MetastoreEvent {
      */
     private Object[] getLogFormatArgs(Object[] args) {
         Object[] formatArgs = new Object[args.length + 2];
-        formatArgs[0] = getEventId();
-        formatArgs[1] = getEventType();
+        formatArgs[0] = eventId;
+        formatArgs[1] = eventType;
         int i = 2;
         for (Object arg : args) {
             formatArgs[i] = arg;
@@ -218,6 +227,13 @@ public abstract class MetastoreEvent {
             name.append(part.get(colName));
         }
         return name.toString();
+    }
+
+    /**
+     * Create a MetaIdMapping list from the event if the event is a create/add/drop event
+     */
+    protected List<MetaIdMappingsLog.MetaIdMapping> transferToMetaIdMappings() {
+        return ImmutableList.of();
     }
 
     @Override

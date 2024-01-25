@@ -25,9 +25,8 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
-               const RowsetMetaSharedPtr& rowset_meta)
-        : _tablet_path(tablet_path), _rowset_meta(rowset_meta), _refs_by_reader(0) {
+Rowset::Rowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta)
+        : _rowset_meta(rowset_meta), _refs_by_reader(0) {
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
         _is_cumulative = false;
@@ -91,6 +90,15 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     for (auto key_bound : key_bounds) {
         _rowset_meta->add_segment_key_bounds(key_bound);
     }
+}
+
+std::string Rowset::get_rowset_info_str() {
+    std::string disk_size = PrettyPrinter::print(
+            static_cast<uint64_t>(_rowset_meta->total_disk_size()), TUnit::BYTES);
+    return fmt::format("[{}-{}] {} {} {} {} {}", start_version(), end_version(), num_segments(),
+                       _rowset_meta->has_delete_predicate() ? "DELETE" : "DATA",
+                       SegmentsOverlapPB_Name(_rowset_meta->segments_overlap()),
+                       rowset_id().to_string(), disk_size);
 }
 
 } // namespace doris

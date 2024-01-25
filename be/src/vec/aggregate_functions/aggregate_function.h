@@ -220,8 +220,11 @@ public:
 
     virtual DataTypePtr get_serialized_type() const { return std::make_shared<DataTypeString>(); }
 
+    virtual void set_version(const int version_) { version = version_; }
+
 protected:
     DataTypes argument_types;
+    int version {};
 };
 
 /// Implement method to obtain an address of 'add' function.
@@ -323,8 +326,8 @@ public:
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
-        serialize_vec(places, offset, writter, num_rows);
+        VectorBufferWriter writer(assert_cast<ColumnString&>(*dst));
+        serialize_vec(places, offset, writer, num_rows);
     }
 
     void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
@@ -341,8 +344,8 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        VectorBufferWriter writter(assert_cast<ColumnString&>(*dst));
-        streaming_agg_serialize(columns, writter, num_rows, arena);
+        VectorBufferWriter writer(assert_cast<ColumnString&>(*dst));
+        streaming_agg_serialize(columns, writer, num_rows, arena);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

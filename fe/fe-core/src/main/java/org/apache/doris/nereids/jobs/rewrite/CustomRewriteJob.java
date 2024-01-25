@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -49,14 +48,17 @@ public class CustomRewriteJob implements RewriteJob {
 
     @Override
     public void execute(JobContext context) {
-        Set<String> disableRules = Job.getDisableRules(context);
-        if (disableRules.contains(ruleType.name().toUpperCase(Locale.ROOT))) {
+        Set<Integer> disableRules = Job.getDisableRules(context);
+        if (disableRules.contains(ruleType.type())) {
             return;
         }
         Plan root = context.getCascadesContext().getRewritePlan();
         // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
         //         root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
+        if (rewrittenRoot == null) {
+            return;
+        }
 
         // don't remove this comment, it can help us to trace some bug when developing.
 

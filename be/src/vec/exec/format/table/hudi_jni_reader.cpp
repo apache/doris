@@ -36,6 +36,7 @@ class Block;
 
 namespace doris::vectorized {
 
+const std::string HudiJniReader::HOODIE_CONF_PREFIX = "hoodie.";
 const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
 
 HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
@@ -67,7 +68,11 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 
     // Use compatible hadoop client to read data
     for (auto& kv : _scan_params.properties) {
-        params[HADOOP_CONF_PREFIX + kv.first] = kv.second;
+        if (kv.first.starts_with(HOODIE_CONF_PREFIX)) {
+            params[kv.first] = kv.second;
+        } else {
+            params[HADOOP_CONF_PREFIX + kv.first] = kv.second;
+        }
     }
 
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner", params,
@@ -75,7 +80,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_nex_block(block, read_rows, eof));
+    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
     if (*eof) {
         RETURN_IF_ERROR(_jni_connector->close());
     }

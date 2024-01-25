@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--clickhouse:
-    image: "clickhouse/clickhouse-server:latest"
+    image: "clickhouse/clickhouse-server:23.3"
     restart: always
     environment:
       CLICKHOUSE_PASSWORD: 123456
@@ -38,11 +38,17 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--clickhouse
-  hello-world:
+  doris--clickhouse-hello-world:
     image: hello-world
     depends_on:
       doris--clickhouse:
-        condition: service_healthy 
+        condition: service_healthy
+    networks:
+      - doris--clickhouse
 
 networks:
   doris--clickhouse:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.35.0.0/24

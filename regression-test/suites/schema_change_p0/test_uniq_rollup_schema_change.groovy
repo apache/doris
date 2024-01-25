@@ -79,7 +79,7 @@ suite ("test_uniq_rollup_schema_change") {
                 `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
                 `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
             UNIQUE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1
+            BUCKETS 8
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "false", 'enable_unique_key_merge_on_write' = 'false');
         """
 
@@ -133,6 +133,13 @@ suite ("test_uniq_rollup_schema_change") {
 
 
     qt_sc """ select count(*) from ${tableName} """
+
+    test {
+        sql "ALTER TABLE ${tableName} DROP COLUMN cost"
+        exception "Can not drop column contained by mv, mv=rollup_cost"
+    }
+
+    sql""" drop materialized view rollup_cost on ${tableName}; """
 
     // drop column
     sql """

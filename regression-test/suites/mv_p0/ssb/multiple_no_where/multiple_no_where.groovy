@@ -120,6 +120,8 @@ suite ("multiple_no_where") {
                 FROM lineorder_flat
                 GROUP BY YEAR, C_NATION,C_REGION,S_REGION,P_MFGR;""")
 
+    createMV ("""create materialized view temp_2 as SELECT lo_orderkey, sum(lo_extendedprice),max(lo_extendedprice), min(lo_extendedprice)  from  lineorder_flat  group by lo_orderkey;""")
+
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE,C_NAME,C_ADDRESS,C_CITY,C_NATION,C_REGION,C_PHONE,C_MKTSEGMENT,S_NAME,S_ADDRESS,S_CITY,S_NATION,S_REGION,S_PHONE,P_NAME,P_MFGR,P_CATEGORY,P_BRAND,P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 2 , 2 , 2 , 2 , 2 ,'2',2 ,2 ,2 ,2 ,2 ,2 ,2 ,2 ,'2023-06-09','shipmode','name','address','city','nation','region','phone','mktsegment','name','address','city','nation','region','phone','name','mfgr','category','brand','color','type',4,'container');"""
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#12', 'MFGR#12', 'brand', 'color', 'type', 4 ,'container');"""
@@ -134,7 +136,7 @@ suite ("multiple_no_where") {
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (1 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
-    qt_select_star "select * from lineorder_flat order by 1,2;"
+    qt_select_star "select * from lineorder_flat order by 1,2, P_MFGR;"
     
     explain {
         sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
@@ -223,4 +225,11 @@ suite ("multiple_no_where") {
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
+
+    explain {
+        sql("""SELECT lo_orderkey, sum(lo_extendedprice),max(lo_extendedprice), min(lo_extendedprice)  from  lineorder_flat  group by lo_orderkey order by lo_orderkey;""")
+        contains "(temp_2)"
+    }
+    qt_select_temp_2 """SELECT lo_orderkey, sum(lo_extendedprice),max(lo_extendedprice), min(lo_extendedprice)  from  lineorder_flat  group by lo_orderkey order by lo_orderkey;"""
+    qt_select """ select min(lo_extendedprice),max(lo_extendedprice) from lineorder_flat;"""
 }

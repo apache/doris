@@ -21,6 +21,9 @@ suite("test_left_join_null", "query") {
 
     def tbName1 = "dept_emp"
     def tbName2 = "departments"
+    
+    sql "drop table if exists ${tbName1}"
+    sql "drop table if exists ${tbName2}"
 
     sql """
            CREATE TABLE IF NOT EXISTS ${tbName1} (

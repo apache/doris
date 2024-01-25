@@ -91,12 +91,25 @@ struct TBrokerCheckPathExistResponse {
     2: required bool isPathExist;
 }
 
+struct TBrokerIsSplittableResponse {
+    1: optional TBrokerOperationStatus opStatus;
+    2: optional bool splittable;
+}
+
 struct TBrokerListPathRequest {
     1: required TBrokerVersion version;
     2: required string path;
     3: required bool isRecursive;
     4: required map<string,string> properties;
     5: optional bool fileNameOnly;
+    6: optional bool onlyFiles;
+}
+
+struct TBrokerIsSplittableRequest {
+    1: optional TBrokerVersion version;
+    2: optional string path;
+    3: optional string inputFormat;
+    4: optional map<string,string> properties;
 }
 
 struct TBrokerDeletePathRequest {
@@ -184,6 +197,13 @@ service TPaloBrokerService {
     
     // return a list of files under a path
     TBrokerListResponse listPath(1: TBrokerListPathRequest request);
+
+    // return located files of a given path. A broker implementation refers to
+    // 'org.apache.doris.fs.remote.RemoteFileSystem#listLocatedFiles' in fe-core.
+    TBrokerListResponse listLocatedFiles(1: TBrokerListPathRequest request);
+
+    // return whether the path with specified input format is splittable.
+    TBrokerIsSplittableResponse isSplittable(1: TBrokerIsSplittableRequest request);
     
     // delete a file, if the deletion of the file fails, the status code will return an error message
     // input:

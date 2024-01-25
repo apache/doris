@@ -30,6 +30,7 @@ import org.apache.doris.regression.suite.event.StackEventListeners
 import org.apache.doris.regression.suite.SuiteScript
 import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
+import org.apache.doris.regression.util.TeamcityUtils
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
@@ -50,9 +51,11 @@ class RegressionTest {
     static GroovyShell shell
     static ExecutorService scriptExecutors
     static ExecutorService suiteExecutors
+    static ExecutorService singleSuiteExecutors
     static ExecutorService actionExecutors
     static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
     static final int cleanLoadedClassesThreshold = 20
+    static String nonConcurrentTestGroup = "nonConcurrent"
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
@@ -63,13 +66,32 @@ class RegressionTest {
         Config config = Config.fromCommandLine(cmd)
         initGroovyEnv(config)
         boolean success = true
+        Integer totalFailure = 0
+        Integer failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString())
+        if (failureLimit <= 0) {
+            failureLimit = Integer.MAX_VALUE
+        }
+
         for (int i = 0; i < config.times; i++) {
             log.info("=== run ${i} time ===")
+            if (config.times > 1) {
+                TeamcityUtils.postfix = i.toString()
+            }
+
             Recorder recorder = runScripts(config)
-            success = printResult(config, recorder)
+            success = (success && printResult(config, recorder))
+
+            if (recorder.getFatalNum() > 0) {
+                break
+            }
+            totalFailure += recorder.getFailureOrFatalNum()
+            if (totalFailure > failureLimit) {
+                break
+            }
         }
         actionExecutors.shutdown()
         suiteExecutors.shutdown()
+        singleSuiteExecutors.shutdown()
         scriptExecutors.shutdown()
         log.info("Test finished")
         if (!success) {
@@ -96,6 +118,12 @@ class RegressionTest {
             .build();
         suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel, suiteFactory)
 
+        BasicThreadFactory singleSuiteFactory = new BasicThreadFactory.Builder()
+            .namingPattern("non-concurrent-thread-%d")
+            .priority(Thread.MAX_PRIORITY)
+            .build();
+        singleSuiteExecutors = Executors.newFixedThreadPool(1, singleSuiteFactory)
+
         BasicThreadFactory actionFactory = new BasicThreadFactory.Builder()
             .namingPattern("action-thread-%d")
             .priority(Thread.MAX_PRIORITY)
@@ -103,6 +131,7 @@ class RegressionTest {
         actionExecutors = Executors.newFixedThreadPool(config.actionParallel, actionFactory)
 
         loadPlugins(config)
+        installDorisCompose(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -131,9 +160,9 @@ class RegressionTest {
         return sources
     }
 
-    static void runScript(Config config, ScriptSource source, Recorder recorder) {
+    static void runScript(Config config, ScriptSource source, Recorder recorder, boolean isSingleThreadScript) {
         def suiteFilter = { String suiteName, String groupName ->
-            canRun(config, suiteName, groupName)
+            canRun(config, suiteName, groupName, isSingleThreadScript)
         }
         def file = source.getFile()
         int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
@@ -144,7 +173,14 @@ class RegressionTest {
             return;
         }
         def eventListeners = getEventListeners(config, recorder)
-        new ScriptContext(file, suiteExecutors, actionExecutors,
+        ExecutorService executors = null
+        if (isSingleThreadScript) {
+            executors = singleSuiteExecutors
+        } else {
+            executors = suiteExecutors
+        }
+
+        new ScriptContext(file, executors, actionExecutors,
                 config, eventListeners, suiteFilter).start { scriptContext ->
             try {
                 SuiteScript suiteScript = source.toScript(scriptContext, shell)
@@ -168,7 +204,26 @@ class RegressionTest {
         scriptSources.eachWithIndex { source, i ->
 //            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
             def future = scriptExecutors.submit {
-                runScript(config, source, recorder)
+                runScript(config, source, recorder, false)
+            }
+            futures.add(future)
+        }
+
+        // wait all scripts
+        for (Future future : futures) {
+            try {
+                future.get()
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
+            }
+        }
+
+        log.info('Start to run single scripts')
+        futures.clear()
+        scriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = scriptExecutors.submit {
+                runScript(config, source, recorder, true)
             }
             futures.add(future)
         }
@@ -192,8 +247,9 @@ class RegressionTest {
                     { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
         }
         log.info('Start to run scripts')
-        runScripts(config, recorder, directoryFilter,
+        runScripts(config, recorder, directoryFilter, 
                 { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
+
         return recorder
     }
 
@@ -228,7 +284,18 @@ class RegressionTest {
         return true
     }
 
-    static boolean canRun(Config config, String suiteName, String group) {
+    static boolean canRun(Config config, String suiteName, String group, boolean isSingleThreadScript) {
+        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet();
+        if (isSingleThreadScript) {
+            if (!suiteGroups.contains(nonConcurrentTestGroup)) {
+                return false
+            }
+        } else {
+            if (suiteGroups.contains(nonConcurrentTestGroup)) {
+                return false
+            }
+        }
+
         return filterGroups(config, group) && filterSuites(config, suiteName)
     }
 
@@ -330,6 +397,23 @@ class RegressionTest {
                 })
             }
         })
+    }
+
+    static void installDorisCompose(Config config) {
+        if (config.excludeDockerTest) {
+            return
+        }
+        def requirements = new File(config.dorisComposePath).getParent() + "/requirements.txt"
+        def cmd = "python -m pip install --user -r " + requirements
+        def proc = cmd.execute()
+        def sout = new StringBuilder()
+        def serr = new StringBuilder()
+        proc.consumeProcessOutput(sout, serr)
+        proc.waitForOrKill(120_000)
+        if (proc.exitValue() != 0) {
+            log.warn("install doris compose requirements failed: code=${proc.exitValue()}, "
+                    + "output: ${sout.toString()}, error: ${serr.toString()}")
+        }
     }
 
     static void printPassed() {

@@ -31,8 +31,8 @@
 #include <string>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/query_statistics.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -48,12 +48,14 @@ class MemTrackerLimiter;
 class MemTracker {
 public:
     struct Snapshot {
-        std::string type = "";
+        std::string type;
         std::string label;
-        std::string parent_label = "";
+        std::string parent_label;
         int64_t limit = 0;
         int64_t cur_consumption = 0;
         int64_t peak_consumption = 0;
+
+        bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
     };
 
     struct TrackerGroup {
@@ -137,6 +139,10 @@ public:
             return;
         }
         _consumption->add(bytes);
+        if (_query_statistics) {
+            _query_statistics->set_max_peak_memory_bytes(_consumption->peak_value());
+            _query_statistics->set_current_used_memory_bytes(_consumption->current_value());
+        }
     }
 
     void consume_no_update_peak(int64_t bytes) { // need extreme fast
@@ -146,6 +152,8 @@ public:
     void release(int64_t bytes) { _consumption->sub(bytes); }
 
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
+
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 public:
     virtual Snapshot make_snapshot() const;
@@ -168,7 +176,7 @@ protected:
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
-    std::shared_ptr<MemCounter> _consumption;
+    std::shared_ptr<MemCounter> _consumption = nullptr;
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;
@@ -179,6 +187,8 @@ protected:
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris

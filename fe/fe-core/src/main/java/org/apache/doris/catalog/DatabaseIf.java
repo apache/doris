@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -30,6 +31,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -148,18 +151,21 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrMetaException(String tableName) throws MetaNotFoundException {
-        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t));
+        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t,
+                                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(long tableId) throws MetaNotFoundException {
-        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
+        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t,
+                                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrMetaException(String tableName, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableName);
-        if (table.getType() != tableType) {
+        TableType type = Objects.requireNonNull(table.getType());
+        if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
-                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
         }
         return table;
     }
@@ -167,7 +173,8 @@ public interface DatabaseIf<T extends TableIf> {
     default T getTableOrMetaException(String tableName, List<TableIf.TableType> tableTypes)
             throws MetaNotFoundException {
         T table = getTableOrMetaException(tableName);
-        if (!tableTypes.contains(table.getType())) {
+        TableType type = Objects.requireNonNull(table.getType());
+        if (!tableTypes.contains(type) && !tableTypes.contains(type.getParentType())) {
             throw new MetaNotFoundException(
                     "Type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
         }
@@ -181,9 +188,10 @@ public interface DatabaseIf<T extends TableIf> {
 
     default T getTableOrMetaException(long tableId, TableIf.TableType tableType) throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
-        if (table.getType() != tableType) {
+        TableType type = Objects.requireNonNull(table.getType());
+        if (type != tableType && type.getParentType() != tableType) {
             throw new MetaNotFoundException(
-                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + type);
         }
         return table;
     }
@@ -191,7 +199,8 @@ public interface DatabaseIf<T extends TableIf> {
     default T getTableOrMetaException(long tableId, List<TableIf.TableType> tableTypes)
             throws MetaNotFoundException {
         T table = getTableOrMetaException(tableId);
-        if (!tableTypes.contains(table.getType())) {
+        TableType type = Objects.requireNonNull(table.getType());
+        if (!tableTypes.contains(type) && !tableTypes.contains(type.getParentType())) {
             throw new MetaNotFoundException(
                     "Type of " + tableId + " doesn't match, expected data tables=" + tableTypes);
         }
@@ -199,21 +208,45 @@ public interface DatabaseIf<T extends TableIf> {
     }
 
     default T getTableOrDdlException(String tableName) throws DdlException {
-        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                                            ErrorCode.ERR_BAD_TABLE_ERROR));
+    }
+
+    default T getTableOrDdlException(String tableName, TableIf.TableType tableType) throws DdlException {
+        T table = getTableOrDdlException(tableName);
+        TableType type = Objects.requireNonNull(table.getType());
+        if (type != tableType && type.getParentType() != tableType) {
+            throw new DdlException(
+                    "table type is not " + tableType + ", tableName=" + tableName + ", type=" + type);
+        }
+        return table;
     }
 
     default T getTableOrDdlException(long tableId) throws DdlException {
-        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                                            ErrorCode.ERR_BAD_TABLE_ERROR));
+    }
+
+    default T getTableOrDdlException(long tableId, TableIf.TableType tableType) throws DdlException {
+        T table = getTableOrDdlException(tableId);
+        TableType type = Objects.requireNonNull(table.getType());
+        if (type != tableType && type.getParentType() != tableType) {
+            throw new DdlException(
+                    "table type is not " + tableType + ", tableId=" + tableId + ", type=" + type);
+        }
+        return table;
     }
 
     default T getTableOrAnalysisException(String tableName) throws AnalysisException {
         return getTableOrException(tableName,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default T getTableOrAnalysisException(long tableId) throws AnalysisException {
         return getTableOrException(tableId,
-                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+                t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t),
+                                ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     default OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
@@ -239,4 +272,6 @@ public interface DatabaseIf<T extends TableIf> {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    Map<Long, TableIf> getIdToTable();
 }

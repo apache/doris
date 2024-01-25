@@ -43,9 +43,9 @@ public:
     VExplodeNumbersTableFunction();
     ~VExplodeNumbersTableFunction() override = default;
 
-    Status process_init(Block* block) override;
-    Status process_row(size_t row_idx) override;
-    Status process_close() override;
+    Status process_init(Block* block, RuntimeState* state) override;
+    void process_row(size_t row_idx) override;
+    void process_close() override;
     void get_value(MutableColumnPtr& column) override;
     int get_value(MutableColumnPtr& column, int max_step) override {
         if (_is_const) {
@@ -53,13 +53,13 @@ public:
             if (_is_nullable) {
                 static_cast<ColumnInt32*>(
                         static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
-                        ->insert_many_from(*_elements_column, _cur_offset, max_step);
+                        ->insert_range_from(*_elements_column, _cur_offset, max_step);
                 static_cast<ColumnUInt8*>(
                         static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                         ->insert_many_defaults(max_step);
             } else {
                 static_cast<ColumnInt32*>(column.get())
-                        ->insert_many_from(*_elements_column, _cur_offset, max_step);
+                        ->insert_range_from(*_elements_column, _cur_offset, max_step);
             }
 
             forward(max_step);

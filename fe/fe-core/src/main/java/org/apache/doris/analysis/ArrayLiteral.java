@@ -30,7 +30,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class ArrayLiteral extends LiteralExpr {
 
@@ -39,14 +41,23 @@ public class ArrayLiteral extends LiteralExpr {
         children = new ArrayList<>();
     }
 
+    public ArrayLiteral(Type type, LiteralExpr... exprs) {
+        this.type = type;
+        children = new ArrayList<>(Arrays.asList(exprs));
+        analysisDone();
+    }
+
     public ArrayLiteral(LiteralExpr... exprs) throws AnalysisException {
         Type itemType = Type.NULL;
         boolean containsNull = true;
         for (LiteralExpr expr : exprs) {
+            if (!ArrayType.ARRAY.supportSubType(expr.getType())) {
+                throw new AnalysisException("Invalid item type in Array, not support " + expr.getType());
+            }
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
             } else {
-                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false);
+                itemType = Type.getAssignmentCompatibleType(itemType, expr.getType(), false, false);
             }
 
             if (expr.isNullable()) {
@@ -122,9 +133,58 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            String stringLiteral;
+            if (v instanceof NullLiteral) {
+                stringLiteral = "null";
+            } else {
+                stringLiteral = getStringLiteralForComplexType(v);
+            }
+            // we should use type to decide we output array is suitable for json format
+            list.add(stringLiteral);
+        });
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
+    public String getStringValueForStreamLoad() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> {
+            String stringLiteral;
+            if (v instanceof NullLiteral) {
+                stringLiteral = "null";
+            } else {
+                stringLiteral = getStringLiteralForStreamLoad(v);
+            }
+            // we should use type to decide we output array is suitable for json format
+            list.add(stringLiteral);
+        });
+        return "[" + StringUtils.join(list, ", ") + "]";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
         msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof ArrayLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+        ArrayLiteral that = (ArrayLiteral) o;
+        return Objects.equals(children, that.children);
     }
 
     @Override

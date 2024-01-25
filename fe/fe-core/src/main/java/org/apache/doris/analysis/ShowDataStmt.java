@@ -244,7 +244,7 @@ public class ShowDataStmt extends ShowStmt {
             }
 
             OlapTable olapTable = (OlapTable) db
-                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
+                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
             long totalSize = 0;
             long totalReplicaCount = 0;
             long totalRemoteSize = 0;
@@ -264,7 +264,7 @@ public class ShowDataStmt extends ShowStmt {
                     long indexRemoteSize = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
-                        indexSize += mIndex.getDataSize();
+                        indexSize += mIndex.getDataSize(false);
                         indexReplicaCount += mIndex.getReplicaCount();
                         indexRowCount += mIndex.getRowCount();
                         indexRemoteSize += mIndex.getRemoteDataSize();

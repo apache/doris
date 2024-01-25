@@ -45,11 +45,12 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "util/string_parser.hpp"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -428,14 +429,14 @@ Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
-                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
+            return Status::IOError("fail to access test file. path={}, errno={}, err={}",
+                                   test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 
@@ -471,8 +472,8 @@ Status read_write_test_file(const std::string& test_file_path) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        return Status::Error<TEST_FILE_ERROR>(
-                "the test file write_buf and read_buf not equal, file_name={}.", test_file_path);
+        return Status::IOError("the test file write_buf and read_buf not equal, file_name={}.",
+                               test_file_path);
     }
     // delete file
     return io::global_local_filesystem()->delete_file(test_file_path);
@@ -623,9 +624,10 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str() << "]";
                     return false;
                 }
-
-                long ms = strtol(what[9].str().c_str(), nullptr, 10);
-                if (ms % ((long)std::pow(10, 6 - scale)) != 0) {
+                auto s9 = what[9].str();
+                s9.resize(6, '0');
+                if (const long ms = strtol(s9.c_str(), nullptr, 10);
+                    ms % static_cast<long>(std::pow(10, 6 - scale)) != 0) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str()
                                  << ", scale = " << scale << "]";
                     return false;
@@ -647,6 +649,14 @@ bool valid_bool(const std::string& value_str) {
     StringParser::ParseResult result;
     StringParser::string_to_bool(value_str.c_str(), value_str.length(), &result);
     return result == StringParser::PARSE_SUCCESS;
+}
+
+bool valid_ipv4(const std::string& value_str) {
+    return IPv4Value::is_valid_string(value_str.c_str(), value_str.size());
+}
+
+bool valid_ipv6(const std::string& value_str) {
+    return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
 }
 
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {

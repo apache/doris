@@ -33,16 +33,15 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -58,7 +57,7 @@ public abstract class Job implements TracerSupplier {
     protected JobType type;
     protected JobContext context;
     protected boolean once;
-    protected final Set<String> disableRules;
+    protected final Set<Integer> disableRules;
 
     protected Map<CTEId, Statistics> cteIdToStats;
 
@@ -86,27 +85,8 @@ public abstract class Job implements TracerSupplier {
         return once;
     }
 
-    /**
-     * Get the rule set of this job. Filter out already applied rules and rules that are not matched on root node.
-     *
-     * @param groupExpression group expression to be applied on
-     * @param candidateRules rules to be applied
-     * @return all rules that can be applied on this group expression
-     */
-    public List<Rule> getValidRules(GroupExpression groupExpression, List<Rule> candidateRules) {
-        return candidateRules.stream()
-                .filter(rule -> Objects.nonNull(rule)
-                        && !disableRules.contains(rule.getRuleType().name())
-                        && rule.getPattern().matchRoot(groupExpression.getPlan())
-                        && groupExpression.notApplied(rule))
-                .collect(ImmutableList.toImmutableList());
-    }
-
-    public List<Rule> getValidRules(List<Rule> candidateRules) {
-        return candidateRules.stream()
-                .filter(rule -> Objects.nonNull(rule)
-                        && !disableRules.contains(rule.getRuleType().name()))
-                .collect(ImmutableList.toImmutableList());
+    public ConnectContext getConnectContext() {
+        return context.getCascadesContext().getConnectContext();
     }
 
     public abstract void execute();
@@ -149,13 +129,8 @@ public abstract class Job implements TracerSupplier {
                 groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }
 
-    public static Set<String> getDisableRules(JobContext context) {
+    public static Set<Integer> getDisableRules(JobContext context) {
         return context.getCascadesContext().getAndCacheSessionVariable(
-                "disableNereidsRules", ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
-    }
-
-    public static boolean isTraceEnable(JobContext context) {
-        return context.getCascadesContext().getAndCacheSessionVariable(
-                "isTraceEnable", false, SessionVariable::isEnableNereidsTrace);
+                SessionVariable.DISABLE_NEREIDS_RULES, ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
     }
 }

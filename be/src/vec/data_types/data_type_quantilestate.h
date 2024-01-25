@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <ostream>
@@ -45,21 +42,23 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-template <typename T>
 class DataTypeQuantileState : public IDataType {
 public:
     DataTypeQuantileState() = default;
     ~DataTypeQuantileState() override = default;
-    using ColumnType = ColumnQuantileState<T>;
-    using FieldType = QuantileState<T>;
+    using ColumnType = ColumnQuantileState;
+    using FieldType = QuantileState;
 
     std::string do_get_name() const override { return get_family_name(); }
     const char* get_family_name() const override { return "QuantileState"; }
 
     TypeIndex get_type_id() const override { return TypeIndex::QuantileState; }
-    PrimitiveType get_type_as_primitive_type() const override { return TYPE_QUANTILE_STATE; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::QUANTILE_STATE;
+    TypeDescriptor get_type_as_type_descriptor() const override {
+        return TypeDescriptor(TYPE_QUANTILE_STATE);
+    }
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
@@ -82,8 +81,6 @@ public:
     }
     bool have_maximum_size_of_value() const override { return false; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     bool can_be_inside_low_cardinality() const override { return false; }
@@ -93,22 +90,18 @@ public:
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    [[noreturn]] virtual Field get_default() const override {
-        LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
-        __builtin_unreachable();
-    }
+    Field get_default() const override { return QuantileState(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for quantilestate";
+        __builtin_unreachable();
     }
 
-    static void serialize_as_stream(const QuantileState<T>& value, BufferWritable& buf);
+    static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
-    static void deserialize_as_stream(QuantileState<T>& value, BufferReadable& buf);
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeQuantileStateSerDe<T>>();
+    static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
     };
 };
-using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;
-
 } // namespace doris::vectorized

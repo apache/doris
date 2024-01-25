@@ -29,8 +29,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/file_cache_manager.h"
-#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
@@ -42,39 +41,19 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
 using namespace ErrorCode;
 
-using io::FileCacheManager;
-
-std::string BetaRowset::segment_file_path(int segment_id) {
-#ifdef BE_TEST
-    if (!config::file_cache_type.empty()) {
-        return segment_file_path(_tablet_path, rowset_id(), segment_id);
-    }
-#endif
+std::string BetaRowset::segment_file_path(int segment_id) const {
     return segment_file_path(_rowset_dir, rowset_id(), segment_id);
-}
-
-std::string BetaRowset::segment_cache_path(int segment_id) {
-    // {root_path}/data/{shard_id}/{tablet_id}/{schema_hash}/{rowset_id}_{seg_num}
-    return fmt::format("{}/{}_{}", _tablet_path, rowset_id().to_string(), segment_id);
-}
-
-// just check that the format is xxx_segmentid and segmentid is numeric
-bool BetaRowset::is_segment_cache_dir(const std::string& cache_dir) {
-    auto segment_id_pos = cache_dir.find_last_of('_') + 1;
-    if (segment_id_pos >= cache_dir.size() || segment_id_pos == 0) {
-        return false;
-    }
-    return std::all_of(cache_dir.cbegin() + segment_id_pos, cache_dir.cend(), ::isdigit);
 }
 
 std::string BetaRowset::segment_file_path(const std::string& rowset_dir, const RowsetId& rowset_id,
                                           int segment_id) {
-    // {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
+    // {rowset_dir}/{rowset_id}_{seg_num}.dat
     return fmt::format("{}/{}_{}.dat", rowset_dir, rowset_id.to_string(), segment_id);
 }
 
@@ -99,13 +78,7 @@ std::string BetaRowset::local_segment_path_segcompacted(const std::string& table
 
 BetaRowset::BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
                        const RowsetMetaSharedPtr& rowset_meta)
-        : Rowset(schema, tablet_path, rowset_meta) {
-    if (_rowset_meta->is_local()) {
-        _rowset_dir = tablet_path;
-    } else {
-        _rowset_dir = remote_tablet_path(_rowset_meta->tablet_id());
-    }
-}
+        : Rowset(schema, rowset_meta), _rowset_dir(tablet_path) {}
 
 BetaRowset::~BetaRowset() = default;
 
@@ -116,6 +89,26 @@ Status BetaRowset::init() {
 Status BetaRowset::do_load(bool /*use_cache*/) {
     // do nothing.
     // the segments in this rowset will be loaded by calling load_segments() explicitly.
+    return Status::OK();
+}
+
+Status BetaRowset::get_inverted_index_size_by_index_id(int64_t index_id, size_t* index_size) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>("get fs failed");
+    }
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto seg_path = segment_file_path(seg_id);
+        int64_t file_size = 0;
+        const auto* index = _schema->get_inverted_index_with_index_id(index_id, "");
+        if (index == nullptr || index->index_type() != IndexType::INVERTED) {
+            continue;
+        }
+        std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_name(
+                seg_path, index_id, index->get_index_suffix());
+        RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+        *index_size += file_size;
+    }
     return Status::OK();
 }
 
@@ -138,28 +131,34 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
 
 Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    int64_t seg_id = seg_id_begin;
+    while (seg_id < seg_id_end) {
+        std::shared_ptr<segment_v2::Segment> segment;
+        RETURN_IF_ERROR(load_segment(seg_id, &segment));
+        segments->push_back(std::move(segment));
+        seg_id++;
+    }
+    return Status::OK();
+}
+
+Status BetaRowset::load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    int64_t seg_id = seg_id_begin;
-    while (seg_id < seg_id_end) {
-        DCHECK(seg_id >= 0);
-        auto seg_path = segment_file_path(seg_id);
-        std::shared_ptr<segment_v2::Segment> segment;
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        auto type = config::enable_file_cache ? config::file_cache_type : "";
-        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
-                         << unique_id() << " : " << s.to_string();
-            return s;
-        }
-        segments->push_back(std::move(segment));
-        seg_id++;
+    DCHECK(seg_id >= 0);
+    auto seg_path = segment_file_path(seg_id);
+    io::FileReaderOptions reader_options {
+            .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                    : io::FileCachePolicy::NO_CACHE,
+            .is_doris_table = true,
+    };
+    auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema, reader_options,
+                                       segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
+                     << " : " << s.to_string();
+        return s;
     }
     return Status::OK();
 }
@@ -172,9 +171,12 @@ Status BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
 
 Status BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
-    VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
+    VLOG_NOTICE << "begin to remove files in rowset " << rowset_id()
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
+    // If the rowset was removed, it need to remove the fds in segment cache directly
+    SegmentLoader::instance()->erase_segments(_rowset_meta->rowset_id(),
+                                              _rowset_meta->num_segments());
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -190,27 +192,24 @@ Status BetaRowset::remove() {
             success = false;
         }
         for (auto& column : _schema->columns()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_name(
-                        seg_path, index_meta->index_id());
+                        seg_path, index_meta->index_id(), index_meta->get_index_suffix());
                 st = fs->delete_file(inverted_index_file);
                 if (!st.ok()) {
                     LOG(WARNING) << st.to_string();
                     success = false;
                 } else {
-                    segment_v2::InvertedIndexSearcherCache::instance()->erase(inverted_index_file);
+                    RETURN_IF_ERROR(segment_v2::InvertedIndexSearcherCache::instance()->erase(
+                            inverted_index_file));
                 }
             }
-        }
-        if (fs->type() != io::FileSystemType::LOCAL) {
-            auto cache_path = segment_cache_path(i);
-            FileCacheManager::instance()->remove_file_cache(cache_path);
         }
     }
     if (!success) {
         return Status::Error<ROWSET_DELETE_FILE_FAILED>("failed to remove files in rowset {}",
-                                                        unique_id());
+                                                        rowset_id().to_string());
     }
     return Status::OK();
 }
@@ -230,21 +229,40 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     if (fs->type() != io::FileSystemType::LOCAL) {
         return Status::InternalError("should be local file system");
     }
+
+    Status status;
+    std::vector<string> linked_success_files;
+    Defer remove_linked_files {[&]() { // clear linked files if errors happen
+        if (!status.ok()) {
+            LOG(WARNING) << "will delete linked success files due to error " << status;
+            std::vector<io::Path> paths;
+            for (auto& file : linked_success_files) {
+                paths.emplace_back(file);
+                LOG(WARNING) << "will delete linked success file " << file << " due to error";
+            }
+            static_cast<void>(fs->batch_delete(paths));
+            LOG(WARNING) << "done delete linked success files due to error " << status;
+        }
+    }};
+
     io::LocalFileSystem* local_fs = (io::LocalFileSystem*)fs.get();
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
         bool dst_path_exist = false;
         if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
-            return Status::Error<FILE_ALREADY_EXIST>(
+            status = Status::Error<FILE_ALREADY_EXIST>(
                     "failed to create hard link, file already exist: {}", dst_path);
+            return status;
         }
         auto src_path = segment_file_path(i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
         if (!local_fs->link_file(src_path, dst_path).ok()) {
-            return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
-                                           src_path, dst_path);
+            status = Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
+                                             src_path, dst_path, Errno::no());
+            return status;
         }
+        linked_success_files.push_back(dst_path);
         for (auto& index : _schema->indexes()) {
             if (index.index_type() != IndexType::INVERTED) {
                 continue;
@@ -254,29 +272,35 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
             if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
                 continue;
             }
-            std::string inverted_index_src_file_path =
-                    InvertedIndexDescriptor::get_index_file_name(src_path, index_id);
-            std::string inverted_index_dst_file_path =
-                    InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
-            bool need_to_link = true;
-            if (_schema->skip_write_index_on_load()) {
-                local_fs->exists(inverted_index_src_file_path, &need_to_link);
-                if (!need_to_link) {
-                    LOG(INFO) << "skip create hard link to not existed file="
-                              << inverted_index_src_file_path;
-                }
-            }
-            if (need_to_link) {
+            std::string inverted_index_src_file_path = InvertedIndexDescriptor::get_index_file_name(
+                    src_path, index_id, index.get_index_suffix());
+            std::string inverted_index_dst_file_path = InvertedIndexDescriptor::get_index_file_name(
+                    dst_path, index_id, index.get_index_suffix());
+            bool index_file_exists = true;
+            RETURN_IF_ERROR(local_fs->exists(inverted_index_src_file_path, &index_file_exists));
+            if (index_file_exists) {
+                DBUG_EXECUTE_IF(
+                        "fault_inject::BetaRowset::link_files_to::_link_inverted_index_file", {
+                            status = Status::Error<OS_ERROR>(
+                                    "fault_inject link_file error from={}, to={}",
+                                    inverted_index_src_file_path, inverted_index_dst_file_path);
+                            return status;
+                        });
                 if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
                              .ok()) {
-                    return Status::Error<OS_ERROR>(
+                    status = Status::Error<OS_ERROR>(
                             "fail to create hard link. from={}, to={}, errno={}",
                             inverted_index_src_file_path, inverted_index_dst_file_path,
                             Errno::no());
+                    return status;
                 }
+                linked_success_files.push_back(inverted_index_dst_file_path);
                 LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
                           << ", "
                           << "to=" << inverted_index_dst_file_path;
+            } else {
+                LOG(WARNING) << "skip create hard link to not existed index file="
+                             << inverted_index_src_file_path;
             }
         }
     }
@@ -293,18 +317,18 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
             return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
         }
         auto src_path = segment_file_path(i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(src_path, dst_path));
+        RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string inverted_index_src_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(src_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                src_path, index_meta->index_id(), index_meta->get_index_suffix());
                 std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(dst_path,
-                                                                     index_meta->index_id());
-                RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(
+                        InvertedIndexDescriptor::get_index_file_name(
+                                dst_path, index_meta->index_id(), index_meta->get_index_suffix());
+                RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
                         inverted_index_src_file_path, inverted_index_dst_file_path));
                 LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path << ", "
                           << "to=" << inverted_index_dst_file_path;
@@ -331,14 +355,16 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
         local_paths.push_back(local_seg_path);
         for (auto& column : _schema->columns()) {
             // if (column.has_inverted_index()) {
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
+            const TabletIndex* index_meta = _schema->get_inverted_index(column);
             if (index_meta) {
                 std::string remote_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(remote_seg_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                remote_seg_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
                 std::string local_inverted_index_file =
-                        InvertedIndexDescriptor::get_index_file_name(local_seg_path,
-                                                                     index_meta->index_id());
+                        InvertedIndexDescriptor::get_index_file_name(
+                                local_seg_path, index_meta->index_id(),
+                                index_meta->get_index_suffix());
                 dest_paths.push_back(remote_inverted_index_file);
                 local_paths.push_back(local_inverted_index_file);
             }
@@ -389,10 +415,10 @@ bool BetaRowset::check_current_rowset_segment() {
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        auto type = config::enable_file_cache ? config::file_cache_type : "";
-        io::FileReaderOptions reader_options(io::cache_type_from_string(type), cache_policy);
+        io::FileReaderOptions reader_options {
+                .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                        : io::FileCachePolicy::NO_CACHE,
+                .is_doris_table = true};
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
                                            reader_options, &segment);
         if (!s.ok()) {

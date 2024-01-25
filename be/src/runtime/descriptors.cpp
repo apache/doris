@@ -31,6 +31,7 @@
 #include <memory>
 
 #include "common/object_pool.h"
+#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -59,12 +60,15 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
+          _col_type(thrift_to_type(tdesc.primitive_type)),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
           _is_key(tdesc.is_key),
           _need_materialize(tdesc.need_materialize),
-          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false) {}
+          _column_paths(tdesc.column_paths),
+          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -75,11 +79,13 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
+          _col_type(static_cast<PrimitiveType>(pdesc.col_type())),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _need_materialize(true),
+          _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
@@ -97,6 +103,10 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
+    pslot->set_col_type(_col_type);
+    for (const std::string& path : _column_paths) {
+        pslot->add_column_paths(path);
+    }
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
@@ -255,17 +265,25 @@ JdbcTableDescriptor::JdbcTableDescriptor(const TTableDescriptor& tdesc)
           _jdbc_url(tdesc.jdbcTable.jdbc_url),
           _jdbc_table_name(tdesc.jdbcTable.jdbc_table_name),
           _jdbc_user(tdesc.jdbcTable.jdbc_user),
-          _jdbc_passwd(tdesc.jdbcTable.jdbc_password) {}
+          _jdbc_passwd(tdesc.jdbcTable.jdbc_password),
+          _jdbc_min_pool_size(tdesc.jdbcTable.jdbc_min_pool_size),
+          _jdbc_max_pool_size(tdesc.jdbcTable.jdbc_max_pool_size),
+          _jdbc_max_idle_time(tdesc.jdbcTable.jdbc_max_idle_time),
+          _jdbc_max_wait_time(tdesc.jdbcTable.jdbc_max_wait_time),
+          _jdbc_keep_alive(tdesc.jdbcTable.jdbc_keep_alive) {}
 
 std::string JdbcTableDescriptor::debug_string() const {
     fmt::memory_buffer buf;
     fmt::format_to(buf,
                    "JDBCTable({} ,_jdbc_resource_name={} ,_jdbc_driver_url={} "
                    ",_jdbc_driver_class={} ,_jdbc_driver_checksum={} ,_jdbc_url={} "
-                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={})",
+                   ",_jdbc_table_name={} ,_jdbc_user={} ,_jdbc_passwd={} ,_jdbc_min_pool_size={} "
+                   ",_jdbc_max_pool_size={} ,_jdbc_max_idle_time={} ,_jdbc_max_wait_time={} "
+                   ",_jdbc_keep_alive={})",
                    TableDescriptor::debug_string(), _jdbc_resource_name, _jdbc_driver_url,
                    _jdbc_driver_class, _jdbc_driver_checksum, _jdbc_url, _jdbc_table_name,
-                   _jdbc_user, _jdbc_passwd);
+                   _jdbc_user, _jdbc_passwd, _jdbc_min_pool_size, _jdbc_max_pool_size,
+                   _jdbc_max_idle_time, _jdbc_max_wait_time, _jdbc_keep_alive);
     return fmt::to_string(buf);
 }
 

@@ -33,7 +33,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/data_dir.h"
-
+#include "olap/storage_engine.h"
 using std::string;
 
 namespace doris {
@@ -46,7 +46,8 @@ public:
     virtual void SetUp() {
         std::string root_path = "./store";
         EXPECT_TRUE(std::filesystem::create_directory(root_path));
-        _data_dir = new (std::nothrow) DataDir(root_path);
+        _engine = std::make_unique<StorageEngine>(EngineOptions {});
+        _data_dir = new (std::nothrow) DataDir(*_engine, root_path);
         EXPECT_NE(nullptr, _data_dir);
         Status st = _data_dir->init();
         EXPECT_TRUE(st.ok());
@@ -68,6 +69,7 @@ public:
     }
 
 private:
+    std::unique_ptr<StorageEngine> _engine;
     DataDir* _data_dir;
     std::string _json_header;
 };
@@ -140,7 +142,8 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
     int64_t max_version = 300;
     gen1(max_rst_id, max_seg_id, 10);
     for (int64_t ver = 0; ver < max_version; ++ver) {
-        TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver);
+        static_cast<void>(
+                TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver));
     }
     size_t num_keys = 0;
     auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, const string& val) {
@@ -160,22 +163,29 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
         ++num_keys;
         return true;
     };
-    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(),
+                                                                load_delete_bitmap_func));
     EXPECT_EQ(num_keys, max_version);
 
     num_keys = 0;
-    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 100);
-    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    static_cast<void>(
+            TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 100));
+    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(),
+                                                                load_delete_bitmap_func));
     EXPECT_EQ(num_keys, max_version - 101);
 
     num_keys = 0;
-    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 200);
-    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    static_cast<void>(
+            TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 200));
+    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(),
+                                                                load_delete_bitmap_func));
     EXPECT_EQ(num_keys, max_version - 201);
 
     num_keys = 0;
-    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, INT64_MAX);
-    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    static_cast<void>(TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id,
+                                                                          INT64_MAX));
+    static_cast<void>(TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(),
+                                                                load_delete_bitmap_func));
     EXPECT_EQ(num_keys, 0);
 }
 

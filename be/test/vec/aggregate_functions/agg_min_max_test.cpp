@@ -78,12 +78,12 @@ TEST_P(AggMinMaxTest, min_max_test) {
 
 TEST_P(AggMinMaxTest, min_max_decimal_test) {
     std::string min_max_type = GetParam();
-    auto data_type = std::make_shared<DataTypeDecimal<Decimal128>>();
+    auto data_type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {
         column_vector_decimal128->insert(
-                cast_to_nearest_field_type(DecimalField<Decimal128>(Decimal128(i), 9)));
+                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9)));
     }
 
     // Prepare test function and parameters.
@@ -102,9 +102,9 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     }
 
     // Check result.
-    ColumnDecimal128 ans(0, 9);
+    ColumnDecimal128V2 ans(0, 9);
     agg_function->insert_result_into(place, ans);
-    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value);
     agg_function->destroy(place);
 
     auto dst = agg_function->create_serialize_column();
@@ -114,13 +114,13 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     AggregateDataPtr places = memory2.get();
     agg_function->deserialize_from_column(places, *dst, nullptr, agg_test_batch_size);
 
-    ColumnDecimal128 result(0, 9);
+    ColumnDecimal128V2 result(0, 9);
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
         agg_function->insert_result_into(places + agg_function->size_of_data() * i, result);
     }
 
     for (size_t i = 0; i != agg_test_batch_size; ++i) {
-        EXPECT_EQ(i, result.get_element(i));
+        EXPECT_EQ(i, result.get_element(i).value);
     }
 }
 

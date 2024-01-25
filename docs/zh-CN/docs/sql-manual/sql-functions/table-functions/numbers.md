@@ -1,6 +1,6 @@
 ---
 {
-    "title": "numbers",
+    "title": "NUMBERS",
     "language": "zh-CN"
 }
 ---
@@ -28,25 +28,23 @@ under the License.
 
 ### description
 
-表函数，生成一张只含有一列的临时表，列名为`number`，行的值为[0,n)。
-
-该函数用于from子句中。
+表函数，生成一张只含有一列的临时表，列名为`number`，如果指定了`const_value`，则所有元素值均为`const_value`，否则为[0,`number`)递增。
 
 #### syntax
 ```sql
 numbers(
-  "number" = "n",
-  "backend_num" = "m"
+  "number" = "n"
+  <, "const_value" = "x">
   );
 ```
 
 参数：
-- `number`: 代表生成[0,n)的行。
-- `backend_num`: 可选参数,代表`m`个be节点同时执行该函数（需要部署多个be）。
+- `number`: 行数。
+- `const_value` : 常量值。
 
 ### example
 ```
-mysql> select * from numbers("number" = "10");
+mysql> select * from numbers("number" = "5");
 +--------+
 | number |
 +--------+
@@ -55,16 +53,24 @@ mysql> select * from numbers("number" = "10");
 |      2 |
 |      3 |
 |      4 |
-|      5 |
-|      6 |
-|      7 |
-|      8 |
-|      9 |
 +--------+
+5 rows in set (0.11 sec)
+
+mysql> select * from numbers("number" = "5", "const_value" = "-123");
++--------+
+| number |
++--------+
+|   -123 |
+|   -123 |
+|   -123 |
+|   -123 |
+|   -123 |
++--------+
+5 rows in set (0.12 sec)
 ```
 
 ### keywords
 
-    numbers
+    numbers, const_value
 
 

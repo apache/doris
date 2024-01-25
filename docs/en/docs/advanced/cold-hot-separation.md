@@ -32,7 +32,7 @@ A big usage scenario in the future is similar to the es log storage. In the log 
 1. The price of ordinary cloud disks of cloud manufacturers is higher than that of object storage
 2. In the actual online use of the doris cluster, the utilization rate of ordinary cloud disks cannot reach 100%
 3. Cloud disk is not paid on demand, but object storage can be paid on demand
-4. High availability based on ordinary cloud disks requires multiple replicas, and a replica migration is required for a replica exception. This problem does not exist when data is placed on the object store, because the object store is shared。
+4. High availability based on ordinary cloud disks requires multiple replicas, and a replica migration is required for a replica exception. This problem does not exist when data is placed on the object store, because the object store is shared.
 
 ## Solution
 Set the freeze time on the partition level to indicate how long the partition will be frozen, and define the location of remote storage stored after the freeze. On the be, the daemon thread will periodically determine whether the table needs to be frozen. If it does, it will upload the data to s3.
@@ -46,7 +46,7 @@ The cold and hot separation supports all doris functions, but only places some d
 - Remote object space recycling recycler. If the table and partition are deleted, or the space is wasted due to abnormal conditions in the cold and hot separation process, the recycler thread will periodically recycle, saving storage resources
 - Cache optimization, which caches the accessed cold data to be local, achieving the query performance of non cold and hot separation
 - Be thread pool optimization, distinguish whether the data source is local or object storage, and prevent the delay of reading objects from affecting query performance
-- newly created materialized view would inherit storage policy from it's base table's correspoding partition
+- newly created materialized view would inherit storage policy from it's base table's corresponding partition
 
 ## Storage policy
 
@@ -58,7 +58,7 @@ In addition, fe configuration needs to be added: `enable_storage_policy=true`
 
 Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
-For example:
+This is an instance that how to create S3 RESOURCE：
 
 ```
 CREATE RESOURCE "remote_s3"
@@ -94,6 +94,36 @@ PROPERTIES(
     "storage_policy" = "test_policy"
 );
 ```
+and how to create HDFS RESOURCE：
+```
+CREATE RESOURCE "remote_hdfs" PROPERTIES (
+        "type"="hdfs",
+        "fs.defaultFS"="fs_host:default_fs_port",
+        "hadoop.username"="hive",
+        "hadoop.password"="hive",
+        "dfs.nameservices" = "my_ha",
+        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_prot",
+        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    );
+
+    CREATE STORAGE POLICY test_policy PROPERTIES (
+        "storage_resource" = "remote_hdfs",
+        "cooldown_ttl" = "300"
+    )
+
+    CREATE TABLE IF NOT EXISTS create_table_use_created_policy (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048)
+    )
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH (k1) BUCKETS 3
+    PROPERTIES(
+    "storage_policy" = "test_policy"
+    );
+```
 Or for an existing table, associate the storage policy
 ```
 ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");
@@ -102,6 +132,7 @@ Or associate a storage policy with an existing partition
 ```
 ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");
 ```
+**Note**: If the user specifies different storage policies for the entire table and certain partitions during table creation, the storage policy set for the partitions will be ignored, and all partitions of the table will use the table's policy. If you need a specific partition to have a different policy than the others, you can modify it by associating the partition with the desired storage policy, as mentioned earlier in the context of modifying an existing partition.
 For details, please refer to the [resource](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md), [policy](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY.md), create table, alter and other documents in the docs directory
 
 ### Some restrictions
@@ -152,3 +183,28 @@ The be parameter `remove_unused_remote_files_interval_sec` can set the garbage c
 
 - Currently, there is no way to query the tables associated with a specific storage policy.
 - The acquisition of some remote occupancy indicators is not perfect enough.
+
+## FAQ
+
+1. ERROR 1105 (HY000): errCode = 2, detailMessage = Failed to create repository: connect to s3 failed: Unable to marshall request to JSON: host must not be null.
+
+S3 SDK uses virtual-hosted style by default. However, some object storage systems (such as minio) may not be enabled or support virtual-hosted style access. In this case, we can add the use_path_style parameter to force the use of path style:
+
+```text
+CREATE RESOURCE "remote_s3"
+PROPERTIES
+(
+    "type" = "s3",
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000",
+    "use_path_style" = "true"
+);
+```
+

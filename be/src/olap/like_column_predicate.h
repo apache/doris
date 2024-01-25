@@ -47,6 +47,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 } // namespace segment_v2
 
+template <PrimitiveType T>
 class LikeColumnPredicate : public ColumnPredicate {
 public:
     LikeColumnPredicate(bool opposite, uint32_t column_id, doris::FunctionContext* fn_ctx,
@@ -59,6 +60,10 @@ public:
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* roaring) const override {
         return Status::OK();
+    }
+
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == T || (is_string_type(input_type) && is_string_type(T));
     }
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
@@ -110,15 +115,15 @@ private:
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                     if constexpr (is_and) {
                         unsigned char flag = 0;
-                        (_state->scalar_function)(
+                        static_cast<void>((_state->scalar_function)(
                                 const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] &= _opposite ^ flag;
                     } else {
                         unsigned char flag = 0;
-                        (_state->scalar_function)(
+                        static_cast<void>((_state->scalar_function)(
                                 const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] = _opposite ^ flag;
                     }
                 }
@@ -134,15 +139,15 @@ private:
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                     if constexpr (is_and) {
                         unsigned char flag = 0;
-                        (_state->scalar_function)(
+                        static_cast<void>((_state->scalar_function)(
                                 const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] &= _opposite ^ flag;
                     } else {
                         unsigned char flag = 0;
-                        (_state->scalar_function)(
+                        static_cast<void>((_state->scalar_function)(
                                 const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                StringRef(cell_value.data, cell_value.size), pattern, &flag);
+                                StringRef(cell_value.data, cell_value.size), pattern, &flag));
                         flags[i] = _opposite ^ flag;
                     }
                 }
@@ -162,7 +167,7 @@ private:
     using StateType = vectorized::LikeState;
     StringRef pattern;
 
-    StateType* _state;
+    StateType* _state = nullptr;
 
     // A separate scratch region is required for every concurrent caller of the
     // Hyperscan API. So here _like_state is separate for each instance of

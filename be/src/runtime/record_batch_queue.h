@@ -59,6 +59,8 @@ public:
     // Shut down the queue. Wakes up all threads waiting on blocking_get or blocking_put.
     void shutdown();
 
+    size_t size() { return _queue.get_size(); }
+
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;
     SpinLock _status_lock;

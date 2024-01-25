@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -59,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -88,8 +91,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         this.childrenOutputProperties = Objects.requireNonNull(childrenOutputProperties);
     }
 
-    public PhysicalProperties getOutputProperties(GroupExpression groupExpression) {
-        return groupExpression.getPlan().accept(this, new PlanContext(groupExpression));
+    public PhysicalProperties getOutputProperties(ConnectContext connectContext, GroupExpression groupExpression) {
+        return groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
     }
 
     @Override
@@ -124,17 +127,32 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalEsScan(PhysicalEsScan esScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
+    }
+
+    /**
+     * TODO return ANY after refactor coordinator
+     * return STORAGE_ANY not ANY, in order to generate distribute on jdbc scan.
+     * select * from (select * from external.T) as A union all (select * from external.T)
+     * if visitPhysicalJdbcScan returns ANY, the plan is
+     * union
+     *  |--- JDBCSCAN
+     *  +--- JDBCSCAN
+     *  this breaks coordinator assumption that one fragment has at most only one scan.
+     */
+    @Override
+    public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
-    public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
-        return PhysicalProperties.ANY;
+    public PhysicalProperties visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, PlanContext context) {
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override
@@ -239,18 +257,32 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             DistributionSpecHash leftHashSpec = (DistributionSpecHash) leftOutputProperty.getDistributionSpec();
             DistributionSpecHash rightHashSpec = (DistributionSpecHash) rightOutputProperty.getDistributionSpec();
 
-            // colocate join
-            if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
-                    && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
-                    return new PhysicalProperties(DistributionSpecHash.merge(leftHashSpec, rightHashSpec));
-                }
+            switch (hashJoin.getJoinType()) {
+                case INNER_JOIN:
+                case CROSS_JOIN:
+                    return new PhysicalProperties(DistributionSpecHash.merge(
+                            leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
+                case LEFT_SEMI_JOIN:
+                case LEFT_ANTI_JOIN:
+                case NULL_AWARE_LEFT_ANTI_JOIN:
+                case LEFT_OUTER_JOIN:
+                    return new PhysicalProperties(leftHashSpec);
+                case RIGHT_SEMI_JOIN:
+                case RIGHT_ANTI_JOIN:
+                case RIGHT_OUTER_JOIN:
+                    if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec)) {
+                        return new PhysicalProperties(rightHashSpec);
+                    } else {
+                        // retain left shuffle type, since coordinator use left most node to schedule fragment
+                        // forbid colocate join, since right table already shuffle
+                        return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                                leftHashSpec.getShuffleType()));
+                    }
+                case FULL_OUTER_JOIN:
+                    return PhysicalProperties.ANY;
+                default:
+                    throw new AnalysisException("unknown join type " + hashJoin.getJoinType());
             }
-
-            // shuffle, if left child is natural mean current join is bucket shuffle join
-            // and remain natural for colocate join on upper join.
-            return new PhysicalProperties(DistributionSpecHash.merge(
-                    leftHashSpec, rightHashSpec, leftHashSpec.getShuffleType()));
         }
 
         throw new RuntimeException("Could not derive hash join's output properties. join: " + hashJoin);
@@ -323,8 +355,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalPartitionTopN(PhysicalPartitionTopN<? extends Plan> partitionTopN,
             PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
-        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
+        DistributionSpec childDistSpec = childrenOutputProperties.get(0).getDistributionSpec();
+
+        if (partitionTopN.getPhase().isTwoPhaseLocal() || partitionTopN.getPhase().isOnePhaseGlobal()) {
+            return new PhysicalProperties(childDistSpec);
+        } else {
+            Preconditions.checkState(partitionTopN.getPhase().isTwoPhaseGlobal(),
+                    "partition topn phase is not two phase global");
+            Preconditions.checkState(childDistSpec instanceof DistributionSpecHash,
+                    "child dist spec is not hash spec");
+
+            return new PhysicalProperties(childDistSpec, new OrderSpec(partitionTopN.getOrderKeys()));
+        }
     }
 
     @Override
@@ -348,9 +390,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
-            for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
+            for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
-                        .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
+                        .getOrDefault(setOperation.getRegularChildOutput(i).get(j).getExprId(), -1);
                 if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {

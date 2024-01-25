@@ -27,8 +27,6 @@ public class AvroProperties {
     protected static final String REQUIRED_FIELDS = "required_fields";
     protected static final String FILE_TYPE = "file_type";
     protected static final String URI = "uri";
-    protected static final String S3_BUCKET = "s3.virtual.bucket";
-    protected static final String S3_KEY = "s3.virtual.key";
     protected static final String S3_ACCESS_KEY = "s3.access_key";
     protected static final String S3_SECRET_KEY = "s3.secret_key";
     protected static final String S3_ENDPOINT = "s3.endpoint";
@@ -36,5 +34,12 @@ public class AvroProperties {
     protected static final String HIVE_SERDE = "hive.serde";
     protected static final String COLUMNS = "columns";
     protected static final String COLUMNS2TYPES = "columns.types";
+    protected static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    protected static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    protected static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    protected static final String FS_S3A_REGION = "fs.s3a.region";
+    protected static final String SPLIT_START_OFFSET = "split_start_offset";
+    protected static final String SPLIT_SIZE = "split_size";
+    protected static final String SPLIT_FILE_SIZE = "split_file_size";
 
 }

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
@@ -88,6 +89,10 @@ public class MysqlScanNode extends ExternalScanNode {
             return output.toString();
         }
         output.append(prefix).append("Query: ").append(getMysqlQueryStr()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 
@@ -140,7 +145,7 @@ public class MysqlScanNode extends ExternalScanNode {
         }
         ArrayList<Expr> mysqlConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : mysqlConjuncts) {
-            filters.add(p.toMySql());
+            filters.add(p.toExternalSql(TableType.MYSQL, null));
         }
     }
 

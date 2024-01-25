@@ -31,9 +31,6 @@ public class Snapshot {
     @SerializedName(value = "jobInfo")
     private byte[] jobInfo = null;
 
-    @SerializedName(value = "createTime")
-    private String createTime = null;
-
     public Snapshot() {
     }
 
@@ -63,7 +60,6 @@ public class Snapshot {
                 + "label='" + label + '\''
                 + ", meta=" + meta
                 + ", jobInfo=" + jobInfo
-                + ", createTime='" + createTime + '\''
                 + '}';
     }
 }

@@ -45,7 +45,9 @@ public class ColumnType {
         LARGEINT(16),
         FLOAT(4),
         DOUBLE(8),
+        DATE(8),
         DATEV2(4),
+        DATETIME(8),
         DATETIMEV2(8),
         CHAR(-1),
         VARCHAR(-1),
@@ -74,8 +76,8 @@ public class ColumnType {
     // only used in char & varchar
     private final int length;
     // only used in decimal
-    private final int precision;
-    private final int scale;
+    private int precision;
+    private int scale;
 
     public ColumnType(String name, Type type) {
         this.name = name;
@@ -161,6 +163,19 @@ public class ColumnType {
         return type == Type.STRUCT;
     }
 
+    public boolean isDateV2() {
+        return type == Type.DATEV2;
+    }
+
+    public boolean isDateTimeV2() {
+        return type == Type.DATETIMEV2;
+    }
+
+    public boolean isPrimitive() {
+        return type == Type.BOOLEAN || type == Type.BYTE || type == Type.TINYINT || type == Type.SMALLINT
+                || type == Type.INT || type == Type.BIGINT || type == Type.FLOAT || type == Type.DOUBLE;
+    }
+
     public Type getType() {
         return type;
     }
@@ -173,8 +188,16 @@ public class ColumnType {
         return length;
     }
 
+    public void setPrecision(int precision) {
+        this.precision = precision;
+    }
+
     public int getPrecision() {
         return precision;
+    }
+
+    public void setScale(int scale) {
+        this.scale = scale;
     }
 
     public int getScale() {
@@ -211,7 +234,7 @@ public class ColumnType {
         }
     }
 
-    private static final Pattern digitPattern = Pattern.compile("(\\d+)");
+    private static final Pattern digitPattern = Pattern.compile("\\((\\d+)\\)");
 
     private static int findNextNestedField(String commaSplitFields) {
         int numLess = 0;
@@ -264,42 +287,52 @@ public class ColumnType {
             case "double":
                 type = Type.DOUBLE;
                 break;
+            case "datev1":
+                type = Type.DATE;
+                break;
             case "date":
+            case "datev2":
                 type = Type.DATEV2;
                 break;
+            case "datetimev1":
+                type = Type.DATETIME;
+                break;
             case "binary":
+            case "bytes":
                 type = Type.BINARY;
                 break;
             case "string":
                 type = Type.STRING;
                 break;
             default:
-                if (lowerCaseType.startsWith("timestamp")) {
+                if (lowerCaseType.startsWith("timestamp")
+                        || lowerCaseType.startsWith("datetime")
+                        || lowerCaseType.startsWith("datetimev2")) {
                     type = Type.DATETIMEV2;
                     precision = 6; // default
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
-                        precision = Integer.parseInt(match.group(1));
+                        precision = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("char")) {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.CHAR;
-                        length = Integer.parseInt(match.group(1));
+                        length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("varchar")) {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.VARCHAR;
-                        length = Integer.parseInt(match.group(1));
+                        length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("decimal")) {
                     int s = lowerCaseType.indexOf('(');
                     int e = lowerCaseType.indexOf(')');
                     if (s != -1 && e != -1) {
                         String[] ps = lowerCaseType.substring(s + 1, e).split(",");
-                        precision = Integer.parseInt(ps[0]);
-                        scale = Integer.parseInt(ps[1]);
+                        precision = Integer.parseInt(ps[0].trim());
+                        scale = Integer.parseInt(ps[1].trim());
                         if (lowerCaseType.startsWith("decimalv2")) {
                             type = Type.DECIMALV2;
                         } else if (lowerCaseType.startsWith("decimal32")) {
@@ -333,8 +366,9 @@ public class ColumnType {
                         String keyValue = lowerCaseType.substring(4, lowerCaseType.length() - 1);
                         int index = findNextNestedField(keyValue);
                         if (index != keyValue.length() && index != 0) {
-                            ColumnType keyType = parseType("key", keyValue.substring(0, index));
-                            ColumnType valueType = parseType("value", keyValue.substring(index + 1));
+                            ColumnType keyType = parseType("key", keyValue.substring(0, index).trim());
+                            ColumnType valueType =
+                                    parseType("value", keyValue.substring(index + 1).trim());
                             ColumnType mapType = new ColumnType(columnName, Type.MAP);
                             mapType.setChildTypes(Arrays.asList(keyType, valueType));
                             return mapType;

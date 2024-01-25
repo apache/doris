@@ -269,4 +269,154 @@ suite("test_bitmap_index") {
         }
     }
     sql "DROP TABLE ${tbName3} FORCE;"
+
+    // test bitmap index on MOR, and delete row after insert
+    def tbName4 = "test_bitmap_index_unique_mor_delete"
+        sql "DROP TABLE IF EXISTS ${tbName4}"
+        sql """
+                CREATE TABLE ${tbName4} (
+                    create_time datetime NOT NULL COMMENT '',
+                    vid varchar(64) NOT NULL COMMENT '',
+                    report_time datetime NULL COMMENT '',
+                    block_version int(11) NULL COMMENT '',
+                    vehicle_mode int(11) NULL COMMENT '',
+                    usage_mode int(11) NULL COMMENT ''
+                ) ENGINE=OLAP
+                UNIQUE KEY(create_time, vid, report_time)
+                DISTRIBUTED BY HASH(vid) BUCKETS AUTO
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "is_being_synced" = "false",
+                "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "false",
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "false",
+                "enable_single_replica_compaction" = "false"
+                );
+            """
+            // test mor table
+
+        sql """
+                ALTER TABLE ${tbName4} ADD INDEX vid_bitmap_index (vid) USING BITMAP;
+            """
+        max_try_secs = 60
+        while (max_try_secs--) {
+            String res = getJobState(tbName4)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                sleep(3000)
+                break
+            } else {
+                Thread.sleep(1000)
+                if (max_try_secs < 1) {
+                    println "test timeout," + "state:" + res
+                    assertEquals("FINISHED",res)
+                }
+            }
+        }
+
+        sql "insert into ${tbName4}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 10:00:00','123','2023-08-25 10:00:00',1,1,1);"
+        sql "insert into ${tbName4}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 11:00:00','123','2023-08-25 11:00:00',2,2,2);"
+        sql "insert into ${tbName4}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 12:00:00','123','2023-08-25 12:00:00',3,3,3);"
+        qt_sql "desc ${tbName4};"
+        qt_sql "SHOW INDEX FROM ${tbName4};"
+        sql "delete from ${tbName4} where vid='123' and report_time='2023-08-25 12:00:00' and create_time='2023-08-25 12:00:00';"
+        qt_sql "select count(*) from ${tbName4}; "
+        qt_sql "select count(*) from ${tbName4} where vid='123'; "
+        qt_sql "select count(*) from ${tbName4} where create_time>='2023-08-25 10:00:00';"
+        qt_sql "select count(CASE when vid='123' then 1 else null end) from ${tbName4} where vid='123';"
+        qt_sql "select * from ${tbName4} where vid='123' order by create_time;"
+
+        sql "DROP INDEX IF EXISTS index1 ON ${tbName4};"
+        max_try_secs = 60
+        while (max_try_secs--) {
+            String res = getJobState(tbName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                sleep(3000)
+                break
+            } else {
+                Thread.sleep(1000)
+                if (max_try_secs < 1) {
+                    println "test timeout," + "state:" + res
+                    assertEquals("FINISHED",res)
+                }
+            }
+        }
+        sql "DROP TABLE ${tbName4} FORCE;"
+
+        // test bitmap index on MOW, and delete row after insert
+        def tbName5 = "test_bitmap_index_unique_mow_delete"
+        sql "DROP TABLE IF EXISTS ${tbName5}"
+        sql """
+                CREATE TABLE ${tbName5} (
+                    create_time datetime NOT NULL COMMENT '',
+                    vid varchar(64) NOT NULL COMMENT '',
+                    report_time datetime NULL COMMENT '',
+                    block_version int(11) NULL COMMENT '',
+                    vehicle_mode int(11) NULL COMMENT '',
+                    usage_mode int(11) NULL COMMENT ''
+                ) ENGINE=OLAP
+                UNIQUE KEY(create_time, vid, report_time)
+                COMMENT 'OLAP'
+                DISTRIBUTED BY HASH(vid) BUCKETS AUTO
+                PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "is_being_synced" = "false",
+                "storage_format" = "V2",
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "false",
+                "enable_unique_key_merge_on_write" = "true",
+                "enable_single_replica_compaction" = "false"
+                );
+            """
+
+        sql """
+                ALTER TABLE ${tbName5} ADD INDEX vid_bitmap_index (vid) USING BITMAP;
+            """
+        max_try_secs = 60
+        while (max_try_secs--) {
+            String res = getJobState(tbName5)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                sleep(3000)
+                break
+            } else {
+                Thread.sleep(1000)
+                if (max_try_secs < 1) {
+                    println "test timeout," + "state:" + res
+                    assertEquals("FINISHED",res)
+                }
+            }
+        }
+
+        sql "insert into ${tbName5}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 10:00:00','123','2023-08-25 10:00:00',1,1,1);"
+        sql "insert into ${tbName5}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 11:00:00','123','2023-08-25 11:00:00',2,2,2);"
+        sql "insert into ${tbName5}(create_time,vid,report_time,block_version,vehicle_mode,usage_mode) values('2023-08-25 12:00:00','123','2023-08-25 12:00:00',3,3,3);"
+        qt_sql "desc ${tbName5};"
+        qt_sql "SHOW INDEX FROM ${tbName5};"
+        sql "delete from ${tbName5} where vid='123' and report_time='2023-08-25 12:00:00' and create_time='2023-08-25 12:00:00';"
+        qt_sql "select count(*) from ${tbName5}; "
+        qt_sql "select count(*) from ${tbName5} where vid='123'; "
+        qt_sql "select count(*) from ${tbName5} where create_time>='2023-08-25 10:00:00';"
+        qt_sql "select count(CASE when vid='123' then 1 else null end) from ${tbName5} where vid='123';"
+        qt_sql "select * from ${tbName5} where vid='123' order by create_time;"
+
+        sql "DROP INDEX IF EXISTS index1 ON ${tbName5};"
+        max_try_secs = 60
+        while (max_try_secs--) {
+            String res = getJobState(tbName3)
+            if (res == "FINISHED" || res == "CANCELLED") {
+                assertEquals("FINISHED", res)
+                sleep(3000)
+                break
+            } else {
+                Thread.sleep(1000)
+                if (max_try_secs < 1) {
+                    println "test timeout," + "state:" + res
+                    assertEquals("FINISHED",res)
+                }
+            }
+        }
+        sql "DROP TABLE ${tbName5} FORCE;"
 }

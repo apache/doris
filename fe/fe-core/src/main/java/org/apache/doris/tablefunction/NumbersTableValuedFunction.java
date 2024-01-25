@@ -27,10 +27,8 @@ import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TTVFNumbersScanRange;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,20 +39,20 @@ import java.util.Map;
 // have a single column number
 
 /**
- * The Implement of table valued function——numbers("number" = "N", "backend_num" = "M").
+ * The Implement of table valued function——numbers("number" = "N").
  */
 public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
     public static final String NUMBER = "number";
-    public static final String BACKEND_NUM = "backend_num";
+    public static final String CONST_VALUE = "const_value";
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(NUMBER)
-            .add(BACKEND_NUM)
+            .add(CONST_VALUE)
             .build();
     // The total numbers will be generated.
     private long totalNumbers;
-    // The total backends will server it.
-    private int tabletsNum;
+    private boolean useConst = false;
+    private long constValue;
 
     /**
      * Constructor.
@@ -62,29 +60,27 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
      * @throws AnalysisException exception
      */
     public NumbersTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        Map<String, String> validParams = Maps.newHashMap();
+        if (!params.containsKey(NUMBER)) {
+            throw new AnalysisException("number not set");
+        }
         for (String key : params.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
-                throw new AnalysisException(key + " is invalid property");
+            if (PROPERTIES_SET.contains(key)) {
+                try {
+                    switch (key) {
+                        case NUMBER:
+                            totalNumbers = Long.parseLong(params.get(key));
+                            break;
+                        case CONST_VALUE:
+                            useConst = true;
+                            constValue = Long.parseLong(params.get(key));
+                            break;
+                        default:
+                            break;
+                    }
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("cannot parse param value " + params.get(key));
+                }
             }
-            validParams.put(key.toLowerCase(), params.get(key));
-        }
-
-        try {
-            tabletsNum = Integer.parseInt(validParams.getOrDefault(BACKEND_NUM, "1"));
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("can not parse `backend_num` param to natural number");
-        }
-        String numberStr = validParams.get(NUMBER);
-        if (!Strings.isNullOrEmpty(numberStr)) {
-            try {
-                totalNumbers = Long.parseLong(numberStr);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("can not parse `number` param to natural number");
-            }
-        } else {
-            throw new AnalysisException(
-                    "can not find `number` param, please specify `number`, like: numbers(\"number\" = \"10\")");
         }
     }
 
@@ -92,8 +88,12 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         return totalNumbers;
     }
 
-    public int getTabletsNum() {
-        return tabletsNum;
+    public boolean getUseConst() {
+        return useConst;
+    }
+
+    public long getConstValue() {
+        return constValue;
     }
 
     @Override
@@ -124,17 +124,16 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         if (backendList.isEmpty()) {
             throw new AnalysisException("No Alive backends");
         }
+
         Collections.shuffle(backendList);
         List<TableValuedFunctionTask> res = Lists.newArrayList();
-        for (int i = 0; i < tabletsNum; ++i) {
-            TScanRange scanRange = new TScanRange();
-            TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
-            TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
-            tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-            dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
-            scanRange.setDataGenScanRange(dataGenScanRange);
-            res.add(new TableValuedFunctionTask(backendList.get(i % backendList.size()), scanRange));
-        }
+        TScanRange scanRange = new TScanRange();
+        TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
+        TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange().setTotalNumbers(totalNumbers)
+                .setUseConst(useConst).setConstValue(constValue);
+        dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
+        scanRange.setDataGenScanRange(dataGenScanRange);
+        res.add(new TableValuedFunctionTask(backendList.get(0), scanRange));
         return res;
     }
 }

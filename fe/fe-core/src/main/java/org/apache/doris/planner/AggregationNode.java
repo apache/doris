@@ -59,6 +59,7 @@ public class AggregationNode extends PlanNode {
     // Set to true if this aggregation node needs to run the Finalize step. This
     // node is the root node of a distributed aggregation.
     private boolean needsFinalize;
+    private boolean isColocate = false;
 
     // If true, use streaming preaggregation algorithm. Not valid if this is a merge agg.
     private boolean useStreamingPreagg;
@@ -176,6 +177,9 @@ public class AggregationNode extends PlanNode {
         // to our input; our conjuncts don't get substituted because they already
         // refer to our output
         outputSmap = getCombinedChildSmap();
+        if (aggInfo.isMerge()) {
+            aggInfo.substitute(aggInfo.getIntermediateSmap(), analyzer);
+        }
         aggInfo.substitute(outputSmap, analyzer);
 
         // assert consistent aggregate expr and slot materialization
@@ -274,6 +278,7 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
+        msg.agg_node.setIsColocate(isColocate);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -334,11 +339,6 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
-    }
-
-    @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
         // compute group by slot
@@ -374,7 +374,12 @@ public class AggregationNode extends PlanNode {
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         for (int i = 0; i < groupingExprs.size(); i++) {
             aggInfo.getOutputTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
+            aggInfo.getIntermediateTupleDesc().getSlots().get(i).setIsNullable(groupingExprs.get(i).isNullable());
             aggInfo.getOutputTupleDesc().computeMemLayout();
         }
+    }
+
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 }

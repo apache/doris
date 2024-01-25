@@ -160,7 +160,7 @@ public:
 
         if (bigger_than_biggest != nullptr) {
             status = page_decoder.seek_at_or_after_value(bigger_than_biggest, &exact_match);
-            EXPECT_EQ(status.code(), NOT_FOUND);
+            EXPECT_EQ(status.code(), ENTRY_NOT_FOUND);
         }
     }
 };

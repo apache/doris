@@ -79,6 +79,7 @@ public class MockedFrontend {
         MIN_FE_CONF.put("http_port", "8030");
         MIN_FE_CONF.put("rpc_port", "9020");
         MIN_FE_CONF.put("query_port", "9030");
+        MIN_FE_CONF.put("arrow_flight_sql_port", "9040");
         MIN_FE_CONF.put("edit_log_port", "9010");
         MIN_FE_CONF.put("priority_networks", "127.0.0.1/24");
         MIN_FE_CONF.put("sys_log_verbose_modules", "org");

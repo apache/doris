@@ -40,7 +40,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
 
 ## 支持的 JSON 格式
 
-当前仅支持以下两种 JSON 格式：
+当前仅支持以下三种 JSON 格式：
 
 1. 以 Array 表示的多行数据
 
@@ -80,7 +80,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行 JSON �
 
    这种方式通常用于 Routine Load 导入方式，如表示 Kafka 中的一条消息，即一行数据。
    
-2. 以固定分隔符分隔的多行 Object 数据
+3. 以固定分隔符分隔的多行 Object 数据
 
    Object表示的一行数据即表示要导入的一行数据，示例如下：
 
@@ -283,6 +283,61 @@ curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", 
 |  100 |    2 |
 +------+------+
 ```
+
+导入语句3：
+
+相比于导入语句1和导入语句2的表结构，这里增加`k1_copy`列。
+表结构：
+
+```
+k2 int, k1 int, k1_copy int
+```
+如果你想将json中的某一字段多次赋予给表中几列，那么可以在jsonPaths中多次指定该列，并且依次指定映射顺序。示例如下：
+
+```bash
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\", \"$.k1\"]" -H "columns: k2,k1,k1_copy" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+上述示例会按 JSON Path 中字段的顺序抽取后，指定第一列为表中 k2 列的值，而第二列为表中 k1 列的值，第二列为表中 k1_copy 列的值。最终导入的数据结果如下：
+
+```text
++------+------+---------+
+| k2   | k1   | k2_copy |
++------+------+---------+
+|    2 |    1 |       2 |
++------+------+---------+
+```
+
+导入语句4：
+
+数据内容：
+
+```json
+{"k1" : 1, "k2": 2, "k3": {"k1" : 31, "k1_nested" : {"k1" : 32} } }
+```
+
+相比于导入语句1和导入语句2的表结构，这里增加`k1_nested1`,`k1_nested2`列。
+表结构：
+
+```
+k2 int, k1 int, k1_nested1 int, k1_nested2 int
+```
+如果你想将json中嵌套的多级同名字段赋予给表中不同的列，那么可以在jsonPaths中指定该列，并且依次指定映射顺序。示例如下：
+
+```bash
+curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", \"$.k1\",\"$.k3.k1\",\"$.k3.k1_nested.k1\" -H "columns: k2,k1,k1_nested1,k1_nested2" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
+```
+
+上述示例会按 JSON Path 中字段的顺序抽取后，指定第一列为表中 k2 列的值，而第二列为表中 k1 列的值，第三列嵌套类型中的 k1 列为表中 k1_nested1 列的值，由此可知 k3.k1_nested.k1 列为表中 k1_nested2列的值。 最终导入的数据结果如下：
+
+```text
++------+------+------------+------------+
+| k2   | k1   | k1_nested1 | k1_nested2 |
++------+------+------------+------------+
+|    2 |    1 |         31 |         32 |
++------+------+------------+------------+
+```
+
 
 ## JSON root
 

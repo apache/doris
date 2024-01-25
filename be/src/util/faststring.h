@@ -54,7 +54,7 @@ public:
     ~faststring() {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
         if (data_ != initial_data_) {
-            Allocator::free(data_);
+            Allocator::free(data_, capacity_);
         }
     }
 
@@ -88,7 +88,7 @@ public:
             ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
             memcpy(ret, data_, len_);
         }
-        OwnedSlice result(ret, len_);
+        OwnedSlice result(ret, len_, capacity_);
         len_ = 0;
         capacity_ = kInitialCapacity;
         data_ = initial_data_;
@@ -224,7 +224,7 @@ private:
 
     void ShrinkToFitInternal();
 
-    uint8_t* data_;
+    uint8_t* data_ = nullptr;
     uint8_t initial_data_[kInitialCapacity];
     size_t len_;
     // NOTE: we will make a initial buffer as part of the object, so the smallest

@@ -28,7 +28,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -82,7 +81,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     }
 
     // just for subclass lombok @Data
-    public Policy() {}
+    public Policy() {
+    }
 
     public Policy(PolicyTypeEnum type) {
         this.type = type;
@@ -117,9 +117,11 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();
-                userIdent.analyze(ConnectContext.get().getClusterName());
+                if (userIdent != null) {
+                    userIdent.analyze();
+                }
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent, stmt.getRoleName(),
                         stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
@@ -149,7 +151,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     protected boolean checkMatched(PolicyTypeEnum type, String policyName) {
         return (type == null || type.equals(this.type))
-               && (policyName == null || StringUtils.equals(policyName, this.policyName));
+                && (policyName == null || StringUtils.equals(policyName, this.policyName));
     }
 
     // it is used to check whether this policy is in PolicyMgr

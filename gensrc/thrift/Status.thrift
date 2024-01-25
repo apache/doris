@@ -69,12 +69,13 @@ enum TStatusCode {
     NOT_AUTHORIZED      = 38,
     ABORTED             = 39,
     REMOTE_ERROR        = 40,
-    SERVICE_UNAVAILABLE = 41,
+    //SERVICE_UNAVAILABLE = 41, // Not used any more
     UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
     INCOMPLETE          = 44,
     OLAP_ERR_VERSION_ALREADY_MERGED = 45,
     DATA_QUALITY_ERROR  = 46,
+    INVALID_JSON_PATH   = 47,
 
     VEC_EXCEPTION = 50,
     VEC_LOGIC_ERROR = 51,
@@ -97,6 +98,13 @@ enum TStatusCode {
 
     // BE Status HTTP_ERROR
     HTTP_ERROR = 71,
+
+    TABLET_MISSING = 72,
+
+    NOT_MASTER = 73,
+
+    // used for cloud
+    DELETE_BITMAP_LOCK_ERROR = 100,
 }
 
 struct TStatus {

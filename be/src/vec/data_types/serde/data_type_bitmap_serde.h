@@ -33,16 +33,24 @@ class Arena;
 
 class DataTypeBitMapSerDe : public DataTypeSerDe {
 public:
-    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                    const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support serialize bitmap column to buffer";
+    DataTypeBitMapSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override {
+        return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
     }
 
-    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
-                                          const FormatOptions& options) const override {
-        LOG(FATAL) << "Not support deserialize from buffer to bitmap";
-        return Status::NotSupported("Not support deserialize from buffer to bitmap");
+    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+                                    BufferWritable& bw, FormatOptions& options) const override {
+        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
     }
+
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const override;
+
+    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -52,20 +60,29 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
-        LOG(FATAL) << "Not support write bitmap column to arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "write_column_to_arrow with type " + column.get_name());
     }
+
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override {
-        LOG(FATAL) << "Not support read bitmap column from arrow";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "read_column_from_arrow with type " + column.get_name());
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+
+    Status write_column_to_orc(const std::string& timezone, const IColumn& column,
+                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               int start, int end,
+                               std::vector<StringRef>& buffer_list) const override;
 
 private:
     // Bitmap is binary data which is not shown by mysql.

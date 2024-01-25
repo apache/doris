@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -37,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -76,9 +78,10 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 }
                 return false;
             });
-            if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
-                    && ConnectContext.get().getSessionVariable().enableCTEMaterialize
-                    && consumers.size() > ConnectContext.get().getSessionVariable().inlineCTEReferencedThreshold) {
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext.getSessionVariable().getEnablePipelineEngine()
+                    && connectContext.getSessionVariable().enableCTEMaterialize
+                    && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
                 // not inline
                 Plan right = cteAnchor.right().accept(this, null);
                 return cteAnchor.withChildren(cteAnchor.left(), right);
@@ -101,8 +104,10 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             for (Slot consumerSlot : cteConsumer.getOutput()) {
                 Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
                 ExprId inlineExprId = deepCopierContext.exprIdReplaceMap.get(producerSlot.getExprId());
-                Alias alias = new Alias(consumerSlot.getExprId(), producerSlot.withExprId(inlineExprId),
-                        consumerSlot.getName());
+                List<Expression> childrenExprs = new ArrayList<>();
+                childrenExprs.add(producerSlot.withExprId(inlineExprId));
+                Alias alias = new Alias(consumerSlot.getExprId(), childrenExprs, consumerSlot.getName(),
+                        producerSlot.getQualifier(), false);
                 projects.add(alias);
             }
             return new LogicalProject<>(projects, inlinedPlan);

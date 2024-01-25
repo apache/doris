@@ -109,6 +109,7 @@ suite("test_segcompaction_dup_keys_index") {
                 assertTrue(1 == 2, "load Timeout: $uuid")
             }
         }
+        sql "sync"
 
         qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
         qt_select_default """ SELECT COUNT(*) FROM ${tableName} WHERE col_1 MATCH_ANY 'lemon'; """

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
@@ -39,8 +39,9 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -48,8 +49,8 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
-
     protected final PhysicalProperties physicalProperties;
+    private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
 
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
         this(type, Optional.empty(), logicalProperties, children);
@@ -65,7 +66,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             Statistics statistics, Plan... children) {
         super(type, groupExpression,
                 logicalProperties == null ? Optional.empty() : Optional.of(logicalProperties),
-                statistics, children);
+                statistics, ImmutableList.copyOf(children));
         this.physicalProperties =
                 physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }
@@ -78,18 +79,17 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
      * Pushing down runtime filter into different plan node, such as olap scan node, cte sender node, etc.
      */
     public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
-                                         AbstractPhysicalJoin builderNode,
-                                         Expression src, Expression probeExpr,
-                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+            AbstractPhysicalJoin<?, ?> builderNode,
+            Expression src, Expression probeExpr,
+            TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         // currently, we can ensure children in the two side are corresponding to the equal_to's.
         // so right maybe an expression and left is a slot
         Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
 
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // aliasTransMap doesn't contain the key, means that the path from the scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
             return false;
         }
 
@@ -103,29 +103,68 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             return true;
         }
 
-        Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        Slot scanSlot = ctx.getAliasTransferPair(probeSlot).second;
+        PhysicalRelation scan = ctx.getAliasTransferPair(probeSlot).first;
+        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
             return false;
         }
-        Preconditions.checkState(olapScanSlot != null && scan != null);
 
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
                 && ctx.getSessionVariable().getEnablePipelineEngine()
-                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)) {
+                && RuntimeFilterGenerator.hasRemoteTarget(builderNode, scan)
+                && !builderNode.isBroadCastJoin()) {
             type = TRuntimeFilterType.BLOOM;
         }
-        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                src, ImmutableList.of(olapScanSlot), type, exprOrder, builderNode, buildSideNdv);
-        ctx.addJoinToTargetMap(builderNode, olapScanSlot.getExprId());
-        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), olapScanSlot);
+        org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter =
+                ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
+        Preconditions.checkState(scanSlot != null, "scan slot is null");
+        if (filter != null) {
+            if (!filter.hasTargetScan(scan)) {
+                // A join B on A.a1=B.b and A.a1 = A.a2
+                // RF B.b->(A.a1, A.a2)
+                // however, RF(B.b->A.a2) is implied by RF(B.a->A.a1) and A.a1=A.a2
+                // we skip RF(B.b->A.a2)
+                this.addAppliedRuntimeFilter(filter);
+                filter.addTargetSlot(scanSlot, probeExpr, scan);
+                ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+                ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+                ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeExpr).first, scanSlot);
+            }
+        } else {
+            filter = new RuntimeFilter(generator.getNextId(),
+                    src, ImmutableList.of(scanSlot), ImmutableList.of(probeExpr),
+                    type, exprOrder, builderNode, buildSideNdv, scan);
+            this.addAppliedRuntimeFilter(filter);
+            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(ctx.getAliasTransferPair((NamedExpression) probeSlot).first, scanSlot);
+            ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
+        }
         return true;
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return this;
+    }
+
+    public <T extends AbstractPhysicalPlan> T copyStatsAndGroupIdFrom(T from) {
+        T newPlan = (T) withPhysicalPropertiesAndStats(
+                from.getPhysicalProperties(), from.getStats());
+        newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
+        return newPlan;
+    }
+
+    public List<RuntimeFilter> getAppliedRuntimeFilters() {
+        return appliedRuntimeFilters;
+    }
+
+    public void addAppliedRuntimeFilter(RuntimeFilter filter) {
+        appliedRuntimeFilters.add(filter);
+    }
+
+    public void removeAppliedRuntimeFilter(RuntimeFilter filter) {
+        appliedRuntimeFilters.remove(filter);
     }
 }

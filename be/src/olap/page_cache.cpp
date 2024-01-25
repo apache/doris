@@ -21,16 +21,16 @@
 
 #include <ostream>
 
+#include "runtime/exec_env.h"
+
 namespace doris {
-
-StoragePageCache* StoragePageCache::_s_instance = nullptr;
-
-void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                           int64_t pk_index_cache_capacity, uint32_t num_shards) {
-    DCHECK(_s_instance == nullptr);
-    static StoragePageCache instance(capacity, index_cache_percentage, pk_index_cache_capacity,
-                                     num_shards);
-    _s_instance = &instance;
+StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
+                                                        int32_t index_cache_percentage,
+                                                        int64_t pk_index_cache_capacity,
+                                                        uint32_t num_shards) {
+    StoragePageCache* res = new StoragePageCache(capacity, index_cache_percentage,
+                                                 pk_index_cache_capacity, num_shards);
+    return res;
 }
 
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage,
@@ -48,10 +48,8 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
-    if (pk_index_cache_capacity > 0) {
-        _pk_index_page_cache =
-                std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
-    }
+
+    _pk_index_page_cache = std::make_unique<PKIndexPageCache>(pk_index_cache_capacity, num_shards);
 }
 
 bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,

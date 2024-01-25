@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -65,11 +66,11 @@ class OrdinalPageIndexIterator;
 
 class OrdinalIndexReader {
 public:
-    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, const OrdinalIndexPB* index_meta,
-                                ordinal_t num_values)
-            : _file_reader(std::move(file_reader)),
-              _index_meta(index_meta),
-              _num_values(num_values) {}
+    explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
+                                const OrdinalIndexPB& meta_pb)
+            : _file_reader(std::move(file_reader)), _num_values(num_values) {
+        _meta_pb.reset(new OrdinalIndexPB(meta_pb));
+    }
 
     // load and parse the index page into memory
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -90,10 +91,17 @@ public:
     int32_t num_data_pages() const { return _num_pages; }
 
 private:
+    Status _load(bool use_page_cache, bool kept_in_memory,
+                 std::unique_ptr<OrdinalIndexPB> index_meta);
+
+private:
     friend OrdinalPageIndexIterator;
 
     io::FileReaderSPtr _file_reader;
-    const OrdinalIndexPB* _index_meta;
+    DorisCallOnce<Status> _load_once;
+
+    std::unique_ptr<OrdinalIndexPB> _meta_pb;
+
     // total number of values (including NULLs) in the indexed column,
     // equals to 1 + 'last ordinal of last data pages'
     ordinal_t _num_values;
@@ -123,7 +131,7 @@ public:
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 
 private:
-    OrdinalIndexReader* _index;
+    OrdinalIndexReader* _index = nullptr;
     int32_t _cur_idx;
 };
 

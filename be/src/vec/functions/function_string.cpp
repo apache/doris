@@ -23,6 +23,7 @@
 
 #include <string_view>
 
+#include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
 #include "vec/columns/column_string.h"
@@ -492,12 +493,13 @@ struct Trim1Impl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if (auto col = assert_cast<const ColumnString*>(column.get())) {
+        if (const auto* col = assert_cast<const ColumnString*>(column.get())) {
             auto col_res = ColumnString::create();
             char blank[] = " ";
             StringRef rhs(blank, 1);
-            TrimUtil<is_ltrim, is_rtrim>::vector(col->get_chars(), col->get_offsets(), rhs,
-                                                 col_res->get_chars(), col_res->get_offsets());
+            RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
+                    col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
+                    col_res->get_offsets())));
             block.replace_by_position(result, std::move(col_res));
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -529,8 +531,9 @@ struct Trim2Impl {
                 const char* raw_rhs = reinterpret_cast<const char*>(&(col_right->get_chars()[0]));
                 ColumnString::Offset rhs_size = col_right->get_offsets()[0];
                 StringRef rhs(raw_rhs, rhs_size);
-                TrimUtil<is_ltrim, is_rtrim>::vector(col->get_chars(), col->get_offsets(), rhs,
-                                                     col_res->get_chars(), col_res->get_offsets());
+                RETURN_IF_ERROR((TrimUtil<is_ltrim, is_rtrim>::vector(
+                        col->get_chars(), col->get_offsets(), rhs, col_res->get_chars(),
+                        col_res->get_offsets())));
                 block.replace_by_position(result, std::move(col_res));
             } else {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
@@ -558,8 +561,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool get_is_injective(const Block&) override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
             LOG(FATAL) << fmt::format("Illegal type {} of argument of function {}",
@@ -575,11 +576,12 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return impl::execute(context, block, arguments, result, input_rows_count);
     }
 };
 
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
 struct UnHexImpl {
     static constexpr auto name = "unhex";
     using ReturnType = DataTypeString;
@@ -652,8 +654,16 @@ struct UnHexImpl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen / 2;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
             int outlen = hex_decode(source, srclen, dst);
 
             if (outlen < 0) {
@@ -723,8 +733,16 @@ struct ToBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
             int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             if (outlen < 0) {
@@ -763,8 +781,15 @@ struct FromBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
             int outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
@@ -965,14 +990,13 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
-    factory.register_function<FunctionStringRepeat<false>>();
+    factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();
     factory.register_function<FunctionSplitByString>();
-    factory.register_function<FunctionStringMd5AndSM3<MD5Sum>>();
     factory.register_function<FunctionSubstringIndex>();
     factory.register_function<FunctionExtractURLParameter>();
     factory.register_function<FunctionStringParseUrl>();
@@ -980,7 +1004,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt64Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatInt128Impl>>();
     factory.register_function<FunctionMoneyFormat<MoneyFormatDecimalImpl>>();
-    factory.register_function<FunctionStringMd5AndSM3<SM3Sum>>();
+    factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
+    factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
+    factory.register_function<FunctionStringDigestSHA1>();
+    factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace>();
     factory.register_function<FunctionMask>();
     factory.register_function<FunctionMaskPartial<true>>();
@@ -988,18 +1015,21 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSubReplace<SubReplaceThreeImpl>>();
     factory.register_function<FunctionSubReplace<SubReplaceFourImpl>>();
 
+    /// @TEMPORARY: for be_exec_version=3
+    factory.register_alternative_function<FunctionSubstringOld<Substr3ImplOld>>();
+    factory.register_alternative_function<FunctionSubstringOld<Substr2ImplOld>>();
+    factory.register_alternative_function<FunctionLeftOld>();
+    factory.register_alternative_function<FunctionRightOld>();
+
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringMd5AndSM3<MD5Sum>::name, "md5");
+    factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
-    factory.register_alias(FunctionStringMd5AndSM3<SM3Sum>::name, "sm3");
-
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionStringEltOld>();
-    factory.register_alternative_function<FunctionStringRepeat<true>>();
+    factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
+    factory.register_alias(FunctionStringDigestSHA1::name, "sha");
 }
 
 } // namespace doris::vectorized

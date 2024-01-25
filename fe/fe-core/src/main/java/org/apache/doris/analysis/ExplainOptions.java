@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 public class ExplainOptions {
 
     private boolean isVerbose;
+
+    private boolean isTree;
     private boolean isGraph;
 
     private ExplainCommand.ExplainLevel explainLevel;
@@ -31,13 +33,18 @@ public class ExplainOptions {
         this.explainLevel = explainLevel;
     }
 
-    public ExplainOptions(boolean isVerbose, boolean isGraph) {
+    public ExplainOptions(boolean isVerbose, boolean isTree, boolean isGraph) {
         this.isVerbose = isVerbose;
+        this.isTree = isTree;
         this.isGraph = isGraph;
     }
 
     public boolean isVerbose() {
         return explainLevel == ExplainLevel.VERBOSE || isVerbose;
+    }
+
+    public boolean isTree() {
+        return explainLevel == ExplainLevel.TREE || isTree;
     }
 
     public boolean isGraph() {

@@ -47,11 +47,11 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status append_block(Block& block) override;
+    Status write(Block& block) override;
 
     bool can_sink() override;
 
-    Status close() override;
+    Status close(Status status) override;
 
     const ResultList& results() { return _results; }
 
@@ -66,7 +66,7 @@ private:
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 
-    BufferControlBlock* _sinker;
+    BufferControlBlock* _sinker = nullptr;
 
     const VExprContextSPtrs& _output_vexpr_ctxs;
 
@@ -89,6 +89,8 @@ private:
     bool _is_dry_run = false;
 
     uint64_t _bytes_sent = 0;
+
+    bool _enable_faster_float_convert = false;
 };
 } // namespace vectorized
 } // namespace doris

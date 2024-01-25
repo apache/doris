@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "olap/compaction.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 
@@ -59,9 +60,13 @@ private:
                            const std::string& local_path);
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
     Status _finish_clone(const string& clone_dir, const Version& version);
+    std::string _mask_token(const std::string& str);
     CompactionType _compaction_type;
 
     DISALLOW_COPY_AND_ASSIGN(SingleReplicaCompaction);
+
+private:
+    std::vector<PendingRowsetGuard> _pending_rs_guards;
 };
 
 } // namespace doris

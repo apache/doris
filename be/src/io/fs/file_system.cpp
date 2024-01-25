@@ -17,20 +17,22 @@
 
 #include "io/fs/file_system.h"
 
+#include "io/fs/file_reader.h"
 #include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {
 
-Status FileSystem::create_file(const Path& file, FileWriterPtr* writer) {
+Status FileSystem::create_file(const Path& file, FileWriterPtr* writer,
+                               const FileWriterOptions* opts) {
     auto path = absolute_path(file);
-    FILESYSTEM_M(create_file_impl(path, writer));
+    FILESYSTEM_M(create_file_impl(path, writer, opts));
 }
 
-Status FileSystem::open_file(const FileDescription& fd, const FileReaderOptions& reader_options,
-                             FileReaderSPtr* reader) {
-    auto path = absolute_path(fd.path);
-    FILESYSTEM_M(open_file_impl(fd, path, reader_options, reader));
+Status FileSystem::open_file(const Path& file, FileReaderSPtr* reader,
+                             const FileReaderOptions* opts) {
+    auto path = absolute_path(file);
+    FILESYSTEM_M(open_file_impl(path, reader, opts));
 }
 
 Status FileSystem::create_directory(const Path& dir, bool failed_if_exists) {
@@ -76,12 +78,6 @@ Status FileSystem::rename(const Path& orig_name, const Path& new_name) {
     auto orig_path = absolute_path(orig_name);
     auto new_path = absolute_path(new_name);
     FILESYSTEM_M(rename_impl(orig_path, new_path));
-}
-
-Status FileSystem::rename_dir(const Path& orig_name, const Path& new_name) {
-    auto orig_path = absolute_path(orig_name);
-    auto new_path = absolute_path(new_name);
-    FILESYSTEM_M(rename_dir_impl(orig_path, new_path));
 }
 
 } // namespace io

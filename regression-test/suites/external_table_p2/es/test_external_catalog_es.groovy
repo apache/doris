@@ -25,7 +25,6 @@ suite("test_external_catalog_es", "p2,external,es,external_remote,external_remot
         String extEsPassword = context.config.otherConfigs.get("extEsPassword")
         String esCatalogName ="es7_catalog_name"
 
-        String jdbcPg14Database1 = "jdbc_es_14_database1"
         String jdbcPg14Table1 = "accounts"
 
         sql """drop catalog if exists ${esCatalogName}"""
@@ -36,24 +35,13 @@ suite("test_external_catalog_es", "p2,external,es,external_remote,external_remot
                     "elasticsearch.hosts"="http://${extEsHost}:${extEsPort}",
                     "elasticsearch.nodes_discovery"="false",
                     "elasticsearch.username"="${extEsUser}",
-                    "elasticsearch.username"="${extEsPassword}"
+                    "elasticsearch.password"="${extEsPassword}"
             );
             """
 
-        sql """
-            SWITCH ${esCatalogName};
-            """
-        sql """
-            SHOW DATABASES;
-            """
+        qt_sql "select * from ${esCatalogName}.default_db.${jdbcPg14Table1} order by account_number limit 10;"
 
-        def res1=sql "select * from ${jdbcPg14Table1} limit 10;"
-        logger.info("recoding all: " + res1.toString())
-
-        sql """drop table if exists ${jdbcPg14Table1};"""
-        sql """drop database if exists ${jdbcPg14Database1};"""
-
-        sql """switch internal;"""
+        sql """drop catalog if exists ${esCatalogName};"""
 
     }
 }

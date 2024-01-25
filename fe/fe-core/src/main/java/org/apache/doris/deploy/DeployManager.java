@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -480,6 +481,10 @@ public class DeployManager extends MasterDaemon {
             HostInfo foundHostInfo = getFromHostInfos(remoteHostInfos, localHostInfo);
             boolean needDrop = needDrop(foundHostInfo != null, localHostInfo);
             if (needDrop) {
+                if (this instanceof LocalFileDeployManager && Config.disable_local_deploy_manager_drop_node) {
+                    LOG.warn("For now, Local File Deploy Manager dose not handle shrinking operations");
+                    continue;
+                }
                 dealDropLocal(localHostInfo, nodeType);
             }
         }
@@ -538,10 +543,10 @@ public class DeployManager extends MasterDaemon {
         try {
             switch (nodeType) {
                 case ELECTABLE:
-                    env.addFrontend(FrontendNodeType.FOLLOWER, remoteHost, remotePort);
+                    env.addFrontend(FrontendNodeType.FOLLOWER, remoteHost, remotePort, "");
                     break;
                 case OBSERVER:
-                    env.addFrontend(FrontendNodeType.OBSERVER, remoteHost, remotePort);
+                    env.addFrontend(FrontendNodeType.OBSERVER, remoteHost, remotePort, "");
                     break;
                 case BACKEND:
                 case BACKEND_CN:

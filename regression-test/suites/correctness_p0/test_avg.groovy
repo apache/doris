@@ -37,6 +37,41 @@ suite("test_avg") {
     for (i in range(1, 100)) {
         sql """ INSERT INTO ${tableName} values (10000000000000${i}) """
     }
-    qt_select """ SELECT AVG(c_bigint) FROM ${tableName} """
+    sql "sync"
+    qt_select """select c_bigint from ${tableName} order by c_bigint"""
+    qt_sum """ SELECT SUM(c_bigint) FROM ${tableName} """
+    qt_count """ SELECT COUNT(c_bigint) FROM ${tableName} """
+    qt_avg """ SELECT AVG(c_bigint) FROM ${tableName} """
     sql""" DROP TABLE IF EXISTS ${tableName} """
+
+
+    sql """ drop table if exists avg_test; """
+    sql """
+            CREATE TABLE `avg_test` (
+            `k1` tinyint(4) NULL,
+            `k2` smallint(6) NULL,
+            `k3` int(11) NULL,
+            `k4` bigint(20) NULL,
+            `k5` DECIMAL NULL,
+            `k6` char(5) NULL,
+            `k10` date NULL,
+            `k11` datetime NULL,
+            `k7` varchar(20) NULL,
+            `k8` double MAX NULL,
+            `k9` float SUM NULL
+            ) ENGINE=OLAP
+            AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+    sql "set enable_nereids_planner=true"
+    sql "set enable_fallback_to_original_planner=false;"
+    qt_select2 """select avg(distinct k2), avg(distinct cast(k4 as largeint)) from avg_test;"""
+    sql "set enable_nereids_planner=false"
+    qt_select3 """select avg(distinct k2), avg(distinct cast(k4 as largeint)) from avg_test;"""
+
+    sql """ drop table if exists avg_test; """
 }

@@ -28,7 +28,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,7 +42,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -92,6 +90,7 @@ public class DescribeStmt extends ShowStmt {
 
     private TableName dbTableName;
     private ProcNodeInterface node;
+    private PartitionNames partitionNames;
 
     List<List<String>> totalRows = new LinkedList<List<String>>();
 
@@ -104,6 +103,12 @@ public class DescribeStmt extends ShowStmt {
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
         this.isAllTables = isAllTables;
+    }
+
+    public DescribeStmt(TableName dbTableName, boolean isAllTables, PartitionNames partitionNames) {
+        this.dbTableName = dbTableName;
+        this.isAllTables = isAllTables;
+        this.partitionNames = partitionNames;
     }
 
     public DescribeStmt(TableValuedFunctionRef tableValuedFunctionRef) {
@@ -156,6 +161,13 @@ public class DescribeStmt extends ShowStmt {
             return;
         }
 
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support temp partitions");
+            }
+        }
+
         dbTableName.analyze(analyzer);
 
         if (!Env.getCurrentEnv().getAccessManager()
@@ -175,19 +187,32 @@ public class DescribeStmt extends ShowStmt {
                 // show base table schema only
                 String procString = "/catalogs/" + catalog.getId() + "/" + db.getId() + "/" + table.getId() + "/"
                         + TableProcDir.INDEX_SCHEMA + "/";
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
+                    if (partitionNames != null) {
+                        throw new AnalysisException(dbTableName.getTbl()
+                                            + " is not a OLAP table, describe table failed");
+                    }
                     procString += table.getId();
                 }
-
+                if (partitionNames != null) {
+                    procString += "/";
+                    StringBuilder builder = new StringBuilder();
+                    for (String str : partitionNames.getPartitionNames()) {
+                        builder.append(str);
+                        builder.append(",");
+                    }
+                    builder.deleteCharAt(builder.length() - 1);
+                    procString += builder.toString();
+                }
                 node = ProcService.getInstance().open(procString);
                 if (node == null) {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
-                if (table.getType() == TableType.OLAP) {
+                if (table instanceof OlapTable) {
                     isOlapTable = true;
                     OlapTable olapTable = (OlapTable) table;
                     Set<String> bfColumns = olapTable.getCopiedBfColumns();
@@ -335,8 +360,7 @@ public class DescribeStmt extends ShowStmt {
                 try {
                     Env.getCurrentEnv().getAccessManager()
                             .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
-                                    ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, getDb()),
-                                    getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
+                                    getDb(), getTableName(), Sets.newHashSet(row.get(0)), PrivPredicate.SHOW);
                     res.add(row);
                 } catch (UserException e) {
                     LOG.debug(e.getMessage());

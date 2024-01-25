@@ -67,7 +67,7 @@ suite("test_materialized_view_array", "rollup") {
         create_test_table.call(tableName)
         test {
             sql "CREATE MATERIALIZED VIEW idx AS select k2,k1, k3, k4, k5 from ${tableName}"
-            exception "errCode = 2, detailMessage = The ARRAY column[`mv_k2` array<smallint(6)> NULL] not support to create materialized view"
+            exception "errCode = 2, detailMessage = The ARRAY column[`mv_k2` ARRAY<SMALLINT> NULL] not support to create materialized view"
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

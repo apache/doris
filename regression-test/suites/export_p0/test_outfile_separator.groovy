@@ -22,6 +22,11 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_outfile_separator") {
+    // open nereids
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_fallback_to_original_planner=false """
+
+
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
     strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
@@ -87,6 +92,8 @@ suite("test_outfile_separator") {
             file files[0].getAbsolutePath()
             time 10000 // limit inflight 10s
         }
+
+        sql """ sync; """
 
         qt_select_2 """ SELECT * FROM ${tableName} t ORDER BY k1; """
 

@@ -21,11 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -34,10 +32,6 @@ import org.apache.doris.statistics.AnalysisState;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.IntStream;
 
 /**
  * ShowAnalyzeStmt is used to show statistics job info.
@@ -66,39 +60,35 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("state")
             .add("progress")
             .add("schedule_type")
+            .add("start_time")
+            .add("end_time")
             .build();
 
     private long jobId;
-    private TableName dbTableName;
-    private Expr whereClause;
-    private LimitElement limitElement;
-    private List<OrderByElement> orderByElements;
-    private String stateValue;
-    private ArrayList<OrderByPair> orderByPairs;
+    private final TableName dbTableName;
+    private final Expr whereClause;
 
-    public ShowAnalyzeStmt() {
-    }
+    // extract from predicate
+    private String stateValue;
+
+    private final boolean auto;
+
 
     public ShowAnalyzeStmt(TableName dbTableName,
-                           Expr whereClause,
-                           List<OrderByElement> orderByElements,
-                           LimitElement limitElement) {
+                           Expr whereClause, boolean auto) {
         this.dbTableName = dbTableName;
         this.whereClause = whereClause;
-        this.orderByElements = orderByElements;
-        this.limitElement = limitElement;
+        this.auto = auto;
+
     }
 
     public ShowAnalyzeStmt(long jobId,
-            Expr whereClause,
-            List<OrderByElement> orderByElements,
-            LimitElement limitElement) {
+            Expr whereClause) {
         Preconditions.checkArgument(jobId > 0, "JobId must greater than 0.");
         this.jobId = jobId;
         this.dbTableName = null;
         this.whereClause = whereClause;
-        this.orderByElements = orderByElements;
-        this.limitElement = limitElement;
+        this.auto = false;
     }
 
     public long getJobId() {
@@ -111,12 +101,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return stateValue;
     }
 
-    public ArrayList<OrderByPair> getOrderByPairs() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The orderByPairs must be obtained after the parsing is complete");
-        return orderByPairs;
-    }
-
     public Expr getWhereClause() {
         Preconditions.checkArgument(isAnalyzed(),
                 "The whereClause must be obtained after the parsing is complete");
@@ -124,16 +108,9 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return whereClause;
     }
 
-    public long getLimit() {
-        if (limitElement != null && limitElement.hasLimit()) {
-            return limitElement.getLimit();
-        }
-        return -1L;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -148,21 +125,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
         // analyze where clause if not null
         if (whereClause != null) {
             analyzeSubPredicate(whereClause);
-        }
-
-        // analyze order by
-        if (orderByElements != null && !orderByElements.isEmpty()) {
-            orderByPairs = new ArrayList<>();
-            for (OrderByElement orderByElement : orderByElements) {
-                if (orderByElement.getExpr() instanceof SlotRef) {
-                    SlotRef slotRef = (SlotRef) orderByElement.getExpr();
-                    int index = analyzeColumn(slotRef.getColumnName());
-                    OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
-                    orderByPairs.add(orderByPair);
-                } else {
-                    throw new AnalysisException("Should order by column");
-                }
-            }
         }
     }
 
@@ -248,15 +210,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
         }
     }
 
-    private int analyzeColumn(String columnName) throws AnalysisException {
-        for (String title : TITLE_NAMES) {
-            if (title.equalsIgnoreCase(columnName)) {
-                return TITLE_NAMES.indexOf(title);
-            }
-        }
-        throw new AnalysisException("Title name[" + columnName + "] does not exist");
-    }
-
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -279,25 +232,6 @@ public class ShowAnalyzeStmt extends ShowStmt {
             sb.append(whereClause.toSql());
         }
 
-        // Order By clause
-        if (orderByElements != null) {
-            sb.append(" ");
-            sb.append("ORDER BY");
-            sb.append(" ");
-            IntStream.range(0, orderByElements.size()).forEach(i -> {
-                sb.append(orderByElements.get(i).getExpr().toSql());
-                sb.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
-                sb.append((i + 1 != orderByElements.size()) ? ", " : "");
-            });
-        }
-
-        if (getLimit() != -1L) {
-            sb.append(" ");
-            sb.append("LIMIT");
-            sb.append(" ");
-            sb.append(getLimit());
-        }
-
         return sb.toString();
     }
 
@@ -308,5 +242,9 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
     public TableName getDbTableName() {
         return dbTableName;
+    }
+
+    public boolean isAuto() {
+        return auto;
     }
 }

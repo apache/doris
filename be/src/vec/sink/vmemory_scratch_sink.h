@@ -60,18 +60,12 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
-    RuntimeProfile* profile() override { return _profile; }
+    bool can_write() override;
 
 private:
     Status _prepare_vexpr(RuntimeState* state);
 
-    // Owned by the RuntimeState.
-    const RowDescriptor& _row_desc;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
-
     BlockQueueSharedPtr _queue;
-
-    RuntimeProfile* _profile; // Allocated from _pool
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;

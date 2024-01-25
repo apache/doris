@@ -18,56 +18,103 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.job.common.IntervalUnit;
+import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRefreshSchedule;
+import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.AddConstraintContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
+import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
+import org.apache.doris.nereids.DorisParser.ArraySliceContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
+import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
+import org.apache.doris.nereids.DorisParser.BuildModeContext;
+import org.apache.doris.nereids.DorisParser.CallProcedureContext;
+import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
+import org.apache.doris.nereids.DorisParser.CollateContext;
+import org.apache.doris.nereids.DorisParser.ColumnDefContext;
+import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
+import org.apache.doris.nereids.DorisParser.CommentDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
+import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
+import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
+import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
+import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
+import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
+import org.apache.doris.nereids.DorisParser.DateCeilContext;
+import org.apache.doris.nereids.DorisParser.DateFloorContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
 import org.apache.doris.nereids.DorisParser.Date_subContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.DropConstraintContext;
+import org.apache.doris.nereids.DorisParser.DropMTMVContext;
+import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExportContext;
+import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
+import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
-import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
+import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
+import org.apache.doris.nereids.DorisParser.IndexDefContext;
+import org.apache.doris.nereids.DorisParser.IndexDefsContext;
+import org.apache.doris.nereids.DorisParser.InlineTableContext;
+import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
 import org.apache.doris.nereids.DorisParser.Is_not_null_predContext;
 import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
+import org.apache.doris.nereids.DorisParser.LambdaExpressionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
+import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
+import org.apache.doris.nereids.DorisParser.MapLiteralContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -75,25 +122,52 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
+import org.apache.doris.nereids.DorisParser.PartitionSpecContext;
+import org.apache.doris.nereids.DorisParser.PartitionValueDefContext;
+import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
+import org.apache.doris.nereids.DorisParser.PauseMTMVContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
+import org.apache.doris.nereids.DorisParser.PropertyClauseContext;
+import org.apache.doris.nereids.DorisParser.PropertyItemContext;
+import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
+import org.apache.doris.nereids.DorisParser.PropertyKeyContext;
+import org.apache.doris.nereids.DorisParser.PropertyValueContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
+import org.apache.doris.nereids.DorisParser.QueryTermContext;
+import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
+import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
+import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
+import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
+import org.apache.doris.nereids.DorisParser.RollupDefContext;
+import org.apache.doris.nereids.DorisParser.RollupDefsContext;
+import org.apache.doris.nereids.DorisParser.RowConstructorContext;
+import org.apache.doris.nereids.DorisParser.RowConstructorItemContext;
+import org.apache.doris.nereids.DorisParser.SampleByPercentileContext;
+import org.apache.doris.nereids.DorisParser.SampleByRowsContext;
+import org.apache.doris.nereids.DorisParser.SampleContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
+import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
+import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
+import org.apache.doris.nereids.DorisParser.SimpleColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.SingleStatementContext;
 import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
+import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
+import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
@@ -102,8 +176,6 @@ import org.apache.doris.nereids.DorisParser.TableNameContext;
 import org.apache.doris.nereids.DorisParser.TableValuedFunctionContext;
 import org.apache.doris.nereids.DorisParser.TimestampaddContext;
 import org.apache.doris.nereids.DorisParser.TimestampdiffContext;
-import org.apache.doris.nereids.DorisParser.TvfPropertyContext;
-import org.apache.doris.nereids.DorisParser.TvfPropertyItemContext;
 import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UpdateAssignmentContext;
@@ -114,29 +186,39 @@ import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
 import org.apache.doris.nereids.DorisParser.WindowSpecContext;
+import org.apache.doris.nereids.DorisParser.WithRemoteStorageSystemContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintOrdered;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -154,6 +236,8 @@ import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
+import org.apache.doris.nereids.trees.expressions.MatchPhrasePrefix;
+import org.apache.doris.nereids.trees.expressions.MatchRegexp;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -161,11 +245,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -173,27 +258,49 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -202,37 +309,85 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.Constraint;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
+import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -244,19 +399,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.qe.VariableVarConverters;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -273,6 +430,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -322,26 +480,319 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
-        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
+    public LogicalPlan visitInsertTable(InsertTableContext ctx) {
+        boolean isOverwrite = ctx.INTO() == null;
+        ImmutableList.Builder<String> tableName = ImmutableList.builder();
+        if (null != ctx.tableName) {
+            tableName.addAll(visitMultipartIdentifier(ctx.tableName));
+        } else if (null != ctx.tableId) {
+            // process group commit insert table command send by be
+            TableName name = Env.getCurrentEnv().getInternalCatalog()
+                    .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
+            tableName.add(name.getDb());
+            tableName.add(name.getTbl());
+        } else {
+            throw new ParseException("tableName and tableId cannot both be null");
+        }
+        Optional<String> labelName = ctx.labelName == null ? Optional.empty() : Optional.of(ctx.labelName.getText());
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
-        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(
-                tableName,
+        // TODO visit partitionSpecCtx
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        LogicalPlan plan = visitQuery(ctx.query());
+        UnboundTableSink<?> sink = new UnboundTableSink<>(
+                tableName.build(),
                 colNames,
                 ImmutableList.of(),
-                partitions,
-                visitQuery(ctx.query()));
-        if (ctx.explain() != null) {
-            return withExplain(sink, ctx.explain());
+                partitionSpec.first,
+                partitionSpec.second,
+                ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
+                DMLCommandType.INSERT,
+                plan);
+        LogicalPlan command;
+        if (isOverwrite) {
+            command = new InsertOverwriteTableCommand(sink, labelName);
+        } else {
+            if (ConnectContext.get() != null && ConnectContext.get().isTxnModel()) {
+                command = new BatchInsertIntoTableCommand(sink);
+            } else {
+                command = new InsertIntoTableCommand(sink, labelName);
+            }
         }
-        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
+        if (ctx.explain() != null) {
+            return withExplain(command, ctx.explain());
+        }
+        return command;
+    }
+
+    /**
+     * return a pair, first will be true if partitions is temp partition, select is a list to present partition list.
+     */
+    @Override
+    public Pair<Boolean, List<String>> visitPartitionSpec(PartitionSpecContext ctx) {
+        List<String> partitions = ImmutableList.of();
+        boolean temporaryPartition = false;
+        if (ctx != null) {
+            temporaryPartition = ctx.TEMPORARY() != null;
+            if (ctx.partition != null) {
+                partitions = ImmutableList.of(ctx.partition.getText());
+            } else {
+                partitions = visitIdentifierList(ctx.partitions);
+            }
+        }
+        return Pair.of(temporaryPartition, partitions);
+    }
+
+    @Override
+    public CreateMTMVCommand visitCreateMTMV(CreateMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+
+        BuildMode buildMode = visitBuildMode(ctx.buildMode());
+        RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());
+        MTMVRefreshTriggerInfo refreshTriggerInfo = visitRefreshTrigger(ctx.refreshTrigger());
+        LogicalPlan logicalPlan = visitQuery(ctx.query());
+        String querySql = getOriginSql(ctx.query());
+
+        int bucketNum = FeConstants.default_bucket_num;
+        if (ctx.INTEGER_VALUE() != null) {
+            bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        }
+        DistributionDescriptor desc = null;
+        if (ctx.HASH() != null) {
+            desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
+                    visitIdentifierList(ctx.hashKeys));
+        } else if (ctx.RANDOM() != null) {
+            desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
+        }
+
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+
+        return new CreateMTMVCommand(new CreateMTMVInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                comment,
+                desc, properties, logicalPlan, querySql,
+                new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
+                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
+                visitMTMVPartitionInfo(ctx.partitionKey)
+        ));
+    }
+
+    /**
+     * get MTMVPartitionInfo
+     *
+     * @param ctx IdentifierContext
+     * @return MTMVPartitionInfo
+     */
+    public MTMVPartitionInfo visitMTMVPartitionInfo(IdentifierContext ctx) {
+        if (ctx == null) {
+            return new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE);
+        } else {
+            return new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE, ctx.getText());
+        }
+    }
+
+    @Override
+    public List<SimpleColumnDefinition> visitSimpleColumnDefs(SimpleColumnDefsContext ctx) {
+        if (ctx == null) {
+            return null;
+        }
+        return ctx.cols.stream()
+                .map(this::visitSimpleColumnDef)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public SimpleColumnDefinition visitSimpleColumnDef(SimpleColumnDefContext ctx) {
+        String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
+                ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
+        return new SimpleColumnDefinition(ctx.colName.getText().toLowerCase(),
+                comment);
+    }
+
+    /**
+     * get originSql
+     *
+     * @param ctx context
+     * @return originSql
+     */
+    private String getOriginSql(ParserRuleContext ctx) {
+        int startIndex = ctx.start.getStartIndex();
+        int stopIndex = ctx.stop.getStopIndex();
+        org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex, stopIndex);
+        return ctx.start.getInputStream().getText(interval);
+    }
+
+    @Override
+    public MTMVRefreshTriggerInfo visitRefreshTrigger(RefreshTriggerContext ctx) {
+        if (ctx == null) {
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
+        }
+        if (ctx.MANUAL() != null) {
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
+        }
+        if (ctx.SCHEDULE() != null) {
+            return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
+        }
+        return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
+    }
+
+    @Override
+    public MTMVRefreshSchedule visitRefreshSchedule(RefreshScheduleContext ctx) {
+        int interval = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        String startTime = ctx.STARTS() == null ? null
+                : ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        IntervalUnit unit = visitMvRefreshUnit(ctx.refreshUnit);
+        return new MTMVRefreshSchedule(startTime, interval, unit);
+    }
+
+    /**
+     * get IntervalUnit,only enable_job_schedule_second_for_test is true, can use second
+     *
+     * @param ctx ctx
+     * @return IntervalUnit
+     */
+    public IntervalUnit visitMvRefreshUnit(IdentifierContext ctx) {
+        IntervalUnit intervalUnit = IntervalUnit.fromString(ctx.getText().toUpperCase());
+        if (null == intervalUnit) {
+            throw new AnalysisException("interval time unit can not be " + ctx.getText());
+        }
+        if (intervalUnit.equals(IntervalUnit.SECOND)
+                && !Config.enable_job_schedule_second_for_test) {
+            throw new AnalysisException("interval time unit can not be second");
+        }
+        return intervalUnit;
+    }
+
+    @Override
+    public RefreshMethod visitRefreshMethod(RefreshMethodContext ctx) {
+        if (ctx == null) {
+            return RefreshMethod.AUTO;
+        }
+        return RefreshMethod.valueOf(ctx.getText().toUpperCase());
+    }
+
+    @Override
+    public BuildMode visitBuildMode(BuildModeContext ctx) {
+        if (ctx == null) {
+            return BuildMode.IMMEDIATE;
+        }
+        if (ctx.DEFERRED() != null) {
+            return BuildMode.DEFERRED;
+        } else if (ctx.IMMEDIATE() != null) {
+            return BuildMode.IMMEDIATE;
+        }
+        return BuildMode.IMMEDIATE;
+    }
+
+    @Override
+    public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        List<String> partitions = ImmutableList.of();
+        if (ctx.partitionSpec() != null) {
+            if (ctx.partitionSpec().TEMPORARY() != null) {
+                throw new AnalysisException("Not allowed to specify TEMPORARY ");
+            }
+            if (ctx.partitionSpec().partition != null) {
+                partitions = ImmutableList.of(ctx.partitionSpec().partition.getText());
+            } else {
+                partitions = visitIdentifierList(ctx.partitionSpec().partitions);
+            }
+        }
+        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
+                partitions, ctx.COMPLETE() != null));
+    }
+
+    @Override
+    public DropMTMVCommand visitDropMTMV(DropMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new DropMTMVCommand(new DropMTMVInfo(new TableNameInfo(nameParts), ctx.EXISTS() != null));
+    }
+
+    @Override
+    public PauseMTMVCommand visitPauseMTMV(PauseMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new PauseMTMVCommand(new PauseMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public ResumeMTMVCommand visitResumeMTMV(ResumeMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new ResumeMTMVCommand(new ResumeMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public CancelMTMVTaskCommand visitCancelMTMVTask(CancelMTMVTaskContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        long taskId = Long.parseLong(ctx.taskId.getText());
+        return new CancelMTMVTaskCommand(new CancelMTMVTaskInfo(new TableNameInfo(nameParts), taskId));
+    }
+
+    @Override
+    public AlterMTMVCommand visitAlterMTMV(AlterMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        TableNameInfo mvName = new TableNameInfo(nameParts);
+        AlterMTMVInfo alterMTMVInfo = null;
+        if (ctx.RENAME() != null) {
+            alterMTMVInfo = new AlterMTMVRenameInfo(mvName, ctx.newName.getText());
+        } else if (ctx.REFRESH() != null) {
+            MTMVRefreshInfo refreshInfo = new MTMVRefreshInfo();
+            if (ctx.refreshMethod() != null) {
+                refreshInfo.setRefreshMethod(visitRefreshMethod(ctx.refreshMethod()));
+            }
+            if (ctx.refreshTrigger() != null) {
+                refreshInfo.setRefreshTriggerInfo(visitRefreshTrigger(ctx.refreshTrigger()));
+            }
+            alterMTMVInfo = new AlterMTMVRefreshInfo(mvName, refreshInfo);
+        } else if (ctx.SET() != null) {
+            alterMTMVInfo = new AlterMTMVPropertyInfo(mvName,
+                    Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
+        }
+        return new AlterMTMVCommand(alterMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitShowConstraint(ShowConstraintContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        return new ShowConstraintsCommand(parts);
+    }
+
+    @Override
+    public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
+        ImmutableList<Slot> slots = visitIdentifierList(ctx.constraint().slots).stream()
+                .map(UnboundSlot::new)
+                .collect(ImmutableList.toImmutableList());
+        Constraint constraint;
+        if (ctx.constraint().UNIQUE() != null) {
+            constraint = Constraint.newUniqueConstraint(curTable, slots);
+        } else if (ctx.constraint().PRIMARY() != null) {
+            constraint = Constraint.newPrimaryKeyConstraint(curTable, slots);
+        } else if (ctx.constraint().FOREIGN() != null) {
+            ImmutableList<Slot> referencedSlots = visitIdentifierList(ctx.constraint().referencedSlots).stream()
+                    .map(UnboundSlot::new)
+                    .collect(ImmutableList.toImmutableList());
+            List<String> nameParts = visitMultipartIdentifier(ctx.constraint().referenceTable);
+            LogicalPlan referenceTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
+            constraint = Constraint.newForeignKeyConstraint(curTable, slots, referenceTable, referencedSlots);
+        } else {
+            throw new AnalysisException("Unsupported constraint " + ctx.getText());
+        }
+        return new AddConstraintCommand(ctx.constraintName.getText().toLowerCase(), constraint);
+    }
+
+    @Override
+    public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
+        List<String> parts = visitMultipartIdentifier(ctx.table);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
+        return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 
     @Override
     public LogicalPlan visitUpdate(UpdateContext ctx) {
-        LogicalPlan query = withCheckPolicy(new UnboundRelation(
+        LogicalPlan query = LogicalPlanBuilderAssistant.withCheckPolicy(new UnboundRelation(
                 StatementScopeIdGenerator.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());
         if (ctx.fromClause() != null) {
@@ -352,26 +803,103 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
+        Optional<LogicalPlan> cte = Optional.empty();
+        if (ctx.cte() != null) {
+            cte = Optional.ofNullable(withCte(query, ctx.cte()));
+        }
         return withExplain(new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
-                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query), ctx.explain());
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query, cte), ctx.explain());
     }
 
     @Override
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
-        LogicalPlan query = withTableAlias(withCheckPolicy(
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName)), ctx.tableAlias());
-        if (ctx.USING() != null) {
-            query = withRelations(query, ctx.relation());
-        }
-        query = withFilter(query, Optional.of(ctx.whereClause()));
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName,
+                        partitionSpec.second, partitionSpec.first)), ctx.tableAlias());
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query),
-                ctx.explain());
+        if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
+            query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
+            return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
+        } else {
+            // convert to insert into select
+            query = withRelations(query, ctx.relation());
+            query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
+            Optional<LogicalPlan> cte = Optional.empty();
+            if (ctx.cte() != null) {
+                cte = Optional.ofNullable(withCte(query, ctx.cte()));
+            }
+            return withExplain(new DeleteFromUsingCommand(tableName, tableAlias,
+                    partitionSpec.first, partitionSpec.second, query, cte), ctx.explain());
+        }
+    }
+
+    @Override
+    public LogicalPlan visitExport(ExportContext ctx) {
+        // TODO: replace old class name like ExportStmt, BrokerDesc, Expr with new nereid class name
+        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
+
+        // handle path string
+        String tmpPath = ctx.filePath.getText();
+        String path = LogicalPlanBuilderAssistant.escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
+
+        Optional<Expression> expr = Optional.empty();
+        if (ctx.whereClause() != null) {
+            expr = Optional.of(getExpression(ctx.whereClause().booleanExpression()));
+        }
+
+        Map<String, String> filePropertiesMap = ImmutableMap.of();
+        if (ctx.propertyClause() != null) {
+            filePropertiesMap = visitPropertyClause(ctx.propertyClause());
+        }
+
+        Optional<BrokerDesc> brokerDesc = Optional.empty();
+        if (ctx.withRemoteStorageSystem() != null) {
+            brokerDesc = Optional.ofNullable(visitWithRemoteStorageSystem(ctx.withRemoteStorageSystem()));
+        }
+        return new ExportCommand(tableName, partitions, expr, path, filePropertiesMap, brokerDesc);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyClause(PropertyClauseContext ctx) {
+        return ctx == null ? ImmutableMap.of() : visitPropertyItemList(ctx.fileProperties);
+    }
+
+    @Override
+    public Map<String, String> visitPropertyItemList(PropertyItemListContext ctx) {
+        if (ctx == null || ctx.properties == null) {
+            return ImmutableMap.of();
+        }
+        Builder<String, String> propertiesMap = ImmutableMap.builder();
+        for (PropertyItemContext argument : ctx.properties) {
+            String key = parsePropertyKey(argument.key);
+            String value = parsePropertyValue(argument.value);
+            propertiesMap.put(key, value);
+        }
+        return propertiesMap.build();
+    }
+
+    @Override
+    public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
+        BrokerDesc brokerDesc = null;
+
+        Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
+
+        if (ctx.S3() != null) {
+            brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+        } else if (ctx.HDFS() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
+        } else if (ctx.LOCAL() != null) {
+            brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.LOCAL, brokerPropertiesMap);
+        } else if (ctx.BROKER() != null) {
+            brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName), brokerPropertiesMap);
+        }
+        return brokerDesc;
     }
 
     /**
@@ -393,6 +921,87 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return logicalPlans;
     }
 
+    /**
+     * Visit load-statements.
+     */
+    @Override
+    public LogicalPlan visitLoad(DorisParser.LoadContext ctx) {
+
+        BulkStorageDesc bulkDesc = null;
+        if (ctx.withRemoteStorageSystem() != null) {
+            Map<String, String> bulkProperties =
+                    new HashMap<>(visitPropertyItemList(ctx.withRemoteStorageSystem().brokerProperties));
+            if (ctx.withRemoteStorageSystem().S3() != null) {
+                bulkDesc = new BulkStorageDesc("S3", BulkStorageDesc.StorageType.S3, bulkProperties);
+            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
+                bulkDesc = new BulkStorageDesc("HDFS", BulkStorageDesc.StorageType.HDFS, bulkProperties);
+            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
+                bulkDesc = new BulkStorageDesc("LOCAL_HDFS", BulkStorageDesc.StorageType.LOCAL, bulkProperties);
+            } else if (ctx.withRemoteStorageSystem().BROKER() != null
+                    && ctx.withRemoteStorageSystem().identifierOrText().getText() != null) {
+                bulkDesc = new BulkStorageDesc(ctx.withRemoteStorageSystem().identifierOrText().getText(),
+                        bulkProperties);
+            }
+        }
+        ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
+        for (DorisParser.DataDescContext ddc : ctx.dataDescs) {
+            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
+                    visitMultipartIdentifier(ddc.tableName));
+            List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
+            List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
+                        : visitIdentifierList(ddc.columnsFromPath.identifierList()));
+            List<String> partitions = ddc.partition == null ? ImmutableList.of() : visitIdentifierList(ddc.partition);
+            // TODO: multi location
+            List<String> multiFilePaths = new ArrayList<>();
+            for (Token filePath : ddc.filePaths) {
+                multiFilePaths.add(filePath.getText().substring(1, filePath.getText().length() - 1));
+            }
+            List<String> filePaths = ddc.filePath == null ? ImmutableList.of() : multiFilePaths;
+            Map<String, Expression> colMappings;
+            if (ddc.columnMapping == null) {
+                colMappings = ImmutableMap.of();
+            } else {
+                colMappings = new HashMap<>();
+                for (DorisParser.MappingExprContext mappingExpr : ddc.columnMapping.mappingSet) {
+                    colMappings.put(mappingExpr.mappingCol.getText(), getExpression(mappingExpr.expression()));
+                }
+            }
+
+            LoadTask.MergeType mergeType = ddc.mergeType() == null ? LoadTask.MergeType.APPEND
+                        : LoadTask.MergeType.valueOf(ddc.mergeType().getText());
+
+            Optional<String> fileFormat = ddc.format == null ? Optional.empty()
+                    : Optional.of(visitIdentifierOrStringLiteral(ddc.format));
+            Optional<String> separator = ddc.separator == null ? Optional.empty() : Optional.of(ddc.separator.getText()
+                        .substring(1, ddc.separator.getText().length() - 1));
+            Optional<String> comma = ddc.comma == null ? Optional.empty() : Optional.of(ddc.comma.getText()
+                        .substring(1, ddc.comma.getText().length() - 1));
+            Map<String, String> dataProperties = ddc.propertyClause() == null ? new HashMap<>()
+                        : visitPropertyClause(ddc.propertyClause());
+            dataDescriptions.add(new BulkLoadDataDesc(
+                    tableName,
+                    partitions,
+                    filePaths,
+                    colNames,
+                    columnsFromPath,
+                    colMappings,
+                    new BulkLoadDataDesc.FileFormatDesc(separator, comma, fileFormat),
+                    false,
+                    ddc.preFilter == null ? Optional.empty() : Optional.of(getExpression(ddc.preFilter.expression())),
+                    ddc.where == null ? Optional.empty() : Optional.of(getExpression(ddc.where.booleanExpression())),
+                    mergeType,
+                    ddc.deleteOn == null ? Optional.empty() : Optional.of(getExpression(ddc.deleteOn.expression())),
+                    ddc.sequenceColumn == null ? Optional.empty()
+                            : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
+        }
+        String labelName = ctx.lableName.getText();
+        Map<String, String> properties = visitPropertyItemList(ctx.properties);
+        String commentSpec = ctx.commentSpec() == null ? "''" : ctx.commentSpec().STRING_LITERAL().getText();
+        String comment =
+                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+        return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
+    }
+
     /* ********************************************************************************************
      * Plan parsing
      * ******************************************************************************************** */
@@ -400,7 +1009,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
      */
-    private LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
+    protected LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
         if (ctx.LATERAL() == null) {
             return plan;
         }
@@ -446,16 +1055,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         FilterType filterType = FilterType.of(ctx.type.getText());
         List<String> nameParts = visitMultipartIdentifier(ctx.table);
         return new CreatePolicyCommand(PolicyTypeEnum.ROW, ctx.name.getText(),
-                ctx.EXISTS() != null, nameParts, Optional.of(filterType), visitUserIdentify(ctx.user),
+                ctx.EXISTS() != null, nameParts, Optional.of(filterType),
+                ctx.user == null ? null : visitUserIdentify(ctx.user),
+                ctx.roleName == null ? null : ctx.roleName.getText(),
                 Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
     }
 
     @Override
     public String visitIdentifierOrText(IdentifierOrTextContext ctx) {
-        if (ctx.STRING() != null) {
-            return ctx.STRING().getText().substring(1, ctx.STRING().getText().length() - 1);
+        if (ctx.STRING_LITERAL() != null) {
+            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
         } else {
             return ctx.errorCapturingIdentifier().getText();
+        }
+    }
+
+    @Override
+    public String visitIdentifierOrStringLiteral(DorisParser.IdentifierOrStringLiteralContext ctx) {
+        if (ctx.STRING_LITERAL() != null) {
+            return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        } else {
+            return ctx.identifier().getText();
         }
     }
 
@@ -486,32 +1106,76 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            LogicalPlan leftQuery = plan(ctx.left);
-            LogicalPlan rightQuery = plan(ctx.right);
-            Qualifier qualifier;
-            if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
-                qualifier = Qualifier.DISTINCT;
-            } else {
-                qualifier = Qualifier.ALL;
-            }
 
-            List<Plan> newChildren = new ImmutableList.Builder<Plan>()
-                    .add(leftQuery)
-                    .add(rightQuery)
-                    .build();
-
-            LogicalPlan plan;
             if (ctx.UNION() != null) {
-                plan = new LogicalUnion(qualifier, newChildren);
-            } else if (ctx.EXCEPT() != null) {
-                plan = new LogicalExcept(qualifier, newChildren);
-            } else if (ctx.INTERSECT() != null) {
-                plan = new LogicalIntersect(qualifier, newChildren);
+                Qualifier qualifier = getQualifier(ctx);
+                List<QueryTermContext> contexts = Lists.newArrayList(ctx.right);
+                QueryTermContext current = ctx.left;
+                while (true) {
+                    if (current instanceof SetOperationContext
+                            && getQualifier((SetOperationContext) current) == qualifier
+                            && ((SetOperationContext) current).UNION() != null) {
+                        contexts.add(((SetOperationContext) current).right);
+                        current = ((SetOperationContext) current).left;
+                    } else {
+                        contexts.add(current);
+                        break;
+                    }
+                }
+                Collections.reverse(contexts);
+                List<LogicalPlan> logicalPlans = contexts.stream().map(this::plan).collect(Collectors.toList());
+                return reduceToLogicalPlanTree(0, logicalPlans.size() - 1, logicalPlans, qualifier);
             } else {
-                throw new ParseException("not support", ctx);
+                LogicalPlan leftQuery = plan(ctx.left);
+                LogicalPlan rightQuery = plan(ctx.right);
+                Qualifier qualifier = getQualifier(ctx);
+
+                List<Plan> newChildren = ImmutableList.of(leftQuery, rightQuery);
+                LogicalPlan plan;
+                if (ctx.UNION() != null) {
+                    plan = new LogicalUnion(qualifier, newChildren);
+                } else if (ctx.EXCEPT() != null) {
+                    plan = new LogicalExcept(qualifier, newChildren);
+                } else if (ctx.INTERSECT() != null) {
+                    plan = new LogicalIntersect(qualifier, newChildren);
+                } else {
+                    throw new ParseException("not support", ctx);
+                }
+                return plan;
             }
-            return plan;
         });
+    }
+
+    private Qualifier getQualifier(SetOperationContext ctx) {
+        if (ctx.setQuantifier() == null || ctx.setQuantifier().DISTINCT() != null) {
+            return Qualifier.DISTINCT;
+        } else {
+            return Qualifier.ALL;
+        }
+    }
+
+    private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+    }
+
+    /**
+     * construct avl union tree
+     */
+    public static LogicalPlan reduceToLogicalPlanTree(int low, int high,
+            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        switch (high - low) {
+            case 0:
+                return logicalPlans.get(low);
+            case 1:
+                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
+            default:
+                int mid = low + (high - low) / 2;
+                return logicalPlanCombiner(
+                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
+                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
+                        qualifier
+                );
+        }
     }
 
     @Override
@@ -524,26 +1188,33 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             SelectClauseContext selectCtx = ctx.selectClause();
             LogicalPlan selectPlan;
+            LogicalPlan relation;
             if (ctx.fromClause() == null) {
                 SelectColumnClauseContext columnCtx = selectCtx.selectColumnClause();
                 if (columnCtx.EXCEPT() != null) {
                     throw new ParseException("select-except cannot be used in one row relation", selectCtx);
                 }
-                selectPlan = withOneRowRelation(columnCtx);
+                relation = withOneRowRelation(columnCtx);
             } else {
-                LogicalPlan relation = visitFromClause(ctx.fromClause());
-                selectPlan = withSelectQuerySpecification(
-                        ctx, relation,
-                        selectCtx,
-                        Optional.ofNullable(ctx.whereClause()),
-                        Optional.ofNullable(ctx.aggClause()),
-                        Optional.ofNullable(ctx.havingClause())
-                );
+                relation = visitFromClause(ctx.fromClause());
             }
+            selectPlan = withSelectQuerySpecification(
+                    ctx, relation,
+                    selectCtx,
+                    Optional.ofNullable(ctx.whereClause()),
+                    Optional.ofNullable(ctx.aggClause()),
+                    Optional.ofNullable(ctx.havingClause()));
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
-            selectPlan = withCte(selectPlan, ctx.cte());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
+    }
+
+    @Override
+    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+        List<List<NamedExpression>> values = ctx.rowConstructor().stream()
+                .map(this::visitRowConstructor)
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalInlineTable(values);
     }
 
     /**
@@ -563,10 +1234,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
-    private LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy<>(plan);
-    }
-
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
@@ -581,6 +1248,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
+        Optional<String> indexName = Optional.empty();
+        if (ctx.materializedViewName() != null) {
+            indexName = Optional.ofNullable(ctx.materializedViewName().indexName.getText());
+        }
+
+        List<Long> tabletIdLists = new ArrayList<>();
+        if (ctx.tabletList() != null) {
+            ctx.tabletList().tabletIdList.stream().forEach(tabletToken -> {
+                tabletIdLists.add(Long.parseLong(tabletToken.getText()));
+            });
+        }
+
         final List<String> relationHints;
         if (ctx.relationHint() != null) {
             relationHints = typedVisit(ctx.relationHint());
@@ -588,9 +1267,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             relationHints = ImmutableList.of();
         }
 
-        LogicalPlan checkedRelation = withCheckPolicy(
+        TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
+        LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                        tableId, partitionNames, isTempPart, relationHints));
+                        tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
+                        Optional.ofNullable(tableSample), indexName));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -615,14 +1296,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Builder<String, String> map = ImmutableMap.builder();
-            for (TvfPropertyContext argument : ctx.properties) {
-                String key = parseTVFPropertyItem(argument.key);
-                String value = parseTVFPropertyItem(argument.value);
-                map.put(key, value);
-            }
+            Map<String, String> map = visitPropertyItemList(ctx.properties);
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new TVFProperties(map.build()));
+                    functionName, new Properties(map));
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -653,11 +1329,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * supported.
      */
     @Override
-    public Expression visitNamedExpression(NamedExpressionContext ctx) {
+    public NamedExpression visitNamedExpression(NamedExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression expression = getExpression(ctx.expression());
             if (ctx.identifierOrText() == null) {
-                return expression;
+                if (expression instanceof NamedExpression) {
+                    return (NamedExpression) expression;
+                } else {
+                    return new UnboundAlias(expression);
+                }
             }
             String alias = visitIdentifierOrText(ctx.identifierOrText());
             return new UnboundAlias(expression, alias);
@@ -666,35 +1346,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitSystemVariable(SystemVariableContext ctx) {
-        String name = ctx.identifier().getText();
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        Literal literal = null;
+        VariableType type = null;
         if (ctx.kind == null) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.DEFAULT);
+            type = VariableType.DEFAULT;
         } else if (ctx.kind.getType() == DorisParser.SESSION) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.SESSION);
+            type = VariableType.SESSION;
         } else if (ctx.kind.getType() == DorisParser.GLOBAL) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
+            type = VariableType.GLOBAL;
         }
-        if (literal == null) {
+        if (type == null) {
             throw new ParseException("Unsupported system variable: " + ctx.getText(), ctx);
         }
-        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
-            try {
-                Preconditions.checkArgument(literal instanceof IntegerLikeLiteral);
-                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) literal;
-                literal = new StringLiteral(VariableVarConverters.decode(name, integerLikeLiteral.getLongValue()));
-            } catch (DdlException e) {
-                throw new ParseException(e.getMessage(), ctx);
-            }
-        }
-        return literal.alias(ctx.getText());
+        return new UnboundVariable(ctx.identifier().getText(), type);
     }
 
     @Override
     public Expression visitUserVariable(UserVariableContext ctx) {
-        String name = ctx.identifierOrText().getText();
-        return VariableMgr.getLiteralForUserVar(name);
+        return new UnboundVariable(ctx.identifierOrText().getText(), VariableType.USER);
     }
 
     /**
@@ -776,6 +1444,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    @Override
+    public Expression visitLambdaExpression(LambdaExpressionContext ctx) {
+        ImmutableList<String> args = ctx.args.stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+        Expression body = (Expression) visit(ctx.body);
+        return new Lambda(args, body);
+    }
+
     private Expression expressionCombiner(Expression left, Expression right, LogicalBinaryContext ctx) {
         switch (ctx.operator.getType()) {
             case DorisParser.LOGICALAND:
@@ -827,7 +1504,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             switch (ctx.operator.getType()) {
                 case DorisParser.PLUS:
                     return e;
-                case DorisParser.MINUS:
+                case DorisParser.SUBTRACT:
                     IntegerLiteral zero = new IntegerLiteral(0);
                     return new Subtract(zero, e);
                 case DorisParser.TILDE:
@@ -866,20 +1543,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Only supported: " + Operator.ADD, ctx);
                 }
                 Interval interval = (Interval) left;
-                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit(), true);
+                return new TimestampArithmetic(Operator.ADD, right, interval.value(), interval.timeUnit());
             }
 
             if (right instanceof Interval) {
                 Operator op;
                 if (type == DorisParser.PLUS) {
                     op = Operator.ADD;
-                } else if (type == DorisParser.MINUS) {
+                } else if (type == DorisParser.SUBTRACT) {
                     op = Operator.SUBTRACT;
                 } else {
                     throw new ParseException("Only supported: " + Operator.ADD + " and " + Operator.SUBTRACT, ctx);
                 }
                 Interval interval = (Interval) right;
-                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit(), false);
+                return new TimestampArithmetic(op, left, interval.value(), interval.timeUnit());
             }
 
             return ParserUtils.withOrigin(ctx, () -> {
@@ -888,11 +1565,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         return new Multiply(left, right);
                     case DorisParser.SLASH:
                         return new Divide(left, right);
-                    case DorisParser.PERCENT:
+                    case DorisParser.MOD:
                         return new Mod(left, right);
                     case DorisParser.PLUS:
                         return new Add(left, right);
-                    case DorisParser.MINUS:
+                    case DorisParser.SUBTRACT:
                         return new Subtract(left, right);
                     case DorisParser.DIV:
                         return new IntegralDivide(left, right);
@@ -1017,11 +1694,69 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitDateFloor(DateFloorContext ctx) {
+        Expression timeStamp = (Expression) visit(ctx.timestamp);
+        Expression amount = (Expression) visit(ctx.unitsAmount);
+        if (ctx.unit == null) {
+            // use "SECOND" as unit by default
+            return new SecondFloor(timeStamp, amount);
+        }
+        Expression e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
+        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
+            return new YearFloor(timeStamp, amount, e);
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthFloor(timeStamp, amount, e);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeekFloor(timeStamp, amount, e);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DayFloor(timeStamp, amount, e);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+            return new HourFloor(timeStamp, amount, e);
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MinuteFloor(timeStamp, amount, e);
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+            return new SecondFloor(timeStamp, amount, e);
+        }
+        throw new ParseException("Unsupported time unit: " + ctx.unit
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
+    }
+
+    @Override
+    public Expression visitDateCeil(DateCeilContext ctx) {
+        Expression timeStamp = (Expression) visit(ctx.timestamp);
+        Expression amount = (Expression) visit(ctx.unitsAmount);
+        if (ctx.unit == null) {
+            // use "Second" as unit by default
+            return new SecondCeil(timeStamp, amount);
+        }
+        DateTimeV2Literal e = new DateTimeV2Literal(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
+        if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
+            return new YearCeil(timeStamp, amount, e);
+        } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MonthCeil(timeStamp, amount, e);
+        } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+            return new WeekCeil(timeStamp, amount, e);
+        } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new DayCeil(timeStamp, amount, e);
+        } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+            return new HourCeil(timeStamp, amount, e);
+        } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+            return new MinuteCeil(timeStamp, amount, e);
+        } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+            return new SecondCeil(timeStamp, amount, e);
+        }
+        throw new ParseException("Unsupported time unit: " + ctx.unit
+                + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND", ctx);
+    }
+
+    @Override
     public Expression visitDoublePipes(DorisParser.DoublePipesContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             Expression left = getExpression(ctx.left);
             Expression right = getExpression(ctx.right);
-            if (ConnectContext.get().getSessionVariable().getSqlMode() == SqlModeHelper.MODE_PIPES_AS_CONCAT) {
+            if (SqlModeHelper.hasPipeAsConcat()) {
                 return new UnboundFunction("concat", Lists.newArrayList(left, right));
             } else {
                 return new Or(left, right);
@@ -1076,20 +1811,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        List<String> types = typedVisit(ctx.dataType());
-        DataType dataType = DataType.convertPrimitiveFromStrings(types, true);
-        Expression cast = ParserUtils.withOrigin(ctx, () ->
-                new Cast(getExpression(ctx.expression()), dataType));
-        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
-            List<Expression> args = ImmutableList.of(
-                    cast,
-                    new TinyIntLiteral((byte) 1),
-                    Literal.of(((CharacterType) dataType).getLen())
-            );
-            return new UnboundFunction("substr", args);
-        } else {
-            return cast;
-        }
+        return ParserUtils.withOrigin(ctx, () -> {
+            DataType dataType = ((DataType) typedVisit(ctx.dataType())).conversion();
+            Expression cast = new Cast(getExpression(ctx.expression()), dataType, true);
+            return processCast(cast, dataType);
+        });
     }
 
     @Override
@@ -1102,19 +1828,70 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
+    public Expression visitEncryptKey(DorisParser.EncryptKeyContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String db = ctx.dbName == null ? "" : ctx.dbName.getText();
+            String key = ctx.keyName.getText();
+            return new EncryptKeyRef(new StringLiteral(db), new StringLiteral(key));
+        });
+    }
+
+    @Override
+    public Expression visitCharFunction(DorisParser.CharFunctionContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String charSet = ctx.charSet == null ? "utf8" : ctx.charSet.getText();
+            List<Expression> arguments = ImmutableList.<Expression>builder()
+                    .add(new StringLiteral(charSet))
+                    .addAll(visit(ctx.arguments, Expression.class))
+                    .build();
+            return new Char(arguments);
+        });
+    }
+
+    @Override
+    public Expression visitConvertCharSet(DorisParser.ConvertCharSetContext ctx) {
+        return ParserUtils.withOrigin(ctx,
+                () -> new ConvertTo(getExpression(ctx.argument), new StringLiteral(ctx.charSet.getText())));
+    }
+
+    @Override
+    public Expression visitConvertType(DorisParser.ConvertTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            DataType dataType = ((DataType) typedVisit(ctx.type)).conversion();
+            Expression cast = new Cast(getExpression(ctx.argument), dataType, true);
+            return processCast(cast, dataType);
+        });
+    }
+
+    private Expression processCast(Expression cast, DataType dataType) {
+        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
+                return cast;
+            }
+            List<Expression> args = ImmutableList.of(
+                    cast,
+                    new TinyIntLiteral((byte) 1),
+                    Literal.of(((CharacterType) dataType).getLen())
+            );
+            return new UnboundFunction("substr", args);
+        } else {
+            return cast;
+        }
+    }
+
+    @Override
+    public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
-
             List<OrderKey> orderKeys = visit(ctx.sortItem(), OrderKey.class);
             if (!orderKeys.isEmpty()) {
                 return parseFunctionWithOrderKeys(functionName, isDistinct, params, orderKeys, ctx);
             }
 
             List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
-            if (unboundStars.size() > 0) {
+            if (!unboundStars.isEmpty()) {
                 if (functionName.equalsIgnoreCase("count")) {
                     if (unboundStars.size() > 1) {
                         throw new ParseException(
@@ -1237,8 +2014,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Expression visitTypeConstructor(TypeConstructorContext ctx) {
-        String value = ctx.STRING().getText();
+    public Literal visitTypeConstructor(TypeConstructorContext ctx) {
+        String value = ctx.STRING_LITERAL().getText();
         value = value.substring(1, value.length() - 1);
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
@@ -1248,6 +2025,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
             case "DATEV2":
                 return new DateV2Literal(value);
+            case "DATEV1":
+                return new DateLiteral(value);
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -1270,6 +2049,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitElementAt(ElementAtContext ctx) {
+        return new ElementAt(typedVisit(ctx.value), typedVisit(ctx.index));
+    }
+
+    @Override
+    public Expression visitArraySlice(ArraySliceContext ctx) {
+        if (ctx.end != null) {
+            return new ArraySlice(typedVisit(ctx.value), typedVisit(ctx.begin), typedVisit(ctx.end));
+        } else {
+            return new ArraySlice(typedVisit(ctx.value), typedVisit(ctx.begin));
+        }
+    }
+
+    @Override
     public UnboundSlot visitColumnReference(ColumnReferenceContext ctx) {
         // todo: handle quoted and unquoted
         return UnboundSlot.quoted(ctx.getText());
@@ -1279,7 +2072,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * Create a NULL literal expression.
      */
     @Override
-    public Expression visitNullLiteral(NullLiteralContext ctx) {
+    public Literal visitNullLiteral(NullLiteralContext ctx) {
         return new NullLiteral();
     }
 
@@ -1307,58 +2100,93 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
-        // TODO: add unescapeSQLString.
-        String txt = ctx.STRING().getText();
-        String s = escapeBackSlash(txt.substring(1, txt.length() - 1));
-        return new VarcharLiteral(s);
+        String txt = ctx.STRING_LITERAL().getText();
+        String s = txt.substring(1, txt.length() - 1);
+        if (txt.charAt(0) == '\'') {
+            // for single quote string, '' should be converted to '
+            s = s.replace("''", "'");
+        } else if (txt.charAt(0) == '"') {
+            // for double quote string, "" should be converted to "
+            s = s.replace("\"\"", "\"");
+        }
+        if (!SqlModeHelper.hasNoBackSlashEscapes()) {
+            s = LogicalPlanBuilderAssistant.escapeBackSlash(s);
+        }
+        int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
+        if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
+            return new StringLiteral(s);
+        }
+        return new VarcharLiteral(s, strLength);
     }
 
-    private String escapeBackSlash(String str) {
-        StringBuilder sb = new StringBuilder();
-        int strLen = str.length();
-        for (int i = 0; i < strLen; ++i) {
-            char c = str.charAt(i);
-            if (c == '\\' && (i + 1) < strLen) {
-                switch (str.charAt(i + 1)) {
-                    case 'n':
-                        sb.append('\n');
-                        break;
-                    case 't':
-                        sb.append('\t');
-                        break;
-                    case 'r':
-                        sb.append('\r');
-                        break;
-                    case 'b':
-                        sb.append('\b');
-                        break;
-                    case '0':
-                        sb.append('\0'); // Ascii null
-                        break;
-                    case 'Z': // ^Z must be escaped on Win32
-                        sb.append('\032');
-                        break;
-                    case '_':
-                    case '%':
-                        sb.append('\\'); // remember prefix for wildcard
-                        sb.append(str.charAt(i + 1));
-                        break;
-                    default:
-                        sb.append(str.charAt(i + 1));
-                        break;
-                }
-                i++;
+    /**
+     * cast all items to same types.
+     * TODO remove this function after we refactor type coercion.
+     */
+    private List<Literal> typeCoercionItems(List<Literal> items) {
+        Array array = new Array(items.toArray(new Literal[0]));
+        if (array.expectedInputTypes().isEmpty()) {
+            return ImmutableList.of();
+        }
+        DataType dataType = array.expectedInputTypes().get(0);
+        return items.stream()
+                .map(item -> item.checkedCastTo(dataType))
+                .map(Literal.class::cast)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public ArrayLiteral visitArrayLiteral(ArrayLiteralContext ctx) {
+        List<Literal> items = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
+        if (items.isEmpty()) {
+            return new ArrayLiteral(items);
+        }
+        return new ArrayLiteral(typeCoercionItems(items));
+    }
+
+    @Override
+    public MapLiteral visitMapLiteral(MapLiteralContext ctx) {
+        List<Literal> items = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
+        if (items.size() % 2 != 0) {
+            throw new ParseException("map can't be odd parameters, need even parameters", ctx);
+        }
+        List<Literal> keys = Lists.newArrayList();
+        List<Literal> values = Lists.newArrayList();
+        for (int i = 0; i < items.size(); i++) {
+            if (i % 2 == 0) {
+                keys.add(items.get(i));
             } else {
-                sb.append(c);
+                values.add(items.get(i));
             }
         }
+        return new MapLiteral(typeCoercionItems(keys), typeCoercionItems(values));
+    }
 
-        return sb.toString();
+    @Override
+    public Object visitStructLiteral(StructLiteralContext ctx) {
+        List<Literal> fields = ctx.items.stream().<Literal>map(this::typedVisit).collect(Collectors.toList());
+        return new StructLiteral(fields);
     }
 
     @Override
     public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
         return getExpression(ctx.expression());
+    }
+
+    @Override
+    public List<NamedExpression> visitRowConstructor(RowConstructorContext ctx) {
+        return ctx.rowConstructorItem().stream()
+                .map(this::visitRowConstructorItem)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public NamedExpression visitRowConstructorItem(RowConstructorItemContext ctx) {
+        if (ctx.DEFAULT() != null) {
+            return new DefaultValueSlot();
+        } else {
+            return visitNamedExpression(ctx.namedExpression());
+        }
     }
 
     @Override
@@ -1446,6 +2274,308 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /* ********************************************************************************************
+     * create table parsing
+     * ******************************************************************************************** */
+
+    @Override
+    public LogicalPlan visitCreateTable(CreateTableContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        String tableName = null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        // TODO: support catalog
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
+        } else {
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
+        }
+        KeysType keysType = null;
+        if (ctx.DUPLICATE() != null) {
+            keysType = KeysType.DUP_KEYS;
+        } else if (ctx.AGGREGATE() != null) {
+            keysType = KeysType.AGG_KEYS;
+        } else if (ctx.UNIQUE() != null) {
+            keysType = KeysType.UNIQUE_KEYS;
+        }
+        String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
+        int bucketNum = FeConstants.default_bucket_num;
+        if (ctx.INTEGER_VALUE() != null) {
+            bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        }
+        DistributionDescriptor desc = null;
+        if (ctx.HASH() != null) {
+            desc = new DistributionDescriptor(true, ctx.autoBucket != null, bucketNum,
+                    visitIdentifierList(ctx.hashKeys));
+        } else if (ctx.RANDOM() != null) {
+            desc = new DistributionDescriptor(false, ctx.autoBucket != null, bucketNum, null);
+        }
+        Map<String, String> properties = ctx.properties != null
+                // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
+                ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+        Map<String, String> extProperties = ctx.extProperties != null
+                // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
+                ? Maps.newHashMap(visitPropertyClause(ctx.extProperties))
+                : Maps.newHashMap();
+        String partitionType = null;
+        if (ctx.PARTITION() != null) {
+            partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
+        }
+        boolean isAutoPartition = ctx.autoPartition != null;
+        ImmutableList.Builder<Expression> autoPartitionExpr = new ImmutableList.Builder<>();
+        if (isAutoPartition) {
+            if (ctx.RANGE() != null) {
+                // AUTO PARTITION BY RANGE FUNC_CALL_EXPR
+                if (ctx.partitionExpr != null) {
+                    autoPartitionExpr.add(visitFunctionCallExpression(ctx.partitionExpr));
+                } else {
+                    throw new AnalysisException(
+                            "AUTO PARTITION BY RANGE must provide a function expr");
+                }
+            } else {
+                // AUTO PARTITION BY LIST(`partition_col`)
+                if (ctx.partitionKeys != null) {
+                    // only support one column in auto partition
+                    autoPartitionExpr.addAll(visitIdentifierList(ctx.partitionKeys).stream()
+                            .distinct().map(name -> UnboundSlot.quoted(name))
+                            .collect(Collectors.toList()));
+                } else {
+                    throw new AnalysisException(
+                            "AUTO PARTITION BY List must provide a partition column");
+                }
+            }
+        }
+
+        if (ctx.columnDefs() != null) {
+            if (ctx.AS() != null) {
+                throw new AnalysisException("Should not define the entire column in CTAS");
+            }
+            return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
+                    ctx.EXISTS() != null,
+                    ctx.EXTERNAL() != null,
+                    ctlName,
+                    dbName,
+                    tableName,
+                    visitColumnDefs(ctx.columnDefs()),
+                    ctx.indexDefs() != null ? visitIndexDefs(ctx.indexDefs()) : ImmutableList.of(),
+                    engineName,
+                    keysType,
+                    ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                    "",
+                    isAutoPartition,
+                    autoPartitionExpr.build(),
+                    partitionType,
+                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
+                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    desc,
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
+                    properties,
+                    extProperties,
+                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+        } else if (ctx.AS() != null) {
+            return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
+                    ctx.EXISTS() != null,
+                    ctx.EXTERNAL() != null,
+                    ctlName,
+                    dbName,
+                    tableName,
+                    ctx.ctasCols != null ? visitIdentifierList(ctx.ctasCols) : null,
+                    engineName,
+                    keysType,
+                    ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                    "",
+                    isAutoPartition,
+                    autoPartitionExpr.build(),
+                    partitionType,
+                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
+                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    desc,
+                    ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
+                    properties,
+                    extProperties,
+                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+        } else {
+            throw new AnalysisException("Should contain at least one column in a table");
+        }
+    }
+
+    @Override
+    public List<ColumnDefinition> visitColumnDefs(ColumnDefsContext ctx) {
+        return ctx.cols.stream().map(this::visitColumnDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public ColumnDefinition visitColumnDef(ColumnDefContext ctx) {
+        String colName = ctx.colName.getText();
+        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
+                ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
+                : visitComplexDataType(((ComplexDataTypeContext) ctx.type));
+        colType = colType.conversion();
+        boolean isKey = ctx.KEY() != null;
+        boolean isNotNull = ctx.NOT() != null;
+        String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
+        Optional<DefaultValue> defaultValue = Optional.empty();
+        Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
+        if (ctx.DEFAULT() != null) {
+            if (ctx.INTEGER_VALUE() != null) {
+                defaultValue = Optional.of(new DefaultValue(ctx.INTEGER_VALUE().getText()));
+            } else if (ctx.stringValue != null) {
+                defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
+            } else if (ctx.nullValue != null) {
+                defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
+            } else if (ctx.CURRENT_TIMESTAMP() != null) {
+                if (ctx.defaultValuePrecision == null) {
+                    defaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
+                } else {
+                    defaultValue = Optional.of(DefaultValue
+                            .currentTimeStampDefaultValueWithPrecision(
+                                    Long.valueOf(ctx.defaultValuePrecision.getText())));
+                }
+            }
+        }
+        if (ctx.UPDATE() != null) {
+            if (ctx.onUpdateValuePrecision == null) {
+                onUpdateDefaultValue = Optional.of(DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE);
+            } else {
+                onUpdateDefaultValue = Optional.of(DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(
+                                Long.valueOf(ctx.onUpdateValuePrecision.getText())));
+            }
+        }
+        AggregateType aggType = null;
+        if (aggTypeString != null) {
+            try {
+                aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
+            } catch (Exception e) {
+                throw new AnalysisException(String.format("Aggregate type %s is unsupported", aggTypeString),
+                        e.getCause());
+            }
+        }
+        //comment should remove '\' and '(") at the beginning and end
+        String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1)
+                .replace("\\", "") : "";
+        boolean isAutoInc = ctx.AUTO_INCREMENT() != null;
+        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, isAutoInc, defaultValue,
+                onUpdateDefaultValue, comment);
+    }
+
+    @Override
+    public List<IndexDefinition> visitIndexDefs(IndexDefsContext ctx) {
+        return ctx.indexes.stream().map(this::visitIndexDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public IndexDefinition visitIndexDef(IndexDefContext ctx) {
+        String indexName = ctx.indexName.getText();
+        List<String> indexCols = visitIdentifierList(ctx.cols);
+        Map<String, String> properties = visitPropertyItemList(ctx.properties);
+        String indexType = ctx.indexType != null ? ctx.indexType.getText().toUpperCase() : null;
+        String comment = ctx.comment != null ? ctx.comment.getText() : "";
+        return new IndexDefinition(indexName, indexCols, indexType, properties, comment);
+    }
+
+    @Override
+    public List<PartitionDefinition> visitPartitionsDef(PartitionsDefContext ctx) {
+        return ctx.partitions.stream()
+                .map(p -> ((PartitionDefinition) visit(p))).collect(Collectors.toList());
+    }
+
+    @Override
+    public PartitionDefinition visitPartitionDef(DorisParser.PartitionDefContext ctx) {
+        PartitionDefinition partitionDefinition = (PartitionDefinition) visit(ctx.getChild(0));
+        if (ctx.partitionProperties != null) {
+            partitionDefinition.withProperties(visitPropertyItemList(ctx.partitionProperties));
+        }
+        return partitionDefinition;
+    }
+
+    @Override
+    public PartitionDefinition visitLessThanPartitionDef(LessThanPartitionDefContext ctx) {
+        String partitionName = ctx.partitionName.getText();
+        if (ctx.MAXVALUE() == null) {
+            List<Expression> lessThanValues = visitConstantSeq(ctx.constantSeq());
+            return new LessThanPartition(ctx.EXISTS() != null, partitionName, lessThanValues);
+        } else {
+            return new LessThanPartition(ctx.EXISTS() != null, partitionName,
+                    ImmutableList.of(MaxValue.INSTANCE));
+        }
+    }
+
+    @Override
+    public PartitionDefinition visitFixedPartitionDef(FixedPartitionDefContext ctx) {
+        String partitionName = ctx.partitionName.getText();
+        List<Expression> lowerBounds = visitConstantSeq(ctx.lower);
+        List<Expression> upperBounds = visitConstantSeq(ctx.upper);
+        return new FixedRangePartition(ctx.EXISTS() != null, partitionName, lowerBounds, upperBounds);
+    }
+
+    @Override
+    public PartitionDefinition visitStepPartitionDef(StepPartitionDefContext ctx) {
+        List<Expression> fromExpression = visitConstantSeq(ctx.from);
+        List<Expression> toExpression = visitConstantSeq(ctx.to);
+        return new StepPartition(false, null, fromExpression, toExpression,
+                Long.parseLong(ctx.unitsAmount.getText()), ctx.unit != null ? ctx.unit.getText() : null);
+    }
+
+    @Override
+    public PartitionDefinition visitInPartitionDef(InPartitionDefContext ctx) {
+        List<List<Expression>> values;
+        if (ctx.constants == null) {
+            values = ctx.constantSeqs.stream().map(this::visitConstantSeq)
+                    .collect(Collectors.toList());
+        } else {
+            values = visitConstantSeq(ctx.constants).stream().map(ImmutableList::of)
+                    .collect(Collectors.toList());
+        }
+        return new InPartition(ctx.EXISTS() != null, ctx.partitionName.getText(), values);
+    }
+
+    @Override
+    public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
+        return ctx.values.stream()
+                .map(this::visitPartitionValueDef)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Expression visitPartitionValueDef(PartitionValueDefContext ctx) {
+        if (ctx.INTEGER_VALUE() != null) {
+            return Literal.of(ctx.INTEGER_VALUE().getText());
+        } else if (ctx.STRING_LITERAL() != null) {
+            return Literal.of(toStringValue(ctx.STRING_LITERAL().getText()));
+        } else if (ctx.MAXVALUE() != null) {
+            return MaxValue.INSTANCE;
+        }
+        throw new AnalysisException("Unsupported partition value: " + ctx.getText());
+    }
+
+    @Override
+    public List<RollupDefinition> visitRollupDefs(RollupDefsContext ctx) {
+        return ctx.rollups.stream().map(this::visitRollupDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public RollupDefinition visitRollupDef(RollupDefContext ctx) {
+        String rollupName = ctx.rollupName.getText();
+        List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
+        List<String> dupKeys = ctx.dupKeys == null ? ImmutableList.of() : visitIdentifierList(ctx.dupKeys);
+        Map<String, String> properties = ctx.properties == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.properties);
+        return new RollupDefinition(rollupName, rollupCols, dupKeys, properties);
+    }
+
+    private String toStringValue(String literal) {
+        return literal.substring(1, literal.length() - 1);
+    }
+
+    /* ********************************************************************************************
      * Expression parsing
      * ******************************************************************************************** */
 
@@ -1489,14 +2619,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.format != null) {
             format = ctx.format.getText();
         }
-        Map<String, String> properties = Maps.newHashMap();
-        for (TvfPropertyContext argument : ctx.properties) {
-            String key = parseConstant(argument.key.constant());
-            String value = parseConstant(argument.value.constant());
-            properties.put(key, value);
+
+        Map<String, String> properties = ImmutableMap.of();
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
         }
         Literal filePath = (Literal) visit(ctx.filePath);
-        return new LogicalFileSink<>(filePath.getStringValue(), format, properties, plan);
+        return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
@@ -1554,10 +2683,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Optional<AggClauseContext> aggClause,
             Optional<HavingClauseContext> havingClause) {
         return ParserUtils.withOrigin(ctx, () -> {
-            // TODO: add lateral views
-
             // from -> where -> group by -> having -> select
-
             LogicalPlan filter = withFilter(inputRelation, whereClause);
             SelectColumnClauseContext selectColumnCtx = selectClause.selectColumnClause();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause);
@@ -1566,7 +2692,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY",
                         selectClause);
             }
-            // TODO: replace and process having at this position
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
                 // then ProjectToGlobalAggregate rule can insert agg node as LogicalHaving node's child
@@ -1577,10 +2702,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
                     project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                        expressions, aggregate, isDistinct);
+                        expressions, isDistinct, aggregate);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, ImmutableList.of(), aggregate, isDistinct);
+                    project = new LogicalProject<>(projects, ImmutableList.of(), isDistinct, aggregate);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -1625,16 +2750,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
-            JoinHint joinHint = Optional.ofNullable(join.joinHint()).map(hintCtx -> {
-                String hint = typedVisit(join.joinHint());
-                if (JoinHint.JoinHintType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
-                    return JoinHint.SHUFFLE_RIGHT;
-                } else if (JoinHint.JoinHintType.BROADCAST.toString().equalsIgnoreCase(hint)) {
-                    return JoinHint.BROADCAST_RIGHT;
+            DistributeType distributeType = Optional.ofNullable(join.distributeType()).map(hintCtx -> {
+                String hint = typedVisit(join.distributeType());
+                if (DistributeType.JoinDistributeType.SHUFFLE.toString().equalsIgnoreCase(hint)) {
+                    return DistributeType.SHUFFLE_RIGHT;
+                } else if (DistributeType.JoinDistributeType.BROADCAST.toString().equalsIgnoreCase(hint)) {
+                    return DistributeType.BROADCAST_RIGHT;
                 } else {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
-            }).orElse(JoinHint.NONE);
+            }).orElse(DistributeType.NONE);
+            DistributeHint distributeHint = new DistributeHint(distributeType);
             // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
@@ -1660,14 +2786,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
-                        joinHint,
+                        distributeHint,
                         Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {
                 last = new UsingJoin<>(joinType, last,
-                        plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+                        plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
 
+            }
+            if (distributeHint.distributeType != DistributeType.NONE
+                    && ConnectContext.get().getStatementContext() != null
+                    && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+                ConnectContext.get().getStatementContext().addHint(distributeHint);
             }
         }
         return last;
@@ -1680,31 +2811,48 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, SelectHint> hints = Maps.newLinkedHashMap();
         for (HintStatementContext hintStatement : hintContext.hintStatements) {
             String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-            for (HintAssignmentContext kv : hintStatement.parameters) {
-                String parameterName = visitIdentifierOrText(kv.key);
-                Optional<String> value = Optional.empty();
-                if (kv.constantValue != null) {
-                    Literal literal = (Literal) visit(kv.constantValue);
-                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                } else if (kv.identifierValue != null) {
-                    // maybe we should throw exception when the identifierValue is quoted identifier
-                    value = Optional.ofNullable(kv.identifierValue.getText());
-                }
-                parameters.put(parameterName, value);
+            switch (hintName) {
+                case "set_var":
+                    Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        Optional<String> value = Optional.empty();
+                        if (kv.constantValue != null) {
+                            Literal literal = (Literal) visit(kv.constantValue);
+                            value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                        } else if (kv.identifierValue != null) {
+                            // maybe we should throw exception when the identifierValue is quoted identifier
+                            value = Optional.ofNullable(kv.identifierValue.getText());
+                        }
+                        parameters.put(parameterName, value);
+                    }
+                    hints.put(hintName, new SelectHintSetVar(hintName, parameters));
+                    break;
+                case "leading":
+                    List<String> leadingParameters = new ArrayList<String>();
+                    for (HintAssignmentContext kv : hintStatement.parameters) {
+                        String parameterName = visitIdentifierOrText(kv.key);
+                        leadingParameters.add(parameterName);
+                    }
+                    hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
+                    break;
+                case "ordered":
+                    hints.put(hintName, new SelectHintOrdered(hintName));
+                    break;
+                default:
+                    break;
             }
-            hints.put(hintName, new SelectHint(hintName, parameters));
         }
         return new LogicalSelectHint<>(hints, logicalPlan);
     }
 
     @Override
-    public String visitBracketJoinHint(BracketJoinHintContext ctx) {
+    public String visitBracketDistributeType(BracketDistributeTypeContext ctx) {
         return ctx.identifier().getText();
     }
 
     @Override
-    public String visitCommentJoinHint(CommentJoinHintContext ctx) {
+    public String visitCommentDistributeType(CommentDistributeTypeContext ctx) {
         return ctx.identifier().getText();
     }
 
@@ -1725,7 +2873,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
                                        Optional<AggClauseContext> aggCtx, boolean isDistinct) {
         return ParserUtils.withOrigin(selectCtx, () -> {
-            // TODO: skip if havingClause exists
             if (aggCtx.isPresent()) {
                 return input;
             } else {
@@ -1735,30 +2882,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
                     return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
-                            expressions, input, isDistinct);
+                            expressions, isDistinct, input);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
+                    return new LogicalProject<>(projects, Collections.emptyList(), isDistinct, input);
                 }
             }
         });
     }
 
     private LogicalPlan withRelations(LogicalPlan inputPlan, List<RelationContext> relations) {
+        if (relations == null) {
+            return inputPlan;
+        }
         LogicalPlan left = inputPlan;
         for (RelationContext relation : relations) {
             // build left deep join tree
-            LogicalPlan right = visitRelation(relation);
+            LogicalPlan right = withJoinRelations(visitRelation(relation), relation);
             left = (left == null) ? right :
                     new LogicalJoin<>(
                             JoinType.CROSS_JOIN,
                             ExpressionUtils.EMPTY_CONDITION,
                             ExpressionUtils.EMPTY_CONDITION,
-                            JoinHint.NONE,
+                            new DistributeHint(DistributeType.NONE),
                             Optional.empty(),
                             left,
                             right);
-            left = withJoinRelations(left, relation);
             // TODO: pivot and lateral view
         }
         return left;
@@ -1818,10 +2967,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    outExpression = new Between(
-                            valueExpression,
-                            getExpression(ctx.lower),
-                            getExpression(ctx.upper)
+                    outExpression = new And(
+                            new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
+                            new LessThanEqual(valueExpression, getExpression(ctx.upper))
                     );
                     break;
                 case DorisParser.LIKE:
@@ -1873,6 +3021,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         getExpression(ctx.pattern)
                     );
                     break;
+                case DorisParser.MATCH_PHRASE_PREFIX:
+                    outExpression = new MatchPhrasePrefix(
+                        valueExpression,
+                        getExpression(ctx.pattern)
+                    );
+                    break;
+                case DorisParser.MATCH_REGEXP:
+                    outExpression = new MatchRegexp(
+                        valueExpression,
+                        getExpression(ctx.pattern)
+                    );
+                    break;
                 default:
                     throw new ParseException("Unsupported predicate type: " + ctx.kind.getText(), ctx);
             }
@@ -1881,16 +3041,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private List<NamedExpression> getNamedExpressions(NamedExpressionSeqContext namedCtx) {
-        return ParserUtils.withOrigin(namedCtx, () -> {
-            List<Expression> expressions = visit(namedCtx.namedExpression(), Expression.class);
-            return expressions.stream().map(expression -> {
-                if (expression instanceof NamedExpression) {
-                    return (NamedExpression) expression;
-                } else {
-                    return new UnboundAlias(expression);
-                }
-            }).collect(ImmutableList.toImmutableList());
-        });
+        return ParserUtils.withOrigin(namedCtx, () -> visit(namedCtx.namedExpression(), NamedExpression.class));
     }
 
     @Override
@@ -1919,14 +3070,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Literal visitDecimalLiteral(DecimalLiteralContext ctx) {
-        if (Config.enable_decimal_conversion) {
-            return new DecimalV3Literal(new BigDecimal(ctx.getText()));
-        } else {
-            return new DecimalLiteral(new BigDecimal(ctx.getText()));
+        try {
+            if (Config.enable_decimal_conversion) {
+                return new DecimalV3Literal(new BigDecimal(ctx.getText()));
+            } else {
+                return new DecimalLiteral(new BigDecimal(ctx.getText()));
+            }
+        } catch (Exception e) {
+            return new DoubleLiteral(Double.parseDouble(ctx.getText()));
         }
     }
 
-    private String parseTVFPropertyItem(TvfPropertyItemContext item) {
+    private String parsePropertyKey(PropertyKeyContext item) {
+        if (item.constant() != null) {
+            return parseConstant(item.constant());
+        }
+        return item.getText();
+    }
+
+    private String parsePropertyValue(PropertyValueContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }
@@ -1959,11 +3121,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<String> visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
-        String dataType = ctx.identifier().getText().toLowerCase(Locale.ROOT);
-        List<String> l = Lists.newArrayList(dataType);
-        ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-        return l;
+    public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            String dataType = ctx.primitiveColType().type.getText().toLowerCase(Locale.ROOT);
+            if (dataType.equalsIgnoreCase("all")) {
+                throw new NotSupportedException("Disable to create table with `ALL` type columns");
+            }
+            List<String> l = Lists.newArrayList(dataType);
+            ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
+            return DataType.convertPrimitiveFromStrings(l, ctx.primitiveColType().UNSIGNED() != null);
+        });
+    }
+
+    @Override
+    public DataType visitComplexDataType(ComplexDataTypeContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            switch (ctx.complex.getType()) {
+                case DorisParser.ARRAY:
+                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                case DorisParser.MAP:
+                    return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
+                case DorisParser.STRUCT:
+                    return new StructType(visitComplexColTypeList(ctx.complexColTypeList()));
+                default:
+                    throw new AnalysisException("do not support " + ctx.complex.getText() + " type for Nereids");
+            }
+        });
+    }
+
+    @Override
+    public List<StructField> visitComplexColTypeList(ComplexColTypeListContext ctx) {
+        return ctx.complexColType().stream().map(this::visitComplexColType).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public StructField visitComplexColType(ComplexColTypeContext ctx) {
+        String comment;
+        if (ctx.commentSpec() != null) {
+            comment = ctx.commentSpec().STRING_LITERAL().getText();
+            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
+        } else {
+            comment = "";
+        }
+        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
     }
 
     private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,
@@ -1989,5 +3189,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return ((Literal) constant).getStringValue();
         }
         return context.getText();
+    }
+
+    @Override
+    public Object visitCollate(CollateContext ctx) {
+        return visit(ctx.primaryExpression());
+    }
+
+    @Override
+    public Object visitSample(SampleContext ctx) {
+        long seek = ctx.seed == null ? -1L : Long.parseLong(ctx.seed.getText());
+        DorisParser.SampleMethodContext sampleContext = ctx.sampleMethod();
+        if (sampleContext instanceof SampleByPercentileContext) {
+            SampleByPercentileContext sampleByPercentileContext = (SampleByPercentileContext) sampleContext;
+            long percent = Long.parseLong(sampleByPercentileContext.INTEGER_VALUE().getText());
+            return new TableSample(percent, true, seek);
+        }
+        SampleByRowsContext sampleByRowsContext = (SampleByRowsContext) sampleContext;
+        long rows = Long.parseLong(sampleByRowsContext.INTEGER_VALUE().getText());
+        return new TableSample(rows, false, seek);
+    }
+
+    @Override
+    public Object visitCallProcedure(CallProcedureContext ctx) {
+        String functionName = ctx.functionName.getText();
+        List<Expression> arguments = ctx.expression().stream()
+                .<Expression>map(this::typedVisit)
+                .collect(ImmutableList.toImmutableList());
+        UnboundFunction unboundFunction = new UnboundFunction(functionName, arguments);
+        return new CallCommand(unboundFunction);
     }
 }

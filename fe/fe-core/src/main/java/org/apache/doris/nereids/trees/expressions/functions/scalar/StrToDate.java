@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -44,8 +44,9 @@ public class StrToDate extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE)
+            FunctionSignature.ret(DateTimeV2Type.MAX).args(VarcharType.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.MAX).args(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -86,11 +87,17 @@ public class StrToDate extends ScalarFunction
         if (getArgument(1) instanceof StringLikeLiteral) {
             if (DateLiteral.hasTimePart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
                 returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+                if (returnType.isDateTimeV2Type()) {
+                    returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
+                }
             } else {
                 returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));
             }
         } else {
             returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+            if (returnType.isDateTimeV2Type()) {
+                returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
+            }
         }
         return signature.withReturnType(returnType);
     }

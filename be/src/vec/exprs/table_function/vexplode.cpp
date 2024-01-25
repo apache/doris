@@ -36,7 +36,7 @@ VExplodeTableFunction::VExplodeTableFunction() {
     _fn_name = "vexplode";
 }
 
-Status VExplodeTableFunction::process_init(Block* block) {
+Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();
@@ -56,22 +56,20 @@ Status VExplodeTableFunction::process_init(Block* block) {
     return Status::OK();
 }
 
-Status VExplodeTableFunction::process_row(size_t row_idx) {
+void VExplodeTableFunction::process_row(size_t row_idx) {
     DCHECK(row_idx < _array_column->size());
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+    TableFunction::process_row(row_idx);
 
     if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
         _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
         _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
     }
-    return Status::OK();
 }
 
-Status VExplodeTableFunction::process_close() {
+void VExplodeTableFunction::process_close() {
     _array_column = nullptr;
     _detail.reset();
     _array_offset = 0;
-    return Status::OK();
 }
 
 void VExplodeTableFunction::get_value(MutableColumnPtr& column) {
@@ -79,8 +77,16 @@ void VExplodeTableFunction::get_value(MutableColumnPtr& column) {
     if (current_empty() || (_detail.nested_nullmap_data && _detail.nested_nullmap_data[pos])) {
         column->insert_default();
     } else {
-        column->insert_data(const_cast<char*>(_detail.nested_col->get_data_at(pos).data),
-                            _detail.nested_col->get_data_at(pos).size);
+        if (_is_nullable) {
+            assert_cast<ColumnNullable*>(column.get())
+                    ->get_nested_column_ptr()
+                    ->insert_from(*_detail.nested_col, pos);
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+                    ->insert_default();
+        } else {
+            column->insert_from(*_detail.nested_col, pos);
+        }
     }
 }
 

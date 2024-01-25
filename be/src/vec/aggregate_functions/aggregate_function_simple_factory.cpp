@@ -58,9 +58,8 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -73,8 +72,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
         register_aggregate_function_count_by_enum(instance);
-        register_aggregate_function_count_old(instance);
-        register_aggregate_function_sum_old(instance);
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
@@ -97,12 +94,12 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
         register_aggregate_function_map_agg(instance);
+        register_aggregate_function_bitmap_agg(instance);
 
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);
         register_aggregate_function_window_lead_lag_first_last(instance);
         register_aggregate_function_HLL_union_agg(instance);
-        register_aggregate_function_percentile_approx(instance);
     });
     return instance;
 }

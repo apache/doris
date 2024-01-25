@@ -24,7 +24,9 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -33,13 +35,18 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -53,36 +60,37 @@ import java.util.stream.Collectors;
 public class JoinUtils {
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        return !(join.getJoinType().isCrossJoin()) && !(join.getJoinType().isNullAwareLeftAntiJoin());
+        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
     }
 
     public static boolean couldBroadcast(Join join) {
         return !(join.getJoinType().isRightJoin() || join.getJoinType().isFullOuterJoin());
     }
 
-    private static final class JoinSlotCoverageChecker {
+    /**
+     * check if the row count of the left child in the broadcast join is less than a threshold value.
+     */
+    public static boolean checkBroadcastJoinStats(PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        double memLimit = sessionVariable.getMaxExecMemByte();
+        double rowsLimit = sessionVariable.getBroadcastRowCountLimit();
+        double brMemlimit = sessionVariable.getBroadcastHashtableMemLimitPercentage();
+        double datasize = join.getGroupExpression().get().child(1).getStatistics().computeSize();
+        double rowCount = join.getGroupExpression().get().child(1).getStatistics().getRowCount();
+        return rowCount <= rowsLimit && datasize <= memLimit * brMemlimit;
+    }
+
+    /**
+     * for a given equation, judge if it can be used as hash join condition
+     */
+    public static final class JoinSlotCoverageChecker {
         Set<ExprId> leftExprIds;
         Set<ExprId> rightExprIds;
 
-        JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
+        public JoinSlotCoverageChecker(List<Slot> left, List<Slot> right) {
             leftExprIds = left.stream().map(Slot::getExprId).collect(Collectors.toSet());
             rightExprIds = right.stream().map(Slot::getExprId).collect(Collectors.toSet());
-        }
-
-        JoinSlotCoverageChecker(Set<ExprId> left, Set<ExprId> right) {
-            leftExprIds = left;
-            rightExprIds = right;
-        }
-
-        /**
-         * PushDownExpressionInHashConjuncts ensure the "slots" is only one slot.
-         */
-        boolean isCoveredByLeftSlots(ExprId slot) {
-            return leftExprIds.contains(slot);
-        }
-
-        boolean isCoveredByRightSlots(ExprId slot) {
-            return rightExprIds.contains(slot);
         }
 
         /**
@@ -93,25 +101,20 @@ public class JoinUtils {
          * 4# t1.a=t2.a or t1.b=t2.b not for hash table
          * 5# t1.a > 1 not for hash table
          *
-         * @param equalTo a conjunct in on clause condition
+         * @param equal a conjunct in on clause condition
          * @return true if the equal can be used as hash join condition
          */
-        boolean isHashJoinCondition(EqualTo equalTo) {
-            Set<Slot> equalLeft = equalTo.left().collect(Slot.class::isInstance);
-            if (equalLeft.isEmpty()) {
+        public boolean isHashJoinCondition(EqualPredicate equal) {
+            Set<ExprId> equalLeftExprIds = equal.left().getInputSlotExprIds();
+            if (equalLeftExprIds.isEmpty()) {
                 return false;
             }
 
-            Set<Slot> equalRight = equalTo.right().collect(Slot.class::isInstance);
-            if (equalRight.isEmpty()) {
+            Set<ExprId> equalRightExprIds = equal.right().getInputSlotExprIds();
+            if (equalRightExprIds.isEmpty()) {
                 return false;
             }
 
-            List<ExprId> equalLeftExprIds = equalLeft.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
-
-            List<ExprId> equalRightExprIds = equalRight.stream()
-                    .map(Slot::getExprId).collect(Collectors.toList());
             return leftExprIds.containsAll(equalLeftExprIds) && rightExprIds.containsAll(equalRightExprIds)
                     || leftExprIds.containsAll(equalRightExprIds) && rightExprIds.containsAll(equalLeftExprIds);
         }
@@ -128,9 +131,8 @@ public class JoinUtils {
     public static Pair<List<Expression>, List<Expression>> extractExpressionForHashTable(List<Slot> leftSlots,
             List<Slot> rightSlots, List<Expression> onConditions) {
         JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(leftSlots, rightSlots);
-        Map<Boolean, List<Expression>> mapper = onConditions.stream()
-                .collect(Collectors.groupingBy(
-                        expr -> (expr instanceof EqualTo) && checker.isHashJoinCondition((EqualTo) expr)));
+        Map<Boolean, List<Expression>> mapper = onConditions.stream().collect(Collectors.groupingBy(
+                expr -> (expr instanceof EqualPredicate) && checker.isHashJoinCondition((EqualPredicate) expr)));
         return Pair.of(
                 mapper.getOrDefault(true, ImmutableList.of()),
                 mapper.getOrDefault(false, ImmutableList.of())
@@ -186,7 +188,7 @@ public class JoinUtils {
      * The left child of origin predicate is t2.id and the right child of origin predicate is t1.id.
      * In this situation, the children of predicate need to be swap => t1.id=t2.id.
      */
-    public static Expression swapEqualToForChildrenOrder(EqualTo equalTo, Set<Slot> leftOutput) {
+    public static EqualPredicate swapEqualToForChildrenOrder(EqualPredicate equalTo, Set<Slot> leftOutput) {
         if (leftOutput.containsAll(equalTo.left().getInputSlots())) {
             return equalTo;
         } else {
@@ -225,21 +227,14 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
-        // TODO: not rely on physical properties?
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
         if (!(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)
-                || !(joinDistributionSpec instanceof DistributionSpecHash)) {
+                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
             return false;
         }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
-        DistributionSpecHash joinHash = (DistributionSpecHash) joinDistributionSpec;
-        return leftHash.getShuffleType() == ShuffleType.NATURAL
-                && rightHash.getShuffleType() == ShuffleType.NATURAL
-                && joinHash.getShuffleType() == ShuffleType.NATURAL;
+        return couldColocateJoin((DistributionSpecHash) leftDistributionSpec,
+                (DistributionSpecHash) rightDistributionSpec);
     }
 
     /**
@@ -254,6 +249,7 @@ public class JoinUtils {
                 || rightHashSpec.getShuffleType() != ShuffleType.NATURAL) {
             return false;
         }
+
         final long leftTableId = leftHashSpec.getTableId();
         final long rightTableId = rightHashSpec.getTableId();
         final Set<Long> leftTablePartitions = leftHashSpec.getPartitionIds();
@@ -284,6 +280,56 @@ public class JoinUtils {
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
         return slots.stream().map(o -> o.withNullable(nullable))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
+            Set<Slot> foreignKeys) {
+        ImmutableMap.Builder<Slot, Slot> builder = new ImmutableMap.Builder<>();
+        for (Slot foreignSlot : foreignKeys) {
+            Set<Slot> primarySlots = equivalenceSet.calEqualSet(foreignSlot);
+            if (primarySlots.size() != 1) {
+                return ImmutableMap.of();
+            }
+            builder.put(primarySlots.iterator().next(), foreignSlot);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Check whether the given join can be eliminated by pk-fk
+     */
+    public static boolean canEliminateByFk(LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
+        if (!join.getJoinType().isInnerJoin() || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
+            return false;
+        }
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        context.collectForeignKeyConstraint(primaryPlan);
+        context.collectForeignKeyConstraint(foreignPlan);
+
+        ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
+        Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
+        Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
+        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
+            return false;
+        }
+
+        Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
+        return context.satisfyConstraint(primaryToForeignKey);
+    }
+
+    /**
+     * can this join be eliminated by its left child
+     */
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+        if (join.getJoinType().isLeftOuterJoin()) {
+            Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
+            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
+                return false;
+            }
+            return rightFuncDeps.isUnique(njHashKeys.second);
+        }
+        return false;
     }
 
     /**

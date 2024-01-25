@@ -26,6 +26,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TDataGenScanNode;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -106,5 +107,34 @@ public class DataGenScanNode extends ExternalScanNode {
     @Override
     public boolean needToCheckColumnPriv() {
         return false;
+    }
+
+    // Currently DataGenScanNode is only used by DataGenTableValuedFunction, which is
+    // inherited by NumbersTableValuedFunction.
+    // NumbersTableValuedFunction is not a complete implementation for now, since its
+    // function signature do not support us to split total numbers, so it can not be executed
+    // by multi-processes or multi-threads. So we assign instance number to 1.
+    @Override
+    public int getNumInstances() {
+        return 1;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
+
+        StringBuilder output = new StringBuilder();
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
+        }
+
+        output.append(prefix).append("table value function: ").append(tvf.getDataGenFunctionName()).append("\n");
+
+
+
+        return output.toString();
     }
 }

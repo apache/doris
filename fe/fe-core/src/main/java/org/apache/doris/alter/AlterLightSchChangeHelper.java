@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.proto.InternalService.PFetchColIdsRequest;
@@ -42,8 +41,8 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -52,6 +51,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -65,13 +65,23 @@ public class AlterLightSchChangeHelper {
 
     private static final Logger LOG = LogManager.getLogger(AlterLightSchChangeHelper.class);
 
+    private  static final long DEFAULT_RPC_TIMEOUT = 900L;
+
     private final Database db;
 
     private final OlapTable olapTable;
 
+    private final long rpcTimoutMs;
+
     public AlterLightSchChangeHelper(Database db, OlapTable olapTable) {
         this.db = db;
         this.olapTable = olapTable;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            rpcTimoutMs = DEFAULT_RPC_TIMEOUT * 1000L;
+        } else {
+            rpcTimoutMs = connectContext.getExecTimeout() * 1000L;
+        }
     }
 
     /**
@@ -79,12 +89,11 @@ public class AlterLightSchChangeHelper {
      * 2. refresh table metadata
      * 3. write edit log
      */
-    public void enableLightSchemaChange() throws DdlException {
-        final Map<Long, PFetchColIdsRequest> params = initParams();
-        final AlterLightSchemaChangeInfo info = callForColumnsInfo(params);
+    public void enableLightSchemaChange() throws IllegalStateException {
+        final AlterLightSchemaChangeInfo info = callForColumnsInfo();
         updateTableMeta(info);
         Env.getCurrentEnv().getEditLog().logAlterLightSchemaChange(info);
-        LOG.info("successfully enable `light_schema_change`");
+        LOG.info("successfully enable `light_schema_change`, db={}, tbl={}", db.getFullName(), olapTable.getName());
     }
 
     /**
@@ -137,35 +146,36 @@ public class AlterLightSchChangeHelper {
     }
 
     /**
-     * @param beIdToRequest rpc param for corresponding BEs
      * @return contains indexIds to each tablet schema info which consists of columnName to corresponding
      * column unique id pairs
-     * @throws DdlException as a wrapper for rpc failures
+     * @throws IllegalStateException as a wrapper for rpc failures
      */
-    private AlterLightSchemaChangeInfo callForColumnsInfo(Map<Long, PFetchColIdsRequest> beIdToRequest)
-            throws DdlException {
-        final List<Future<PFetchColIdsResponse>> futureList = new ArrayList<>();
-        // start a rpc in a pipeline way
+    public AlterLightSchemaChangeInfo callForColumnsInfo()
+            throws IllegalStateException {
+        Map<Long, PFetchColIdsRequest> beIdToRequest = initParams();
+        Map<Long, Future<PFetchColIdsResponse>> beIdToRespFuture = new HashMap<>();
         try {
             for (Long beId : beIdToRequest.keySet()) {
                 final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beId);
-                final TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+                final TNetworkAddress address =
+                        new TNetworkAddress(Objects.requireNonNull(backend).getHost(), backend.getBrpcPort());
                 final Future<PFetchColIdsResponse> responseFuture = BackendServiceProxy.getInstance()
                         .getColumnIdsByTabletIds(address, beIdToRequest.get(beId));
-                futureList.add(responseFuture);
+                beIdToRespFuture.put(beId, responseFuture);
             }
         } catch (RpcException e) {
-            throw new DdlException("fetch columnIds RPC failed", e);
+            throw new IllegalStateException("fetch columnIds RPC failed", e);
         }
         // wait for and get results
         final long start = System.currentTimeMillis();
-        long timeoutMs = ConnectContext.get().getExecTimeout() * 1000L;
+        long timeoutMs = rpcTimoutMs;
         final List<PFetchColIdsResponse> resultList = new ArrayList<>();
         try {
-            for (Future<PFetchColIdsResponse> future : futureList) {
-                final PFetchColIdsResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
+            for (Map.Entry<Long, Future<PFetchColIdsResponse>> entry : beIdToRespFuture.entrySet()) {
+                final PFetchColIdsResponse response = entry.getValue().get(timeoutMs, TimeUnit.MILLISECONDS);
                 if (response.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
-                    throw new DdlException(response.getStatus().getErrorMsgs(0));
+                    throw new IllegalStateException(String.format("fail to get column info from be: %s, msg:%s",
+                            entry.getKey(), response.getStatus().getErrorMsgs(0)));
                 }
                 resultList.add(response);
                 // refresh the timeout
@@ -176,9 +186,9 @@ public class AlterLightSchChangeHelper {
                         "impossible state, timeout should happened");
             }
         } catch (InterruptedException | ExecutionException e) {
-            throw new DdlException("fetch columnIds RPC result failed: ", e);
+            throw new IllegalStateException("fetch columnIds RPC result failed: ", e);
         } catch (TimeoutException e) {
-            throw new DdlException("fetch columnIds RPC result timeout", e);
+            throw new IllegalStateException("fetch columnIds RPC result timeout", e);
         }
         return compactToAlterLscInfo(resultList);
     }
@@ -207,7 +217,7 @@ public class AlterLightSchChangeHelper {
         return new AlterLightSchemaChangeInfo(db.getId(), olapTable.getId(), indexIdToTabletInfo);
     }
 
-    public void updateTableMeta(AlterLightSchemaChangeInfo info) throws DdlException {
+    public void updateTableMeta(AlterLightSchemaChangeInfo info) throws IllegalStateException {
         Preconditions.checkNotNull(info, "passed in info should be not null");
         // update index-meta once and for all
         // schema pair: <maxColId, columns>
@@ -242,10 +252,9 @@ public class AlterLightSchChangeHelper {
                 indexMeta.setSchema(schemaPair.second);
             }
         } catch (IOException e) {
-            throw new DdlException("fail to reset index schema", e);
+            throw new IllegalStateException("fail to reset index schema", e);
         }
         // write table property
         olapTable.setEnableLightSchemaChange(true);
-        LOG.info("successfully update table meta for `light_schema_change`");
     }
 }

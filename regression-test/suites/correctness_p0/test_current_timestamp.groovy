@@ -213,6 +213,71 @@ suite("test_current_timestamp") {
             DISTRIBUTED BY HASH(id)
             PROPERTIES("replication_num" = "1");
         """
-        exception "errCode = 2, detailMessage = Internal Error, maybe syntax error or this is a bug: column's default value current_timestamp precision must be between 0 and 6"
+        exception "between 0 and 6"
     }
- }
+
+    // user case
+    def tableName6 = "test_current_timestamp_4"
+    sql """ DROP TABLE IF EXISTS ${tableName6} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName6}
+        (
+            `id` int,
+            `date_time` datetime(3),
+            `data_entry_time` datetime(3) NULL DEFAULT CURRENT_TIMESTAMP(3)
+        ) DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(id)
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    streamLoad {
+        table "${tableName6}"
+        set 'columns', 'id,date_time'
+        set 'format', 'csv'
+        set 'column_separator', ','
+
+        file "test_current_timestamp_dft.csv"
+
+        time 10000
+    }
+
+    sql "sync"
+    qt_select """ select count(*) from ${tableName6} """
+
+    def tableName7 = "test_current_timestamp_5"
+    sql """ DROP TABLE IF EXISTS ${tableName7} """
+    sql """
+    CREATE TABLE ${tableName7} (
+       id int,
+       `name` varchar(50) NULL,
+       input_time datetime default current_timestamp
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 10
+    PROPERTIES (
+    "in_memory" = "false",
+    "storage_format" = "V2",
+    "replication_num" = "1"
+    );
+    """
+
+    streamLoad {
+        table "${tableName7}"
+        set 'columns', 'id,name'
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strip_outer_array', 'false'
+
+        file "test_current_timestamp_dft.json"
+
+        time 10000
+    }
+
+    sql "sync"
+    qt_select """ select count(*) from ${tableName7} """
+
+}

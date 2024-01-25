@@ -17,16 +17,20 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPairComparator;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -51,8 +55,9 @@ import java.util.Set;
 public class BeLoadRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(BeLoadRebalancer.class);
 
-    public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        super(infoService, invertedIndex);
+    public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
+        super(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     /*
@@ -100,11 +105,24 @@ public class BeLoadRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
-        // get the number of low load paths. and we should at most select this number of tablets
-        long numOfLowPaths = lowBEs.stream().filter(b -> b.isAvailable() && b.hasAvailDisk()).mapToLong(
-                b -> b.getAvailPathNum(medium)).sum();
+        long numOfLowPaths = 0;
+        for (BackendLoadStatistic backendLoadStatistic : lowBEs) {
+            if (!backendLoadStatistic.isAvailable()) {
+                continue;
+            }
+            PathSlot pathSlot = backendsWorkingSlots.get(backendLoadStatistic.getBeId());
+            if (pathSlot != null) {
+                numOfLowPaths += pathSlot.getTotalAvailBalanceSlotNum();
+            }
+        }
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        // so in clone ut recycleBin need to set to null.
+        CatalogRecycleBin recycleBin = null;
+        if (!FeConstants.runningUnitTest) {
+            recycleBin = Env.getCurrentRecycleBin();
+        }
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         // choose tablets from high load backends.
@@ -113,6 +131,10 @@ public class BeLoadRebalancer extends Rebalancer {
         OUTER:
         for (int i = highBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = highBEs.get(i);
+            PathSlot pathSlot = backendsWorkingSlots.get(beStat.getBeId());
+            if (pathSlot == null) {
+                continue;
+            }
 
             // classify the paths.
             Set<Long> pathLow = Sets.newHashSet();
@@ -129,11 +151,14 @@ public class BeLoadRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, Config.balance_slot_num_per_path);
+                int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
+                if (availBalanceNum > 0) {
+                    remainingPaths.put(pathHash, availBalanceNum);
+                }
             }
 
             if (remainingPaths.isEmpty()) {
-                return alternativeTablets;
+                continue;
             }
 
             // select tablet from shuffled tablets
@@ -158,6 +183,11 @@ public class BeLoadRebalancer extends Rebalancer {
                     }
 
                     if (colocateTableIndex.isColocateTable(tabletMeta.getTableId())) {
+                        continue;
+                    }
+
+                    if (recycleBin != null && recycleBin.isRecyclePartition(tabletMeta.getDbId(),
+                            tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
                         continue;
                     }
 
@@ -201,8 +231,7 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx,
-            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx) throws SchedException {
         LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE,
@@ -216,7 +245,7 @@ public class BeLoadRebalancer extends Rebalancer {
         clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe, tabletCtx.getStorageMedium());
 
         if (lowBe.isEmpty() && highBe.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "cluster is balance");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "cluster is balance");
         }
 
         // if all low backends is not available, return
@@ -236,12 +265,14 @@ public class BeLoadRebalancer extends Rebalancer {
             }
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "backend is dropped: " + replica.getBackendId());
+                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                        "backend is dropped: " + replica.getBackendId());
             }
             hosts.add(be.getHost());
         }
         if (!hasHighReplica) {
-            throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                    "no replica on high load backend");
         }
 
         // select a replica as source
@@ -259,7 +290,7 @@ public class BeLoadRebalancer extends Rebalancer {
             }
         }
         if (!setSource) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to take src slot");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to take src backend slot");
         }
 
         // Select a low load backend as destination.
@@ -302,9 +333,10 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
+            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE, "unable to find low dest backend");
         }
 
+        List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();
         for (BackendLoadStatistic beStat : candidates) {
             PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
             if (slot == null) {
@@ -313,20 +345,32 @@ public class BeLoadRebalancer extends Rebalancer {
 
             // classify the paths.
             // And we only select path from 'low' and 'mid' paths
-            Set<Long> pathLow = Sets.newHashSet();
-            Set<Long> pathMid = Sets.newHashSet();
-            Set<Long> pathHigh = Sets.newHashSet();
+            List<RootPathLoadStatistic> pathLow = Lists.newArrayList();
+            List<RootPathLoadStatistic> pathMid = Lists.newArrayList();
+            List<RootPathLoadStatistic> pathHigh = Lists.newArrayList();
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
-            pathLow.addAll(pathMid);
 
-            long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
-            if (pathHash != -1) {
-                tabletCtx.setDest(beStat.getBeId(), pathHash);
+            pathLow.addAll(pathMid);
+            pathLow.stream().forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
+        }
+
+        BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(candFitPaths);
+        Collections.sort(candFitPaths, comparator);
+        for (BePathLoadStatPair bePathLoadStat : candFitPaths) {
+            BackendLoadStatistic beStat = bePathLoadStat.getBackendLoadStatistic();
+            RootPathLoadStatistic pathStat = bePathLoadStat.getPathLoadStatistic();
+            PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
+            if (slot == null) {
+                continue;
+            }
+            if (slot.takeBalanceSlot(pathStat.getPathHash()) != -1) {
+                tabletCtx.setDest(beStat.getBeId(), pathStat.getPathHash());
                 return;
             }
         }
 
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
-                "unable to find low backend");
+                "beload waiting for dest backend slot");
     }
+
 }

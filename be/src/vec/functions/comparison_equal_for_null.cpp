@@ -63,9 +63,40 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& col_right = block.get_by_position(arguments[1]);
+        bool left_only_null = col_left.column->only_null();
+        bool right_only_null = col_right.column->only_null();
+        if (left_only_null && right_only_null) {
+            auto result_column = ColumnVector<UInt8>::create(input_rows_count, 1);
+            block.get_by_position(result).column = std::move(result_column);
+            return Status::OK();
+        } else if (left_only_null) {
+            auto right_type_nullable = col_right.type->is_nullable();
+            if (!right_type_nullable) {
+                block.get_by_position(result).column =
+                        ColumnVector<UInt8>::create(input_rows_count);
+            } else {
+                auto const* nullable_right_col =
+                        assert_cast<const ColumnNullable*>(col_right.column.get());
+                block.get_by_position(result).column =
+                        nullable_right_col->get_null_map_column().clone_resized(input_rows_count);
+            }
+            return Status::OK();
+        } else if (right_only_null) {
+            auto left_type_nullable = col_left.type->is_nullable();
+            if (!left_type_nullable) {
+                block.get_by_position(result).column =
+                        ColumnVector<UInt8>::create(input_rows_count, (UInt8)0);
+            } else {
+                auto const* nullable_left_col =
+                        assert_cast<const ColumnNullable*>(col_left.column.get());
+                block.get_by_position(result).column =
+                        nullable_left_col->get_null_map_column().clone_resized(input_rows_count);
+            }
+            return Status::OK();
+        }
 
         const auto& [left_col, left_const] = unpack_if_const(col_left.column);
         const auto& [right_col, right_const] = unpack_if_const(col_right.column);
@@ -99,7 +130,8 @@ public:
                     SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
             DCHECK(func_eq);
             temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-            func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+            RETURN_IF_ERROR(
+                    func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
 
             if (left_nullable) {
                 auto res_column = std::move(*temporary_block.get_by_position(2).column).mutate();
@@ -127,7 +159,8 @@ public:
 
             Block temporary_block(eq_columns);
             temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
-            func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
+            RETURN_IF_ERROR(
+                    func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count));
 
             auto res_nullable_column = assert_cast<ColumnNullable*>(
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
@@ -151,15 +184,15 @@ private:
                                      bool right_const) {
         if (left_const) {
             for (int i = 0; i < rows; ++i) {
-                result[i] |= left[0] & (left[0] == right[i]);
+                result[i] &= (left[0] == right[i]);
             }
         } else if (right_const) {
             for (int i = 0; i < rows; ++i) {
-                result[i] |= left[i] & (left[i] == right[0]);
+                result[i] &= (left[i] == right[0]);
             }
         } else {
             for (int i = 0; i < rows; ++i) {
-                result[i] |= left[i] & (left[i] == right[i]);
+                result[i] &= (left[i] == right[i]);
             }
         }
     }

@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "olap/column_mapping.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_writer.h"
@@ -83,8 +84,8 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    Status _check_cast_valid(vectorized::ColumnPtr ref_column,
-                             vectorized::ColumnPtr new_column) const;
+    Status _check_cast_valid(vectorized::ColumnPtr ref_column, vectorized::ColumnPtr new_column,
+                             AlterTabletType type) const;
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -100,27 +101,23 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
+    SchemaChange() = default;
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                            TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
-                           TabletSchemaSPtr base_tablet_schema) {
+                           TabletSchemaSPtr base_tablet_schema,
+                           TabletSchemaSPtr new_tablet_schema) {
         if (rowset_reader->rowset()->empty() || rowset_reader->rowset()->num_rows() == 0) {
-            RETURN_WITH_WARN_IF_ERROR(
-                    rowset_writer->flush(), Status::Error<ErrorCode::INVALID_ARGUMENT>(""),
-                    fmt::format("create empty version for schema change failed. version= {}-{}",
-                                rowset_writer->version().first, rowset_writer->version().second));
-
+            RETURN_IF_ERROR(rowset_writer->flush());
             return Status::OK();
         }
 
         _filtered_rows = 0;
         _merged_rows = 0;
 
-        RETURN_IF_ERROR(
-                _inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema));
-        _add_filtered_rows(rowset_reader->filtered_rows());
+        RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
+                                       new_tablet_schema));
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
@@ -143,26 +140,29 @@ protected:
     void _add_merged_rows(uint64_t merged_rows) { _merged_rows += merged_rows; }
 
     virtual Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                                  TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) {
+                                  TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema,
+                                  TabletSchemaSPtr new_tablet_schema) {
         return Status::NotSupported("inner process unsupported.");
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
+        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+            writer.num_rows() + writer.num_rows_filtered() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
-                         << ", writer rows=" << writer.num_rows()
+                         << ", source_filtered_rows=" << reader->filtered_rows()
+                         << ", written_rows=" << writer.num_rows()
+                         << ", writer_filtered_rows=" << writer.num_rows_filtered()
                          << ", merged_rows=" << merged_rows()
-                         << ", filtered_rows=" << filtered_rows()
-                         << ", new_index_rows=" << writer.num_rows();
+                         << ", filtered_rows=" << filtered_rows();
             return false;
         }
         return true;
     }
 
 private:
-    uint64_t _filtered_rows;
-    uint64_t _merged_rows;
+    uint64_t _filtered_rows {};
+    uint64_t _merged_rows {};
 };
 
 class LinkedSchemaChange : public SchemaChange {
@@ -172,7 +172,8 @@ public:
 
     Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                    TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
-                   TabletSchemaSPtr base_tablet_schema) override;
+                   TabletSchemaSPtr base_tablet_schema,
+                   TabletSchemaSPtr new_tablet_schema) override;
 
 private:
     const BlockChanger& _changer;
@@ -185,7 +186,8 @@ public:
 
 private:
     Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
+                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema,
+                          TabletSchemaSPtr new_tablet_schema) override;
 
     bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const override {
         return _changer.has_where() || SchemaChange::_check_row_nums(reader, writer);
@@ -202,15 +204,17 @@ public:
 
 private:
     Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
-                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) override;
+                          TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema,
+                          TabletSchemaSPtr new_tablet_schema) override;
 
-    Status _internal_sorting(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
-                             const Version& temp_delta_versions, int64_t newest_write_timestamp,
-                             TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
-                             SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset);
+    Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> _internal_sorting(
+            const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+            const Version& temp_delta_versions, int64_t newest_write_timestamp,
+            TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
+            SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema);
 
     Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
-                             TabletSharedPtr new_tablet);
+                             TabletSharedPtr new_tablet, TabletSchemaSPtr new_tablet_schema);
 
     bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const override {
         return _changer.has_where() || SchemaChange::_check_row_nums(reader, writer);
@@ -259,6 +263,7 @@ private:
         TabletSharedPtr base_tablet;
         TabletSharedPtr new_tablet;
         TabletSchemaSPtr base_tablet_schema = nullptr;
+        TabletSchemaSPtr new_tablet_schema = nullptr;
         std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
@@ -272,7 +277,8 @@ private:
     static Status _validate_alter_result(TabletSharedPtr new_tablet,
                                          const TAlterTabletReqV2& request);
 
-    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                              int64_t* real_alter_version);
 
     static Status _parse_request(const SchemaChangeParams& sc_params, BlockChanger* changer,
                                  bool* sc_sorting, bool* sc_directly);
@@ -280,6 +286,9 @@ private:
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
                                        const TabletColumn& column_schema, const std::string& value);
+
+    static Status _calc_delete_bitmap_for_mow_table(TabletSharedPtr new_tablet,
+                                                    int64_t alter_version);
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;

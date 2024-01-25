@@ -23,6 +23,7 @@
 
 #include "http/http_status.h"
 
+struct bufferevent_rate_limit_group;
 namespace doris {
 
 class HttpRequest;
@@ -43,7 +44,8 @@ public:
 
     static void send_reply(HttpRequest* request, HttpStatus status, const std::string& content);
 
-    static void send_file(HttpRequest* request, int fd, size_t off, size_t size);
+    static void send_file(HttpRequest* request, int fd, size_t off, size_t size,
+                          bufferevent_rate_limit_group* rate_limit_group = nullptr);
 
     static bool compress_content(const std::string& accept_encoding, const std::string& input,
                                  std::string* output);

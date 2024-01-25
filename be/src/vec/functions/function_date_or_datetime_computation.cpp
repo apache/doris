@@ -124,10 +124,9 @@ using FunctionCurrentTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<Curren
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcTimestampImpl>;
 using FunctionTimeToSec = FunctionCurrentDateOrDateTime<TimeToSecImpl>;
 using FunctionSecToTime = FunctionCurrentDateOrDateTime<SecToTimeImpl>;
-
-/// @TEMPORARY: for be_exec_version=2
-using FunctionToWeekTwoArgsOld =
-        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImplOld<DataTypeDateTime>>;
+using FunctionMicroSecToDateTime = TimestampToDateTime<MicroSec>;
+using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
+using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAddSeconds>();
@@ -179,13 +178,14 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUtcTimeStamp>();
     factory.register_function<FunctionTimeToSec>();
     factory.register_function<FunctionSecToTime>();
+    factory.register_function<FunctionMicroSecToDateTime>();
+    factory.register_function<FunctionMilliSecToDateTime>();
+    factory.register_function<FunctionSecToDateTime>();
 
     // alias
     factory.register_alias("days_add", "date_add");
     factory.register_alias("days_add", "adddate");
     factory.register_alias("months_add", "add_months");
-    /// @TEMPORARY: for be_exec_version=2
-    factory.register_alternative_function<FunctionToWeekTwoArgsOld>();
 }
 
 } // namespace doris::vectorized

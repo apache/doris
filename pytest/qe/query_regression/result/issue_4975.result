@@ -1,0 +1,6 @@
+select locate('', 'abc', 10)
+(['0'],)
+select locate('bar', 'foobarbar')
+(['4'],)
+select locate('bar','foobarbar',5)
+(['7'],)

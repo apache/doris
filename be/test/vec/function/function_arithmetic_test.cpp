@@ -39,7 +39,7 @@ TEST(function_arithmetic_test, function_arithmetic_mod_test) {
 
         DataSet data_set = {{{10, 1}, 0}, {{10, -2}, 0}, {{1234, 33}, 13}, {{1234, 0}, Null()}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -49,13 +49,13 @@ TEST(function_arithmetic_test, function_arithmetic_divide_test) {
     {
         InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
         DataSet data_set = {{{1234, 34}, 36.294117647058826}, {{1234, 0}, Null()}};
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 
     {
         InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
         DataSet data_set = {{{1234.1, 34.6}, 35.667630057803464}, {{1234.34, 0.0}, Null()}};
-        check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
 }
 
@@ -71,7 +71,7 @@ TEST(function_arithmetic_test, bitnot_test) {
                             {{(int32_t)-10.44}, ~(int32_t)-10},
                             {{(int32_t)-999.888}, ~(int32_t)-999}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -86,7 +86,7 @@ TEST(function_arithmetic_test, bitand_test) {
                             {{(int32_t)-10, (int32_t)111}, -10 & 111},
                             {{(int32_t)-999, (int32_t)888}, -999 & 888}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -101,7 +101,7 @@ TEST(function_arithmetic_test, bitor_test) {
                             {{(int32_t)-10, (int32_t)111}, -10 | 111},
                             {{(int32_t)-999, (int32_t)888}, -999 | 888}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -116,7 +116,7 @@ TEST(function_arithmetic_test, bitxor_test) {
                             {{(int32_t)-10, (int32_t)111}, -10 ^ 111},
                             {{(int32_t)-999, (int32_t)888}, -999 ^ 888}};
 
-        check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
 }
 

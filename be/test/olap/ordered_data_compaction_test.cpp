@@ -41,6 +41,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/delete_handler.h"
@@ -61,6 +62,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -72,7 +74,7 @@ using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class OrderedDataCompactionTest : public ::testing::Test {
 protected:
@@ -80,27 +82,27 @@ protected:
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         absolute_dir = std::string(buffer) + kTestDir;
-        EXPECT_TRUE(io::global_local_filesystem()->delete_and_create_directory(absolute_dir).ok());
+        auto st = io::global_local_filesystem()->delete_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
+        st = io::global_local_filesystem()->create_directory(absolute_dir);
+        ASSERT_TRUE(st.ok()) << st;
         EXPECT_TRUE(io::global_local_filesystem()
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = std::make_unique<DataDir>(absolute_dir);
-        _data_dir->update_capacity();
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        StorageEngine::_s_instance = k_engine;
-
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        _data_dir = std::make_unique<DataDir>(*engine_ref, absolute_dir);
+        static_cast<void>(_data_dir->update_capacity());
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
@@ -233,7 +235,8 @@ protected:
                                      &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, true, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                       &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         uint32_t num_rows = 0;
@@ -259,8 +262,7 @@ protected:
         }
 
         RowsetSharedPtr rowset;
-        rowset = rowset_writer->build();
-        EXPECT_TRUE(rowset != nullptr);
+        EXPECT_EQ(Status::OK(), rowset_writer->build(rowset));
         EXPECT_EQ(rowset_data.size(), rowset->rowset_meta()->num_segments());
         EXPECT_EQ(num_rows, rowset->rowset_meta()->num_rows());
         return rowset;
@@ -270,6 +272,7 @@ protected:
         std::string json_rowset_meta = R"({
             "rowset_id": 540085,
             "tablet_id": 15674,
+            "partition_id": 10000,
             "txn_id": 4045,
             "tablet_schema_hash": 567997588,
             "rowset_type": "BETA_ROWSET",
@@ -307,7 +310,7 @@ protected:
         rsm->set_delete_predicate(del_pred);
         rsm->set_tablet_schema(tablet->tablet_schema());
         RowsetSharedPtr rowset = std::make_shared<BetaRowset>(tablet->tablet_schema(), "", rsm);
-        tablet->add_rowset(rowset);
+        static_cast<void>(tablet->add_rowset(rowset));
     }
 
     TabletSharedPtr create_tablet(const TabletSchema& tablet_schema,
@@ -342,8 +345,8 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(tablet_meta, _data_dir.get()));
-        tablet->init();
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir.get()));
+        static_cast<void>(tablet->init());
         if (has_delete_handler) {
             // delete data with key < 1000
             std::vector<TCondition> conditions;

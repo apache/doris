@@ -17,77 +17,24 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Pair;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 // Information schema used for MySQL compatible.
-public class InfoSchemaDb extends Database {
+public class InfoSchemaDb extends MysqlCompatibleDatabase {
     public static final String DATABASE_NAME = "information_schema";
     public static final long DATABASE_ID = 0L;
 
     public InfoSchemaDb() {
         super(DATABASE_ID, DATABASE_NAME);
-        initTables();
-    }
-
-    public InfoSchemaDb(String cluster) {
-        super(DATABASE_ID, ClusterNamespace.getFullName(cluster, DATABASE_NAME));
-        initTables();
     }
 
     @Override
-    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
-        return Pair.of(false, false);
-    }
-
-    @Override
-    public boolean createTable(Table table) {
-        // Do nothing.
-        return false;
-    }
-
-    @Override
-    public void dropTable(String name) {
-        // Do nothing.
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // Do nothing
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        throw new IOException("Not support.");
-    }
-
-    private void initTables() {
+    protected void initTables() {
         for (Table table : SchemaTable.TABLE_MAP.values()) {
             super.createTable(table);
         }
     }
 
     @Override
-    public Table getTableNullable(String name) {
-        return super.getTableNullable(name.toLowerCase());
-    }
-
-    public static String getFullInfoSchemaDbName(String cluster) {
-        return ClusterNamespace.getFullName(cluster, DATABASE_NAME);
-    }
-
-    public static boolean isInfoSchemaDb(String dbName) {
-        if (dbName == null) {
-            return false;
-        }
-        String[] ele = dbName.split(ClusterNamespace.CLUSTER_DELIMITER);
-        String newDbName = dbName;
-        if (ele.length == 2) {
-            newDbName = ele[1];
-        }
-        return DATABASE_NAME.equalsIgnoreCase(newDbName);
+    public boolean createTable(Table table) {
+        return false;
     }
 }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
@@ -30,6 +31,14 @@ std::string print_tstmt_type(const TStmtType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);
 std::string PrintTMetricKind(const TMetricKind::type& type);
+std::string PrintThriftNetworkAddress(const TNetworkAddress&);
+std::string PrintFrontendInfo(const TFrontendInfo& fe_info);
+std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos);
+
+// A desirable scenario would be to call this function WHENEVER whenever we need to print instance information.
+// By using a fixed format, we would be able to identify all the paths in which this instance is executed.
+// InstanceId|FragmentIdx|QueryId
+std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid);
 
 // Returns a string "<product version number> (build <build hash>)"
 // If compact == false, this string is appended: "\nBuilt on <build time>"

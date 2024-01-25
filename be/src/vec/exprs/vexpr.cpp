@@ -17,6 +17,7 @@
 
 #include "vec/exprs/vexpr.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -27,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/exception.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -40,6 +40,7 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
@@ -47,7 +48,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -56,16 +56,119 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
+TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision,
+                                 int scale) {
+    TExprNode node;
+
+    switch (type) {
+    case TYPE_BOOLEAN: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BOOLEAN>(data, &node));
+        break;
+    }
+    case TYPE_TINYINT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TINYINT>(data, &node));
+        break;
+    }
+    case TYPE_SMALLINT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_SMALLINT>(data, &node));
+        break;
+    }
+    case TYPE_INT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_INT>(data, &node));
+        break;
+    }
+    case TYPE_BIGINT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_BIGINT>(data, &node));
+        break;
+    }
+    case TYPE_LARGEINT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_LARGEINT>(data, &node));
+        break;
+    }
+    case TYPE_FLOAT: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_FLOAT>(data, &node));
+        break;
+    }
+    case TYPE_DOUBLE: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DOUBLE>(data, &node));
+        break;
+    }
+    case TYPE_DATEV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node));
+        break;
+    }
+    case TYPE_DATE: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(data, &node));
+        break;
+    }
+    case TYPE_DATETIME: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIME>(data, &node));
+        break;
+    }
+    case TYPE_DECIMALV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DECIMALV2>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL32: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DECIMAL32>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL64: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DECIMAL64>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL128I: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DECIMAL128I>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_DECIMAL256: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_DECIMAL256>(data, &node, precision, scale));
+        break;
+    }
+    case TYPE_CHAR: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_CHAR>(data, &node));
+        break;
+    }
+    case TYPE_VARCHAR: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_VARCHAR>(data, &node));
+        break;
+    }
+    case TYPE_STRING: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_STRING>(data, &node));
+        break;
+    }
+    default:
+        DCHECK(false);
+        throw std::invalid_argument("Invalid type!");
+    }
+    return node;
+}
+// NOLINTEND(readability-function-size)
+// NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris
 
 namespace doris::vectorized {
 
+bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
+    const auto& children = expr.children();
+
+    auto is_a_slot = std::any_of(children.begin(), children.end(),
+                                 [](const auto& child) { return is_acting_on_a_slot(*child); });
+
+    return is_a_slot ? true : (expr.node_type() == TExprNodeType::SLOT_REF);
+}
+
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-          _type(TypeDescriptor::from_thrift(node.type)),
-          _fn_context_index(-1),
-          _prepared(false) {
+          _type(TypeDescriptor::from_thrift(node.type)) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -83,11 +186,8 @@ VExpr::VExpr(const TExprNode& node)
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
-VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _type(type),
-          _fn_context_index(-1),
-          _prepared(false) {
+VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
+        : _opcode(TExprOpcode::INVALID_OPCODE), _type(std::move(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
@@ -98,13 +198,13 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
-        return Status::InternalError(
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
                 "The depth of the expression tree is too big, make it less than {}",
                 config::max_depth_of_expr_tree);
     }
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
     return Status::OK();
@@ -112,24 +212,30 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->open(state, context, scope));
+    }
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     return Status::OK();
 }
 
 void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(context, scope);
+    for (auto& i : _children) {
+        i->close(context, scope);
     }
 }
 
+// NOLINTBEGIN(readability-function-size)
 Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     try {
         switch (expr_node.node_type) {
         case TExprNodeType::BOOL_LITERAL:
         case TExprNodeType::INT_LITERAL:
         case TExprNodeType::LARGE_INT_LITERAL:
+        case TExprNodeType::IPV4_LITERAL:
+        case TExprNodeType::IPV6_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
@@ -205,10 +311,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VTupleIsNullPredicate::create_shared(expr_node);
             break;
         }
-        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-            expr = VSchemaChangeExpr::create_shared(expr_node);
-            break;
-        }
         default:
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
@@ -226,6 +328,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     }
     return Status::OK();
 }
+// NOLINTEND(readability-function-size)
 
 Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                       VExprSPtr& root_expr, VExprContextSPtr& ctx) {
@@ -248,7 +351,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
 
     // non-recursive traversal
     std::stack<std::pair<VExprSPtr, int>> s;
-    s.push({root, root_children});
+    s.emplace(root, root_children);
     while (!s.empty()) {
         auto& parent = s.top();
         if (parent.second > 1) {
@@ -266,14 +369,14 @@ Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* 
         parent.first->add_child(expr);
         int num_children = nodes[*node_idx].num_children;
         if (num_children > 0) {
-            s.push({expr, num_children});
+            s.emplace(expr, num_children);
         }
     }
     return Status::OK();
 }
 
 Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
-    if (texpr.nodes.size() == 0) {
+    if (texpr.nodes.empty()) {
         ctx = nullptr;
         return Status::OK();
     }
@@ -295,9 +398,9 @@ Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
 
 Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs) {
     ctxs.clear();
-    for (int i = 0; i < texprs.size(); ++i) {
+    for (const auto& texpr : texprs) {
         VExprContextSPtr ctx;
-        RETURN_IF_ERROR(create_expr_tree(texprs[i], ctx));
+        RETURN_IF_ERROR(create_expr_tree(texpr, ctx));
         ctxs.push_back(ctx);
     }
     return Status::OK();
@@ -312,8 +415,8 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
 }
 
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->open(state));
+    for (const auto& ctx : ctxs) {
+        RETURN_IF_ERROR(ctx->open(state));
     }
     return Status::OK();
 }
@@ -323,8 +426,8 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
     if (!new_ctxs.empty()) {
         // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
         DCHECK_EQ(new_ctxs.size(), ctxs.size());
-        for (int i = 0; i < new_ctxs.size(); ++i) {
-            DCHECK(new_ctxs[i]->_is_clone);
+        for (auto& new_ctx : new_ctxs) {
+            DCHECK(new_ctx->_is_clone);
         }
         return Status::OK();
     }
@@ -361,20 +464,15 @@ std::string VExpr::debug_string(const VExprSPtrs& exprs) {
 
 std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
     VExprSPtrs exprs;
-    for (int i = 0; i < ctxs.size(); ++i) {
-        exprs.push_back(ctxs[i]->root());
+    for (const auto& ctx : ctxs) {
+        exprs.push_back(ctx->root());
     }
     return debug_string(exprs);
 }
 
 bool VExpr::is_constant() const {
-    for (int i = 0; i < _children.size(); ++i) {
-        if (!_children[i]->is_constant()) {
-            return false;
-        }
-    }
-
-    return true;
+    return std::all_of(_children.begin(), _children.end(),
+                       [](const VExprSPtr& expr) { return expr->is_constant(); });
 }
 
 Status VExpr::get_const_col(VExprContext* context,
@@ -384,6 +482,7 @@ Status VExpr::get_const_col(VExprContext* context,
     }
 
     if (_constant_col != nullptr) {
+        DCHECK(column_wrapper != nullptr);
         *column_wrapper = _constant_col;
         return Status::OK();
     }
@@ -393,18 +492,25 @@ Status VExpr::get_const_col(VExprContext* context,
     // If block is empty, some functions will produce no result. So we insert a column with
     // single value here.
     block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+
+    _getting_const_col = true;
     RETURN_IF_ERROR(execute(context, &block, &result));
+    _getting_const_col = false;
+
     DCHECK(result != -1);
     const auto& column = block.get_by_position(result).column;
     _constant_col = std::make_shared<ColumnPtrWrapper>(column);
-    *column_wrapper = _constant_col;
+    if (column_wrapper != nullptr) {
+        *column_wrapper = _constant_col;
+    }
+
     return Status::OK();
 }
 
 void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
     std::vector<TypeDescriptor> arg_types;
-    for (int i = 0; i < _children.size(); ++i) {
-        arg_types.push_back(_children[i]->type());
+    for (auto& i : _children) {
+        arg_types.push_back(i->type());
     }
 
     _fn_context_index = context->register_function_context(state, _type, arg_types);
@@ -435,9 +541,10 @@ void VExpr::close_function_context(VExprContext* context, FunctionContext::Funct
                                    const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
+        // close failed will make system unstable. dont swallow it.
+        THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
+            THROW_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
         }
     }
 }
@@ -446,6 +553,14 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     if (is_constant() && !VectorizedUtils::all_arguments_are_constant(block, arguments)) {
         return Status::InternalError("const check failed, expr={}", debug_string());
     }
+    return Status::OK();
+}
+
+Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
+                                    int* result_column_id) {
+    *result_column_id = block->columns();
+    auto column = ColumnConst::create(_constant_col->column_ptr, block->rows());
+    block->insert({std::move(column), _data_type, expr_name});
     return Status::OK();
 }
 

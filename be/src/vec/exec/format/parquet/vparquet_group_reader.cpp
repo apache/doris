@@ -69,7 +69,7 @@ namespace doris {
 class RuntimeState;
 
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 } // namespace doris
 
@@ -78,7 +78,7 @@ namespace doris::vectorized {
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
-                               const std::vector<ParquetReadColumn>& read_columns,
+                               const std::vector<std::string>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
@@ -116,7 +116,6 @@ Status RowGroupReader::init(
                                                  not_single_slot_filter_conjuncts->end());
     }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
-    _text_converter.reset(new TextConverter('\\'));
     _merge_read_ranges(row_ranges);
     if (_read_columns.empty()) {
         // Query task that only select columns in path.
@@ -126,21 +125,16 @@ Status RowGroupReader::init(
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
     for (auto& read_col : _read_columns) {
-        auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
+        auto field = const_cast<FieldSchema*>(schema.get_column(read_col));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
                                                     max_buf_size));
-        auto col_iter = col_offsets.find(read_col._parquet_col_id);
-        if (col_iter != col_offsets.end()) {
-            tparquet::OffsetIndex oi = col_iter->second;
-            reader->add_offset_index(&oi);
-        }
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
-        _column_readers[read_col._file_slot_name] = std::move(reader);
+        _column_readers[read_col] = std::move(reader);
     }
     // Check if single slot can be filtered by dict.
     if (!_slot_id_to_filter_conjuncts) {
@@ -152,7 +146,8 @@ Status RowGroupReader::init(
         const string& predicate_col_name = predicate_col_names[i];
         int slot_id = predicate_col_slot_ids[i];
         auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
-        if (_can_filter_by_dict(slot_id,
+        if (!_lazy_read_ctx.has_complex_type &&
+            _can_filter_by_dict(slot_id,
                                 _row_group_meta.columns[field->physical_column_index].meta_data)) {
             _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
         } else {
@@ -192,6 +187,9 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
     if (!slot->type().is_string_type()) {
         return false;
     }
+    if (column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+        return false;
+    }
 
     if (_slot_id_to_filter_conjuncts->find(slot_id) == _slot_id_to_filter_conjuncts->end()) {
         return false;
@@ -202,19 +200,31 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
     }
 
     // TODO：check expr like 'a > 10 is null', 'a > 10' should can be filter by dict.
-    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
-        const auto& root_expr = ctx->root();
-        if (root_expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+    std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
+        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
             std::string is_null_str;
-            std::string function_name = root_expr->fn().name.function_name;
+            std::string function_name = expr->fn().name.function_name;
             if (function_name.compare("is_null_pred") == 0 ||
                 function_name.compare("is_not_null_pred") == 0) {
                 return false;
             }
+        } else {
+            for (auto& child : expr->children()) {
+                if (!visit_function_call(child.get())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+        if (!visit_function_call(ctx->root().get())) {
+            return false;
         }
     }
     return true;
 }
+
 // This function is copied from
 // https://github.com/apache/impala/blob/master/be/src/exec/parquet/hdfs-parquet-scanner.cc#L1717
 bool RowGroupReader::is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata) {
@@ -330,6 +340,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             bool can_filter_all = false;
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                     _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
+
             if (can_filter_all) {
                 for (auto& col : columns_to_filter) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -338,17 +349,16 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
+
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
                 _convert_dict_cols_to_string_cols(block);
-                std::vector<IColumn::Filter*> merged_filters;
-                merged_filters.push_back(&result_filter);
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, &merged_filters, block,
+                                _not_single_slot_filter_conjuncts, nullptr, block,
                                 columns_to_filter, column_to_keep)));
             } else {
-                RETURN_IF_CATCH_EXCEPTION(
-                        Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, column_to_keep);
                 _convert_dict_cols_to_string_cols(block);
             }
@@ -356,7 +366,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
-
         *read_rows = block->rows();
         return Status::OK();
     }
@@ -415,8 +424,10 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             has_eof = true;
         }
     }
+
     *read_rows = batch_read_rows;
     *batch_eof = has_eof;
+
     return Status::OK();
 }
 
@@ -566,8 +577,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
     if (!_not_single_slot_filter_conjuncts.empty()) {
-        std::vector<IColumn::Filter*> filters;
-        filters.push_back(&result_filter);
         RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                 _not_single_slot_filter_conjuncts, nullptr, block, columns_to_filter,
                 origin_column_num)));
@@ -608,14 +617,29 @@ Status RowGroupReader::_fill_partition_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns) {
+    DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
-        if (!_text_converter->write_vec_column(slot_desc, col_ptr, const_cast<char*>(value.c_str()),
-                                               value.size(), true, false, rows)) {
+        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        Slice slice(value.data(), value.size());
+        vector<Slice> slices(rows);
+        for (int i = 0; i < rows; i++) {
+            slices[i] = {value.data(), value.size()};
+        }
+        int num_deserialized = 0;
+        if (_text_serde->deserialize_column_from_json_vector(*col_ptr, slices, &num_deserialized,
+                                                             _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
+        }
+        if (num_deserialized != rows) {
+            return Status::InternalError(
+                    "Failed to fill partition column: {}={} ."
+                    "Number of rows expected to be written : {}, number of rows actually written : "
+                    "{}",
+                    slot_desc->col_name(), value, num_deserialized, rows);
         }
     }
     return Status::OK();
@@ -853,7 +877,7 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
 
         // 4. Rewrite conjuncts.
-        _rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable());
+        static_cast<void>(_rewrite_dict_conjuncts(dict_codes, slot_id, dict_column->is_nullable()));
         ++it;
     }
     return Status::OK();

@@ -1,4 +1,0 @@
-{"name":"name1", "age": 25, "name2": "xxx","contact": {"phone": 13966668888, "address": "address1"}}
-{"name":"name2", "age": 30, "contact": {"phone": 13966668886}}
-{"name":"name3", "age": 25, "name2": "xxx","contact": {"phone": 13966668889, "address": "address3", "fax": 12345}}
-{"name":"name4", "age": 25, "contact": {"phone": "type conflic", "address": "address4"}}
