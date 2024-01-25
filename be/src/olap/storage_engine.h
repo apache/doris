@@ -150,8 +150,6 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine() override;
 
-    enum class DiskRemainingLevel { LOW, MID, HIGH };
-
     Status open() override;
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
@@ -541,7 +539,7 @@ public:
 struct DirInfo {
     DataDir* data_dir;
 
-    StorageEngine::DiskRemainingLevel available_level;
+    int available_level = 0;
 
     bool operator<(const DirInfo& other) const {
         if (available_level != other.available_level) {
