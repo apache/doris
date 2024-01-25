@@ -685,7 +685,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
             auto* tg_mgr = _exec_env->task_group_manager();
-            if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
+            taskgroup::TaskGroupPtr task_group_ptr = nullptr;
+            Status ret = tg_mgr->add_query_to_group(tg_id, query_ctx->query_id(), &task_group_ptr);
+            if (ret.ok()) {
                 task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
                 // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
                 query_ctx->set_task_group(task_group_ptr);
@@ -698,6 +700,10 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                           << ", is pipeline: " << ((int)is_pipeline)
                           << ", enable cgroup soft limit: "
                           << ((int)config::enable_cgroup_cpu_soft_limit);
+            } else {
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << " carried group info but can not find group in be, reason: "
+                          << ret.to_string();
             }
         }
 
