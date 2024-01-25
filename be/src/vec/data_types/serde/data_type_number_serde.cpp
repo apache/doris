@@ -64,9 +64,8 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::UInt16Builder, Int16, arrow::Int16Builder, UInt32, arrow::UInt32Builder,
                 Int32, arrow::Int32Builder, UInt64, arrow::UInt64Builder, Int64,
                 arrow::Int64Builder, UInt128, arrow::FixedSizeBinaryBuilder, Int128,
-                arrow::FixedSizeBinaryBuilder, IPv6, arrow::FixedSizeBinaryBuilder,
-                Float32, arrow::FloatBuilder, Float64,
-                arrow::DoubleBuilder, void,
+                arrow::FixedSizeBinaryBuilder, IPv6, arrow::FixedSizeBinaryBuilder, Float32,
+                arrow::FloatBuilder, Float64, arrow::DoubleBuilder, void,
                 void // Add this line to represent the end of the TypeMap
                 >;
 

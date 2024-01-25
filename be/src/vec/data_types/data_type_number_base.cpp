@@ -146,7 +146,8 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value || std::is_same<T, UInt128>::value) {
+    if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
+                  std::is_same<T, UInt128>::value) {
         return int128_to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
     } else if constexpr (std::is_integral<T>::value) {
         return std::to_string(assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num));
