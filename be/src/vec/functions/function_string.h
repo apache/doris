@@ -1867,7 +1867,7 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -1876,9 +1876,7 @@ public:
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         // Create a zero column to simply implement
-        auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
         auto& res_offsets = res->get_offsets();
@@ -1889,15 +1887,7 @@ public:
         std::tie(content_column, content_const) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
-            // Danger: Here must dispose the null map data first! Because
-            // argument_columns[0]=nullable->get_nested_column_ptr(); will release the mem
-            // of column nullable mem of null map
-            VectorizedUtils::update_null_map(null_map->get_data(), nullable->get_null_map_data());
-            content_column = nullable->get_nested_column_ptr();
-        }
-
-        auto str_col = assert_cast<const ColumnString*>(content_column.get());
+        const auto *str_col = assert_cast<const ColumnString*>(content_column.get());
 
         [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
@@ -2017,8 +2007,7 @@ public:
             }
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
+        block.get_by_position(result).column = std::move(res);
         return Status::OK();
     }
 };
