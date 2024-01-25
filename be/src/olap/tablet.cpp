@@ -3204,15 +3204,27 @@ Status Tablet::commit_phase_update_delete_bitmap(
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                    const RowsetIdUnorderedSet& pre_rowset_ids,
-                                    DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                    RowsetWriter* rowset_writer) {
+Status Tablet::update_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
+    RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
+
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    RETURN_IF_ERROR(
+            create_transient_rowset_writer(rowset, &rowset_writer, txn_info->partial_update_info));
+
+    DeleteBitmapPtr delete_bitmap = txn_info->delete_bitmap;
+    // Partial update might generate new segments when there is conflicts while publish, and mark
+    // the same key in original segments as delete.
+    // When the new segment flush fails or the rowset build fails, the deletion marker for the
+    // duplicate key of the original segment should not remain in `txn_info->delete_bitmap`,
+    // so we need to make a copy of `txn_info->delete_bitmap` and make changes on it.
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+        delete_bitmap = std::make_shared<DeleteBitmap>(*(txn_info->delete_bitmap));
+    }
 
     OlapStopWatch watch;
     std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -3231,7 +3243,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     }
     auto t2 = watch.get_elapse_time_us();
 
-    _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add, &rowset_ids_to_del);
+    _rowset_ids_difference(cur_rowset_ids, txn_info->rowset_ids, &rowset_ids_to_add,
+                           &rowset_ids_to_del);
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
@@ -3245,7 +3258,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
 
     auto token = _engine.calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, token.get(), rowset_writer));
+                                       cur_version - 1, token.get(), rowset_writer.get()));
     RETURN_IF_ERROR(token->wait());
 
     std::stringstream ss;
@@ -3275,6 +3288,25 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
             LOG(WARNING) << fmt::format("delete bitmap correctness check failed in publish phase!");
         }
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+    }
+
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update) {
+        DBUG_EXECUTE_IF("Tablet.update_delete_bitmap.partial_update_write_rowset_fail", {
+            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+                LOG_WARNING("Tablet.update_delete_bitmap.partial_update_write_rowset random failed")
+                        .tag("txn_id", txn_id);
+                return Status::InternalError(
+                        "debug update_delete_bitmap partial update write rowset random failed");
+            }
+        });
+        // build rowset writer and merge transient rowset
+        RETURN_IF_ERROR(rowset_writer->flush());
+        RowsetSharedPtr transient_rowset;
+        RETURN_IF_ERROR(rowset_writer->build(transient_rowset));
+        rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+
+        // erase segment cache cause we will add a segment to rowset
+        SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
     }
 
     // update version without write lock, compaction and publish_txn
