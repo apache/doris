@@ -649,7 +649,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = recoverStmt.getTableName();
         String newTableName = recoverStmt.getNewTableName();
 
-        Database db = (Database) getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             if (Strings.isNullOrEmpty(newTableName)) {
@@ -696,10 +696,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
-    }
-
-    public void replayEraseDatabase(long dbId) throws DdlException {
-        Env.getCurrentRecycleBin().replayEraseDatabase(dbId);
     }
 
     public void replayRecoverDatabase(RecoverInfo info) {
