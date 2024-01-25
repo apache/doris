@@ -107,7 +107,7 @@ public class MapLiteralTest {
             new MapLiteral(structLiteral, stringLiteral);
         } catch (Exception e) {
             Assert.assertEquals("errCode = 2, detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col:TINYINT,col:DOUBLE,col:DECIMALV3(2, 1),col:DATE>", e.getMessage());
+                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
         }
 
     }
@@ -163,7 +163,7 @@ public class MapLiteralTest {
         } catch (Exception e) {
             Assert.assertEquals("errCode = 2, "
                     + "detailMessage = Invalid key type in Map, "
-                    + "not support STRUCT<col:TINYINT,col:DOUBLE,col:DECIMALV3(2, 1),col:DATE>", e.getMessage());
+                    + "not support STRUCT<col1:TINYINT,col2:DOUBLE,col3:DECIMALV3(2, 1),col4:DATE>", e.getMessage());
         }
 
     }

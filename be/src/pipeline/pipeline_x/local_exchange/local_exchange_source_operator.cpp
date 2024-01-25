@@ -22,11 +22,11 @@
 namespace doris::pipeline {
 
 void LocalExchangeSourceDependency::block() {
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
+    if (((LocalExchangeSharedState*)_shared_state)->exchanger->_running_sink_operators == 0) {
         return;
     }
-    std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state.get())->le_lock);
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
+    std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state)->le_lock);
+    if (((LocalExchangeSharedState*)_shared_state)->exchanger->_running_sink_operators == 0) {
         return;
     }
     Dependency::block();

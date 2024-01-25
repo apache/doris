@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
@@ -29,9 +30,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -47,7 +46,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -64,7 +62,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild,
@@ -83,7 +81,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
@@ -96,7 +94,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
@@ -188,7 +186,6 @@ public class PhysicalHashJoin<
             }
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
 
         // if rf built between plan nodes containing cte both, for example both src slot and target slot are from cte,
         // or two sub-queries both containing cte, disable this rf since this kind of cross-cte rf will make one side
@@ -210,17 +207,31 @@ public class PhysicalHashJoin<
                 "join child node is null");
 
         Set<Expression> probExprList = Sets.newHashSet(probeExpr);
+        Pair<PhysicalRelation, Slot> pair = ctx.getAliasTransferMap().get(probeExpr);
+        PhysicalRelation target1 = (pair == null) ? null : pair.first;
+        PhysicalRelation target2 = null;
+        pair = ctx.getAliasTransferMap().get(srcExpr);
+        PhysicalRelation srcNode = (pair == null) ? null : pair.first;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().expandRuntimeFilterByInnerJoin) {
             if (!this.equals(builderNode) && this.getJoinType() == JoinType.INNER_JOIN) {
                 for (Expression expr : this.getHashJoinConjuncts()) {
                     EqualPredicate equalTo = (EqualPredicate) expr;
                     if (probeExpr.equals(equalTo.left())) {
                         probExprList.add(equalTo.right());
+                        pair = ctx.getAliasTransferMap().get(equalTo.right());
+                        target2 = (pair == null) ? null : pair.first;
                     } else if (probeExpr.equals(equalTo.right())) {
                         probExprList.add(equalTo.left());
+                        pair = ctx.getAliasTransferMap().get(equalTo.left());
+                        target2 = (pair == null) ? null : pair.first;
+                    }
+                    if (target2 != null) {
+                        ctx.getExpandedRF().add(
+                            new RuntimeFilterContext.ExpandRF(this, srcNode, target1, target2, equalTo));
                     }
                 }
                 probExprList.remove(srcExpr);
+
             }
         }
         for (Expression prob : probExprList) {
@@ -228,20 +239,6 @@ public class PhysicalHashJoin<
                     srcExpr, prob, type, buildSideNdv, exprOrder);
             pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
                     srcExpr, prob, type, buildSideNdv, exprOrder);
-        }
-
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, probeSlot)) {
-            return false;
-        }
-        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.checkPushDownPreconditionsForRelation(this, scan)) {
-            return false;
         }
 
         return pushedDown;

@@ -40,6 +40,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -93,7 +94,7 @@ struct IngestBinlogArg {
     TStatus* tstatus;
 };
 
-void _ingest_binlog(IngestBinlogArg* arg) {
+void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     auto txn_id = arg->txn_id;
     auto partition_id = arg->partition_id;
     auto local_tablet_id = arg->local_tablet_id;
@@ -103,12 +104,12 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     auto& request = arg->request;
 
     TStatus tstatus;
-    Defer defer {[=, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
+    Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus]() {
         LOG(INFO) << "ingest binlog. result: " << apache::thrift::ThriftDebugString(tstatus);
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
-            StorageEngine::instance()->txn_manager()->abort_txn(partition_id, txn_id,
-                                                                local_tablet_id, local_tablet_uid);
+            engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
+                                            local_tablet_uid);
         }
 
         if (ingest_binlog_tstatus) {
@@ -187,8 +188,8 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
-    RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
-    auto pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(new_rowset_id);
+    RowsetId new_rowset_id = engine.next_rowset_id();
+    auto pending_rs_guard = engine.pending_local_rowsets().add(new_rowset_id);
     rowset_meta->set_rowset_id(new_rowset_id);
     rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
@@ -299,8 +300,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     // Step 6.2 calculate delete bitmap before commit
-    auto calc_delete_bitmap_token =
-            StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
+    auto calc_delete_bitmap_token = engine.calc_delete_bitmap_executor()->create_token();
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
     RowsetIdUnorderedSet pre_rowset_ids;
     if (local_tablet->enable_unique_key_merge_on_write()) {
@@ -335,7 +335,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     // Step 6.3: commit txn
-    Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
+    Status commit_txn_status = engine.txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
             rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
@@ -351,9 +351,9 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     }
 
     if (local_tablet->enable_unique_key_merge_on_write()) {
-        StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                partition_id, txn_id, local_tablet_id, local_tablet->tablet_uid(), true,
-                delete_bitmap, pre_rowset_ids, nullptr);
+        engine.txn_manager()->set_txn_related_delete_bitmap(partition_id, txn_id, local_tablet_id,
+                                                            local_tablet->tablet_uid(), true,
+                                                            delete_bitmap, pre_rowset_ids, nullptr);
     }
 
     tstatus.__set_status_code(TStatusCode::OK);
@@ -366,12 +366,20 @@ using apache::thrift::TMultiplexedProcessor;
 using apache::thrift::transport::TTransportException;
 using apache::thrift::concurrency::ThreadFactory;
 
-BackendService::BackendService(ExecEnv* exec_env)
+BaseBackendService::BaseBackendService(ExecEnv* exec_env)
         : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
 
-Status BackendService::create_service(ExecEnv* exec_env, int port,
-                                      std::unique_ptr<ThriftServer>* server) {
-    auto service = std::make_shared<BackendService>(exec_env);
+BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
+        : BaseBackendService(exec_env), _engine(engine) {}
+
+Status BaseBackendService::create_service(ExecEnv* exec_env, int port,
+                                          std::unique_ptr<ThriftServer>* server) {
+    if (config::is_cloud_mode()) {
+        // TODO(plat1ko): cloud mode
+        return Status::NotSupported("Currently only support local storage engine");
+    }
+    auto service =
+            std::make_shared<BackendService>(exec_env->storage_engine().to_local(), exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
@@ -401,29 +409,30 @@ Status BackendService::create_service(ExecEnv* exec_env, int port,
     return Status::OK();
 }
 
-void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
-                                        const TExecPlanFragmentParams& params) {
+void BaseBackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
+                                            const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << print_id(params.params.fragment_instance_id)
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    start_plan_fragment_execution(params).set_t_status(&return_val);
+    return_val.__set_status(start_plan_fragment_execution(params).to_thrift());
 }
 
-Status BackendService::start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params) {
+Status BaseBackendService::start_plan_fragment_execution(
+        const TExecPlanFragmentParams& exec_params) {
     if (!exec_params.fragment.__isset.output_sink) {
         return Status::InternalError("missing sink in plan fragment");
     }
     return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
 }
 
-void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                                          const TCancelPlanFragmentParams& params) {
+void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
+                                              const TCancelPlanFragmentParams& params) {
     LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
     _exec_env->fragment_mgr()->cancel_instance(params.fragment_instance_id,
                                                PPlanFragmentCancelReason::INTERNAL_ERROR);
 }
 
-void BackendService::transmit_data(TTransmitDataResult& return_val,
-                                   const TTransmitDataParams& params) {
+void BaseBackendService::transmit_data(TTransmitDataResult& return_val,
+                                       const TTransmitDataParams& params) {
     VLOG_ROW << "transmit_data(): instance_id=" << params.dest_fragment_instance_id
              << " node_id=" << params.dest_node_id << " #rows=" << params.row_batch.num_rows
              << " eos=" << (params.eos ? "true" : "false");
@@ -463,7 +472,7 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
     }
 }
 
-void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
+void BaseBackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
     //    VLOG_ROW << "submit_export_task. request  is "
     //            << apache::thrift::ThriftDebugString(request).c_str();
     //
@@ -479,7 +488,7 @@ void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequ
     //    status.to_thrift(&t_status);
 }
 
-void BackendService::get_export_status(TExportStatusResult& result, const TUniqueId& task_id) {
+void BaseBackendService::get_export_status(TExportStatusResult& result, const TUniqueId& task_id) {
     //    VLOG_ROW << "get_export_status. task_id  is " << task_id;
     //    Status status = _exec_env->export_task_mgr()->get_task_state(task_id, &result);
     //    if (!status.ok()) {
@@ -498,7 +507,7 @@ void BackendService::get_export_status(TExportStatusResult& result, const TUniqu
     //    result.__set_state(TExportState::RUNNING);
 }
 
-void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_id) {
+void BaseBackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_id) {
     //    VLOG_ROW << "erase_export_task. task_id  is " << task_id;
     //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
     //    if (!status.ok()) {
@@ -511,18 +520,17 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
-    StorageEngine::instance()->tablet_manager()->get_tablet_stat(&result);
+    _engine.tablet_manager()->get_tablet_stat(&result);
 }
 
 int64_t BackendService::get_trash_used_capacity() {
     int64_t result = 0;
 
     std::vector<DataDirInfo> data_dir_infos;
-    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
-                                                                       false /*do not update */));
+    static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
+    _engine.notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         result += root_path_info.trash_used_capacity;
@@ -533,11 +541,10 @@ int64_t BackendService::get_trash_used_capacity() {
 
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
-    static_cast<void>(StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos,
-                                                                       false /*do not update */));
+    static_cast<void>(_engine.get_all_data_dir_info(&data_dir_infos, false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
+    _engine.notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
@@ -548,8 +555,8 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
     }
 }
 
-void BackendService::submit_routine_load_task(TStatus& t_status,
-                                              const std::vector<TRoutineLoadTask>& tasks) {
+void BaseBackendService::submit_routine_load_task(TStatus& t_status,
+                                                  const std::vector<TRoutineLoadTask>& tasks) {
     for (auto& task : tasks) {
         Status st = _exec_env->routine_load_task_executor()->submit_task(task);
         if (!st.ok()) {
@@ -566,7 +573,7 @@ void BackendService::submit_routine_load_task(TStatus& t_status,
  * 1. validate user privilege (todo)
  * 2. FragmentMgr#exec_plan_fragment
  */
-void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
+void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
@@ -592,7 +599,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
 }
 
 // fetch result from polling the queue, should always maintain the context offset, otherwise inconsistent result
-void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) {
+void BaseBackendService::get_next(TScanBatchResult& result_, const TScanNextBatchParams& params) {
     std::string context_id = params.context_id;
     u_int64_t offset = params.offset;
     TStatus t_status;
@@ -644,7 +651,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
     context->last_access_time = time(nullptr);
 }
 
-void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
+void BaseBackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
     std::string context_id = params.context_id;
     TStatus t_status;
     Status st = _exec_env->external_scan_context_mgr()->clear_scan_context(context_id);
@@ -653,8 +660,8 @@ void BackendService::close_scanner(TScanCloseResult& result_, const TScanClosePa
 }
 
 void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
-                                            const int64_t last_stream_record_time) {
-    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+                                            int64_t last_stream_record_time) {
+    auto stream_load_recorder = _engine.get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::map<std::string, std::string> records;
         auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
@@ -664,7 +671,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
                       << records.size()
                       << ", last_stream_load_timestamp: " << last_stream_record_time;
             std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
-            std::map<std::string, std::string>::iterator it = records.begin();
+            auto it = records.begin();
             for (; it != records.end(); ++it) {
                 TStreamLoadRecord stream_load_item;
                 StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
@@ -678,12 +685,22 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 }
 
 void BackendService::clean_trash() {
-    static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
+    static_cast<void>(_engine.start_trash_sweep(nullptr, true));
+    static_cast<void>(_engine.notify_listener("REPORT_DISK_STATE"));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
-    StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
+    _engine.tablet_manager()->get_all_tablets_storage_format(&result);
+}
+
+void BackendService::make_snapshot(TAgentResult& return_value,
+                                   const TSnapshotRequest& snapshot_request) {
+    _agent_server->make_snapshot(_engine, return_value, snapshot_request);
+}
+
+void BackendService::release_snapshot(TAgentResult& return_value,
+                                      const std::string& snapshot_path) {
+    _agent_server->release_snapshot(_engine, return_value, snapshot_path);
 }
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
@@ -760,7 +777,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     auto txn_id = request.txn_id;
     // Step 1: get local tablet
     auto const& local_tablet_id = request.local_tablet_id;
-    auto local_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
+    auto local_tablet = _engine.tablet_manager()->get_tablet(local_tablet_id);
     if (local_tablet == nullptr) {
         auto error_msg = fmt::format("tablet {} not found", local_tablet_id);
         LOG(WARNING) << error_msg;
@@ -775,8 +792,8 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     PUniqueId p_load_id;
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
-    auto status = StorageEngine::instance()->txn_manager()->prepare_txn(
-            partition_id, *local_tablet, txn_id, p_load_id, is_ingrest);
+    auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id, p_load_id,
+                                                     is_ingrest);
     if (!status.ok()) {
         LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
                      << ", status=" << status.to_string();
@@ -787,18 +804,18 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     bool is_async = (_ingest_binlog_workers != nullptr);
     result.__set_is_async(is_async);
 
-    auto ingest_binlog_func = [=, tstatus = &tstatus]() {
+    auto ingest_binlog_func = [=, this, tstatus = &tstatus]() {
         IngestBinlogArg ingest_binlog_arg = {
                 .txn_id = txn_id,
                 .partition_id = partition_id,
                 .local_tablet_id = local_tablet_id,
                 .local_tablet = local_tablet,
 
-                .request = std::move(request),
+                .request = request,
                 .tstatus = is_async ? nullptr : tstatus,
         };
 
-        _ingest_binlog(&ingest_binlog_arg);
+        _ingest_binlog(_engine, &ingest_binlog_arg);
     };
 
     if (is_async) {
@@ -852,7 +869,7 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
     auto tablet_id = request.tablet_id;
 
     // Step 1: get local tablet
-    auto local_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    auto local_tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (local_tablet == nullptr) {
         auto error_msg = fmt::format("tablet {} not found", tablet_id);
         LOG(WARNING) << error_msg;
@@ -862,8 +879,8 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
 
     // Step 2: get txn state
     auto tablet_uid = local_tablet->tablet_uid();
-    auto txn_state = StorageEngine::instance()->txn_manager()->get_txn_state(partition_id, txn_id,
-                                                                             tablet_id, tablet_uid);
+    auto txn_state =
+            _engine.txn_manager()->get_txn_state(partition_id, txn_id, tablet_id, tablet_uid);
     switch (txn_state) {
     case TxnState::NOT_FOUND:
         result.__set_status(TIngestBinlogStatus::NOT_FOUND);
@@ -885,4 +902,30 @@ void BackendService::query_ingest_binlog(TQueryIngestBinlogResult& result,
         break;
     }
 }
+
+void BaseBackendService::pre_cache_async(TPreCacheAsyncResponse& response,
+                                         const TPreCacheAsyncRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BaseBackendService::check_pre_cache(TCheckPreCacheResponse& response,
+                                         const TCheckPreCacheRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BaseBackendService::sync_load_for_tablets(TSyncLoadForTabletsResponse& response,
+                                               const TSyncLoadForTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BaseBackendService::get_top_n_hot_partitions(TGetTopNHotPartitionsResponse& response,
+                                                  const TGetTopNHotPartitionsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
+void BaseBackendService::warm_up_tablets(TWarmUpTabletsResponse& response,
+                                         const TWarmUpTabletsRequest& request) {
+    LOG(FATAL) << "BackendService is not implemented";
+}
+
 } // namespace doris

@@ -277,7 +277,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_connect_timeout_seconds`
 
 * 描述：默认thrift客户端连接超时时间
-* 默认值：3 (m)
+* 默认值：3 (s)
 
 #### `thrift_server_type_of_fe`
 
@@ -354,12 +354,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：后续查询请求动态创建线程，最大创建512个线程。
 * 默认值：2048
 
-#### `doris_max_pushdown_conjuncts_return_rate`
-
-* 类型：int32
-* 描述：BE在进行HashJoin时，会采取动态分区裁剪的方式将join条件下推到OlapScanner上。当OlapScanner扫描的数据大于32768行时，BE会进行过滤条件检查，如果该过滤条件的过滤率低于该配置，则Doris会停止使用动态分区裁剪的条件进行数据过滤。
-* 默认值：90
-
 #### `doris_max_scan_key_num`
 
 * 类型：int
@@ -407,18 +401,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 类型：int32
 * 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
 * 默认值：512
-
-#### `enable_prefetch`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable进行聚合和join计算时，是否进行 HashBucket 的预取，推荐设置为true。
-* 默认值：true
-
-#### `enable_quadratic_probing`
-
-* 类型：bool
-* 描述：当使用PartitionedHashTable时发生Hash冲突时，是否采用平方探测法来解决Hash冲突。该值为false的话，则选用线性探测发来解决Hash冲突。关于平方探测法可参考：[quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
-* 默认值：true
 
 #### `exchg_node_buffer_size_bytes`
 
@@ -498,7 +480,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `max_base_compaction_threads`
 
 * 类型：int32
-* 描述：Base Compaction线程池中线程数量的最大值。
+* 描述：Base Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
 * 默认值：4
 
 #### `generate_compaction_tasks_interval_ms`
@@ -639,8 +621,8 @@ BaseCompaction:546859:
 #### `max_cumu_compaction_threads`
 
 * 类型：int32
-* 描述：Cumulative Compaction线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Cumulative Compaction线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `enable_segcompaction`
 
@@ -712,8 +694,8 @@ BaseCompaction:546859:
 #### `max_single_replica_compaction_threads`
 
 * 类型：int32
-* 描述：Single Replica Compaction 线程池中线程数量的最大值。
-* 默认值：10
+* 描述：Single Replica Compaction 线程池中线程数量的最大值, -1 表示每个磁盘一个线程。
+* 默认值：-1
 
 #### `update_replica_infos_interval_seconds`
 
@@ -804,6 +786,13 @@ BaseCompaction:546859:
 * 类型：int32
 * 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
 * 默认值：200
+
+#### `multi_table_max_wait_tables`
+
+* 类型：int32
+* 描述：一流多表使用该配置，如果等待执行的表的数量大于此阈值，将请求并执行所有相关表的计划。该参数旨在避免一次同时请求和执行过多的计划。
+将导入过程的多表进行小批处理，可以减少单次rpc的压力，同时可以提高导入数据处理的实时性。
+* 默认值：5
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32
@@ -1241,7 +1230,7 @@ BaseCompaction:546859:
 #### `sync_tablet_meta`
 
 * 描述：存储引擎是否开sync保留到磁盘上
-* 默认值：false
+* 默认值：true
 
 #### `pending_data_expire_time_sec`
 
@@ -1369,16 +1358,6 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 类型：bool
 * 描述：序列化RowBatch时是否使用Snappy压缩算法进行数据压缩
 * 默认值：true
-
-<version since="1.2">
-
-#### `jvm_max_heap_size`
-
-* 类型：string
-* 描述：BE 使用 JVM 堆内存的最大值，即 JVM 的 -Xmx 参数
-* 默认值：1024M
-
-</version>
 
 ### 日志
 

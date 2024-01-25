@@ -98,7 +98,7 @@ suite("test_struct_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        result = sql """
+        def result = sql """
                     SELECT * FROM ${testTable} ORDER BY k1 INTO OUTFILE "file://${outFile}/";
         """
         url = result[0][3]

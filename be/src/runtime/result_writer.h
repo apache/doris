@@ -38,13 +38,16 @@ public:
 
     virtual Status init(RuntimeState* state) = 0;
 
+    virtual Status finish(RuntimeState* state) { return Status::OK(); }
+
     virtual Status close(Status s = Status::OK()) = 0;
 
     [[nodiscard]] virtual int64_t get_written_rows() const { return _written_rows; }
 
     [[nodiscard]] bool output_object_data() const { return _output_object_data; }
 
-    virtual Status append_block(vectorized::Block& block) = 0;
+    // Write is sync, it will do real IO work.
+    virtual Status write(vectorized::Block& block) = 0;
 
     virtual bool can_sink() { return true; }
 

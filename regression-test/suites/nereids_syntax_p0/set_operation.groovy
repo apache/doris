@@ -323,6 +323,7 @@ suite("test_nereids_set_operation") {
         }
     }
 
+    sql "sync"
     order_qt_check_child_col_order """
         select avg(tap), potno from dwd_daytable where potno=3601 and ddate >= '2023-08-01' group by potno limit 10
         union

@@ -36,7 +36,6 @@ class ObjectPool;
 class RuntimeState;
 class TPlanFragmentExecParams;
 class DescriptorTbl;
-class QueryStatistics;
 class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
@@ -71,11 +70,7 @@ public:
         return send(state, block, eos);
     }
 
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return Status::OK();
-    }
-
-    virtual bool is_close_done() { return true; }
+    [[nodiscard]] virtual bool is_pending_finish() const { return false; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
@@ -104,10 +99,6 @@ public:
     // Returns the runtime profile for the sink.
     RuntimeProfile* profile() { return _profile; }
 
-    virtual void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
-        _query_statistics = statistics;
-    }
-
     const RowDescriptor& row_desc() { return _row_desc; }
 
     virtual bool can_write() { return true; }
@@ -123,9 +114,6 @@ protected:
     const RowDescriptor& _row_desc;
 
     RuntimeProfile* _profile = nullptr; // Allocated from _pool
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;

@@ -129,6 +129,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_partition_2_2 "select * from tb_test_alarm_2020_10;"
         order_qt_partition_2_3 "select * from tb_test_alarm_2020_11;"
         order_qt_partition_2_4 "select * from tb_test_alarm_2020_12;"
+        order_qt_num_zero "select * from num_zero;"
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

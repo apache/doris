@@ -31,6 +31,13 @@ public class JdbcClientConfig implements Cloneable {
     private String driverClass;
     private String onlySpecifiedDatabase;
     private String isLowerCaseTableNames;
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int minIdleSize = 1;
+    private int maxIdleTime = 300000;
+    private int maxWaitTime = 5000;
+    private boolean keepAlive = false;
+
     private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
     private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
     private Map<String, String> customizedProperties = Maps.newHashMap();
@@ -118,6 +125,60 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig setIsLowerCaseTableNames(String isLowerCaseTableNames) {
         this.isLowerCaseTableNames = isLowerCaseTableNames;
+        return this;
+    }
+
+    public int getMinPoolSize() {
+        return minPoolSize;
+    }
+
+    public JdbcClientConfig setMinPoolSize(int minPoolSize) {
+        this.minPoolSize = minPoolSize;
+        return this;
+    }
+
+    public int getMaxPoolSize() {
+        return maxPoolSize;
+    }
+
+    public JdbcClientConfig setMaxPoolSize(int maxPoolSize) {
+        this.maxPoolSize = maxPoolSize;
+        return this;
+    }
+
+    public int getMinIdleSize() {
+        return minIdleSize;
+    }
+
+    public JdbcClientConfig setMinIdleSize(int minIdleSize) {
+        this.minIdleSize = minIdleSize;
+        return this;
+    }
+
+    public int getMaxIdleTime() {
+        return maxIdleTime;
+    }
+
+    public JdbcClientConfig setMaxIdleTime(int maxIdleTime) {
+        this.maxIdleTime = maxIdleTime;
+        return this;
+    }
+
+    public int getMaxWaitTime() {
+        return maxWaitTime;
+    }
+
+    public JdbcClientConfig setMaxWaitTime(int maxWaitTime) {
+        this.maxWaitTime = maxWaitTime;
+        return this;
+    }
+
+    public boolean isKeepAlive() {
+        return keepAlive;
+    }
+
+    public JdbcClientConfig setKeepAlive(boolean keepAlive) {
+        this.keepAlive = keepAlive;
         return this;
     }
 

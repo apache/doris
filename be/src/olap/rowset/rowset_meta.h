@@ -28,14 +28,18 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
 
 class RowsetMeta {
 public:
+    RowsetMeta() = default;
     ~RowsetMeta();
 
     bool init(const std::string& pb_rowset_meta);
+
+    bool init(const RowsetMeta* rowset_meta);
 
     bool init_from_pb(const RowsetMetaPB& rowset_meta_pb);
 
@@ -193,9 +197,11 @@ public:
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
-    void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const;
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
 
-    RowsetMetaPB get_rowset_pb();
+    // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
+    RowsetMetaPB get_rowset_pb(bool skip_schema = false) const;
 
     inline DeletePredicatePB* mutable_delete_pred_pb() {
         return _rowset_meta_pb.mutable_delete_predicate();
@@ -296,8 +302,13 @@ public:
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
+    void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
-    const TabletSchemaSPtr& tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+
+    // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
+    RowsetMeta(const RowsetMeta&) = delete;
+    RowsetMeta operator=(const RowsetMeta&) = delete;
 
 private:
     bool _deserialize_from_pb(const std::string& value);
@@ -313,6 +324,7 @@ private:
 private:
     RowsetMetaPB _rowset_meta_pb;
     TabletSchemaSPtr _schema;
+    Cache::Handle* _handle = nullptr;
     RowsetId _rowset_id;
     io::FileSystemSPtr _fs;
     bool _is_removed_from_rowset_meta = false;

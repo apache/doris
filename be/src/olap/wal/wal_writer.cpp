@@ -35,7 +35,15 @@ WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 WalWriter::~WalWriter() {}
 
 Status WalWriter::init() {
+    io::Path wal_path = _file_name;
+    auto parent_path = wal_path.parent_path();
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(parent_path, &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(parent_path));
+    }
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(_file_name, &_file_writer));
+    LOG(INFO) << "create wal " << _file_name;
     return Status::OK();
 }
 
@@ -49,19 +57,19 @@ Status WalWriter::finalize() {
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
     size_t total_size = 0;
-    for (const auto& block : blocks) {
-        total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
-    }
     size_t offset = 0;
     for (const auto& block : blocks) {
         uint8_t len_buf[sizeof(uint64_t)];
         uint64_t block_length = block->ByteSizeLong();
+        total_size += LENGTH_SIZE + block_length + CHECKSUM_SIZE;
         encode_fixed64_le(len_buf, block_length);
         RETURN_IF_ERROR(_file_writer->append({len_buf, sizeof(uint64_t)}));
         offset += LENGTH_SIZE;
+
         std::string content = block->SerializeAsString();
         RETURN_IF_ERROR(_file_writer->append(content));
         offset += block_length;
+
         uint8_t checksum_buf[sizeof(uint32_t)];
         uint32_t checksum = crc32c::Value(content.data(), block_length);
         encode_fixed32_le(checksum_buf, checksum);

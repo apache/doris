@@ -30,7 +30,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -216,7 +215,7 @@ public class OdbcScanNode extends ExternalScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (shouldPushDownConjunct(odbcType, p)) {
-                String filter = JdbcScanNode.conjunctExprToString(odbcType, p, null);
+                String filter = JdbcScanNode.conjunctExprToString(odbcType, p, tbl);
                 filters.add(filter);
                 conjuncts.remove(p);
             }
@@ -267,6 +266,10 @@ public class OdbcScanNode extends ExternalScanNode {
                 return false;
             }
         }
-        return Config.enable_func_pushdown;
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().enableExtFuncPredPushdown;
+        } else {
+            return true;
+        }
     }
 }

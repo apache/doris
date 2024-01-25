@@ -65,6 +65,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -213,7 +214,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_backend_num(req.backend_num);
     params.__set_fragment_instance_id(req.fragment_instance_id);
     params.__set_fragment_id(req.fragment_id);
-    exec_status.set_t_status(&params);
+    params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
@@ -223,7 +224,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (req.query_statistics) {
         // use to report 'insert into select'
         TQueryStatistics queryStatistics;
-        DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
         params.__set_query_statistics(queryStatistics);
     }
@@ -294,29 +294,22 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.delta_urls = true;
             }
         }
+
+        // load rows
+        static std::string s_dpp_normal_all = "dpp.norm.ALL";
+        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+        static std::string s_unselected_rows = "unselected.rows";
+        int64_t num_rows_load_success = 0;
+        int64_t num_rows_load_filtered = 0;
+        int64_t num_rows_load_unselected = 0;
         if (req.runtime_state->num_rows_load_total() > 0 ||
             req.runtime_state->num_rows_load_filtered() > 0) {
             params.__isset.load_counters = true;
 
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-
-            params.load_counters.emplace(
-                    s_dpp_normal_all, std::to_string(req.runtime_state->num_rows_load_success()));
-            params.load_counters.emplace(
-                    s_dpp_abnormal_all,
-                    std::to_string(req.runtime_state->num_rows_load_filtered()));
-            params.load_counters.emplace(
-                    s_unselected_rows,
-                    std::to_string(req.runtime_state->num_rows_load_unselected()));
+            num_rows_load_success = req.runtime_state->num_rows_load_success();
+            num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
+            num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
         } else if (!req.runtime_states.empty()) {
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-            int64_t num_rows_load_success = 0;
-            int64_t num_rows_load_filtered = 0;
-            int64_t num_rows_load_unselected = 0;
             for (auto* rs : req.runtime_states) {
                 if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0) {
                     params.__isset.load_counters = true;
@@ -325,12 +318,11 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     num_rows_load_unselected += rs->num_rows_load_unselected();
                 }
             }
-            params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
-            params.load_counters.emplace(s_dpp_abnormal_all,
-                                         std::to_string(num_rows_load_filtered));
-            params.load_counters.emplace(s_unselected_rows,
-                                         std::to_string(num_rows_load_unselected));
         }
+        params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+        params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
+        params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+
         if (!req.runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
                     to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
@@ -574,27 +566,29 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
-    std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = f_context->get_query_id();
     auto* q_context = f_context->get_query_ctx();
-    std::vector<TUniqueId> ins_ids;
-    f_context->instance_ids(ins_ids);
-    bool all_done = q_context->countdown(ins_ids.size());
-    for (const auto& ins_id : ins_ids) {
-        {
-            std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
-            if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
-                q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
-            }
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto query_id = f_context->get_query_id();
+        std::vector<TUniqueId> ins_ids;
+        f_context->instance_ids(ins_ids);
+        bool all_done = q_context->countdown(ins_ids.size());
+        for (const auto& ins_id : ins_ids) {
+            LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
+                     print_id(ins_id), all_done);
+            _pipeline_map.erase(ins_id);
+            g_pipeline_fragment_instances_count << -1;
         }
-        LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
-                 print_id(ins_id), all_done);
-        _pipeline_map.erase(ins_id);
-        g_pipeline_fragment_instances_count << -1;
+        if (all_done) {
+            LOG_INFO("Query {} finished", print_id(query_id));
+            _query_ctx_map.erase(query_id);
+        }
     }
-    if (all_done) {
-        LOG_INFO("Query {} finished", print_id(query_id));
-        _query_ctx_map.erase(query_id);
+    {
+        std::lock_guard<std::mutex> plock(q_context->pipeline_lock);
+        if (q_context->fragment_id_to_pipeline_ctx.contains(f_context->get_fragment_id())) {
+            q_context->fragment_id_to_pipeline_ctx.erase(f_context->get_fragment_id());
+        }
     }
 }
 
@@ -680,39 +674,36 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             query_ctx->query_mem_tracker->enable_print_log_usage();
         }
 
+        query_ctx->register_memory_statistics();
+        query_ctx->register_cpu_statistics();
+
+        bool is_pipeline = false;
         if constexpr (std::is_same_v<TPipelineFragmentParams, Params>) {
-            if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                uint64_t tg_id = params.workload_groups[0].id;
-                auto* tg_mgr = _exec_env->task_group_manager();
-                if (auto task_group_ptr = tg_mgr->get_task_group_by_id(tg_id)) {
-                    task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
-                    // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
-                    query_ctx->set_task_group(task_group_ptr);
-                    stringstream ss;
-                    ss << "Query/load id: " << print_id(query_ctx->query_id())
-                       << ", use task group:" << task_group_ptr->debug_string()
-                       << ", enable cpu hard limit:"
-                       << (tg_mgr->enable_cpu_hard_limit() ? "true" : "false");
-                    bool ret = false;
-                    if (tg_mgr->enable_cgroup()) {
-                        ret = tg_mgr->set_cg_task_sche_for_query_ctx(tg_id, query_ctx.get());
-                        if (ret) {
-                            ss << ", use cgroup for cpu limit.";
-                        } else {
-                            ss << ", not found cgroup sche, no limit for cpu.";
-                        }
-                    } else {
-                        ss << ", use doris sche for cpu limit.";
-                        query_ctx->use_task_group_for_cpu_limit.store(true);
-                    }
-                    LOG(INFO) << ss.str();
-                } else {
-                    VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                               << " no task group found, does not use task group.";
-                }
+            is_pipeline = true;
+        }
+
+        if (params.__isset.workload_groups && !params.workload_groups.empty()) {
+            uint64_t tg_id = params.workload_groups[0].id;
+            auto* tg_mgr = _exec_env->task_group_manager();
+            taskgroup::TaskGroupPtr task_group_ptr = nullptr;
+            Status ret = tg_mgr->add_query_to_group(tg_id, query_ctx->query_id(), &task_group_ptr);
+            if (ret.ok()) {
+                task_group_ptr->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
+                // set task group to queryctx for memory tracker can be removed, see QueryContext's destructor
+                query_ctx->set_task_group(task_group_ptr);
+                _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
+                                                                                 tg_id);
+                query_ctx->set_query_scheduler(tg_id);
+
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << ", use task group: " << task_group_ptr->debug_string()
+                          << ", is pipeline: " << ((int)is_pipeline)
+                          << ", enable cgroup soft limit: "
+                          << ((int)config::enable_cgroup_cpu_soft_limit);
             } else {
-                VLOG_DEBUG << "Query/load id: " << print_id(query_ctx->query_id())
-                           << " does not use task group.";
+                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
+                          << " carried group info but can not find group in be, reason: "
+                          << ret.to_string();
             }
         }
 
@@ -796,7 +787,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                 std::make_pair(params.params.fragment_instance_id, fragment_executor));
         _cv.notify_all();
     }
-    auto st = _thread_pool->submit_func(
+
+    auto* current_thread_pool = query_ctx->get_non_pipe_exec_thread_pool();
+    if (!current_thread_pool) {
+        current_thread_pool = _thread_pool.get();
+    }
+    auto st = current_thread_pool->submit_func(
             [this, fragment_executor, cb] { _exec_actual(fragment_executor, cb); });
     if (!st.ok()) {
         {

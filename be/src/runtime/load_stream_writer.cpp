@@ -71,8 +71,9 @@ using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
-    _rowset_builder =
-            std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+    // TODO(plat1ko): CloudStorageEngine
+    _rowset_builder = std::make_unique<RowsetBuilder>(
+            ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;
@@ -185,7 +186,6 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
 
 Status LoadStreamWriter::close() {
     std::lock_guard<std::mutex> l(_lock);
-    DBUG_EXECUTE_IF("LoadStreamWriter.close.uninited_writer", { _is_init = false; });
     if (!_is_init) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet

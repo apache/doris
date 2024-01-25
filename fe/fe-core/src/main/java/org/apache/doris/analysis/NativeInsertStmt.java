@@ -39,12 +39,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -185,6 +187,7 @@ public class NativeInsertStmt extends InsertStmt {
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
+    // Ctor of group commit in sql parser
     public NativeInsertStmt(long tableId, String label, List<String> cols, InsertSource source,
             List<String> hints) {
         this(new InsertTarget(new TableName(null, null, null), null), label, cols, source, hints);
@@ -709,15 +712,16 @@ public class NativeInsertStmt extends InsertStmt {
                     if (entry.second == null) {
                         queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(entry.first));
                     } else {
-                        //substitute define expr slot with select statement result expr
+                        // substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
-                                smap, analyzer, false).get(0);
+                        Expr e = entry.second.getDefineExpr().clone(smap);
+                        e.analyze(analyzer);
                         queryStmt.getResultExprs().add(e);
                     }
                 }
@@ -740,15 +744,16 @@ public class NativeInsertStmt extends InsertStmt {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
                     } else {
-                        //substitute define expr slot with select statement result expr
+                        // substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
-                                smap, analyzer, false).get(0);
+                        Expr e = entry.second.getDefineExpr().clone(smap);
+                        e.analyze(analyzer);
                         queryStmt.getBaseTblResultExprs().add(e);
                     }
                 }
@@ -835,7 +840,8 @@ public class NativeInsertStmt extends InsertStmt {
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));
@@ -901,9 +907,7 @@ public class NativeInsertStmt extends InsertStmt {
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {
             Column col = targetColumns.get(i);
-            Expr expr = selectList.get(i).checkTypeCompatibility(col.getType());
-            selectList.set(i, expr);
-            exprByName.put(col.getName(), expr);
+            exprByName.put(col.getName(), selectList.get(i));
         }
 
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
@@ -933,16 +937,7 @@ public class NativeInsertStmt extends InsertStmt {
                     }
                     continue;
                 } else if (col.getDefineExpr() != null) {
-                    // substitute define expr slot with select statement result expr
-                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                    List<SlotRef> columns = col.getRefColumns();
-                    for (SlotRef slot : columns) {
-                        smap.getLhs().add(slot);
-                        smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
-                    }
-                    targetExpr = Expr
-                            .substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
-                            .get(0);
+                    targetExpr = col.getDefineExpr().clone();
                 } else if (col.getDefaultValue() == null) {
                     targetExpr = NullLiteral.create(col.getType());
                 } else {
@@ -955,11 +950,24 @@ public class NativeInsertStmt extends InsertStmt {
                     }
                 }
             }
+
+            List<SlotRef> columns = col.getRefColumns();
+            if (columns != null) {
+                // substitute define expr slot with select statement result expr
+                ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                for (SlotRef slot : columns) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                }
+                targetExpr = targetExpr.clone(smap);
+                targetExpr.analyze(analyzer);
+            }
             resultExprByName.add(Pair.of(col.getName(), targetExpr));
             slotToIndex.put(col.getName(), targetExpr);
         }
         resultExprs.addAll(resultExprByName.stream().map(Pair::value).collect(Collectors.toList()));
     }
+
 
     private DataSink createDataSink() throws AnalysisException {
         if (dataSink != null) {
@@ -1132,10 +1140,11 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
-        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        if (!isExplain() && !partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
                 && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
+                && !targetTable.getQualifiedDbName().equalsIgnoreCase(FeConstants.INTERNAL_DB_NAME)
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null
@@ -1181,24 +1190,29 @@ public class NativeInsertStmt extends InsertStmt {
 
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
-        if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
-            LOG.debug("reuse group commit plan, table={}", olapTable);
-            reuseGroupCommitPlan = true;
+        olapTable.readLock();
+        try {
+            if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+                LOG.debug("reuse group commit plan, table={}", olapTable);
+                reuseGroupCommitPlan = true;
+                return groupCommitPlanner;
+            }
+            reuseGroupCommitPlan = false;
+            if (!targetColumns.isEmpty()) {
+                Analyzer analyzerTmp = analyzer;
+                reset();
+                this.analyzer = analyzerTmp;
+            }
+            analyzeSubquery(analyzer, true);
+            groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
+                    ConnectContext.get().getSessionVariable().getGroupCommit());
+            // save plan message to be reused for prepare stmt
+            loadId = queryId;
+            baseSchemaVersion = olapTable.getBaseSchemaVersion();
             return groupCommitPlanner;
+        } finally {
+            olapTable.readUnlock();
         }
-        reuseGroupCommitPlan = false;
-        if (!targetColumns.isEmpty()) {
-            Analyzer analyzerTmp = analyzer;
-            reset();
-            this.analyzer = analyzerTmp;
-        }
-        analyzeSubquery(analyzer, true);
-        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
-                ConnectContext.get().getSessionVariable().getGroupCommit());
-        // save plan message to be reused for prepare stmt
-        loadId = queryId;
-        baseSchemaVersion = olapTable.getBaseSchemaVersion();
-        return groupCommitPlanner;
     }
 
     public TUniqueId getLoadId() {

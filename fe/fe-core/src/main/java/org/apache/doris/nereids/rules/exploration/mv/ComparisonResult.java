@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -31,24 +32,26 @@ import java.util.Set;
  * comparison result of view and query
  */
 public class ComparisonResult {
-    public static final ComparisonResult INVALID =
-            new ComparisonResult(ImmutableList.of(), ImmutableList.of(), ImmutableSet.of(), false);
     private final boolean valid;
     private final List<Expression> viewExpressions;
     private final List<Expression> queryExpressions;
+    private final List<Expression> queryAllPulledUpExpressions;
     private final Set<Set<Slot>> viewNoNullableSlot;
+    private final String errorMessage;
 
-    public ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions,
-            Set<Set<Slot>> viewNoNullableSlot) {
-        this(queryExpressions, viewExpressions, viewNoNullableSlot, true);
-    }
-
-    ComparisonResult(List<Expression> queryExpressions, List<Expression> viewExpressions,
-            Set<Set<Slot>> viewNoNullableSlot, boolean valid) {
+    ComparisonResult(List<Expression> queryExpressions, List<Expression> queryAllPulledUpExpressions,
+            List<Expression> viewExpressions, Set<Set<Slot>> viewNoNullableSlot, boolean valid, String message) {
         this.viewExpressions = ImmutableList.copyOf(viewExpressions);
         this.queryExpressions = ImmutableList.copyOf(queryExpressions);
+        this.queryAllPulledUpExpressions = ImmutableList.copyOf(queryAllPulledUpExpressions);
         this.viewNoNullableSlot = ImmutableSet.copyOf(viewNoNullableSlot);
         this.valid = valid;
+        this.errorMessage = message;
+    }
+
+    public static ComparisonResult newInvalidResWithErrorMessage(String errorMessage) {
+        return new ComparisonResult(ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableSet.of(), false, errorMessage);
     }
 
     public List<Expression> getViewExpressions() {
@@ -59,12 +62,20 @@ public class ComparisonResult {
         return queryExpressions;
     }
 
+    public List<Expression> getQueryAllPulledUpExpressions() {
+        return queryAllPulledUpExpressions;
+    }
+
     public Set<Set<Slot>> getViewNoNullableSlot() {
         return viewNoNullableSlot;
     }
 
     public boolean isInvalid() {
         return !valid;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
     }
 
     /**
@@ -74,6 +85,7 @@ public class ComparisonResult {
         ImmutableList.Builder<Expression> queryBuilder = new ImmutableList.Builder<>();
         ImmutableList.Builder<Expression> viewBuilder = new ImmutableList.Builder<>();
         ImmutableSet.Builder<Set<Slot>> viewNoNullableSlotBuilder = new ImmutableSet.Builder<>();
+        ImmutableList.Builder<Expression> queryAllPulledUpExpressionsBuilder = new ImmutableList.Builder<>();
         boolean valid = true;
 
         /**
@@ -104,27 +116,29 @@ public class ComparisonResult {
             return this;
         }
 
+        public Builder addQueryAllPulledUpExpressions(Collection<? extends Expression> expressions) {
+            queryAllPulledUpExpressionsBuilder.addAll(expressions);
+            return this;
+        }
+
         public boolean isInvalid() {
             return !valid;
         }
 
         public ComparisonResult build() {
-            if (isInvalid()) {
-                return ComparisonResult.INVALID;
-            }
-            return new ComparisonResult(queryBuilder.build(), viewBuilder.build(),
-                    viewNoNullableSlotBuilder.build(), valid);
+            Preconditions.checkArgument(valid, "Comparison result must be valid");
+            return new ComparisonResult(queryBuilder.build(), queryAllPulledUpExpressionsBuilder.build(),
+                    viewBuilder.build(), viewNoNullableSlotBuilder.build(), valid, "");
         }
     }
 
     @Override
     public String toString() {
-        if (isInvalid()) {
-            return "INVALID";
-        }
-        return String.format("viewExpressions: %s \n "
-                + "queryExpressions :%s \n "
-                + "viewNoNullableSlot :%s \n",
-                viewExpressions, queryExpressions, viewNoNullableSlot);
+        return String.format("valid: %s \n "
+                        + "viewExpressions: %s \n "
+                        + "queryExpressions :%s \n "
+                        + "viewNoNullableSlot :%s \n"
+                        + "queryAllPulledUpExpressions :%s \n", valid, viewExpressions, queryExpressions,
+                viewNoNullableSlot, queryAllPulledUpExpressions);
     }
 }

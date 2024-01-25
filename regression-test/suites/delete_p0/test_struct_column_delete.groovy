@@ -23,7 +23,7 @@ suite("test_struct_column_delete") {
     sql """ insert into ${tableName} values(1, {1, 'a'}),(2,NULL),(3,NULL),(4,NULL),(5,NULL) """
     test {
         sql """ DELETE FROM ${tableName} WHERE s_struct is NULL """
-        exception("java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = Can not apply delete condition to column type: STRUCT<f1:INT,f2:VARCHAR(30)>")
+        exception("Can not apply delete condition to column type: STRUCT<f1:INT,f2:VARCHAR(30)>")
     }
     sql """ DELETE FROM ${tableName} WHERE id = 1; """
     qt_sql """ SELECT * FROM ${tableName} order by id """

@@ -34,7 +34,6 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class QueryStatistics;
 class ResultWriter;
 class RowDescriptor;
 class TExpr;
@@ -137,8 +136,6 @@ public:
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
     Status close(RuntimeState* state, Status exec_status) override;
-
-    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
 private:
     Status prepare_exprs(RuntimeState* state);

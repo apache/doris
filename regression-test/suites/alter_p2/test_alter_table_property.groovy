@@ -38,7 +38,7 @@ suite ("test_alter_table_property") {
     sql "INSERT INTO ${tableName} VALUES (50, 100)"
 
     def queryReplicaCount = { partitionName ->
-        def result = sql "ADMIN SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
+        def result = sql "SHOW REPLICA DISTRIBUTION FROM ${tableName} PARTITION ${partitionName}"
         int sum = 0
         for (row in result) {
             sum += row[1].toInteger()

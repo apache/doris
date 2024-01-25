@@ -68,7 +68,7 @@ public:
     ~SetSinkDependency() override = default;
 
     void set_cur_child_id(int id) {
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        ((SetSharedState*)_shared_state)->probe_finished_children_dependency[id] = this;
     }
 };
 

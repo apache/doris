@@ -1,0 +1,36 @@
+-- !sql --
+1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+2	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+3	ffff::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+4	2001:df8::	2001:df8:ffff:ffff:ffff:ffff:ffff:ffff
+5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+6	::	ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+7	f000::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	\N	\N
+9	\N	\N
+
+-- !sql --
+1	::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+2	2001:db8::	2001:db8:ffff:ffff:ffff:ffff:ffff:ffff
+3	ffff::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+4	2001:df8::	2001:df8:ffff:ffff:ffff:ffff:ffff:ffff
+5	2001::	2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+6	::	ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+7	f000::	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+8	\N	\N
+9	\N	\N
+
+-- !sql --
+{"min": "::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+
+-- !sql --
+{"min": "2001:db8:0:85a3::ac1f:8001", "max": "2001:db8:0:85a3::ac1f:8001"}
+
+-- !sql --
+{"min": "ffff:ffff:ffff:ffff::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+
+-- !sql --
+{"min": "::", "max": "ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}
+
+-- !sql --
+{"min": "f000::", "max": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}

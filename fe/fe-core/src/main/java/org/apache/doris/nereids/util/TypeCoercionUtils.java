@@ -422,6 +422,14 @@ public class TypeCoercionUtils {
         }
     }
 
+    public static Expression castUnbound(Expression expression, DataType targetType) {
+        if (expression instanceof Literal) {
+            return TypeCoercionUtils.castIfNotSameType(expression, targetType);
+        } else {
+            return TypeCoercionUtils.unSafeCast(expression, targetType);
+        }
+    }
+
     /**
      * like castIfNotSameType does, but varchar or char type would be cast to target length exactly
      */
@@ -466,11 +474,6 @@ public class TypeCoercionUtils {
                 if (promoted != null) {
                     return promoted;
                 }
-            }
-            // adapt scale when from string to datetimev2 with float
-            if (type.isStringLikeType() && dataType.isDateTimeV2Type()) {
-                return recordTypeCoercionForSubQuery(input,
-                        DateTimeV2Type.forTypeFromString(((Literal) input).getStringValue()));
             }
         }
         return recordTypeCoercionForSubQuery(input, dataType);
@@ -569,7 +572,7 @@ public class TypeCoercionUtils {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("convert '{}' to type {} failed", value, dataType);
+            LOG.debug("convert '{}' to type {} failed", value, dataType);
         }
         return Optional.ofNullable(ret);
 
@@ -1117,7 +1120,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForComparison(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));
@@ -1274,8 +1277,7 @@ public class TypeCoercionUtils {
     /**
      * find wider common type for data type list.
      */
-    @Developing
-    private static Optional<DataType> findWiderCommonTypeForCaseWhen(List<DataType> dataTypes) {
+    public static Optional<DataType> findWiderCommonTypeForCaseWhen(List<DataType> dataTypes) {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
@@ -1345,7 +1347,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForCaseWhen(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));
