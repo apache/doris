@@ -819,8 +819,6 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
-// timeout for load stream close wait in ms
-DECLARE_Int64(close_load_stream_timeout_ms);
 
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
