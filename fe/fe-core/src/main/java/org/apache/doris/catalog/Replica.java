@@ -763,7 +763,7 @@ public class Replica implements Writable {
         return postWatermarkTxnId;
     }
 
-    public void setUserDropTime(boolean userDropTime) {
+    public void setUserDropTime(long userDropTime) {
         this.userDropTime = userDropTime;
     }
 
