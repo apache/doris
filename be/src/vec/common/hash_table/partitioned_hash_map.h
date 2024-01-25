@@ -22,7 +22,7 @@
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_table.h"
 #include "vec/common/hash_table/ph_hash_map.h"
-
+namespace doris {
 template <typename ImplTable>
 class PartitionedHashMapTable : public PartitionedHashTable<ImplTable> {
 public:
@@ -57,3 +57,4 @@ using PartitionedHashMap =
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 using PHNormalHashMap = PHHashMap<Key, Mapped, Hash, false>;
+} // namespace doris

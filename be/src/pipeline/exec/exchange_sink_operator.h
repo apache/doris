@@ -217,8 +217,6 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
 
-    Status try_close(RuntimeState* state, Status exec_status) override;
-
 private:
     friend class ExchangeSinkLocalState;
 

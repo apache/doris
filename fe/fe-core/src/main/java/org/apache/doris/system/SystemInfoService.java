@@ -86,19 +86,19 @@ public class SystemInfoService {
     public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
             + "please use a cluster before issuing any queries";
 
-    private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
-    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+    protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
     // TODO(gavin): use {clusterId -> List<BackendId>} instead to reduce risk of inconsistency
     // use exclusive lock to make sure only one thread can change clusterIdToBackend and clusterNameToId
-    private ReentrantLock lock = new ReentrantLock();
+    protected ReentrantLock lock = new ReentrantLock();
 
     // for show cluster and cache user owned cluster
     // mysqlUserName -> List of ClusterPB
     private Map<String, List<ClusterPB>> mysqlUserNameToClusterPB = ImmutableMap.of();
     // clusterId -> List<Backend>
-    private Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
+    protected Map<String, List<Backend>> clusterIdToBackend = new ConcurrentHashMap<>();
     // clusterName -> clusterId
-    private Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
+    protected Map<String, String> clusterNameToId = new ConcurrentHashMap<>();
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
@@ -1154,5 +1154,9 @@ public class SystemInfoService {
             LOG.info("fe change instance status from {} to {}", this.instanceStatus, instanceStatus);
         }
         this.instanceStatus = instanceStatus;
+    }
+
+    public synchronized void updateCloudBackends(List<Backend> toAdd, List<Backend> toDel) {
+        LOG.warn("Not cloud mode, should not be here");
     }
 }

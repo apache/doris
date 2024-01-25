@@ -26,6 +26,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -472,6 +473,10 @@ class Suite implements GroovyInterceptable {
 
     void benchmark(Closure actionSupplier) {
         runAction(new BenchmarkAction(context), actionSupplier)
+    }
+
+    void waitForSchemaChangeDone(Closure actionSupplier) {
+        runAction(new WaitForAction(context), actionSupplier)
     }
 
     String getBrokerName() {

@@ -70,10 +70,6 @@ public:
         return send(state, block, eos);
     }
 
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return Status::OK();
-    }
-
     [[nodiscard]] virtual bool is_pending_finish() const { return false; }
 
     // Releases all resources that were allocated in prepare()/send().

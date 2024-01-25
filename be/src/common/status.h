@@ -276,7 +276,8 @@ namespace ErrorCode {
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
-    E(INVALID_TABLET_STATE, -7211, false);
+    E(INVALID_TABLET_STATE, -7211, false);                   \
+    E(ROWSETS_EXPIRED, -7311, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -316,6 +317,15 @@ extern ErrorCodeInitializer error_code_init;
 class [[nodiscard]] Status {
 public:
     Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
+
+    // used to convert Exception to Status
+    Status(int code, std::string msg, std::string stack) : _code(code) {
+        _err_msg = std::make_unique<ErrMsg>();
+        _err_msg->_msg = msg;
+#ifdef ENABLE_STACKTRACE
+        _err_msg->_stack = stack;
+#endif
+    }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }

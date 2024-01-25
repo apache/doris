@@ -62,7 +62,7 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            static_cast<void>(_node->get_next_const(state, block));
+            RETURN_IF_ERROR(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
@@ -105,28 +105,19 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     int child_count = p.get_child_count();
-    auto ss = create_shared_state();
     if (child_count != 0) {
         auto& deps = info.upstream_dependencies;
         for (auto& dep : deps) {
-            ((UnionSinkDependency*)dep.get())->set_shared_state(ss);
+            dep->set_shared_state(_dependency->shared_state());
         }
-    } else {
-        auto& deps = info.upstream_dependencies;
-        DCHECK(child_count == 0);
-        DCHECK(deps.size() == 1);
-        DCHECK(deps.front() == nullptr);
-        //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() = std::make_shared<UnionSourceDependency>(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
-    RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_source_dependency(info.dependency);
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    ((UnionSharedState*)_dependency->shared_state())
+            ->data_queue.set_source_dependency(info.dependency);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -149,13 +140,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _dependency->set_ready();
     }
     return Status::OK();
-}
-
-std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
-    auto& p = _parent->cast<Parent>();
-    std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size);
-    return data_queue;
 }
 
 std::string UnionSourceLocalState::debug_string(int indentation_level) const {

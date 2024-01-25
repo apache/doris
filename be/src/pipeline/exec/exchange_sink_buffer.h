@@ -196,9 +196,10 @@ struct ExchangeRpcContext {
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 template <typename Parent>
-class ExchangeSinkBuffer {
+class ExchangeSinkBuffer : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId, int, PlanNodeId, int, QueryContext*);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
+                       RuntimeState* state);
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
 

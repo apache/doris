@@ -50,6 +50,30 @@ suite("outer_join") {
     """
 
     sql """
+    drop table if exists orders_null
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS orders_null  (
+      o_orderkey       INTEGER NULL,
+      o_custkey        INTEGER NULL,
+      o_orderstatus    CHAR(1) NULL,
+      o_totalprice     DECIMALV3(15,2) NULL,
+      o_orderdate      DATE NULL,
+      o_orderpriority  CHAR(15) NULL,  
+      o_clerk          CHAR(15) NULL, 
+      o_shippriority   INTEGER NULL,
+      O_COMMENT        VARCHAR(79) NULL
+    )
+    DUPLICATE KEY(o_orderkey, o_custkey)
+    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
+    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    );
+    """
+
+    sql """
     drop table if exists lineitem
     """
 
@@ -74,6 +98,36 @@ suite("outer_join") {
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    PROPERTIES (
+      "replication_num" = "1"
+    );
+    """
+
+    sql """
+    drop table if exists lineitem_null
+    """
+
+    sql"""
+    CREATE TABLE IF NOT EXISTS lineitem_null (
+      l_orderkey    INTEGER NULL,
+      l_partkey     INTEGER NULL,
+      l_suppkey     INTEGER NULL,
+      l_linenumber  INTEGER NULL,
+      l_quantity    DECIMALV3(15,2) NULL,
+      l_extendedprice  DECIMALV3(15,2) NULL,
+      l_discount    DECIMALV3(15,2) NULL,
+      l_tax         DECIMALV3(15,2) NULL,
+      l_returnflag  CHAR(1) NULL,
+      l_linestatus  CHAR(1) NULL,
+      l_shipdate    DATE NULL,
+      l_commitdate  DATE NULL,
+      l_receiptdate DATE NULL,
+      l_shipinstruct CHAR(25) NULL,
+      l_shipmode     CHAR(10) NULL,
+      l_comment      VARCHAR(44) NULL
+    )
+    DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -109,6 +163,27 @@ suite("outer_join") {
 
     sql """
     insert into orders values
+    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
+    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
+    """
+
+    sql """
+    insert into lineitem_null values
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    """
+
+    sql """
+    insert into orders_null values
     (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
@@ -310,18 +385,22 @@ suite("outer_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
 
-    def mv3_2 = "select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS " +
-            "from lineitem " +
-            "left join " +
-            "(select * from orders where O_ORDERSTATUS = 'o') t2 " +
-            "on lineitem.L_ORDERKEY = t2.O_ORDERKEY "
-    def query3_2 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where orders.O_ORDERSTATUS = 'o'"
+    def mv3_2 = """
+            select lineitem.L_LINENUMBER, t2.O_CUSTKEY, t2.O_ORDERSTATUS 
+            from lineitem 
+            left join 
+            (select * from orders where O_ORDERSTATUS = 'o') t2
+            on lineitem.L_ORDERKEY = t2.O_ORDERKEY;
+    """
+    def query3_2 = """
+            select lineitem.L_LINENUMBER
+            from lineitem
+            left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY
+            where orders.O_ORDERSTATUS = 'o';
+    """
     order_qt_query3_2_before "${query3_2}"
     // should not success, as mv filter is under left outer input
-    check_not_match(mv3_2, query3_2, "mv3_2")
+    check_rewrite(mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
@@ -390,6 +469,25 @@ suite("outer_join") {
     check_rewrite(mv6_0, query6_0, "mv6_0")
     order_qt_query6_0_after "${query6_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
+
+    // should has one reject null filter in orders_null, which should be o_orderdate
+    def mv6_1 = """
+        select l_shipdate, t.o_orderdate, l_partkey, l_suppkey, t.o_orderkey
+        from lineitem_null
+        left join (select o_orderdate,o_orderkey from orders_null where o_orderdate = '2023-12-10' ) t 
+        on l_orderkey = t.o_orderkey;
+    """
+    def query6_1 = """
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
+        from lineitem_null  
+        left join orders_null 
+        on l_orderkey = o_orderkey 
+        where l_shipdate = '2023-12-10'  and o_orderdate = '2023-12-10';
+    """
+    order_qt_query6_1_before "${query6_1}"
+    check_rewrite(mv6_1, query6_1, "mv6_1")
+    order_qt_query6_1_after "${query6_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_1"""
 
 
     // filter inside + left + right

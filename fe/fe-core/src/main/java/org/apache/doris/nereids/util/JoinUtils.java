@@ -24,6 +24,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -41,7 +44,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -275,6 +280,56 @@ public class JoinUtils {
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
         return slots.stream().map(o -> o.withNullable(nullable))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
+            Set<Slot> foreignKeys) {
+        ImmutableMap.Builder<Slot, Slot> builder = new ImmutableMap.Builder<>();
+        for (Slot foreignSlot : foreignKeys) {
+            Set<Slot> primarySlots = equivalenceSet.calEqualSet(foreignSlot);
+            if (primarySlots.size() != 1) {
+                return ImmutableMap.of();
+            }
+            builder.put(primarySlots.iterator().next(), foreignSlot);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Check whether the given join can be eliminated by pk-fk
+     */
+    public static boolean canEliminateByFk(LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
+        if (!join.getJoinType().isInnerJoin() || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
+            return false;
+        }
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        context.collectForeignKeyConstraint(primaryPlan);
+        context.collectForeignKeyConstraint(foreignPlan);
+
+        ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
+        Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
+        Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
+        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
+            return false;
+        }
+
+        Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
+        return context.satisfyConstraint(primaryToForeignKey);
+    }
+
+    /**
+     * can this join be eliminated by its left child
+     */
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
+        if (join.getJoinType().isLeftOuterJoin()) {
+            Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
+            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
+                return false;
+            }
+            return rightFuncDeps.isUnique(njHashKeys.second);
+        }
+        return false;
     }
 
     /**

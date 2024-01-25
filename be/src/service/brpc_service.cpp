@@ -27,8 +27,10 @@
 
 #include <ostream>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "service/internal_service.h"
@@ -57,14 +59,13 @@ BRpcService::~BRpcService() {
 }
 
 Status BRpcService::start(int port, int num_threads) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("Currently only support local storage engine");
     }
     // Add service
-    _server->AddService(
-            new PInternalServiceImpl(*ExecEnv::GetInstance()->get_storage_engine(), _exec_env),
-            brpc::SERVER_OWNS_SERVICE);
+    _server->AddService(new PInternalServiceImpl(_exec_env->storage_engine().to_local(), _exec_env),
+                        brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {

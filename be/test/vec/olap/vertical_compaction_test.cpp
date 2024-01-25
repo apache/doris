@@ -75,7 +75,7 @@ using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class VerticalCompactionTest : public ::testing::Test {
 protected:
@@ -93,21 +93,18 @@ protected:
                             .ok());
 
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
 
-        _data_dir = new DataDir(*k_engine, absolute_dir, 100000000);
+        _data_dir = new DataDir(*engine_ref, absolute_dir, 100000000);
         static_cast<void>(_data_dir->init());
     }
     void TearDown() override {
         SAFE_DELETE(_data_dir);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS, bool without_key = false) {
@@ -239,7 +236,8 @@ protected:
                                                            {version, version});
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, false,
+                                                       &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         uint32_t num_rows = 0;
@@ -332,7 +330,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir));
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir));
         static_cast<void>(tablet->init());
         bool exists = false;
         auto res = io::global_local_filesystem()->exists(tablet->tablet_path(), &exists);
@@ -482,7 +480,8 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                   &output_rs_writer);
     ASSERT_TRUE(s.ok()) << s;
 
     // merge input rowset
@@ -589,7 +588,8 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                   &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
@@ -696,7 +696,8 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                   &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
@@ -807,7 +808,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    st = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    st = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true, &output_rs_writer);
     ASSERT_TRUE(st.ok()) << st;
     // merge input rowset
     Merger::Statistics stats;
@@ -909,7 +910,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    st = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    st = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true, &output_rs_writer);
     ASSERT_TRUE(st.ok()) << st;
     // merge input rowset
     Merger::Statistics stats;
@@ -999,7 +1000,8 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     auto writer_context = create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456,
                                                        {0, input_rowsets.back()->end_version()});
     std::unique_ptr<RowsetWriter> output_rs_writer;
-    Status s = RowsetFactory::create_rowset_writer(writer_context, true, &output_rs_writer);
+    Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                   &output_rs_writer);
     EXPECT_TRUE(s.ok());
 
     // merge input rowset
