@@ -50,7 +50,9 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                 // only scan
                 RuleType.BINDING_SLOT_WITH_PATHS_SCAN.build(
                         logicalOlapScan().whenNot(LogicalOlapScan::isProjectPulledUp).thenApply(ctx -> {
-                            if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                            if (ConnectContext.get() != null
+                                    && ConnectContext.get().getSessionVariable() != null
+                                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                                 return ctx.root;
                             }
                             LogicalOlapScan logicalOlapScan = ctx.root;
