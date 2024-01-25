@@ -43,10 +43,10 @@ public class CloudStreamLoadPlanner extends StreamLoadPlanner {
     private AutoCloseConnectContext buildConnectContext() throws UserException {
         if (ConnectContext.get() == null) {
             ConnectContext ctx = new ConnectContext();
-            ctx.setAvailableCloudCluster(cloudClusterName);
+            ctx.setCloudCluster(cloudClusterName);
             return new AutoCloseConnectContext(ctx);
         } else {
-            ConnectContext.get().setAvailableCloudCluster(cloudClusterName);
+            ConnectContext.get().setCloudCluster(cloudClusterName);
             return null;
         }
     }

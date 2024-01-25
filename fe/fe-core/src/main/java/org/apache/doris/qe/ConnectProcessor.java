@@ -177,11 +177,6 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
-        if (Config.isCloudMode() && Strings.isNullOrEmpty(ctx.cloudCluster)) {
-            ctx.setAvailableCloudCluster(null);
-            LOG.debug("handle Query set ctx cloud cluster, get cluster: {}", ctx.getCloudCluster());
-        }
-
         String convertedStmt = convertOriginStmt(originStmt);
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
