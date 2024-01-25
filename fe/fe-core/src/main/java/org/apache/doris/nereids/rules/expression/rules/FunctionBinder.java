@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
@@ -199,7 +200,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        if (elementAt.getDataType().isVariantType()) {
+        if (PushDownToProjectionFunction.validToPushDown(elementAt)) {
             if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 throw new AnalysisException(
                         "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");

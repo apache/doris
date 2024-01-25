@@ -60,7 +60,8 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                             StatementContext stmtCtx = ConnectContext.get().getStatementContext();
                             List<Slot> olapScanPathSlots = pathsSlots.stream().filter(
                                     slot -> {
-                                        Preconditions.checkNotNull(stmtCtx.getRelationBySlot(slot));
+                                        Preconditions.checkNotNull(stmtCtx.getRelationBySlot(slot),
+                                                "[Not implemented] Slot not found in relation map, slot ", slot);
                                         return stmtCtx.getRelationBySlot(slot).getRelationId()
                                                 == logicalOlapScan.getRelationId();
                                     }).collect(
@@ -72,6 +73,9 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                                                     stmtCtx.getOriginalExpr(slotReference), slotReference.getName()))
                                     .collect(
                                             Collectors.toList());
+                            if (newExprs.isEmpty()) {
+                                return ctx.root;
+                            }
                             newProjectsExpr.addAll(newExprs);
                             return new LogicalProject(newProjectsExpr, logicalOlapScan.withProjectPulledUp());
                         }))

@@ -77,9 +77,9 @@ public interface Project {
                 && getProjects().stream().allMatch(namedExpr ->
                 namedExpr instanceof SlotReference
                         || (namedExpr instanceof Alias
-                        && ((Alias) namedExpr).child() instanceof PushDownToProjectionFunction))
+                        && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())))
                 && getProjects().stream().anyMatch((namedExpr -> namedExpr instanceof Alias
-                && ((Alias) namedExpr).child() instanceof PushDownToProjectionFunction));
+                && PushDownToProjectionFunction.validToPushDown(((Alias) namedExpr).child())));
     }
 
     /**
