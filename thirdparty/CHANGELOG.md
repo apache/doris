@@ -270,7 +270,7 @@ Temporarily roll back the openssl version.
 - s2geometry: 0.9.0
 - bitshuffle: 0.3.5
 - CRoaring: 0.3.4
-- fmt: 7.1.3
+- fmt: 10.2.0
 - parallel-hashmap: 1.33
 - orc: 1.6.6
 - jemalloc: 5.2.1
@@ -326,7 +326,7 @@ Temporarily roll back the openssl version.
 - s2geometry: 0.9.0
 - bitshuffle: 0.3.5
 - CRoaring: 0.2.60
-- fmt: 7.1.3
+- fmt: 10.2.0
 - parallel-hashmap: 1.33
 - orc: 1.5.8
 - jemalloc: 5.2.1
