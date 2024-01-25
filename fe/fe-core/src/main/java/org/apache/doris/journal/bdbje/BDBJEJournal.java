@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalBatch;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.metric.MetricRepo;
@@ -119,6 +120,83 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             Util.stdoutWithTime(msg);
             System.exit(-1);
         }
+    }
+
+    @Override
+    public synchronized long write(JournalBatch batch) throws IOException {
+        List<JournalBatch.Entity> entities = batch.getJournalEntities();
+        int entitySize = entities.size();
+        long dataSize = 0;
+        long firstId = nextJournalId.getAndAdd(entitySize);
+
+        // Write the journals to bdb.
+        for (int i = 0; i < RETRY_TIME; i++) {
+            Transaction txn = null;
+            try {
+                // The default config is constructed from the configs of environment.
+                txn = bdbEnvironment.getReplicatedEnvironment().beginTransaction(null, null);
+                for (int j = 0; j < entitySize; ++j) {
+                    JournalBatch.Entity entity = entities.get(j);
+                    DatabaseEntry theKey = idToKey(firstId + j);
+                    DatabaseEntry theData = new DatabaseEntry(entity.getBinaryData());
+                    currentJournalDB.put(txn, theKey, theData);  // Put with overwrite, it always success
+                    dataSize += theData.getSize();
+                    if (i == 0) {
+                        LOG.debug("opCode = {}, journal size = {}", entity.getOpCode(), theData.getSize());
+                    }
+                }
+
+                txn.commit();
+                txn = null;
+
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase(dataSize);
+                    MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase(dataSize);
+                }
+
+                return firstId;
+            } catch (ReplicaWriteException e) {
+                /**
+                 * This exception indicates that an update operation or transaction commit
+                 * or abort was attempted while in the
+                 * {@link ReplicatedEnvironment.State#REPLICA} state. The transaction is marked
+                 * as being invalid.
+                 * <p>
+                 * The exception is the result of either an error in the application logic or
+                 * the result of a transition of the node from Master to Replica while a
+                 * transaction was in progress.
+                 * <p>
+                 * The application must abort the current transaction and redirect all
+                 * subsequent update operations to the Master.
+                 */
+                LOG.error("catch ReplicaWriteException when writing to database, will exit. the first journal id {}",
+                        firstId, e);
+                String msg = "write bdb failed. will exit. the first journalId: " + firstId + ", bdb database Name: "
+                        + currentJournalDB.getDatabaseName();
+                LOG.error(msg);
+                Util.stdoutWithTime(msg);
+                System.exit(-1);
+            } catch (DatabaseException e) {
+                LOG.error("catch an exception when writing to database. sleep and retry. the first journal id {}",
+                        firstId, e);
+                try {
+                    Thread.sleep(5 * 1000);
+                } catch (InterruptedException e1) {
+                    LOG.warn("", e1);
+                }
+            } finally {
+                if (txn != null) {
+                    txn.abort();
+                }
+            }
+        }
+
+        String msg = "write bdb failed. will exit. the first journalId: " + firstId + ", bdb database Name: "
+                + currentJournalDB.getDatabaseName();
+        LOG.error(msg);
+        Util.stdoutWithTime(msg);
+        System.exit(-1);
+        return 0; // unreachable!
     }
 
     @Override
