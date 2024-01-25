@@ -60,9 +60,6 @@ public class ElementAtToSlot extends DefaultExpressionRewriter<ExpressionRewrite
      *         Otherwise, a new SlotReference is created and added to the context.
      */
     public static Expression rewriteToSlot(ElementAt elementAt, SlotReference topColumnSlot) {
-        if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-            return elementAt;
-        }
         // rewrite to slotRef
         StatementContext ctx = ConnectContext.get().getStatementContext();
         List<String> fullPaths = elementAt.collectToList(node -> node instanceof VarcharLiteral).stream()

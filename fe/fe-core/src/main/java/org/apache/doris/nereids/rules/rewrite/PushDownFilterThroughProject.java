@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -45,8 +44,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                 logicalFilter(logicalProject())
                         .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
                                 expr -> expr.anyMatch(WindowExpression.class::isInstance)))
-                        .whenNot(filter -> filter.child().getProjects().stream().anyMatch(
-                                expr -> expr.anyMatch(PushDownToProjectionFunction.class::isInstance)))
+                        .whenNot(filter -> filter.child().isPulledUpProjectFromScan())
                         .then(PushDownFilterThroughProject::pushdownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
@@ -54,6 +52,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
                 logicalFilter(logicalLimit(logicalProject()))
                         .whenNot(filter -> filter.child().child().getProjects().stream()
                                 .anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance)))
+                        .whenNot(filter -> filter.child().child().isPulledUpProjectFromScan())
                         .then(filter -> {
                             LogicalLimit<LogicalProject<Plan>> limit = filter.child();
                             LogicalProject<Plan> project = limit.child();

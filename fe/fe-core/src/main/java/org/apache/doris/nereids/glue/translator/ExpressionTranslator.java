@@ -197,10 +197,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitElementAt(ElementAt elementAt, PlanTranslatorContext context) {
-        SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
-                                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
-        Preconditions.checkNotNull(rewrittenSlot);
-        return context.findSlotRef(rewrittenSlot.getExprId());
+        if (context.getSessionVariable().isEnableRewriteElementAtToSlot()) {
+            SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
+                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
+            Preconditions.checkNotNull(rewrittenSlot);
+            return context.findSlotRef(rewrittenSlot.getExprId());
+        }
+        return visit(elementAt, context);
     }
 
     @Override

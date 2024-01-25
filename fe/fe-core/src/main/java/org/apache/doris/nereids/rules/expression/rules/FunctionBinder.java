@@ -62,6 +62,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -199,6 +200,10 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
         if (elementAt.getDataType().isVariantType()) {
+            if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                throw new AnalysisException(
+                        "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
+            }
             Slot slot = elementAt.getInputSlots().stream().findFirst().get();
             if (slot.hasUnbound()) {
                 slot = (Slot) super.visit(slot, context);

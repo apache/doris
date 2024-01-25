@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -38,9 +39,8 @@ import java.util.stream.Collectors;
 /**
  * Rule to bind slot with path in query plan.
  * Slots with paths do not exist in OlapTable so in order to materialize them,
- * we need first put them into LogicalOlapScan and get them in LogicalOlapScan::getOutput.
- * But getOutput is memorized in `Suppliers` so, we need to update and refresh each supplier,
- * in order to get the latest slots
+ * generate a LogicalProject on LogicalOlapScan which merges both slots from LogicalOlapScan
+ * and alias functions from original expressions before rewritten.
  */
 public class BindSlotWithPaths implements AnalysisRuleFactory {
 
@@ -50,6 +50,9 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                 // only scan
                 RuleType.BINDING_SLOT_WITH_PATHS_SCAN.build(
                         logicalOlapScan().whenNot(LogicalOlapScan::isProjectPulledUp).thenApply(ctx -> {
+                            if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                                return ctx.root;
+                            }
                             LogicalOlapScan logicalOlapScan = ctx.root;
                             List<NamedExpression> newProjectsExpr = new ArrayList<>(logicalOlapScan.getOutput());
                             Set<SlotReference> pathsSlots = ctx.statementContext.getAllPathsSlots();
@@ -57,8 +60,8 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
                             StatementContext stmtCtx = ConnectContext.get().getStatementContext();
                             List<Slot> olapScanPathSlots = pathsSlots.stream().filter(
                                     slot -> {
-                                        return stmtCtx.getRelationBySlot(slot) != null
-                                                && stmtCtx.getRelationBySlot(slot).getRelationId()
+                                        Preconditions.checkNotNull(stmtCtx.getRelationBySlot(slot));
+                                        return stmtCtx.getRelationBySlot(slot).getRelationId()
                                                 == logicalOlapScan.getRelationId();
                                     }).collect(
                                     Collectors.toList());

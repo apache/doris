@@ -19,11 +19,8 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -62,19 +59,12 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        if (child instanceof PhysicalProject && !isValidPhysicalProject((PhysicalProject) child)) {
+        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).isPulledUpProjectFromScan()) {
             throw new AnalysisException(
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
 
         return visit(filter, context);
-    }
-
-    private boolean isValidPhysicalProject(PhysicalProject physicalProject) {
-        return physicalProject.getProjects().stream().allMatch(namedExpr ->
-                namedExpr instanceof SlotReference
-                        || (namedExpr instanceof Alias
-                            && ((Alias) namedExpr).child() instanceof PushDownToProjectionFunction));
     }
 
     @Override
