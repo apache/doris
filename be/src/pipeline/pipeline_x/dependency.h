@@ -35,6 +35,7 @@
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/types.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
@@ -524,24 +525,22 @@ public:
 
     /// called in setup_local_state
     void hash_table_init() {
+        using namespace vectorized;
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<
-                        vectorized::I8HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<
-                        vectorized::I16HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<
-                        vectorized::I32HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -549,27 +548,21 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<
-                        vectorized::I64HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<
-                        vectorized::I128HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
                 break;
             default:
-                hash_table_variants->emplace<
-                        vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetSerializedHashTableContext>();
             }
             return;
         }
-
-        if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32,
-                                            vectorized::RowRefListWithFlags>(
+        if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
                     *hash_table_variants, child_exprs_lists[0])) {
-            hash_table_variants->emplace<
-                    vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+            hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
     }
 };
