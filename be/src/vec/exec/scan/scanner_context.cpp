@@ -276,10 +276,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         // (if the scheduler continues to schedule, it will cause a lot of busy running).
         // At this point, consumers are required to trigger new scheduling to ensure that
         // data can be continuously fetched.
-        int64_t cur_bytes_in_queue = _cur_bytes_in_queue;
-        int32_t serving_blocks_num = _serving_blocks_num;
         bool to_be_schedule = should_be_scheduled();
-        int num_running_scanners = _num_running_scanners;
 
         bool is_scheduled = false;
         if (!done() && to_be_schedule && _num_running_scanners == 0) {
@@ -296,10 +293,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             SCOPED_TIMER(_scanner_wait_batch_timer);
             while (!(!_blocks_queue.empty() || done() || !status().ok() || state->is_cancelled())) {
                 if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
-                    LOG(INFO) << "fatal, cur_bytes_in_queue " << cur_bytes_in_queue
-                              << ", serving_blocks_num " << serving_blocks_num
-                              << ", num_running_scanners " << num_running_scanners
-                              << ", to_be_scheudle " << to_be_schedule << (void*)this;
+                    LOG(INFO) << debug_string();
                 }
                 _blocks_queue_added_cv.wait_for(l, 1s);
             }
@@ -393,6 +387,8 @@ void ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _blocks_queue_added_cv.notify_one();
         _should_stop = true;
         _set_scanner_done();
+        LOG(INFO) << "ctx is set status on error " << debug_string()
+                  << ", call stack is: " << Status::InternalError<true>("catch error status");
     }
 }
 
@@ -456,14 +452,15 @@ void ScannerContext::_set_scanner_done() {
 
 std::string ScannerContext::debug_string() {
     return fmt::format(
-            "id: {}, sacnners: {}, blocks in queue: {},"
+            "id: {}, total scanners: {}, scanners: {}, blocks in queue: {},"
             " status: {}, _should_stop: {}, _is_finished: {}, free blocks: {},"
             " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _block_per_scanner: {}, _cur_bytes_in_queue: {}, MAX_BYTE_OF_QUEUE: {}, "
-            "num_ctx_scheduled: {}, query_id: {}",
-            ctx_id, _scanners.size(), _blocks_queue.size(), status().ok(), _should_stop,
-            _is_finished, _free_blocks.size_approx(), limit, _num_running_scanners, _max_thread_num,
-            _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue, num_ctx_scheduled(),
+            "num_ctx_scheduled: {}, serving_blocks_num: {}, allowed_blocks_num: {}, query_id: {}",
+            ctx_id, _all_scanners.size(), _scanners.size(), _blocks_queue.size(),
+            _process_status.to_string(), _should_stop, _is_finished, _free_blocks.size_approx(),
+            limit, _num_running_scanners, _max_thread_num, _block_per_scanner, _cur_bytes_in_queue,
+            _max_bytes_in_queue, num_ctx_scheduled(), _serving_blocks_num, allowed_blocks_num(),
             print_id(_query_id));
 }
 
@@ -485,7 +482,6 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
     // calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
     // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
     // before we call the following if() block.
-    //LOG(INFO) << "yyyy one scanner finished " << debug_string();
     {
         --_num_running_scanners;
         if (scanner->_scanner->need_to_close()) {

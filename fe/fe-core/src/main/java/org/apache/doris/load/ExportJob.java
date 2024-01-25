@@ -353,7 +353,7 @@ public class ExportJob implements Writable {
             List<String> partitions, List<NamedExpression> selectLists) {
         // UnboundRelation
         LogicalPlan plan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), qualifiedTableName,
-                partitions, false, tabletIds, ImmutableList.of(), Optional.empty());
+                partitions, false, tabletIds, ImmutableList.of(), Optional.empty(), Optional.empty());
         // LogicalCheckPolicy
         plan = new LogicalCheckPolicy<>(plan);
         // LogicalFilter

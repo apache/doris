@@ -34,7 +34,7 @@ ADMIN SET REPLICA STATUS
 
 This statement is used to set the state of the specified replica.
 
-This command is currently only used to manually set the status of certain replicas to BAD or OK, allowing the system to automatically repair these replicas
+This command is currently only used to manually set the status of certain replicas to BAD, DROP or OK, allowing the system to automatically repair these replicas
 
 grammar:
 
@@ -47,13 +47,15 @@ ADMIN SET REPLICA STATUS
 
 1. "tablet_id": Required. Specify a Tablet Id.
 2. "backend_id": Required. Specify Backend Id.
-3. "status": Required. Specifies the state. Currently only "bad" or "ok" are supported
+3. "status": Required. Specifies the state. Currently only "bad", "drop" or "ok" are supported
 
 If the specified replica does not exist, or the status is already bad, it will be ignored.
 
 > Note:
 >
-> The copy set to Bad status may be deleted immediately, please proceed with caution.
+> A replica set to Bad, it will not be able to read or write. In addition, sometimes the setting may not working, when be report tablet ok, fe will auto change its status to ok. This operation may delete the replica immediately, so please operate with caution.
+>
+> A replica set to Drop, it can still be read and written. A healthy replica will be added to other machines first, and then this replica will be deleted. Compared with setting Bad, setting Drop is safer.
 
 ### Example
 
@@ -63,7 +65,14 @@ If the specified replica does not exist, or the status is already bad, it will b
     ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10003", "backend_id" = "10001", "status" = "bad");
        ````
 
-2. Set the replica status of tablet 10003 on BE 10001 to ok.
+ 2. Set the replica status of tablet 10003 on BE 10001 to drop.
+
+       ```sql
+    ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10003", "backend_id" = "10001", "status" = "drop");
+       ````
+
+
+ 3. Set the replica status of tablet 10003 on BE 10001 to ok.
 
    ```sql
    ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10003", "backend_id" = "10001", "status" = "ok");

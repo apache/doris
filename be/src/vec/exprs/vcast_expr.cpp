@@ -76,6 +76,7 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
                              _target_data_type_name);
+    _prepare_finished = true;
     return Status::OK();
 }
 
@@ -85,6 +86,7 @@ const DataTypePtr& VCastExpr::get_target_type() const {
 
 doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
                               FunctionContext::FunctionStateScope scope) {
+    DCHECK(_prepare_finished);
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->open(state, context, scope));
     }
@@ -92,6 +94,7 @@ doris::Status VCastExpr::open(doris::RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
+    _open_finished = true;
     return Status::OK();
 }
 
@@ -102,12 +105,10 @@ void VCastExpr::close(VExprContext* context, FunctionContext::FunctionStateScope
 
 doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block* block,
                                  int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col);
     // for each child call execute
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
-
-    size_t const_param_id = VExpr::insert_param(
-            block, {_cast_param, _cast_param_data_type, _target_data_type_name}, block->rows());
 
     // call function
     size_t num_columns_without_result = block->columns();
@@ -117,8 +118,8 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     auto state = Status::OK();
     try {
         state = _function->execute(context->fn_context(_fn_context_index), *block,
-                                   {static_cast<size_t>(column_id), const_param_id},
-                                   num_columns_without_result, block->rows(), false);
+                                   {static_cast<size_t>(column_id)}, num_columns_without_result,
+                                   block->rows(), false);
         *result_column_id = num_columns_without_result;
     } catch (const Exception& e) {
         state = e.to_status();

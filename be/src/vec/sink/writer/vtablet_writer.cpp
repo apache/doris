@@ -310,7 +310,12 @@ void VNodeChannel::clear_all_blocks() {
 // no need to set _cancel_msg because the error will be
 // returned directly via "TabletSink::prepare()" method.
 Status VNodeChannel::init(RuntimeState* state) {
+    if (_inited) {
+        return Status::OK();
+    }
+
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+    _task_exec_ctx = state->get_task_execution_context();
     _tuple_desc = _parent->_output_tuple_desc;
     _state = state;
     // get corresponding BE node.
@@ -347,6 +352,25 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
 
+    // add block closure
+    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
+    _send_block_callback->addFailedHandler([this](bool is_last_rpc) {
+        auto ctx_lock = _task_exec_ctx.lock();
+        if (ctx_lock == nullptr) {
+            return;
+        }
+        _add_block_failed_callback(is_last_rpc);
+    });
+
+    _send_block_callback->addSuccessHandler(
+            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
+                auto ctx_lock = _task_exec_ctx.lock();
+                if (ctx_lock == nullptr) {
+                    return;
+                }
+                _add_block_success_callback(result, is_last_rpc);
+            });
+
     _name = fmt::format("VNodeChannel[{}-{}]", _index_channel->_index_id, _node_id);
     // The node channel will send _batch_size rows of data each rpc. When the
     // number of tablets is large, the number of data rows received by each
@@ -355,18 +379,23 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    _inited = true;
     return Status::OK();
 }
 
 void VNodeChannel::_open_internal(bool is_incremental) {
+    if (_tablets_wait_open.empty()) {
+        return;
+    }
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     auto request = std::make_shared<PTabletWriterOpenRequest>();
     request->set_allocated_id(&_parent->_load_id);
     request->set_index_id(_index_channel->_index_id);
     request->set_txn_id(_parent->_txn_id);
     request->set_allocated_schema(_parent->_schema->to_protobuf());
+
     std::set<int64_t> deduper;
-    for (auto& tablet : _all_tablets) {
+    for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
             continue;
         }
@@ -374,7 +403,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
         ptablet->set_partition_id(tablet.partition_id);
         ptablet->set_tablet_id(tablet.tablet_id);
         deduper.insert(tablet.tablet_id);
+        _all_tablets.push_back(std::move(tablet));
     }
+    _tablets_wait_open.clear();
+
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
     request->set_load_mem_limit(_parent->_load_mem_limit);
@@ -443,15 +475,6 @@ Status VNodeChannel::open_wait() {
         }
     }
 
-    // add block closure
-    _send_block_callback = WriteBlockCallback<PTabletWriterAddBlockResult>::create_shared();
-    _send_block_callback->addFailedHandler(
-            [this](bool is_last_rpc) { _add_block_failed_callback(is_last_rpc); });
-
-    _send_block_callback->addSuccessHandler(
-            [this](const PTabletWriterAddBlockResult& result, bool is_last_rpc) {
-                _add_block_success_callback(result, is_last_rpc);
-            });
     return status;
 }
 
@@ -855,10 +878,6 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     static_cast<void>(request->release_id());
 }
 
-bool VNodeChannel::is_send_data_rpc_done() const {
-    return _add_batches_finished || _cancelled;
-}
-
 Status VNodeChannel::close_wait(RuntimeState* state) {
     DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", { MemInfo::process_full_gc(); });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
@@ -881,7 +900,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_close_done() is false at this time, will not block.
+    // For pipeline engine, the close is called in async writer's process block method,
+    // so that it will not block pipeline thread.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         bthread_usleep(1000);
     }
@@ -1337,9 +1357,9 @@ Status VTabletWriter::_send_new_partition_batch() {
         // these order is only.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(this->append_block(tmp_block));
+        RETURN_IF_ERROR(this->write(tmp_block));
         _row_distribution._batching_block->set_mutable_columns(
                 tmp_block.mutate_columns()); // Recovery back
         _row_distribution._batching_block->clear_column_data();
@@ -1348,7 +1368,7 @@ Status VTabletWriter::_send_new_partition_batch() {
     return Status::OK();
 }
 
-Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
+void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
 
@@ -1390,23 +1410,6 @@ Status VTabletWriter::try_close(RuntimeState* state, Status exec_status) {
         _close_status = status;
         _close_wait = true;
     }
-
-    return Status::OK();
-}
-
-bool VTabletWriter::is_close_done() {
-    // Only after try_close, need to wait rpc end.
-    if (!_close_wait) {
-        return true;
-    }
-    bool close_done = true;
-    for (const auto& index_channel : _channels) {
-        index_channel->for_each_node_channel(
-                [&close_done](const std::shared_ptr<VNodeChannel>& ch) {
-                    close_done &= ch->is_send_data_rpc_done();
-                });
-    }
-    return close_done;
 }
 
 Status VTabletWriter::close(Status exec_status) {
@@ -1421,7 +1424,7 @@ Status VTabletWriter::close(Status exec_status) {
     SCOPED_TIMER(_profile->total_time_counter());
 
     // will make the last batch of request-> close_wait will wait this finished.
-    static_cast<void>(try_close(_state, exec_status));
+    _do_try_close(_state, exec_status);
 
     // If _close_status is not ok, all nodes have been canceled in try_close.
     if (_close_status.ok()) {
@@ -1606,14 +1609,16 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
+Status VTabletWriter::write(doris::vectorized::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
     if (_state->query_options().dry_run_query) {
         return status;
     }
-
+    LOG(INFO) << "temporary log query id: " << print_id(_state->query_id())
+              << ", instance id: " << print_id(_state->fragment_instance_id())
+              << ", block rows: " << input_block.rows();
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 

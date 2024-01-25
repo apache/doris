@@ -74,7 +74,7 @@ std::string ScanOperator::debug_string() const {
     fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
                    SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}",
+        fmt::format_to(debug_string_buffer, ", scanner ctx detail = {}",
                        _node->_scanner_ctx->debug_string());
     }
     return fmt::to_string(debug_string_buffer);
@@ -141,13 +141,6 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     // could add here, not in the _init_profile() function
     _prepare_rf_timer(_runtime_profile.get());
 
-    static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
-    _wait_for_data_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForData", timer_name, 1);
-    _wait_for_scanner_done_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForScannerDone", timer_name, 1);
-    _wait_for_eos_timer = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForEos", timer_name, 1);
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
 }
@@ -557,14 +550,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                    _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(debug_string_buffer,
-                       ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
-                       "_num_running_scanners={}, "
-                       " _num_unfinished_scanners = {}, status = {})",
-                       _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
-                       _scanner_ctx->get_num_running_scanners(),
-                       _scanner_ctx->get_num_unfinished_scanners(),
-                       _scanner_ctx->status().to_string());
+        fmt::format_to(debug_string_buffer, ", Scanner Context: {}", _scanner_ctx->debug_string());
     }
 
     return fmt::to_string(debug_string_buffer);
@@ -1220,6 +1206,9 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
         _eos = true;
         _scan_dependency->set_ready();
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         RETURN_IF_ERROR(_start_scanners(_scanners));
     }
@@ -1233,6 +1222,19 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             state()->scan_queue_mem_limit(), _scan_dependency);
+    if constexpr (std::is_same_v<OlapScanLocalState, Derived>) {
+        /**
+         * If `use_topn_opt` is true,
+         * we let 1/4 scanners run first to update the value of runtime predicate,
+         * and the other 3/4 scanners could then read fewer rows.
+         */
+        if (static_cast<OlapScanLocalState*>(this)->olap_scan_node().use_topn_opt) {
+            int32_t max_thread_num = std::max<int32_t>(4, scanners.size() / 4);
+            if (max_thread_num < _scanner_ctx->get_max_thread_num()) {
+                _scanner_ctx->set_max_thread_num(max_thread_num);
+            }
+        }
+    }
     return Status::OK();
 }
 

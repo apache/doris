@@ -70,7 +70,8 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
     return ostr;
 }
 
-Status TabletStream::init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id) {
+Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
+                          int64_t partition_id) {
     WriteRequest req {
             .tablet_id = _id,
             .txn_id = _txn_id,
@@ -189,9 +190,15 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
-            LOG(WARNING) << "No segid mapping for src_id " << src_id
-                         << " when ADD_SEGMENT, ignored";
-            return Status::OK();
+            return Status::InternalError(
+                    "add segment failed, no segment written by this src be yet, src_id={}, "
+                    "segment_id={}",
+                    src_id, segid);
+        }
+        if (segid >= _segids_mapping[src_id]->size()) {
+            return Status::InternalError(
+                    "add segment failed, segment is never written, src_id={}, segment_id={}",
+                    src_id, segid);
         }
         new_segid = _segids_mapping[src_id]->at(segid);
     }
@@ -285,7 +292,7 @@ Status IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, in
                                         int64_t partition_id) {
     tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
                                                    _profile);
-    RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, partition_id));
+    RETURN_IF_ERROR(tablet_stream->init(_schema, _id, partition_id));
     _tablet_streams_map[tablet_id] = tablet_stream;
     return Status::OK();
 }
@@ -422,13 +429,14 @@ void LoadStream::_report_schema(StreamId stream, const PStreamHeader& hdr) {
     PLoadStreamResponse response;
     Status st = Status::OK();
     for (const auto& req : hdr.tablets()) {
-        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
-        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
-        if (tablet == nullptr) {
-            st = Status::NotFound("Tablet {} not found", req.tablet_id());
+        BaseTabletSPtr tablet;
+        if (auto res = ExecEnv::get_tablet(req.tablet_id()); res.has_value()) {
+            tablet = std::move(res).value();
+        } else {
+            st = std::move(res).error();
             break;
         }
-        auto resp = response.add_tablet_schemas();
+        auto* resp = response.add_tablet_schemas();
         resp->set_index_id(req.index_id());
         resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
         tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
@@ -515,15 +523,19 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
-        PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
-        load_id.set_hi(UNKNOWN_ID_FOR_TEST);
-        load_id.set_lo(UNKNOWN_ID_FOR_TEST);
-    });
-    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
-        PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
-        t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
-    });
+    // CLOSE_LOAD message should not be fault injected,
+    // otherwise the message will be ignored and causing close wait timeout
+    if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
+            PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
+            load_id.set_hi(UNKNOWN_ID_FOR_TEST);
+            load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+        });
+        DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
+            PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+            t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
+        });
+    }
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
         Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));

@@ -21,10 +21,10 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -156,13 +156,6 @@ public:
     // so should be fast.
     [[nodiscard]] virtual Status reset(RuntimeState* state);
 
-    // This should be called before close() and after get_next(), it is responsible for
-    // collecting statistics sent with row batch, it can't be called when prepare() returns
-    // error.
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
-
-    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
-                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -239,9 +232,7 @@ public:
 
     size_t children_count() const { return _children.size(); }
 
-    // when the fragment is normal finished, call this method to do some finish work
-    // such as send the last buffer to remote.
-    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
+    std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
 
 protected:
     friend class DataSink;
@@ -272,7 +263,7 @@ protected:
     const TBackendResourceProfile _resource_profile;
 
     int64_t _limit; // -1: no limit
-    int64_t _num_rows_returned;
+    int64_t _num_rows_returned = 0;
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
@@ -308,15 +299,6 @@ protected:
 
     bool is_closed() const { return _is_closed; }
 
-    // TODO(zc)
-    /// Pointer to the containing SubplanNode or nullptr if not inside a subplan.
-    /// Set by SubplanNode::Init(). Not owned.
-    // SubplanNode* containing_subplan_;
-
-    /// Returns true if this node is inside the right-hand side plan tree of a SubplanNode.
-    /// Valid to call in or after Prepare().
-    bool is_in_subplan() const { return false; }
-
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
@@ -330,6 +312,8 @@ protected:
 
     std::atomic<bool> _can_read = false;
 
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+
 private:
     static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
                                      const std::vector<TPlanNode>& tnodes,
@@ -337,9 +321,9 @@ private:
                                      ExecNode** root);
 
     friend class pipeline::OperatorBase;
-    bool _is_closed;
+    bool _is_closed = false;
     bool _is_resource_released = false;
-    std::atomic_int _ref; // used by pipeline operator to release resource.
+    std::atomic_int _ref = 0; // used by pipeline operator to release resource.
 };
 
 } // namespace doris

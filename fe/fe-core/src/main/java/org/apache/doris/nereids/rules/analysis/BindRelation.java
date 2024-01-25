@@ -189,13 +189,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
                     tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
         } else {
-            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+            Optional<String> indexName = unboundRelation.getIndexName();
+            if (indexName.isPresent()) {
+                OlapTable olapTable = (OlapTable) table;
+                Long indexId = olapTable.getIndexIdByName(indexName.get());
+                if (indexId == null) {
+                    throw new AnalysisException("Table " + olapTable.getName()
+                        + " doesn't have materialized view " + indexName.get());
+                }
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, indexId,
+                    unboundRelation.getHints(), unboundRelation.getTableSample());
+            } else {
+                scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample());
+            }
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable()
-                .skipDeleteSign()) {
+                && !ConnectContext.get().getSessionVariable().skipDeleteSign()
+                && !scan.isDirectMvScan()) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {
@@ -222,7 +235,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case MATERIALIZED_VIEW:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
-                Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
+                Plan viewPlan = parseAndAnalyzeView(((View) table).getInlineViewDef(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
                 if (Config.enable_query_hive_views && ((HMSExternalTable) table).isView()) {

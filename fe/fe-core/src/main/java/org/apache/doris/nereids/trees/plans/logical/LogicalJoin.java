@@ -38,7 +38,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.ImmutableEquivalenceSet;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -87,6 +87,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(),
+                Optional.empty(), Optional.empty(), leftChild, rightChild);
+    }
+
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts,
                 new DistributeHint(DistributeType.NONE), Optional.empty(),
                 Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
@@ -378,7 +385,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 markJoinSlotReference, children);
     }
 
-    private @Nullable Pair<Set<Slot>, Set<Slot>> extractHashKeys() {
+    /**
+     * extractNullRejectHashKeys
+     */
+    public @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
         Set<Slot> leftKeys = new HashSet<>();
         Set<Slot> rightKeys = new HashSet<>();
         for (Expression expression : hashJoinConjuncts) {
@@ -421,7 +431,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
-        Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
         if (keys == null) {
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
@@ -467,12 +477,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     /**
      * get Equal slot from join
      */
-    public ImmutableEquivalenceSet<Slot> getEqualSlots() {
+    public ImmutableEqualSet<Slot> getEqualSlots() {
         // TODO: Use fd in the future
         if (!joinType.isInnerJoin() && !joinType.isSemiJoin()) {
-            return ImmutableEquivalenceSet.of();
+            return ImmutableEqualSet.empty();
         }
-        ImmutableEquivalenceSet.Builder<Slot> builder = new ImmutableEquivalenceSet.Builder<>();
+        ImmutableEqualSet.Builder<Slot> builder = new ImmutableEqualSet.Builder<>();
         hashJoinConjuncts.stream()
                 .filter(e -> e instanceof EqualPredicate
                         && e.child(0) instanceof Slot

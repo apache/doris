@@ -257,7 +257,7 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
                                          storage_medium);
         }
         // get a random store of specified storage medium
-        auto stores = engine.get_stores_for_create_tablet(storage_medium);
+        auto stores = engine.get_stores_for_create_tablet(tablet->partition_id(), storage_medium);
         if (stores.empty()) {
             return Status::InternalError("failed to get root path for create tablet");
         }
@@ -561,7 +561,8 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
                            std::function<void()> callback)
         : _name(std::move(name)) {
     auto report_loop = [this, &master_info, report_interval_s, callback = std::move(callback)] {
-        StorageEngine::instance()->register_report_listener(this);
+        auto& engine = ExecEnv::GetInstance()->storage_engine();
+        engine.register_report_listener(this);
         while (true) {
             {
                 std::unique_lock lock(_mtx);
@@ -586,7 +587,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
 
             callback();
         }
-        StorageEngine::instance()->deregister_report_listener(this);
+        engine.deregister_report_listener(this);
     };
 
     auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
@@ -629,7 +630,7 @@ void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskReques
     Status status = Status::OK();
     auto tablet_ptr = engine.tablet_manager()->get_tablet(alter_inverted_index_rq.tablet_id);
     if (tablet_ptr != nullptr) {
-        EngineIndexChangeTask engine_task(alter_inverted_index_rq);
+        EngineIndexChangeTask engine_task(engine, alter_inverted_index_rq);
         status = engine_task.execute();
     } else {
         status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
@@ -826,7 +827,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
 void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     uint32_t checksum = 0;
     const auto& check_consistency_req = req.check_consistency_req;
-    EngineChecksumTask engine_task(check_consistency_req.tablet_id,
+    EngineChecksumTask engine_task(engine, check_consistency_req.tablet_id,
                                    check_consistency_req.schema_hash, check_consistency_req.version,
                                    &checksum);
     Status status = engine_task.execute();
@@ -856,7 +857,9 @@ void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& 
 
 void report_task_callback(const TMasterInfo& master_info) {
     TReportRequest request;
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
     request.__isset.tasks = true;
     {
         std::lock_guard lock(s_task_signatures_mtx);
@@ -880,7 +883,9 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
     // Random sleep 1~5 seconds before doing report.
     // In order to avoid the problem that the FE receives many report requests at the same time
     // and can not be processed.
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
 
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
@@ -914,7 +919,9 @@ void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info)
 }
 
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info) {
-    random_sleep(5);
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
 
     TReportRequest request;
     request.__set_backend(BackendOptions::get_local_backend());
@@ -968,7 +975,7 @@ void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskReques
 
     std::map<int64_t, std::vector<std::string>> tablet_files;
     std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
-            env, upload_request.job_id, req.signature, upload_request.broker_addr,
+            engine, env, upload_request.job_id, req.signature, upload_request.broker_addr,
             upload_request.broker_prop);
     Status status =
             loader->init(upload_request.__isset.storage_backend ? upload_request.storage_backend
@@ -1011,13 +1018,13 @@ void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
 
     auto status = Status::OK();
     if (download_request.__isset.remote_tablet_snapshots) {
-        std::unique_ptr<SnapshotLoader> loader =
-                std::make_unique<SnapshotLoader>(env, download_request.job_id, req.signature);
+        std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
+                engine, env, download_request.job_id, req.signature);
         status = loader->remote_http_download(download_request.remote_tablet_snapshots,
                                               &downloaded_tablet_ids);
     } else {
         std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
-                env, download_request.job_id, req.signature, download_request.broker_addr,
+                engine, env, download_request.job_id, req.signature, download_request.broker_addr,
                 download_request.broker_prop);
         status = loader->init(download_request.__isset.storage_backend
                                       ? download_request.storage_backend
@@ -1058,8 +1065,8 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     string snapshot_path;
     bool allow_incremental_clone = false; // not used
     std::vector<string> snapshot_files;
-    Status status = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
-                                                               &allow_incremental_clone);
+    Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
+                                                         &allow_incremental_clone);
     if (status.ok() && snapshot_request.__isset.list_files) {
         // list and save all snapshot files
         // snapshot_path like: data/snapshot/20180417205230.1.86400
@@ -1107,7 +1114,7 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
     const string& snapshot_path = release_snapshot_request.snapshot_path;
-    Status status = SnapshotManager::instance()->release_snapshot(snapshot_path);
+    Status status = engine.snapshot_mgr()->release_snapshot(snapshot_path);
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
                 .tag("signature", req.signature)
@@ -1139,7 +1146,7 @@ void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequ
     if (tablet == nullptr) {
         status = Status::InvalidArgument("Could not find tablet");
     } else {
-        SnapshotLoader loader(env, move_dir_req.job_id, move_dir_req.tablet_id);
+        SnapshotLoader loader(engine, env, move_dir_req.job_id, move_dir_req.tablet_id);
         status = loader.move(move_dir_req.src, tablet, true);
     }
 
@@ -1395,14 +1402,14 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     remove_task_info(req.task_type, req.signature);
 }
 
-void push_callback(const TAgentTaskRequest& req) {
+void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& push_req = req.push_req;
 
     LOG(INFO) << "get push task. signature=" << req.signature
               << " push_type=" << push_req.push_type;
     std::vector<TTabletInfo> tablet_infos;
 
-    EngineBatchLoadTask engine_task(const_cast<TPushReq&>(push_req), &tablet_infos);
+    EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
     auto status = engine_task.execute();
 
     // Return result to fe
@@ -1459,8 +1466,8 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         succ_tablets.clear();
         error_tablet_ids.clear();
         table_id_to_num_delta_rows.clear();
-        EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids, &succ_tablets,
-                                             &discontinuous_version_tablets,
+        EnginePublishVersionTask engine_task(_engine, publish_version_req, &error_tablet_ids,
+                                             &succ_tablets, &discontinuous_version_tablets,
                                              &table_id_to_num_delta_rows);
         status = engine_task.execute();
         if (status.ok()) {
@@ -1659,7 +1666,7 @@ void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
     LOG(INFO) << "get clone task. signature=" << req.signature;
 
     std::vector<TTabletInfo> tablet_infos;
-    EngineCloneTask engine_task(clone_req, master_info, req.signature, &tablet_infos);
+    EngineCloneTask engine_task(engine, clone_req, master_info, req.signature, &tablet_infos);
     auto status = engine_task.execute();
     // Return result to fe
     TFinishTaskRequest finish_task_request;
@@ -1694,7 +1701,7 @@ void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequ
 
     auto status = check_migrate_request(engine, storage_medium_migrate_req, tablet, &dest_store);
     if (status.ok()) {
-        EngineStorageMigrationTask engine_task(tablet, dest_store);
+        EngineStorageMigrationTask engine_task(engine, tablet, dest_store);
         status = engine_task.execute();
     }
     // fe should ignore this err

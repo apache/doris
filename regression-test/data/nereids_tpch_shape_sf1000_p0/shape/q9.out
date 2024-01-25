@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 ps_suppkey->[l_suppkey];RF5 ps_partkey->[l_partkey]
+----------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF4 ps_suppkey->[l_suppkey,s_suppkey];RF5 ps_partkey->[p_partkey,l_partkey]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[l_suppkey]
 ----------------------PhysicalDistribute[DistributionSpecHash]
@@ -24,11 +24,11 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
 ------------------------------------filter((p_name like '%green%'))
---------------------------------------PhysicalOlapScan[part]
+--------------------------------------PhysicalOlapScan[part] apply RFs: RF5
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[supplier] apply RFs: RF0
+----------------------------PhysicalOlapScan[supplier] apply RFs: RF0 RF4
 --------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[nation]

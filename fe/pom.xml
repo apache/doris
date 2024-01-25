@@ -322,7 +322,7 @@ under the License.
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.625</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
@@ -345,7 +345,6 @@ under the License.
         <!-- paimon -->
         <paimon.version>0.6.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
-        <trino.parser.version>395</trino.parser.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
@@ -925,6 +924,11 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty-shaded</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
                 <artifactId>grpc-protobuf</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
@@ -1495,13 +1499,6 @@ under the License.
                 <groupId>com.vesoft</groupId>
                 <artifactId>client</artifactId>
                 <version>${vesoft.client.version}</version>
-            </dependency>
-            <!-- trino-parser The version of antlr-runtime in trino parser is need to be consistent with doris,
-            when upgrade trino-parser antlr-runtime version, should take care of trino-parser doris.-->
-            <dependency>
-                <groupId>io.trino</groupId>
-                <artifactId>trino-parser</artifactId>
-                <version>${trino.parser.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>

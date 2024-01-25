@@ -244,7 +244,7 @@ public class MTMVUtil {
     }
 
     /**
-     * Determine which partition of mtmv can be rewritten
+     * Determine which partition of mtmv can be rewritten/MTMVPlanUtil
      *
      * @param mtmv
      * @param ctx

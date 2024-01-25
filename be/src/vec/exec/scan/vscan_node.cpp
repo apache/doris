@@ -197,8 +197,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
             if (_scanner_ctx) {
                 DCHECK(!_eos && _num_scanners->value() > 0);
                 RETURN_IF_ERROR(_scanner_ctx->init());
-                //LOG(INFO) << "yyyy instance " << print_id(state->fragment_instance_id())
-                //          << " submit scanner ctx " << _scanner_ctx->debug_string();
                 RETURN_IF_ERROR(_state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
             }
             if (_shared_scan_opt) {
@@ -1329,6 +1327,9 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     if (scanners.empty()) {
         _eos = true;
     } else {
+        for (auto& scanner : scanners) {
+            scanner->set_query_statistics(_query_statistics.get());
+        }
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
         _start_scanners(_scanners, query_parallel_instance_num);
     }

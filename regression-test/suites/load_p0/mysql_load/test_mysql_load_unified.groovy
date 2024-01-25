@@ -54,7 +54,6 @@ suite("test_mysql_load_unified", "p0") {
     // test unified load
     try {
         sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """ set enable_unified_load=true; """
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -86,7 +85,6 @@ suite("test_mysql_load_unified", "p0") {
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        sql """ set enable_unified_load=false; """
     }
 
 }

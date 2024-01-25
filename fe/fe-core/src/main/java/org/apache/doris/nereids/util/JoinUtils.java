@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -275,6 +277,21 @@ public class JoinUtils {
     private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
         return slots.stream().map(o -> o.withNullable(nullable))
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * can this join be eliminated by its left child
+     */
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies leftFuncDeps,
+            FunctionalDependencies rightFuncDeps) {
+        if (join.getJoinType().isLeftOuterJoin()) {
+            Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
+            if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {
+                return false;
+            }
+            return rightFuncDeps.isUnique(njHashKeys.second);
+        }
+        return false;
     }
 
     /**

@@ -72,7 +72,13 @@ public class StatementContext {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
-    private boolean isOtherJoinReorder = false;
+
+    // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
+    // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
+    // And hence, when column stats are unknown, even if the tables used by a sql is more than
+    // MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER, join reorder should choose cascading framework.
+    // Thus hasUnknownColStats has higher priority than isDpHyp
+    private boolean hasUnknownColStats = false;
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
@@ -151,14 +157,6 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
-    public boolean isOtherJoinReorder() {
-        return isOtherJoinReorder;
-    }
-
-    public void setOtherJoinReorder(boolean otherJoinReorder) {
-        isOtherJoinReorder = otherJoinReorder;
-    }
-
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
     }
@@ -187,6 +185,13 @@ public class StatementContext {
             supplier = cacheSupplier;
         }
         return supplier.get();
+    }
+
+    /**
+     * Some value of the cacheKey may change, invalid cache when value change
+     */
+    public synchronized void invalidCache(String cacheKey) {
+        contextCacheMap.remove(cacheKey);
     }
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
@@ -253,5 +258,13 @@ public class StatementContext {
 
     public void addJoinFilters(Collection<Expression> newJoinFilters) {
         this.joinFilters.addAll(newJoinFilters);
+    }
+
+    public boolean isHasUnknownColStats() {
+        return hasUnknownColStats;
+    }
+
+    public void setHasUnknownColStats(boolean hasUnknownColStats) {
+        this.hasUnknownColStats = hasUnknownColStats;
     }
 }

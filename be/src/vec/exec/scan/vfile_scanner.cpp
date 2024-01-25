@@ -282,6 +282,7 @@ void VFileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 }
 
 Status VFileScanner::open(RuntimeState* state) {
+    RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VScanner::open(state));
     RETURN_IF_ERROR(_init_expr_ctxes());
 
@@ -309,6 +310,7 @@ Status VFileScanner::open(RuntimeState* state) {
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     do {
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             RETURN_IF_ERROR(_get_next_reader());
         }
@@ -882,7 +884,7 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader.reset(new WalReader(_state));
-            init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
+            init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {

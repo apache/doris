@@ -88,11 +88,15 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
             state, block, &eos,
             std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
                       std::placeholders::_2, std::placeholders::_3)));
-    //have exectue const expr, queue have no data any more, and child could be colsed
-    if (eos || (!_has_data() && _data_queue->is_all_finish())) {
+    //have executing const expr, queue have no data anymore, and child could be closed.
+    if (eos) { // reach limit
         source_state = SourceState::FINISHED;
     } else if (_has_data()) {
         source_state = SourceState::MORE_DATA;
+    } else if (_data_queue->is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data() ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
@@ -101,28 +105,19 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
     int child_count = p.get_child_count();
-    auto ss = create_shared_state();
     if (child_count != 0) {
         auto& deps = info.upstream_dependencies;
         for (auto& dep : deps) {
-            ((UnionSinkDependency*)dep.get())->set_shared_state(ss);
+            dep->set_shared_state(_dependency->shared_state());
         }
-    } else {
-        auto& deps = info.upstream_dependencies;
-        DCHECK(child_count == 0);
-        DCHECK(deps.size() == 1);
-        DCHECK(deps.front() == nullptr);
-        //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() = std::make_shared<UnionSourceDependency>(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
-    RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_source_dependency(info.dependency);
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    ((UnionSharedState*)_dependency->shared_state())
+            ->data_queue.set_source_dependency(info.dependency);
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
@@ -145,13 +140,6 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _dependency->set_ready();
     }
     return Status::OK();
-}
-
-std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
-    auto& p = _parent->cast<Parent>();
-    std::shared_ptr<UnionSharedState> data_queue =
-            std::make_shared<UnionSharedState>(p._child_size);
-    return data_queue;
 }
 
 std::string UnionSourceLocalState::debug_string(int indentation_level) const {
@@ -185,13 +173,15 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         local_state._shared_state->data_queue.push_free_block(std::move(output_block), child_idx);
     }
     local_state.reached_limit(block, source_state);
-    //have exectue const expr, queue have no data any more, and child could be colsed
+    //have executing const expr, queue have no data anymore, and child could be closed
     if (_child_size == 0 && !local_state._need_read_for_const_expr) {
-        source_state = SourceState::FINISHED;
-    } else if ((!_has_data(state) && local_state._shared_state->data_queue.is_all_finish())) {
         source_state = SourceState::FINISHED;
     } else if (_has_data(state)) {
         source_state = SourceState::MORE_DATA;
+    } else if (local_state._shared_state->data_queue.is_all_finish()) {
+        // Here, check the value of `_has_data(state)` again after `data_queue.is_all_finish()` is TRUE
+        // as there may be one or more blocks when `data_queue.is_all_finish()` is TRUE.
+        source_state = _has_data(state) ? SourceState::MORE_DATA : SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }

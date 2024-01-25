@@ -31,6 +31,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -397,7 +398,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = idGeneratorBuffer.getNextId();
 
-                Tablet newTablet = new Tablet(mvTabletId);
+                Tablet newTablet = EnvFactory.getInstance().createTablet(mvTabletId);
                 mvIndex.addTablet(newTablet, mvTabletMeta);
                 addedTablets.add(newTablet);
 

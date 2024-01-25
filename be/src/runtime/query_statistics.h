@@ -59,22 +59,28 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics(TQueryType::type query_type = TQueryType::type::SELECT)
+    QueryStatistics()
             : scan_rows(0),
               scan_bytes(0),
-              cpu_ms(0),
+              cpu_nanos(0),
               returned_rows(0),
               max_peak_memory_bytes(0),
-              _query_type(query_type) {}
+              current_used_memory_bytes(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
-    void add_scan_rows(int64_t scan_rows) { this->scan_rows += scan_rows; }
+    void add_scan_rows(int64_t delta_scan_rows) {
+        this->scan_rows.fetch_add(delta_scan_rows, std::memory_order_relaxed);
+    }
 
-    void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
+    void add_scan_bytes(int64_t delta_scan_bytes) {
+        this->scan_bytes.fetch_add(delta_scan_bytes, std::memory_order_relaxed);
+    }
 
-    void add_cpu_ms(int64_t cpu_ms) { this->cpu_ms += cpu_ms; }
+    void add_cpu_nanos(int64_t delta_cpu_time) {
+        this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
+    }
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
         NodeStatistics* nodeStatistics = nullptr;
@@ -91,7 +97,11 @@ public:
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
-        this->max_peak_memory_bytes = max_peak_memory_bytes;
+        this->max_peak_memory_bytes.store(max_peak_memory_bytes, std::memory_order_relaxed);
+    }
+
+    void set_current_used_memory_bytes(int64_t current_used_memory) {
+        this->current_used_memory_bytes.store(current_used_memory, std::memory_order_relaxed);
     }
 
     void merge(QueryStatisticsRecvr* recvr);
@@ -103,11 +113,12 @@ public:
     void clearNodeStatistics();
 
     void clear() {
-        scan_rows = 0;
-        scan_bytes = 0;
-        cpu_ms = 0;
+        scan_rows.store(0, std::memory_order_relaxed);
+        scan_bytes.store(0, std::memory_order_relaxed);
+
+        cpu_nanos.store(0, std::memory_order_relaxed);
         returned_rows = 0;
-        max_peak_memory_bytes = 0;
+        max_peak_memory_bytes.store(0, std::memory_order_relaxed);
         clearNodeStatistics();
         //clear() is used before collection, so calling "clear" is equivalent to being collected.
         set_collected();
@@ -119,25 +130,28 @@ public:
     bool collected() const { return _collected; }
     void set_collected() { _collected = true; }
 
-    // LOAD does not need to collect information on the exchange node.
-    bool collect_dml_statistics() { return _query_type == TQueryType::LOAD; }
+    int64_t get_scan_rows() { return scan_rows.load(std::memory_order_relaxed); }
+    int64_t get_scan_bytes() { return scan_bytes.load(std::memory_order_relaxed); }
+    int64_t get_current_used_memory_bytes() {
+        return current_used_memory_bytes.load(std::memory_order_relaxed);
+    }
 
 private:
     friend class QueryStatisticsRecvr;
-    int64_t scan_rows;
-    int64_t scan_bytes;
-    int64_t cpu_ms;
+    std::atomic<int64_t> scan_rows;
+    std::atomic<int64_t> scan_bytes;
+    std::atomic<int64_t> cpu_nanos;
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
-    int64_t max_peak_memory_bytes;
+    std::atomic<int64_t> max_peak_memory_bytes;
     // The statistics of the query on each backend.
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
-    const TQueryType::type _query_type;
+    std::atomic<int64_t> current_used_memory_bytes;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.

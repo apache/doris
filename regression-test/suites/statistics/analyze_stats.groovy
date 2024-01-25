@@ -121,8 +121,6 @@ suite("test_analyze") {
         SET forbid_unknown_col_stats=true;
         """
 
-    Thread.sleep(1000 * 60)
-
     sql """
         SELECT * FROM ${tbl};
     """
@@ -2563,21 +2561,21 @@ PARTITION `p599` VALUES IN (599)
        "replication_num" = "1"
       );
    """
-   sql """insert into region values(1,'name1', 'comment1') """
-   sql """insert into region values(2,'name2', 'comment2') """
-   sql """insert into region values(3,'name3', 'comment3') """
-   sql """ANALYZE TABLE region WITH SYNC"""
-   result = sql """show column stats region (`r'name`);"""
-   assertEquals(1, result.size())
-   assertEquals("r'name", result[0][0])
-   assertEquals("3.0", result[0][1])
-   assertEquals("3.0", result[0][2])
-   assertEquals("0.0", result[0][3])
-   assertEquals("\'name1\'", result[0][6])
-   assertEquals("\'name3\'", result[0][7])
+    sql """insert into region values(1,'name1', 'comment1') """
+    sql """insert into region values(2,'name2', 'comment2') """
+    sql """insert into region values(3,'name3', 'comment3') """
+    sql """ANALYZE TABLE region WITH SYNC"""
+    result = sql """show column stats region (`r'name`);"""
+    assertEquals(1, result.size())
+    assertEquals("r'name", result[0][0])
+    assertEquals("3.0", result[0][1])
+    assertEquals("3.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("\'name1\'", result[0][6])
+    assertEquals("\'name3\'", result[0][7])
 
-   // Test partititon load data for the first time.
-   sql """
+    // Test partititon load data for the first time.
+    sql """
      CREATE TABLE `partition_test` (
       `id` INT NOT NULL,
       `name` VARCHAR(25) NOT NULL,
@@ -2594,29 +2592,102 @@ PARTITION `p599` VALUES IN (599)
        "replication_num" = "1");
      """
 
-   sql """analyze table partition_test with sync"""
-   sql """insert into partition_test values (1, '1', '1')"""
-   def partition_result = sql """show table stats partition_test"""
-   assertEquals(partition_result[0][6], "true")
-   assertEquals(partition_result[0][0], "1")
-   sql """analyze table partition_test with sync"""
-   partition_result = sql """show table stats partition_test"""
-   assertEquals(partition_result[0][6], "false")
-   sql """insert into partition_test values (101, '1', '1')"""
-   partition_result = sql """show table stats partition_test"""
-   assertEquals(partition_result[0][6], "true")
-   sql """analyze table partition_test(id) with sync"""
-   partition_result = sql """show table stats partition_test"""
-   assertEquals(partition_result[0][6], "false")
-   sql """insert into partition_test values (102, '1', '1')"""
-   partition_result = sql """show table stats partition_test"""
-   assertEquals(partition_result[0][6], "false")
+    sql """analyze table partition_test with sync"""
+    sql """insert into partition_test values (1, '1', '1')"""
+    def partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    assertEquals(partition_result[0][0], "1")
+    sql """analyze table partition_test with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (101, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "true")
+    sql """analyze table partition_test(id) with sync"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
+    sql """insert into partition_test values (102, '1', '1')"""
+    partition_result = sql """show table stats partition_test"""
+    assertEquals(partition_result[0][6], "false")
 
-   // Test trigger type.
-   sql """DROP DATABASE IF EXISTS trigger"""
-   sql """CREATE DATABASE IF NOT EXISTS trigger"""
-   sql """USE trigger"""
-   sql """
+    // Test sample agg table value column
+    sql """
+     CREATE TABLE `agg_table_test` (
+      `id` BIGINT NOT NULL,
+      `name` VARCHAR(10) REPLACE NULL
+     ) ENGINE=OLAP
+     AGGREGATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into agg_table_test values (1,'name1'), (2, 'name2')"""
+    Thread.sleep(1000 * 60)
+    sql """analyze table agg_table_test with sample rows 100 with sync"""
+    def agg_result = sql """show column stats agg_table_test (name)"""
+    assertEquals(agg_result[0][6], "N/A")
+    assertEquals(agg_result[0][7], "N/A")
+
+    // Test sample string type min max
+    sql """
+     CREATE TABLE `string_min_max` (
+      `id` BIGINT NOT NULL,
+      `name` string NULL
+     ) ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT 'OLAP'
+     DISTRIBUTED BY HASH(`id`) BUCKETS 32
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+    sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
+    explain {
+        sql("select min(name), max(name) from string_min_max")
+        contains "pushAggOp=NONE"
+    }
+    sql """set enable_pushdown_string_minmax = true"""
+    explain {
+        sql("select min(name), max(name) from string_min_max")
+        contains "pushAggOp=MINMAX"
+    }
+
+    // Test alter
+    sql """
+      CREATE TABLE alter_test(
+       `id`      int NOT NULL,
+       `name`     VARCHAR(25) NOT NULL
+      )ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    def alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """ANALYZE TABLE alter_test WITH SYNC"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+    sql """alter table alter_test modify column id set stats ('row_count'='2.0E7', 'ndv'='3927659.0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("true", alter_result[0][7])
+    sql """drop stats alter_test"""
+    alter_result = sql """show table stats alter_test"""
+    assertEquals("false", alter_result[0][7])
+
+    // Test trigger type, manual default full, manual high health value, sample empty, kill job, show analyze
+    sql """DROP DATABASE IF EXISTS trigger"""
+    sql """CREATE DATABASE IF NOT EXISTS trigger"""
+    sql """USE trigger"""
+    sql """
      CREATE TABLE if not exists trigger_test(
       `id`      int NOT NULL,
       `name`    VARCHAR(152)
@@ -2628,27 +2699,77 @@ PARTITION `p599` VALUES IN (599)
       "replication_num" = "1"
      );
    """
-   sql """insert into trigger_test values(1,'name1') """
-   sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    // Test sample empty table
+    def result_sample = sql """analyze table trigger_test with sample percent 10 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][1])
+    assertEquals("SAMPLE", result_sample[0][8])
+    assertEquals("0.0", result_sample[1][1])
+    assertEquals("SAMPLE", result_sample[1][8])
 
-   int i = 0;
-   for (0; i < 10; i++) {
-       def result = sql """show column stats trigger_test"""
-       if (result.size() != 2) {
-	   Thread.sleep(1000)
-           continue;
-       }
-       assertEquals(result[0][10], "SYSTEM")
-       assertEquals(result[1][10], "SYSTEM")
-       break
-   }
-   if (i < 10) {
-       sql """analyze table trigger_test with sync"""
-       def result = sql """show column stats trigger_test"""
-       assertEquals(result.size(), 2)
-       assertEquals(result[0][10], "MANUAL")
-       assertEquals(result[1][10], "MANUAL")
-   }
-   sql """DROP DATABASE IF EXISTS trigger"""
+    sql """drop stats trigger_test"""
+    sql """analyze table trigger_test with sample rows 1000 with sync"""
+    result_sample = sql """show column stats trigger_test"""
+    assertEquals(2, result_sample.size())
+    assertEquals("0.0", result_sample[0][1])
+    assertEquals("SAMPLE", result_sample[0][8])
+    assertEquals("0.0", result_sample[1][1])
+    assertEquals("SAMPLE", result_sample[1][8])
 
+    // Test show task
+    result_sample = sql """analyze table trigger_test with sample percent 10"""
+    String jobId = result_sample[0][0]
+    result_sample = sql """show analyze task status ${jobId}"""
+    assertEquals(2, result_sample.size())
+    Thread.sleep(1000)
+    sql """drop stats trigger_test"""
+
+    // Test trigger type
+    sql """insert into trigger_test values(1,'name1') """
+    sql """insert into trigger_test values(2,'name2') """
+    sql """insert into trigger_test values(3,'name3') """
+    sql """insert into trigger_test values(4,'name4') """
+
+    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+    int i = 0;
+    for (0; i < 10; i++) {
+        def result = sql """show column stats trigger_test"""
+        if (result.size() != 2) {
+            Thread.sleep(1000)
+            continue;
+        }
+        assertEquals(result[0][10], "SYSTEM")
+        assertEquals(result[1][10], "SYSTEM")
+        break
+    }
+    if (i < 10) {
+        sql """analyze table trigger_test with sync"""
+        def result = sql """show column stats trigger_test"""
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][10], "MANUAL")
+        assertEquals(result[1][10], "MANUAL")
+    }
+
+    // Test analyze default full.
+    sql """analyze table trigger_test"""
+    def result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("4.0", result[0][1])
+    assertEquals("FULL", result[0][8])
+    assertEquals("4.0", result[1][1])
+    assertEquals("FULL", result[1][8])
+
+    // Test analyze hive health value
+    sql """insert into trigger_test values(5,'name5') """
+    sql """analyze table trigger_test with sync"""
+    result = sql """show column stats trigger_test"""
+    assertEquals(2, result.size())
+    assertEquals("5.0", result[0][1])
+    assertEquals("5.0", result[1][1])
+
+
+    sql """DROP DATABASE IF EXISTS trigger"""
 }
+

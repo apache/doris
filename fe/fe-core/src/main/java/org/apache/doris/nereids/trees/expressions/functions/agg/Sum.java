@@ -78,6 +78,12 @@ public class Sum extends NullableAggregateFunction
         super("sum", distinct, alwaysNullable, arg);
     }
 
+    public MultiDistinctSum convertToMultiDistinct() {
+        Preconditions.checkArgument(distinct,
+                "can't convert to multi_distinct_sum because there is no distinct args");
+        return new MultiDistinctSum(false, alwaysNullable, child());
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -114,7 +120,7 @@ public class Sum extends NullableAggregateFunction
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
         if (getArgument(0).getDataType() instanceof FloatType) {
-            return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
+            return FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE);
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }

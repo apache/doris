@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta.h"
+#include "olap/version_graph.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -43,6 +44,7 @@ public:
     TabletState tablet_state() const { return _tablet_meta->tablet_state(); }
     Status set_tablet_state(TabletState state);
     int64_t table_id() const { return _tablet_meta->table_id(); }
+    int64_t index_id() const { return _tablet_meta->index_id(); }
     int64_t partition_id() const { return _tablet_meta->partition_id(); }
     int64_t tablet_id() const { return _tablet_meta->tablet_id(); }
     int32_t schema_hash() const { return _tablet_meta->schema_hash(); }
@@ -72,19 +74,57 @@ public:
         return _max_version_schema;
     }
 
-    virtual bool exceed_version_limit(int32_t limit) const = 0;
+    virtual bool exceed_version_limit(int32_t limit) = 0;
 
     virtual Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(RowsetWriterContext& context,
                                                                        bool vertical) = 0;
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) const = 0;
+                                      bool skip_missing_version) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
+    // MUST hold shared meta lock
+    Status capture_rs_readers_unlocked(const Versions& version_path,
+                                       std::vector<RowSetSplits>* rs_splits) const;
+
+    // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
+    // The caller must call hold _meta_lock when call this three function.
+    RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
+    RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
+    RowsetSharedPtr get_rowset_with_max_version() const;
+
+    Status get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
+    Status get_all_rs_id_unlocked(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
+
+    // Get the missed versions until the spec_version.
+    Versions get_missed_versions(int64_t spec_version) const;
+    Versions get_missed_versions_unlocked(int64_t spec_version) const;
+
+    void generate_tablet_meta_copy(TabletMeta& new_tablet_meta) const;
+    void generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta) const;
+
 protected:
+    // Find the missed versions until the spec_version.
+    //
+    // for example:
+    //     [0-4][5-5][8-8][9-9][14-14]
+    // if spec_version = 12, it will return [6-7],[10-12]
+    static Versions calc_missed_versions(int64_t spec_version, Versions existing_versions);
+
+    void _print_missed_versions(const Versions& missed_versions) const;
+    bool _reconstruct_version_tracker_if_necessary();
+
     mutable std::shared_mutex _meta_lock;
+    TimestampedVersionTracker _timestamped_version_tracker;
+    // After version 0.13, all newly created rowsets are saved in _rs_version_map.
+    // And if rowset being compacted, the old rowsets will be saved in _stale_rs_version_map;
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
+    // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
+    // These _stale rowsets are been removed when rowsets' pathVersion is expired,
+    // this policy is judged and computed by TimestampedVersionTracker.
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _max_version_schema;
 

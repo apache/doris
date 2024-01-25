@@ -247,7 +247,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
         Forward to Master to view the start time and last heartbeat information.
         
-    4. `SHOW TABLET;`/`ADMIN SHOW REPLICA DISTRIBUTION;`/`ADMIN SHOW REPLICA STATUS;`
+    4. `SHOW TABLET;`/`SHOW REPLICA DISTRIBUTION;`/`SHOW REPLICA STATUS;`
 
         Forward to Master to view the tablet information stored in the Master FE metadata. Under normal circumstances, the tablet information in different FE metadata should be consistent. When a problem occurs, this method can be used to compare the difference between the current FE and Master FE metadata.
         
@@ -578,6 +578,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `skip_missing_version`
 
     In some scenarios, all replicas of tablet are having missing versions, and the tablet is unable to recover. This config can control the behavior of query. When it is opened, the query will ignore the visible version recorded in FE partition, use the replica version. If the replica on be has missing versions, the query will directly skip this missing version, and only return the data of the existing version, In addition, the query will always try to select the one with the highest lastSuccessVersion among all surviving BE replicas, so as to recover as much data as possible. You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries. Note that, this variable conflicts with the a variable, when the a variable is not -1, this variable will not work.
+
+* `skip_bad_tablet`
+
+    In some scenarios, user has a huge amount of data and only a single replica was specified when creating the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and load the remaining data into a new table.
 
 * `default_password_lifetime`
 

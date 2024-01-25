@@ -166,7 +166,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel();
         runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
@@ -258,7 +258,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         if (newJobStatus.equals(JobStatus.FINISHED)) {
             this.finishTimeMs = System.currentTimeMillis();
         }
-        if (JobStatus.PAUSED.equals(newJobStatus)) {
+        if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
             cancelAllTasks();
         }
         jobStatus = newJobStatus;
@@ -279,8 +279,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         Env.getCurrentEnv().getEditLog().logCreateJob(this);
     }
 
-    public void logFinalOperation() {
-        Env.getCurrentEnv().getEditLog().logEndJob(this);
+    public void logDeleteOperation() {
+        Env.getCurrentEnv().getEditLog().logDeleteJob(this);
     }
 
     public void logUpdateOperation() {
@@ -289,19 +289,19 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @Override
     public void onTaskFail(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(false);
         runningTasks.remove(task);
     }
 
     @Override
     public void onTaskSuccess(T task) throws JobException {
-        updateJobStatusIfEnd();
+        updateJobStatusIfEnd(true);
         runningTasks.remove(task);
 
     }
 
 
-    private void updateJobStatusIfEnd() throws JobException {
+    private void updateJobStatusIfEnd(boolean taskSuccess) throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
         if (executeType.equals(JobExecuteType.MANUAL)) {
             return;
@@ -309,7 +309,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         switch (executeType) {
             case ONE_TIME:
             case INSTANT:
-                Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                this.finishTimeMs = System.currentTimeMillis();
+                if (taskSuccess) {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.FINISHED);
+                } else {
+                    Env.getCurrentEnv().getJobManager().getJob(jobId).updateJobStatus(JobStatus.STOPPED);
+                }
                 break;
             case RECURRING:
                 TimerDefinition timerDefinition = getJobConfig().getTimerDefinition();

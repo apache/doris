@@ -994,7 +994,7 @@ Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int*
 
 Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
-    if (_is_global) {
+    if (_is_global && _has_local_target) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
                 _filter_id, filters));
@@ -1196,9 +1196,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.max_in_num = options->runtime_filter_max_in_num;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
-    // 2. Do not have remote target (e.g. do not need to merge)
+    // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
     // 3. Bloom filter
-    params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
+    params.build_bf_exactly = build_bf_exactly && (!_has_remote_target || _is_broadcast_join) &&
                               (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                                _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {

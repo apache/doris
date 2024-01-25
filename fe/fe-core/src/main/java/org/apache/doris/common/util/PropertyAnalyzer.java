@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -100,6 +102,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -181,6 +185,10 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
             = Config.group_commit_interval_ms_default_value;
 
+    public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
+    public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
+            = Config.group_commit_data_bytes_default_value;
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -189,6 +197,27 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
+    // Use forceProperties to rewrite olap's property.
+    // For a key-value pair in forceProperties,
+    // if the value is null, then delete this property from properties and skip check this property,
+    // otherwise rewrite this property into properties and check property using the force value.
+    //
+    // In most cases, specified a none-null force value is better then specified a null force value.
+    protected ImmutableMap<String, String> forceProperties;
+
+    public PropertyAnalyzer() {
+        forceProperties = ImmutableMap.<String, String>builder()
+                .put(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                .build();
+    }
+
+    private static class SingletonHolder {
+        private static final PropertyAnalyzer INSTANCE = EnvFactory.getInstance().createPropertyAnalyzer();
+    }
+
+    public static PropertyAnalyzer getInstance() {
+        return SingletonHolder.INSTANCE;
+    }
 
     /**
      * check and replace members of DataProperty by properties.
@@ -242,6 +271,7 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_STORAGE_POLICY);
         properties.remove(PROPERTIES_DATA_BASE_TIME);
+        properties.remove(PROPERTIES_FILE_CACHE_TTL_SECONDS);
 
         Preconditions.checkNotNull(storageMedium);
 
@@ -444,6 +474,23 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VERSION_INFO);
         }
         return version;
+    }
+
+    public static long analyzeTTL(Map<String, String> properties) throws AnalysisException {
+        long ttlSeconds = 0;
+        if (properties != null && properties.containsKey(PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
+            String ttlSecondsStr = properties.get(PROPERTIES_FILE_CACHE_TTL_SECONDS);
+            try {
+                ttlSeconds = Long.parseLong(ttlSecondsStr);
+                if (ttlSeconds < 0) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("The value " + ttlSecondsStr + " formats error or  is out of range "
+                           + "(0 < integer < Long.MAX_VALUE)");
+            }
+        }
+        return ttlSeconds;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
@@ -1214,6 +1261,22 @@ public class PropertyAnalyzer {
         return groupCommitIntervalMs;
     }
 
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
+        int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
+            String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            try {
+                groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
+            } catch (Exception e) {
+                throw new AnalysisException("parse group_commit_interval_ms format error");
+            }
+
+            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+        }
+
+        return groupCommitDataBytes;
+    }
+
     /**
      * Check the type property of the catalog props.
      */
@@ -1246,7 +1309,27 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static Map<String, String> rewriteReplicaAllocationProperties(
+    public Map<String, String> rewriteOlapProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        rewriteReplicaAllocationProperties(ctl, db, properties);
+        rewriteForceProperties(properties);
+        return properties;
+    }
+
+    private void rewriteForceProperties(Map<String, String> properties) {
+        forceProperties.forEach((property, value) -> {
+            if (value == null) {
+                properties.remove(property);
+            } else {
+                properties.put(property, value);
+            }
+        });
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationProperties(
             String ctl, String db, Map<String, String> properties) {
         if (Config.force_olap_table_replication_num <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);

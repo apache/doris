@@ -132,9 +132,6 @@ public:
 
     virtual Status execute(bool* eos);
 
-    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
-    // this task will enter the `PENDING_FINISH` state.
-    virtual Status try_close(Status exec_status);
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     virtual Status close(Status exec_status);
@@ -287,7 +284,7 @@ public:
                       << print_id(_state->fragment_instance_id())
                       << " current pipeline exceed run time "
                       << config::enable_debug_log_timeout_secs << " seconds. Task state "
-                      << get_state_name(get_state()) << debug_string();
+                      << get_state_name(get_state()) << "/n task detail:" << debug_string();
         }
     }
 
@@ -327,8 +324,6 @@ protected:
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
     int _core_id = 0;
-
-    bool _try_close_flag = false;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -389,9 +384,6 @@ protected:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
-    std::shared_ptr<QueryStatistics> _query_statistics;
-    Status _collect_query_statistics();
-    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root

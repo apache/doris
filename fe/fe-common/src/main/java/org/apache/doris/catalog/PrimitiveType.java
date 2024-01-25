@@ -970,8 +970,6 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
-            case MAP:
-                return MysqlColType.MYSQL_TYPE_MAP;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

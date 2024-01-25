@@ -109,6 +109,10 @@ public:
 
     void refresh_profile();
 
+    size_t total_received_rows() const { return _total_received_rows; }
+
+    size_t num_rows_filtered() const { return _num_rows_filtered; }
+
 protected:
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -146,7 +150,7 @@ protected:
     // initialized in open function
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
-    std::unique_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
 
     TupleDescriptor* _tuple_desc = nullptr;
 
@@ -186,6 +190,10 @@ protected:
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
     RuntimeProfile::Counter* _incremental_open_timer = nullptr;
+
+    // record rows received and filtered
+    size_t _total_received_rows = 0;
+    size_t _num_rows_filtered = 0;
 };
 
 class DeltaWriter;

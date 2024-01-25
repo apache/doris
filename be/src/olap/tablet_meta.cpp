@@ -31,12 +31,15 @@
 
 #include "common/config.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/file_header.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "util/debug_points.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -292,6 +295,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
 
 TabletMeta::TabletMeta(const TabletMeta& b)
         : _table_id(b._table_id),
+          _index_id(b._index_id),
           _partition_id(b._partition_id),
           _tablet_id(b._tablet_id),
           _replica_id(b._replica_id),
@@ -399,7 +403,7 @@ std::string TabletMeta::construct_header_file_path(const string& schema_hash_pat
     return header_name_stream.str();
 }
 
-Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
+Status TabletMeta::save_as_json(const string& file_path) {
     std::string json_meta;
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
@@ -407,7 +411,7 @@ Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
     to_json(&json_meta, json_options);
     // save to file
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(dir->fs()->create_file(file_path, &file_writer));
+    RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
     RETURN_IF_ERROR(file_writer->append(json_meta));
     RETURN_IF_ERROR(file_writer->close());
     return Status::OK();
@@ -468,6 +472,16 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
+    if (tablet_meta_pb.partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << tablet_meta_pb.partition_id() << " tablet "
+                     << tablet_meta_pb.tablet_id();
+    }
+    DBUG_EXECUTE_IF("TabletMeta::serialize::zero_partition_id", {
+        long partition_id = tablet_meta_pb.partition_id();
+        tablet_meta_pb.set_partition_id(0);
+        LOG(WARNING) << "set debug point TabletMeta::serialize::zero_partition_id old="
+                     << partition_id << " new=" << tablet_meta_pb.DebugString();
+    });
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << tablet_id();
@@ -485,21 +499,9 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     return Status::OK();
 }
 
-void TabletMeta::init_rs_metas_fs(const io::FileSystemSPtr& fs) {
-    for (auto& rs_meta : _rs_metas) {
-        if (rs_meta->is_local()) {
-            rs_meta->set_fs(fs);
-        }
-    }
-    for (auto& rs_meta : _stale_rs_metas) {
-        if (rs_meta->is_local()) {
-            rs_meta->set_fs(fs);
-        }
-    }
-}
-
 void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _table_id = tablet_meta_pb.table_id();
+    _index_id = tablet_meta_pb.index_id();
     _partition_id = tablet_meta_pb.partition_id();
     _tablet_id = tablet_meta_pb.tablet_id();
     _replica_id = tablet_meta_pb.replica_id();
@@ -548,6 +550,13 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
+    }
+
+    // init _stale_rs_metas
+    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta->init_from_pb(it);
+        _stale_rs_metas.push_back(std::move(rs_meta));
     }
 
     // For mow table, delete bitmap of stale rowsets has not been persisted.
@@ -607,6 +616,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
+    tablet_meta_pb->set_index_id(index_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
     tablet_meta_pb->set_replica_id(replica_id());
@@ -728,6 +738,12 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     return Status::OK();
 }
 
+void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_add) {
+    for (const auto& rs : to_add) {
+        _rs_metas.push_back(rs->rowset_meta());
+    }
+}
+
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
                                            std::vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
     auto it = _rs_metas.begin();
@@ -844,6 +860,7 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
 
 bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._table_id != b._table_id) return false;
+    if (a._index_id != b._index_id) return false;
     if (a._partition_id != b._partition_id) return false;
     if (a._tablet_id != b._tablet_id) return false;
     if (a._replica_id != b._replica_id) return false;

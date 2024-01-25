@@ -29,6 +29,7 @@ suite("query41") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
+    sql 'set runtime_filter_type=8'
     def ds = """select  distinct(i_product_name)
  from item i1
  where i_manufact_id between 748 and 748+40 

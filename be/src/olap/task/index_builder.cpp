@@ -21,6 +21,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
@@ -30,10 +31,12 @@
 
 namespace doris {
 
-IndexBuilder::IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
+IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
+                           const std::vector<TColumn>& columns,
                            const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                            bool is_drop_op)
-        : _tablet(tablet),
+        : _engine(engine),
+          _tablet(std::move(tablet)),
           _columns(columns),
           _alter_inverted_indexes(alter_inverted_indexes),
           _is_drop_op(is_drop_op) {
@@ -65,12 +68,38 @@ Status IndexBuilder::update_inverted_index_info() {
         const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
         if (_is_drop_op) {
-            // base on input rowset's tablet_schema to build
-            // output rowset's tablet_schema which only remove
-            // the indexes specified in this drop index request
-            for (auto t_inverted_index : _alter_inverted_indexes) {
+            size_t total_index_size = 0;
+            for (const auto& t_inverted_index : _alter_inverted_indexes) {
+                auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+                size_t index_size = 0;
+                RETURN_IF_ERROR(beta_rowset->get_inverted_index_size_by_index_id(
+                        t_inverted_index.index_id, &index_size));
+                total_index_size += index_size;
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
+
+            auto input_rowset_meta = input_rowset->rowset_meta();
+            auto update_disk_size = [&](size_t& disk_size, const std::string& size_type) {
+                if (disk_size >= total_index_size) {
+                    disk_size -= total_index_size;
+                } else {
+                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id() << " " << size_type
+                                 << " size:" << disk_size
+                                 << " is less than index size:" << total_index_size;
+                }
+            };
+
+            size_t before_size = input_rowset_meta->total_disk_size();
+            update_disk_size(before_size, "total disk");
+            input_rowset_meta->set_total_disk_size(before_size);
+
+            before_size = input_rowset_meta->data_disk_size();
+            update_disk_size(before_size, "data disk");
+            input_rowset_meta->set_data_disk_size(before_size);
+
+            before_size = input_rowset_meta->index_disk_size();
+            update_disk_size(before_size, "index");
+            input_rowset_meta->set_index_disk_size(before_size);
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
@@ -106,7 +135,7 @@ Status IndexBuilder::update_inverted_index_info() {
         context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
         context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
         auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
-        _pending_rs_guards.push_back(StorageEngine::instance()->add_pending_rowset(context));
+        _pending_rs_guards.push_back(_engine.add_pending_rowset(context));
 
         // if without_index_uids is not empty, copy _alter_index_ids to it
         // else just use _alter_index_ids to avoid copy
@@ -153,6 +182,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         std::string segment_dir = _tablet->tablet_path();
         auto fs = output_rowset_meta->fs();
         auto output_rowset_schema = output_rowset_meta->tablet_schema();
+        size_t inverted_index_size = 0;
         for (auto& seg_ptr : segments) {
             std::string segment_filename = fmt::format(
                     "{}_{}.dat", output_rowset_meta->rowset_id().to_string(), seg_ptr->id());
@@ -160,8 +190,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
             // create inverted index writer
-            for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
-                auto inverted_index = _alter_inverted_indexes[i];
+            for (auto inverted_index : _alter_inverted_indexes) {
                 DCHECK_EQ(inverted_index.columns.size(), 1);
                 auto index_id = inverted_index.index_id;
                 auto column_name = inverted_index.columns[0];
@@ -192,7 +221,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
                     _inverted_index_builders.insert(
                             std::make_pair(writer_sign, std::move(inverted_index_builder)));
-                    inverted_index_writer_signs.push_back(writer_sign);
+                    inverted_index_writer_signs.emplace_back(writer_sign);
                 }
             }
 
@@ -243,11 +272,18 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "CLuceneError occured: {}", e.what());
                 }
+                inverted_index_size += _inverted_index_builders[writer_sign]->file_size();
             }
 
             _olap_data_convertor->reset();
         }
         _inverted_index_builders.clear();
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
+                                               inverted_index_size);
+        output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
+                                                inverted_index_size);
+        output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
+                                                inverted_index_size);
         LOG(INFO) << "all row nums. source_rows=" << output_rowset_meta->num_rows();
     }
 
@@ -308,30 +344,26 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         }
         return step;
     };
+    // TODO: need to process null data for inverted index
     if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(field->get_sub_field_count() == 1);
-        BitmapIterator null_iter(null_map, num_rows);
-        bool is_null = false;
-        size_t this_run = 0;
-        while ((this_run = null_iter.Next(&is_null)) > 0) {
-            if (is_null) {
-                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(this_run));
-            } else {
-                // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-                auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-                // total number length
-                size_t element_cnt = size_t((unsigned long)(*data_ptr));
-                auto offset_data = *(data_ptr + 1);
-                const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-                if (element_cnt > 0) {
-                    auto data = *(data_ptr + 2);
-                    auto nested_null_map = *(data_ptr + 3);
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                            field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
-                            reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr,
-                            num_rows));
-                }
+        // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+        auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+        // total number length
+        size_t element_cnt = size_t((unsigned long)(*data_ptr));
+        auto offset_data = *(data_ptr + 1);
+        const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
+        try {
+            if (element_cnt > 0) {
+                auto data = *(data_ptr + 2);
+                auto nested_null_map = *(data_ptr + 3);
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
             }
+        } catch (const std::exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError occured: {}", e.what());
         }
         return Status::OK();
     }
@@ -342,15 +374,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             if (null_map[offset]) {
                 RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
             } else {
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                    DCHECK(field->get_sub_field_count() == 1);
-                    const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                            field->get_sub_field(0)->size(), col_cursor, step));
-                } else {
-                    RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
-                            column_name, *ptr, step));
-                }
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
+                        column_name, *ptr, step));
             }
             *ptr += field->size() * step;
             offset += step;
@@ -369,9 +394,19 @@ Status IndexBuilder::_add_data(const std::string& column_name,
     try {
         if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             DCHECK(field->get_sub_field_count() == 1);
-            const auto* col_cursor = reinterpret_cast<const CollectionValue*>(*ptr);
-            RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
-                    field->get_sub_field(0)->size(), col_cursor, num_rows));
+            // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
+            auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
+            // total number length
+            size_t element_cnt = size_t((unsigned long)(*data_ptr));
+            auto offset_data = *(data_ptr + 1);
+            const auto* offsets_ptr = (const uint8_t*)offset_data;
+            if (element_cnt > 0) {
+                auto data = *(data_ptr + 2);
+                auto nested_null_map = *(data_ptr + 3);
+                RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_array_values(
+                        field->get_sub_field(0)->size(), reinterpret_cast<const void*>(data),
+                        reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            }
         } else {
             RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_values(
                     column_name, *ptr, num_rows));
@@ -387,11 +422,11 @@ Status IndexBuilder::_add_data(const std::string& column_name,
 Status IndexBuilder::handle_inverted_index_data() {
     LOG(INFO) << "begin to handle_inverted_index_data";
     DCHECK(_input_rowsets.size() == _output_rowsets.size());
-    for (auto i = 0; i < _output_rowsets.size(); ++i) {
+    for (auto& _output_rowset : _output_rowsets) {
         SegmentCacheHandle segment_cache_handle;
         RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                std::static_pointer_cast<BetaRowset>(_output_rowsets[i]), &segment_cache_handle));
-        auto output_rowset_meta = _output_rowsets[i]->rowset_meta();
+                std::static_pointer_cast<BetaRowset>(_output_rowset), &segment_cache_handle));
+        auto output_rowset_meta = _output_rowset->rowset_meta();
         auto& segments = segment_cache_handle.get_segments();
         RETURN_IF_ERROR(handle_single_rowset(output_rowset_meta, segments));
     }
@@ -477,13 +512,14 @@ Status IndexBuilder::do_build_inverted_index() {
 }
 
 Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
-    DCHECK(std::ranges::all_of(_output_rowsets.begin(), _output_rowsets.end(), [](auto&& rs) {
-        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rs->rowset_id())) {
-            LOG(ERROR) << "output rowset: " << rs->rowset_id() << " in unused rowsets";
-            return false;
-        }
-        return true;
-    }));
+    DCHECK(std::ranges::all_of(
+            _output_rowsets.begin(), _output_rowsets.end(), [&engine = _engine](auto&& rs) {
+                if (engine.check_rowset_id_in_unused_rowsets(rs->rowset_id())) {
+                    LOG(ERROR) << "output rowset: " << rs->rowset_id() << " in unused rowsets";
+                    return false;
+                }
+                return true;
+            }));
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -529,7 +565,7 @@ void IndexBuilder::gc_output_rowset() {
                                                  output_rowset->num_segments());
             return;
         }
-        StorageEngine::instance()->add_unused_rowset(output_rowset);
+        _engine.add_unused_rowset(output_rowset);
     }
 }
 

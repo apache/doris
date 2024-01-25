@@ -39,6 +39,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/utils.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -59,6 +60,7 @@
 #include "olap/schema_change.h"
 #include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
@@ -140,10 +142,7 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-    }
+    std::vector<DataDir*> data_dirs = get_stores();
 
     auto base_compaction_threads = get_base_compaction_threads_num(data_dirs.size());
     auto cumu_compaction_threads = get_cumu_compaction_threads_num(data_dirs.size());
@@ -555,11 +554,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     std::unordered_set<TTabletId> tablet_submitted_cumu;
     std::unordered_set<TTabletId> tablet_submitted_base;
-    std::vector<DataDir*> data_dirs;
-    for (auto& tmp_store : _store_map) {
-        data_dirs.push_back(tmp_store.second);
-        _tablet_submitted_cumu_compaction[tmp_store.second] = tablet_submitted_cumu;
-        _tablet_submitted_base_compaction[tmp_store.second] = tablet_submitted_base;
+    std::vector<DataDir*> data_dirs = get_stores();
+    for (auto& data_dir : data_dirs) {
+        _tablet_submitted_cumu_compaction[data_dir] = tablet_submitted_cumu;
+        _tablet_submitted_base_compaction[data_dir] = tablet_submitted_base;
     }
 
     int round = 0;
@@ -1040,8 +1038,9 @@ Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker
 Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     uint64_t submission_time = GetCurrentTimeMicros();
-    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
-            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
+    return _seg_compaction_thread_pool->submit_func([this, worker, segments, submission_time] {
+        static_cast<void>(_handle_seg_compaction(worker, segments, submission_time));
+    });
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
@@ -1053,7 +1052,7 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
     }
 
     IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
-            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
+            *this, tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1130,7 +1129,168 @@ void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
         LOG(INFO) << "begin to remove unused remote files";
-        Tablet::remove_unused_remote_files();
+        do_remove_unused_remote_files();
+    }
+}
+
+void StorageEngine::do_remove_unused_remote_files() {
+    auto tablets = tablet_manager()->get_all_tablet([](Tablet* t) {
+        return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
+               t->tablet_state() == TABLET_RUNNING &&
+               t->cooldown_conf_unlocked().cooldown_replica_id == t->replica_id();
+    });
+    TConfirmUnusedRemoteFilesRequest req;
+    req.__isset.confirm_list = true;
+    // tablet_id -> [fs, unused_remote_files]
+    using unused_remote_files_buffer_t = std::unordered_map<
+            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::FileInfo>>>;
+    unused_remote_files_buffer_t buffer;
+    int64_t num_files_in_buffer = 0;
+    // assume a filename is 0.1KB, buffer size should not larger than 100MB
+    constexpr int64_t max_files_in_buffer = 1000000;
+
+    auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
+        auto storage_policy = get_storage_policy(t->storage_policy_id());
+        if (storage_policy == nullptr) {
+            LOG(WARNING) << "could not find storage_policy, storage_policy_id="
+                         << t->storage_policy_id();
+            return;
+        }
+        auto resource = get_storage_resource(storage_policy->resource_id);
+        auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
+        if (dest_fs == nullptr) {
+            LOG(WARNING) << "could not find resource, resouce_id=" << storage_policy->resource_id;
+            return;
+        }
+        DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
+        DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
+
+        std::shared_ptr<io::RemoteFileSystem> fs;
+        auto st = get_remote_file_system(t->storage_policy_id(), &fs);
+        if (!st.ok()) {
+            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                         << t->tablet_id() << " : " << st;
+            return;
+        }
+
+        std::vector<io::FileInfo> files;
+        // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
+        //  Maybe we should also list files in previously uploaded resources.
+        bool exists = true;
+        st = dest_fs->list(io::Path(remote_tablet_path(t->tablet_id())), true, &files, &exists);
+        if (!st.ok()) {
+            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                         << t->tablet_id() << " : " << st;
+            return;
+        }
+        if (!exists || files.empty()) {
+            return;
+        }
+        // get all cooldowned rowsets
+        RowsetIdUnorderedSet cooldowned_rowsets;
+        UniqueId cooldown_meta_id;
+        {
+            std::shared_lock rlock(t->get_header_lock());
+            for (auto&& rs_meta : t->tablet_meta()->all_rs_metas()) {
+                if (!rs_meta->is_local()) {
+                    cooldowned_rowsets.insert(rs_meta->rowset_id());
+                }
+            }
+            if (cooldowned_rowsets.empty()) {
+                return;
+            }
+            cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
+        }
+        auto [cooldown_replica_id, cooldown_term] = t->cooldown_conf();
+        if (cooldown_replica_id != t->replica_id()) {
+            return;
+        }
+        // {cooldown_replica_id}.{cooldown_term}.meta
+        std::string remote_meta_path =
+                fmt::format("{}.{}.meta", cooldown_replica_id, cooldown_term);
+        // filter out the paths that should be reserved
+        auto filter = [&, this](io::FileInfo& info) {
+            std::string_view filename = info.file_name;
+            if (filename.ends_with(".meta")) {
+                return filename == remote_meta_path;
+            }
+            auto rowset_id = extract_rowset_id(filename);
+            if (rowset_id.hi == 0) {
+                return false;
+            }
+            return cooldowned_rowsets.contains(rowset_id) ||
+                   pending_remote_rowsets().contains(rowset_id);
+        };
+        files.erase(std::remove_if(files.begin(), files.end(), std::move(filter)), files.end());
+        if (files.empty()) {
+            return;
+        }
+        files.shrink_to_fit();
+        num_files_in_buffer += files.size();
+        buffer.insert({t->tablet_id(), {std::move(dest_fs), std::move(files)}});
+        auto& info = req.confirm_list.emplace_back();
+        info.__set_tablet_id(t->tablet_id());
+        info.__set_cooldown_replica_id(cooldown_replica_id);
+        info.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
+    };
+
+    auto confirm_and_remove_files = [&buffer, &req, &num_files_in_buffer]() {
+        TConfirmUnusedRemoteFilesResult result;
+        LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
+                  << " num_files=" << num_files_in_buffer;
+        auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+            return;
+        }
+        for (auto id : result.confirmed_tablets) {
+            if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
+                auto& fs = it->second.first;
+                auto& files = it->second.second;
+                std::vector<io::Path> paths;
+                paths.reserve(files.size());
+                // delete unused files
+                LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
+                          << " tablet_id=" << id;
+                io::Path dir = remote_tablet_path(id);
+                for (auto& file : files) {
+                    auto file_path = dir / file.file_name;
+                    LOG(INFO) << "delete unused file: " << file_path.native();
+                    paths.push_back(std::move(file_path));
+                }
+                st = fs->batch_delete(paths);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
+                                 << st;
+                }
+                buffer.erase(it);
+            }
+        }
+    };
+
+    // batch confirm to reduce FE's overhead
+    auto next_confirm_time = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
+    for (auto& t : tablets) {
+        if (t.use_count() <= 1 // this means tablet has been dropped
+            || t->cooldown_conf_unlocked().cooldown_replica_id != t->replica_id() ||
+            t->tablet_state() != TABLET_RUNNING) {
+            continue;
+        }
+        calc_unused_remote_files(t.get());
+        if (num_files_in_buffer > 0 && (num_files_in_buffer > max_files_in_buffer ||
+                                        std::chrono::steady_clock::now() > next_confirm_time)) {
+            confirm_and_remove_files();
+            buffer.clear();
+            req.confirm_list.clear();
+            num_files_in_buffer = 0;
+            next_confirm_time =
+                    std::chrono::steady_clock::now() +
+                    std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
+        }
+    }
+    if (num_files_in_buffer > 0) {
+        confirm_and_remove_files();
     }
 }
 
@@ -1166,7 +1326,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().cooldown_replica_id) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;
@@ -1343,7 +1503,7 @@ void StorageEngine::_process_async_publish() {
             }
 
             auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    tablet, partition_id, transaction_id, version);
+                    *this, tablet, partition_id, transaction_id, version);
             static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
                     [=]() { async_publish_task->handle(); }));
             tablet_iter->second.erase(task_iter);
