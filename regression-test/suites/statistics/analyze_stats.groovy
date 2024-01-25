@@ -2753,7 +2753,7 @@ PARTITION `p599` VALUES IN (599)
     }
 
     // Test analyze default full.
-    sql """analyze table trigger_test"""
+    sql """analyze table trigger_test with sync"""
     def result = sql """show column stats trigger_test"""
     assertEquals(2, result.size())
     assertEquals("4.0", result[0][1])
