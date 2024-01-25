@@ -1037,17 +1037,18 @@ public class ConnectContext {
         return cluster;
     }
 
-    // Set cloud cluster by `use @clusterName`
     public void setCloudCluster(String cluster) {
         this.cloudCluster = cluster;
     }
 
-    // The returned cluster is set by `use @clusterName`
     public String getCloudCluster() {
         return cloudCluster;
     }
 
-    public void setCloudCluster() {
+    public void setDefaultCloudCluster() {
+    }
+
+    public void setAuthorizedCloudCluster() {
         List<String> cloudClusterNames = Env.getCurrentSystemInfo().getCloudClusterNames();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
@@ -1071,6 +1072,22 @@ public class ConnectContext {
                     "Cant get a Valid cluster for you to use, plz connect admin");
             return;
         }
+    }
+
+    // 1 Use an explicitly specified cluster
+    // 2 If no cluster is specified, the user's default cluster is used.
+    // 3 If the user does not have a default cluster, select a cluster with permissions for the user.
+    public void setAvailableCloudCluster(String cluster) {
+        this.cloudCluster = cluster;
+
+        if (Strings.isNullOrEmpty(this.cloudCluster)) {
+            setDefaultCloudCluster();
+        }
+
+        if (Strings.isNullOrEmpty(this.cloudCluster)) {
+            setAuthorizedCloudCluster();
+        }
+
         LOG.info("finally set context cluster name {}", cloudCluster);
     }
 

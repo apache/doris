@@ -193,7 +193,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
-    private LoadLoadingTask createAndInit(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
+    private LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
             throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
@@ -229,7 +229,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
                         ? this.enableMemTableOnSinkNode : false;
                 // Generate loading task and init the plan of task
-                LoadLoadingTask task = createAndInit(db, table, brokerFileGroups,
+                LoadLoadingTask task = createTask(db, table, brokerFileGroups,
                         isEnableMemtableOnSinkNode, aggKey, attachment);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.

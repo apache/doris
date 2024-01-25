@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.load.loadv2;
+package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -44,11 +44,10 @@ import java.util.UUID;
 public class CloudBrokerLoadJob extends BrokerLoadJob {
     private static final Logger LOG = LogManager.getLogger(CloudBrokerLoadJob.class);
 
-    protected static final String CLUSTER_ID = "clusterId";
-    protected String clusterId;
+    protected static final String CLOUD_CLUSTER_ID = "clusterId";
+    protected String cloudClusterId;
 
     public CloudBrokerLoadJob() {
-        super();
     }
 
     public CloudBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
@@ -62,26 +61,26 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 throw new MetaNotFoundException("cluster name is empty");
             }
 
-            this.clusterId = Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterName);
+            this.cloudClusterId = Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterName);
             if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
                 clusterName = context.getSessionVariable().getCloudCluster();
-                this.clusterId =
+                this.cloudClusterId =
                         Env.getCurrentSystemInfo().getCloudClusterIdByName(clusterName);
             }
-            if (Strings.isNullOrEmpty(this.clusterId)) {
+            if (Strings.isNullOrEmpty(this.cloudClusterId)) {
                 LOG.warn("cluster id is empty, cluster name {}", clusterName);
                 throw new MetaNotFoundException("cluster id is empty, cluster name: " + clusterName);
             }
-            sessionVariables.put(CLUSTER_ID, this.clusterId);
+            sessionVariables.put(CLOUD_CLUSTER_ID, this.cloudClusterId);
         }
     }
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
-        clusterId = sessionVariables.get(CLUSTER_ID);
-        String clusterName = Env.getCurrentSystemInfo().getClusterNameByClusterId(clusterId);
+        cloudClusterId = sessionVariables.get(CLOUD_CLUSTER_ID);
+        String clusterName = Env.getCurrentSystemInfo().getClusterNameByClusterId(cloudClusterId);
         if (Strings.isNullOrEmpty(clusterName)) {
-            LOG.warn("cluster name is empty, cluster id is {}", clusterId);
-            throw new UserException("cluster name is empty, cluster id is: " + clusterId);
+            LOG.warn("cluster name is empty, cluster id is {}", cloudClusterId);
+            throw new UserException("cluster name is empty, cluster id is: " + cloudClusterId);
         }
 
         if (ConnectContext.get() == null) {
@@ -94,7 +93,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         }
     }
 
-    private LoadLoadingTask createAndInit(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
+    private LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
             throws UserException {
         LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,

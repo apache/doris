@@ -27,7 +27,6 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,21 +42,11 @@ public class CloudStreamLoadPlanner extends StreamLoadPlanner {
 
     private AutoCloseConnectContext buildConnectContext() throws UserException {
         if (ConnectContext.get() == null) {
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setCloudCluster();
-            if (Strings.isNullOrEmpty(cloudClusterName)) {
-                connectContext.setCloudCluster();
-            } else {
-                connectContext.setCloudCluster(cloudClusterName);
-            }
-            return new AutoCloseConnectContext(connectContext);
+            ConnectContext ctx = new ConnectContext();
+            ctx.setAvailableCloudCluster(cloudClusterName);
+            return new AutoCloseConnectContext(ctx);
         } else {
-            ConnectContext.get().setCloudCluster(cloudClusterName);
-            if (Strings.isNullOrEmpty(cloudClusterName)) {
-                ConnectContext.get().setCloudCluster();
-            } else {
-                ConnectContext.get().setCloudCluster(cloudClusterName);
-            }
+            ConnectContext.get().setAvailableCloudCluster(cloudClusterName);
             return null;
         }
     }

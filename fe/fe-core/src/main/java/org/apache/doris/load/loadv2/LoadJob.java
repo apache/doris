@@ -22,7 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.load.loadv2.CloudBrokerLoadJob;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
