@@ -874,7 +874,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableFoldConstantByBe = false;
 
     @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
-    private boolean enableRewriteElementAtToSlot = true;
+    private boolean enableRewriteElementAtToSlot = false;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
