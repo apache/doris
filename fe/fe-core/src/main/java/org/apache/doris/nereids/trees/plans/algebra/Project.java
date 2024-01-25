@@ -73,7 +73,9 @@ public interface Project {
      * e.g. BindSlotWithPaths
      */
     default boolean isPulledUpProjectFromScan() {
-        return ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()
                 && getProjects().stream().allMatch(namedExpr ->
                 namedExpr instanceof SlotReference
                         || (namedExpr instanceof Alias

@@ -1633,11 +1633,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
         // register slots that are rewritten from element_at/etc..
         for (NamedExpression expr : project.getProjects()) {
-            Slot rewrittenSlot = context.getConnectContext()
-                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
-            if (rewrittenSlot != null) {
-                TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
-                context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
+            if (context != null
+                    && context.getConnectContext() != null
+                    && context.getConnectContext().getStatementContext() != null) {
+                Slot rewrittenSlot = context.getConnectContext()
+                        .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
+                if (rewrittenSlot != null) {
+                    TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                    context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
+                }
             }
         }
     }

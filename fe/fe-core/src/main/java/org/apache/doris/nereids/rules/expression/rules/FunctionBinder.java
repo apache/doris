@@ -201,7 +201,9 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
         if (PushDownToProjectionFunction.validToPushDown(elementAt)) {
-            if (!ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable() != null
+                    && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 throw new AnalysisException(
                         "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
             }
