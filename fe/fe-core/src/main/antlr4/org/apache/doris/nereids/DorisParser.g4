@@ -260,7 +260,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition?
+    : multipartIdentifier materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
@@ -270,6 +270,10 @@ relationPrimary
 
 property
     : key=propertyItem EQ value=propertyItem
+    ;
+
+materializedViewName
+    : INDEX indexName=identifier
     ;
 
 propertyItem : identifier | constant ;
