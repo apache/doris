@@ -456,16 +456,6 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent) {
-    assert(disk_usage_percent <= 1);
-    if (disk_usage_percent < 0.7) {
-        return StorageEngine::DiskRemainingLevel::LOW;
-    } else if (disk_usage_percent < 0.85) {
-        return StorageEngine::DiskRemainingLevel::MID;
-    }
-    return StorageEngine::DiskRemainingLevel::HIGH;
-}
-
 int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);
@@ -481,6 +471,7 @@ int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
 
 void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                                           std::vector<DirInfo>& dir_infos) {
+    std::vector<double> usages;
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
         if (data_dir->is_used()) {
@@ -489,9 +480,49 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                 !data_dir->reach_capacity_limit(0)) {
                 DirInfo dir_info;
                 dir_info.data_dir = data_dir;
-                dir_info.available_level = get_available_level(data_dir->get_usage(0));
+                dir_info.available_level = 0;
+                usages.push_back(data_dir->get_usage(0));
                 dir_infos.push_back(dir_info);
             }
+        }
+    }
+
+    if (dir_infos.size() <= 1) {
+        return;
+    }
+
+    std::sort(usages.begin(), usages.end());
+    if (usages.back() < 0.7) {
+        return;
+    }
+
+    std::vector<double> level_min_usages;
+    level_min_usages.push_back(usages[0]);
+    for (auto usage : usages) {
+        // usage < 0.7 consider as one level, give a small skew
+        if (usage < 0.7 - (config::high_disk_avail_level_diff_usages / 2.0)) {
+            continue;
+        }
+
+        // at high usages,  default 15% is one level
+        // for example: there disk usages are:   0.66,  0.72,  0.83
+        // then level_min_usages = [0.66, 0.83], divide disks into 2 levels:  [0.66, 0.72], [0.83]
+        if (usage >= level_min_usages.back() + config::high_disk_avail_level_diff_usages) {
+            level_min_usages.push_back(usage);
+        }
+    }
+    for (auto& dir_info : dir_infos) {
+        double usage = dir_info.data_dir->get_usage(0);
+        for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
+            dir_info.available_level++;
+        }
+
+        // when usage is too high, no matter consider balance now,
+        // make it a higher level.
+        // for example, two disks and usages are: 0.85 and 0.92, then let tablets fall on the first disk.
+        // by default, storage_flood_stage_usage_percent = 90
+        if (usage > config::storage_flood_stage_usage_percent / 100.0) {
+            dir_info.available_level++;
         }
     }
 }
