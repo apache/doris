@@ -51,7 +51,7 @@ ALTER CATALOG catalog_name RENAME new_catalog_name;
 2) 设置数据目录属性
 
 ```sql
-ALTER CATALOG catalog_name SET PROPERTIES ('key1' = 'value1' [, 'key' = 'value2']); 
+ALTER CATALOG catalog_name SET PROPERTIES ('key1' = 'value1', 'key' = 'value2'); 
 ```
 
 更新指定属性的值为指定的 value。如果 SET PROPERTIES 从句中的 key 在指定 catalog 属性中不存在，则新增此 key。
