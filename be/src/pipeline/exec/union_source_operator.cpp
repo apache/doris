@@ -62,7 +62,7 @@ Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* bl
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
         if (_node->has_more_const(state)) {
-            static_cast<void>(_node->get_next_const(state, block));
+            RETURN_IF_ERROR(_node->get_next_const(state, block));
         }
         _need_read_for_const_expr = _node->has_more_const(state);
     } else {
