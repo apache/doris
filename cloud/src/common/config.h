@@ -69,6 +69,9 @@ CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
 
+CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
+CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
+
 CONF_String(test_s3_ak, "ak");
 CONF_String(test_s3_sk, "sk");
 CONF_String(test_s3_endpoint, "endpoint");
