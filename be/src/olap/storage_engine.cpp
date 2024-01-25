@@ -510,7 +510,7 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
     level_min_usages.push_back(usages[0]);
     for (auto usage : usages) {
         // usage < 0.7 consider as one level, give a small skew
-        if (usage < 0.7 - (config.high_disk_avail_level_diff_usages / 2.0)) {
+        if (usage < 0.7 - (config::high_disk_avail_level_diff_usages / 2.0)) {
             continue;
         }
 
@@ -530,7 +530,8 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
         // when usage is too high, no matter consider balance now,
         // make it a higher level.
         // for example, two disks and usages are: 0.85 and 0.92, then let tablets fall on the first disk.
-        if (usage > 0.9) {
+        // by default, storage_flood_stage_usage_percent = 90
+        if (usage > config::storage_flood_stage_usage_percent / 100.0) {
             dir_info.available_level++;
         }
     }
