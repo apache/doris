@@ -34,7 +34,7 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
-suite("test_partial_update_publish_conflict_with_error", "p0") {
+suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "test_partial_update_publish_conflict_with_error"
 
@@ -61,7 +61,7 @@ suite("test_partial_update_publish_conflict_with_error", "p0") {
         set 'format', 'csv'
         set 'columns', "k1"
 
-        file 'concurrency_update3.csv'
+        file 'concurrency_update1.csv'
         time 10000 // limit inflight 10s
     }
     sql "sync;"
@@ -133,7 +133,7 @@ suite("test_partial_update_publish_conflict_with_error", "p0") {
         set 'columns', 'k1,v2'
         set 'strict_mode', "false"
         set 'two_phase_commit', 'true'
-        file 'concurrency_update4.csv'
+        file 'concurrency_update3.csv'
         time 10000 // limit inflight 10s
         check { result, exception, startTime, endTime ->
             if (exception != null) {
