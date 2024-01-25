@@ -389,6 +389,44 @@ Status VScanNode::_normalize_conjuncts() {
     return Status::OK();
 }
 
+bool _expr_inside_stale_ctx_exprs_tree(VExpr* root, VExpr* target_expr) {
+    if (root == nullptr) {
+        return false;
+    }
+    if (root == target_expr) {
+        return true;
+    }
+    for (auto& child : root->children()) {
+        if (_expr_inside_stale_ctx_exprs_tree(child, target_expr)) {
+            return true;
+        }
+    }
+    return false;
+}
+void VScanNode::_close_expr_inside_stale_ctxs(VExpr* expr, VExpr* new_root) {
+    DCHECK(expr != nullptr);
+    for (auto& ctx : _stale_vexpr_ctxs) {
+        VExpr* root = (*ctx)->root();
+        if (!_expr_inside_stale_ctx_exprs_tree(root, expr)) {
+            continue;
+        }
+
+        // if we try to replace root with nullptr, just keep it here, later
+        // VScanNode::close will call VExprContext::close to close root tree
+        if (root == expr && new_root == nullptr) {
+            continue;
+        }
+
+        // there two cases here:
+        //   case1: expr is a sub tree node, just close it, the caller will adjust the expr tree outside
+        //   case2: expr is root node and new_root is not nullptr, close old root and replace it with new_root
+        expr->close(_state, *ctx, (*ctx)->get_function_state_scope());
+        if (root == expr) {
+            (*ctx)->set_root(new_root);
+        }
+    }
+}
+
 Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output_expr) {
     static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
     auto in_predicate_checker = [](const std::vector<VExpr*>& children, const VSlotRef** slot,
@@ -481,21 +519,24 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                     conjunct_expr_root->children()[0]->close(
                             _state, *_vconjunct_ctx_ptr,
                             (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                    _close_expr_inside_stale_ctxs(conjunct_expr_root->children()[0], nullptr);
                 }
                 if (right_child == nullptr) {
                     conjunct_expr_root->children()[1]->close(
                             _state, *_vconjunct_ctx_ptr,
                             (*_vconjunct_ctx_ptr)->get_function_state_scope());
+                    _close_expr_inside_stale_ctxs(conjunct_expr_root->children()[1], nullptr);
                 }
                 // here only close the and expr self, do not close the child
                 conjunct_expr_root->set_children({});
                 conjunct_expr_root->close(_state, *_vconjunct_ctx_ptr,
                                           (*_vconjunct_ctx_ptr)->get_function_state_scope());
-            }
 
-            // here do not close Expr* now
-            *output_expr = left_child != nullptr ? left_child : right_child;
-            return Status::OK();
+                // here do not close Expr* now
+                *output_expr = left_child != nullptr ? left_child : right_child;
+                _close_expr_inside_stale_ctxs(conjunct_expr_root, *output_expr);
+                return Status::OK();
+            }
         }
     }
     *output_expr = conjunct_expr_root;
