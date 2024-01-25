@@ -338,15 +338,17 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter() {
+    void change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
-        // BloomFilter may be not init
-        static_cast<void>(bf->init_with_fixed_length());
-        insert_to_bloom_filter(bf);
+        if (need_init_bf) {
+            // BloomFilter may be not init
+            static_cast<void>(bf->init_with_fixed_length());
+            insert_to_bloom_filter(bf);
+        }
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
@@ -533,12 +535,12 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter();
+                        change_to_bloom_filter(true);
                     }
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter();
+                    change_to_bloom_filter(true);
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }

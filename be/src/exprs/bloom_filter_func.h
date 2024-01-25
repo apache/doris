@@ -83,11 +83,6 @@ class BloomFilterFuncBase : public FilterFuncBase {
 public:
     virtual ~BloomFilterFuncBase() = default;
 
-    Status init(int64_t expect_num, double fpp) {
-        size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
-        return init_with_fixed_length(filter_size);
-    }
-
     void set_length(int64_t bloom_filter_length) { _bloom_filter_length = bloom_filter_length; }
 
     void set_build_bf_exactly(bool build_bf_exactly) { _build_bf_exactly = build_bf_exactly; }
