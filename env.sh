@@ -235,7 +235,7 @@ if test -z "${BUILD_THIRDPARTY_WIP:-}"; then
     fi
 
     # check maven
-    MVN_CMD='mvnd'
+    MVN_CMD='mvn'
     if [[ -n "${CUSTOM_MVN}" ]]; then
         MVN_CMD="${CUSTOM_MVN}"
     fi
