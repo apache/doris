@@ -73,6 +73,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -132,7 +133,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     // Init scan provider and schema related params.
-    protected void doInitialize() throws UserException {
+    protected void doInitialize() throws UserException, ParseException {
         Preconditions.checkNotNull(desc);
         if (desc.getTable() instanceof ExternalTable) {
             ExternalTable table = (ExternalTable) desc.getTable();
