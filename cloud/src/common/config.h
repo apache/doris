@@ -60,7 +60,7 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "10");
+CONF_mInt32(instance_recycler_worker_pool_size, "1");
 CONF_Bool(enable_checker, "false");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
