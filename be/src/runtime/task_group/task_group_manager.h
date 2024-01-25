@@ -69,6 +69,10 @@ public:
                              vectorized::SimplifiedScanScheduler** scan_sched,
                              ThreadPool** non_pipe_thread_pool);
 
+    Status add_query_to_group(uint64_t tg_id, TUniqueId query_id, TaskGroupPtr* tg_ptr);
+
+    void remove_query_from_group(uint64_t tg_id, TUniqueId query_id);
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
