@@ -132,10 +132,14 @@ public:
                 return true;
             }
             return _data_distribution.distribution_type !=
-                   target_data_distribution.distribution_type;
+                           target_data_distribution.distribution_type &&
+                   !(is_hash_exchange(_data_distribution.distribution_type) &&
+                     is_hash_exchange(target_data_distribution.distribution_type));
         } else {
             return _data_distribution.distribution_type !=
-                   target_data_distribution.distribution_type;
+                           target_data_distribution.distribution_type &&
+                   !(is_hash_exchange(_data_distribution.distribution_type) &&
+                     is_hash_exchange(target_data_distribution.distribution_type));
         }
     }
     void init_data_distribution() {
