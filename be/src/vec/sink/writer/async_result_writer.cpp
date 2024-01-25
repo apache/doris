@@ -66,6 +66,9 @@ Status AsyncResultWriter::sink(Block* block, bool eos) {
             _dependency->block();
         }
     }
+    // in 'process block' we check _eos first and _data_queue second so here
+    // in the lock. must modify the _eos after change _data_queue to make sure
+    // not lead the logic error in multi thread
     _eos = eos;
 
     _cv.notify_one();
