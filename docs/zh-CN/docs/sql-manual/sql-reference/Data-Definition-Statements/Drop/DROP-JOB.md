@@ -32,7 +32,7 @@ DROP JOB
 
 ### Description
 
-Delete a job, the running TASKs will be canceled. The deleted JOB cannot be recovered.
+用户删除一个 JOB 作业。作业会被立即停止同时删除。
 
 ```sql
 DROP JOB where jobName='jobname';

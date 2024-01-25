@@ -32,7 +32,7 @@ DROP JOB
 
 ### Description
 
-User stops a JOB job. A stopped job cannot be rerun.
+User stops a JOB. A stopped job cannot be resumed.
 
 ```sql
 DROP JOB WHERE jobName = 'job_name';
@@ -42,13 +42,13 @@ DROP JOB WHERE jobName = 'job_name';
 
 1. DROP the job named test1.
 
-    ```sql
-    DROP JOB where jobName = 'test1';
-    ```
+   ```sql
+   DROP JOB where jobName = 'test1';
+   ```
 
 ### Keywords
 
-     DROP, JOB
+        DROP, JOB
 
 ### Best Practice
 

@@ -42,13 +42,15 @@ RESUME JOB WHERE jobName = 'job_name';
 
 1. Restart the JOB named test1.
 
-    ```sql
-    RESUME JOB WHERE jobName = 'test1';
-    ```
+   ```sql
+   RESUME JOB WHERE jobName = 'test1';
+   ```
 
 ### Keywords
 
-     RESUME, JOB
+        RESUME, JOB
 
 ### Best Practice
+
+
 

@@ -40,7 +40,7 @@ RESUME JOB where jobName = jobName;
 
 ### Example
 
-1. 重启名称为 example 的 JOB。
+1. 恢复运行名称为 example 的 JOB。
 
    ```sql
    RESUME JOB where jobName= 'example';
@@ -48,7 +48,7 @@ RESUME JOB where jobName = jobName;
 
 ### Keywords
 
-       RESUME, JOB
+        RESUME, JOB
 
 ### Best Practice
 

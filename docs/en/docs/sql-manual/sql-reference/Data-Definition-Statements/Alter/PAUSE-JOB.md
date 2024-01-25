@@ -32,7 +32,7 @@ PAUSE JOB
 
 ### Description
 
-User suspends a JOB job. A stopped job can be resumed with RESUME JOB.
+User suspends a JOB. A stopped job can be resumed with RESUME JOB.
 
 ```sql
 PAUSE JOB where jobName = 'job_name';
@@ -42,12 +42,12 @@ PAUSE JOB where jobName = 'job_name';
 
 1. Pause the job named test1.
 
-    ```sql
-    PAUSE JOB where jobName = 'test1';
-    ```
+   ```sql
+   PAUSE JOB where jobName = 'test1';
+   ```
 
-###Keywords
+### Keywords
 
-     PAUSE, JOB
+        PAUSE, JOB
 
 ### Best Practice

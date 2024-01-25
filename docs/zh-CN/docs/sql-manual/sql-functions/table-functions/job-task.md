@@ -1,6 +1,6 @@
 ---
 {
-    "title": "JOB-Task",
+    "title": "Tasks",
     "language": "zh-CN"
 }
 ---
@@ -36,9 +36,9 @@ tasks
 
 ### description
 
-表函数，生成 tasks 临时表，可以查看当前 doris 集群中的 job 产生的tasks 信息。
+表函数，生成 tasks 临时表，可以查看当前 doris 集群中的 job 产生的 tasks 信息。
 
-该函数用于from子句中。
+该函数用于 from 子句中。
 
 #### syntax
 
@@ -49,9 +49,12 @@ tasks
 |:-----|:-------|:-------|:-----|
 | type | 作业类型   | string | 是    |
 
-***type 当前仅支持 insert 或者 mv***
+type 支持的类型：
+
+- insert：insert into 类型的任务。
+
 ##### Insert tasks
-tasks("type"="insert");表结构：
+`tasks("type"="insert");`表结构：
 ```
 mysql> desc  function tasks("type"="insert");
 +---------------+------+------+-------+---------+-------+
@@ -92,26 +95,7 @@ LoadStatistic: {"Unfinished backends":{},"ScannedRows":0,"TaskNumber":0,"LoadByt
 1 row in set (0.05 sec)
 
 ```
-##### MV tasks
-tasks("type"="mv");表结构：
-```
-mysql> desc  function tasks("type"="mv");
-+------------+------+------+-------+---------+-------+
-| Field      | Type | Null | Key   | Default | Extra |
-+------------+------+------+-------+---------+-------+
-| TaskId     | TEXT | No   | false | NULL    | NONE  |
-| JobId      | TEXT | No   | false | NULL    | NONE  |
-| JobName    | TEXT | No   | false | NULL    | NONE  |
-| Status     | TEXT | No   | false | NULL    | NONE  |
-| CreateTime | TEXT | No   | false | NULL    | NONE  |
-| StartTime  | TEXT | No   | false | NULL    | NONE  |
-| FinishTime | TEXT | No   | false | NULL    | NONE  |
-| DurationMs | TEXT | No   | false | NULL    | NONE  |
-| ExecuteSql | TEXT | No   | false | NULL    | NONE  |
-+------------+------+------+-------+---------+-------+
-9 rows in set (0.00 sec)
-```
 
 ### keywords
 
-    tasks,mv,insert
+    tasks, insert

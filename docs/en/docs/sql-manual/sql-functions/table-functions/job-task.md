@@ -1,6 +1,6 @@
 ---
 {
-    "title": "JOB-Task",
+    "title": "TASKS",
     "language": "en"
 }
 ---
@@ -45,16 +45,19 @@ This function is used in the FROM clause.
 `tasks("type"="insert");`
 **parameter description**
 
-| parameter  | description | type   | required |
-|:-----|:------------|:-------|:---------|
-| type | job type    | string | yes      |
+| parameter | description | type   | required |
+|:----------|:------------|:-------|:---------|
+| type      | job type    | string | yes      |
 
-***type only support mv or insert***
+the **type** supported types
+- insert: insert into type job
 
 ##### Insert tasks
+
 The table schema of `tasks("type"="insert");` tvf：
+
 ```
-mysql> desc  function tasks("type"="insert");
+mysql> desc function tasks("type"="insert");
 +---------------+------+------+-------+---------+-------+
 | Field         | Type | Null | Key   | Default | Extra |
 +---------------+------+------+-------+---------+-------+
@@ -75,6 +78,7 @@ mysql> desc  function tasks("type"="insert");
 ```
 
 ### example
+
 ```
 mysql>  select * from tasks("type"="insert") limit 1 \G
 *************************** 1. row ***************************
@@ -93,26 +97,7 @@ LoadStatistic: {"Unfinished backends":{},"ScannedRows":0,"TaskNumber":0,"LoadByt
 1 row in set (0.05 sec)
 
 ```
-##### MV tasks
-The table schema of `tasks("type"="mv");` tvf：
-```
-mysql> desc  function tasks("type"="mv");
-+------------+------+------+-------+---------+-------+
-| Field      | Type | Null | Key   | Default | Extra |
-+------------+------+------+-------+---------+-------+
-| TaskId     | TEXT | No   | false | NULL    | NONE  |
-| JobId      | TEXT | No   | false | NULL    | NONE  |
-| JobName    | TEXT | No   | false | NULL    | NONE  |
-| Status     | TEXT | No   | false | NULL    | NONE  |
-| CreateTime | TEXT | No   | false | NULL    | NONE  |
-| StartTime  | TEXT | No   | false | NULL    | NONE  |
-| FinishTime | TEXT | No   | false | NULL    | NONE  |
-| DurationMs | TEXT | No   | false | NULL    | NONE  |
-| ExecuteSql | TEXT | No   | false | NULL    | NONE  |
-+------------+------+------+-------+---------+-------+
-9 rows in set (0.00 sec)
-```
 
 ### keywords
 
-    tasks,mv,insert
+ tasks, job, insert

@@ -50,10 +50,13 @@ job
 |:-----|:-----|:-------|:-----|
 | type | 作业类型 | string | 是    |
 
-***type当前仅支持 insert 或者 mv***
+type 支持的类型：
+
+- insert：insert into 类型的任务。
+
 ##### Insert Job
 
-jobs("type"="insert");表结构：
+`jobs("type"="insert");`表结构：
 
 ```
 mysql> desc  function jobs("type"="insert")
@@ -89,26 +92,6 @@ RecurringStrategy: EVERY 3 SECOND STARTS 2023-12-06 14:44:47
 1 row in set (0.04 sec)
 ```
 
-##### MV Job
-
-jobs("type"="mv");表结构：
-
-```
-mysql> desc  function jobs("type"="mv");
-+-------------------+------+------+-------+---------+-------+
-| Field             | Type | Null | Key   | Default | Extra |
-+-------------------+------+------+-------+---------+-------+
-| Id                | TEXT | No   | false | NULL    | NONE  |
-| Name              | TEXT | No   | false | NULL    | NONE  |
-| ExecuteType       | TEXT | No   | false | NULL    | NONE  |
-| RecurringStrategy | TEXT | No   | false | NULL    | NONE  |
-| Status            | TEXT | No   | false | NULL    | NONE  |
-| CreateTime        | TEXT | No   | false | NULL    | NONE  |
-| Comment           | TEXT | No   | false | NULL    | NONE  |
-+-------------------+------+------+-------+---------+-------+
-7 rows in set (0.01 sec)
-```
-
 ### keywords
 
-    job,mv,insert
+        job, insert

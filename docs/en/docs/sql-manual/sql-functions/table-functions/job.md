@@ -44,11 +44,14 @@ This function is used in the FROM clause.
 
 **parameter description**
 
-| parameter  | description | type   | required |
-|:-----|:------------|:-------|:---------|
-| type | job type    | string | yes      |
+| parameter | description | type   | required |
+|:----------|:------------|:-------|:---------|
+| type      | job type    | string | yes      |
 
-***type only support mv or insert***
+the **type** supported types
+- insert: insert into type job
+
+
 ##### Insert Job
 
 The table schema of `tasks("type"="insert");` tvf：
@@ -87,26 +90,7 @@ RecurringStrategy: EVERY 3 SECOND STARTS 2023-12-06 14:44:47
 1 row in set (0.04 sec)
 ```
 
-##### MV Job
-
-The table schema of `tasks("type"="mv");` tvf：
-
-```
-mysql> desc  function jobs("type"="mv");
-+-------------------+------+------+-------+---------+-------+
-| Field             | Type | Null | Key   | Default | Extra |
-+-------------------+------+------+-------+---------+-------+
-| Id                | TEXT | No   | false | NULL    | NONE  |
-| Name              | TEXT | No   | false | NULL    | NONE  |
-| ExecuteType       | TEXT | No   | false | NULL    | NONE  |
-| RecurringStrategy | TEXT | No   | false | NULL    | NONE  |
-| Status            | TEXT | No   | false | NULL    | NONE  |
-| CreateTime        | TEXT | No   | false | NULL    | NONE  |
-| Comment           | TEXT | No   | false | NULL    | NONE  |
-+-------------------+------+------+-------+---------+-------+
-7 rows in set (0.01 sec)
-```
-
 ### keywords
 
-    job,mv,insert
+        job, insert, schedule
+
