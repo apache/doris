@@ -46,18 +46,23 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(StatementScopeIdGenerator.newExprId(), child, name, false);
+        this(child instanceof NamedExpression
+                ? ((Slot) child).getExprId()
+                : StatementScopeIdGenerator.newExprId(),
+                child, name, false);
     }
 
     public Alias(Expression child) {
-        this(StatementScopeIdGenerator.newExprId(), child, child.toSql(), true);
+        this(child instanceof NamedExpression
+                ? ((Slot) child).getExprId()
+                : StatementScopeIdGenerator.newExprId(), child, child.toSql(), true);
     }
 
     public Alias(ExprId exprId, Expression child, String name) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
     }
 
-    public Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
+    private Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), nameFromChild);
     }
 

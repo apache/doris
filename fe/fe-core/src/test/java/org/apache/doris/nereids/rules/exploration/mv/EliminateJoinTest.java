@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class EliminateJoinTest extends SqlTestBase {
@@ -120,7 +119,6 @@ class EliminateJoinTest extends SqlTestBase {
         dropConstraint("alter table T2 drop constraint pk");
     }
 
-    @Disabled
     @Test
     void testLOJWithPKFKAndUK1() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
@@ -154,7 +152,6 @@ class EliminateJoinTest extends SqlTestBase {
         dropConstraint("alter table T3 drop constraint uk");
     }
 
-    @Disabled
     @Test
     void testLOJWithPKFKAndUK2() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
