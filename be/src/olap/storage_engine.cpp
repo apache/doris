@@ -456,16 +456,6 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK();
 }
 
-StorageEngine::DiskRemainingLevel get_available_level(double disk_usage_percent) {
-    assert(disk_usage_percent <= 1);
-    if (disk_usage_percent < 0.7) {
-        return StorageEngine::DiskRemainingLevel::LOW;
-    } else if (disk_usage_percent < 0.85) {
-        return StorageEngine::DiskRemainingLevel::MID;
-    }
-    return StorageEngine::DiskRemainingLevel::HIGH;
-}
-
 int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
                                                 TStorageMedium::type storage_medium) {
     auto key = CreateTabletIdxCache::get_key(partition_id, storage_medium);

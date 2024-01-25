@@ -150,8 +150,6 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine() override;
 
-    enum class DiskRemainingLevel { LOW, MID, HIGH };
-
     Status open() override;
 
     Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
