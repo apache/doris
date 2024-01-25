@@ -43,7 +43,7 @@
 using namespace doris::cloud;
 
 /**
- * Generates a pidfile with given process name
+ * Generates a pidfile with the given process name
  *
  * @return an fd holder with auto-storage-lifecycle
  */
