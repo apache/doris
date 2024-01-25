@@ -737,6 +737,11 @@ public final class RuntimeFilter {
                 filterStr.append("(").append(getEstimateNdv()).append("/")
                         .append(getExpectFilterSizeBytes()).append("/")
                         .append(getFilterSizeBytes()).append(")");
+                if (bloomFilterSizeCalculatedByNdv) {
+                    filterStr.append("byNDV");
+                } else {
+                    filterStr.append("byRow");
+                }
             } else {
                 filterStr.append(" -> ");
                 filterStr.append(getTargetExpr(targetNodeId).toSql());
