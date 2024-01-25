@@ -264,6 +264,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
         // wait stream load finish
         RETURN_IF_ERROR(ctx->future.get());
         if (ctx->status.ok()) {
+            ctx->auth.auth_code = wal_id;
             auto commit_st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
             st = commit_st;
         } else if (!ctx->status.ok()) {
