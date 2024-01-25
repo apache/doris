@@ -205,7 +205,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                 }
             }
             if (!is_schema_version_match) {
-                return Status::DataQualityError<false>("schema version not match");
+                return Status::DataQualityError<false>(
+                        "schema version not match, maybe a schema change is in process. Please "
+                        "retry this load manually.");
             }
             if (!_need_plan_fragment) {
                 _need_plan_fragment = true;
@@ -221,7 +223,9 @@ Status GroupCommitTable::get_first_block_load_queue(
                         return Status::OK();
                     }
                 } else if (base_schema_version < load_block_queue->schema_version) {
-                    return Status::DataQualityError<false>("schema version not match");
+                    return Status::DataQualityError<false>(
+                            "schema version not match, maybe a schema change is in process. Please "
+                            "retry this load manually.");
                 }
                 load_block_queue.reset();
             }
