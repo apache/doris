@@ -42,6 +42,8 @@ public class FileSplit implements Split {
     // partitionValues would be ["part1", "part2"]
     protected List<String> partitionValues;
 
+    protected List<String> alternativeHosts;
+
     public FileSplit(Path path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {
         this.path = path;
@@ -65,6 +67,11 @@ public class FileSplit implements Split {
     @Override
     public Object getInfo() {
         return null;
+    }
+
+    @Override
+    public String getPathString() {
+        return path.toString();
     }
 
     public static class FileSplitCreator implements SplitCreator {
