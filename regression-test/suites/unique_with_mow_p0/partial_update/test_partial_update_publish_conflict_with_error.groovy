@@ -68,7 +68,7 @@ suite("test_partial_update_publish_conflict_with_error", "p0") {
     qt_sql """ select * from ${tableName} order by k1;"""
 
     // NOTE: use streamload 2pc to construct the conflict of publish
-    def do_streamload_2pc = { txnId ->
+    def do_streamload_2pc_commit = { txnId ->
         def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
                 " -H txn_id:${txnId}" +
                 " -H txn_operation:commit" +
@@ -148,13 +148,13 @@ suite("test_partial_update_publish_conflict_with_error", "p0") {
     sql "sync;"
 
     // complete load 1 first
-    do_streamload_2pc(txnId1)
+    do_streamload_2pc_commit(txnId1)
     wait_for_publish(txnId1, 10)
 
     // inject failure on publish
     try {
         GetDebugPoint().enableDebugPointForAllBEs(dbug_point, [percent : 1.0])
-        do_streamload_2pc(txnId2)
+        do_streamload_2pc_commit(txnId2)
         sleep(5000)
     } catch(Exception e) {
         logger.info(e.getMessage())
