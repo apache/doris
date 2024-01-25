@@ -253,7 +253,7 @@ public:
 
         auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
 
-        if constexpr (exception_mode == IPConvertExceptionMode::Null) {
+        if (null_map && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map_column)));
         } else {
@@ -565,7 +565,7 @@ public:
 
         auto col_res = convertToIPv6<exception_mode, ColumnString>(column, null_map);
 
-        if constexpr (exception_mode == IPConvertExceptionMode::Null) {
+        if (null_map && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map_column)));
         } else {
