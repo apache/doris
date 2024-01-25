@@ -77,6 +77,7 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
@@ -481,6 +482,7 @@ int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
 
 void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                                           std::vector<DirInfo>& dir_infos) {
+    std::vector<double> usages;
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
         if (data_dir->is_used()) {
@@ -489,9 +491,42 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                 !data_dir->reach_capacity_limit(0)) {
                 DirInfo dir_info;
                 dir_info.data_dir = data_dir;
-                dir_info.available_level = get_available_level(data_dir->get_usage(0));
+                dir_info.available_level = 0;
+                usages.push_back(data_dir->get_usage(0));
                 dir_infos.push_back(dir_info);
             }
+        }
+    }
+
+    DBUG_EXECUTE_IF("StorageEngine.get_candidate_stores.all_disk_same_level", return);
+
+    if (dir_infos.size() <= 1) {
+        return;
+    }
+
+    std::sort(usages.begin(), usages.end());
+    if (usages.back() < 0.7) {
+        return;
+    }
+
+    std::vector<double> level_max_usages;
+    level_max_usages.push_back(usages[0]);
+    for (auto usage : usages) {
+        if (usage < 0.7 - (config.high_disk_avail_level_diff_usages / 2.0)) {
+            continue;
+        }
+
+        if (usage > level_max_usages.back() + config::high_disk_avail_level_diff_usages) {
+            level_max_usages.push_back(usage);
+        }
+    }
+    for (auto& dir_info : dir_infos) {
+        double usage = dir_info.data_dir->get_usage(0);
+        for (size_t i = 1; i < level_max_usages.size() && usage >= level_max_usages[i]; i++) {
+            dir_info.available_level++;
+        }
+        if (usage > 0.9) {
+            dir_info.available_level++;
         }
     }
 }
