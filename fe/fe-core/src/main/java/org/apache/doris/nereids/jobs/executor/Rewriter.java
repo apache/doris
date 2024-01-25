@@ -303,7 +303,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             // this rule should invoke after infer predicate and push down distinct, and before push down limit
             topic("eliminate join according unique or foreign key",
-                custom(RuleType.ELIMINATE_JOIN_BY_FOREIGN_KEY, EliminateJoinByFK::new),
+                bottomUp(new EliminateJoinByFK()),
                 topDown(new EliminateJoinByUnique())
             ),
 
