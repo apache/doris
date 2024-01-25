@@ -65,12 +65,38 @@ Status IndexBuilder::update_inverted_index_info() {
         const auto& input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
         if (_is_drop_op) {
-            // base on input rowset's tablet_schema to build
-            // output rowset's tablet_schema which only remove
-            // the indexes specified in this drop index request
-            for (auto t_inverted_index : _alter_inverted_indexes) {
+            size_t total_index_size = 0;
+            for (const auto& t_inverted_index : _alter_inverted_indexes) {
+                auto* beta_rowset = reinterpret_cast<BetaRowset*>(input_rowset.get());
+                size_t index_size = 0;
+                RETURN_IF_ERROR(beta_rowset->get_inverted_index_size_by_index_id(
+                        t_inverted_index.index_id, &index_size));
+                total_index_size += index_size;
                 output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
             }
+
+            auto input_rowset_meta = input_rowset->rowset_meta();
+            auto update_disk_size = [&](size_t& disk_size, const std::string& size_type) {
+                if (disk_size >= total_index_size) {
+                    disk_size -= total_index_size;
+                } else {
+                    LOG(WARNING) << "rowset " << input_rowset_meta->rowset_id() << " " << size_type
+                                 << " size:" << disk_size
+                                 << " is less than index size:" << total_index_size;
+                }
+            };
+
+            size_t before_size = input_rowset_meta->total_disk_size();
+            update_disk_size(before_size, "total disk");
+            input_rowset_meta->set_total_disk_size(before_size);
+
+            before_size = input_rowset_meta->data_disk_size();
+            update_disk_size(before_size, "data disk");
+            input_rowset_meta->set_data_disk_size(before_size);
+
+            before_size = input_rowset_meta->index_disk_size();
+            update_disk_size(before_size, "index");
+            input_rowset_meta->set_index_disk_size(before_size);
         } else {
             // base on input rowset's tablet_schema to build
             // output rowset's tablet_schema which only add
