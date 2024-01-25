@@ -659,7 +659,7 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE)
 endif ()
 
 if (MAKE_TEST)
@@ -766,4 +766,5 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+
 
