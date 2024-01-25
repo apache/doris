@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
+
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
     }
@@ -52,7 +53,6 @@ public class IcebergExternalTable extends ExternalTable {
 
     @Override
     public List<Column> initSchema() {
-        makeSureInitialized();
         return IcebergUtils.getSchema(catalog, dbName, name);
     }
 
@@ -79,7 +79,7 @@ public class IcebergExternalTable extends ExternalTable {
         makeSureInitialized();
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
                 () -> StatisticsUtil.getIcebergColumnStats(colName,
-                        ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name)));
+                        IcebergUtils.getIcebergTable(catalog, dbName, name)));
     }
 
     @Override

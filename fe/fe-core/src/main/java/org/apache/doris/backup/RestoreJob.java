@@ -905,7 +905,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 tbl.writeLock();
                 try {
-                    if (!db.addMemoryTable(tbl)) {
+                    if (!db.registerTable(tbl)) {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
                                 + " already exist in db: " + db.getFullName());
                         return;
@@ -1286,7 +1286,7 @@ public class RestoreJob extends AbstractJob {
             db.writeLock();
             restoreTbl.writeLock();
             try {
-                db.addMemoryTable(restoreTbl);
+                db.registerTable(restoreTbl);
             } finally {
                 restoreTbl.writeUnlock();
                 db.writeUnlock();
@@ -1936,7 +1936,7 @@ public class RestoreJob extends AbstractJob {
                                         }
                                     }
                                 }
-                                db.removeMemoryTable(restoreTbl.getName());
+                                db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
                             }

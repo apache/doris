@@ -364,8 +364,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     @Override
-    public void removeMemoryTable(String tableName) {
-        throw new NotImplementedException("removeMemoryTable is not implemented at external database");
+    public void unregisterTable(String tableName) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create table [{}]", tableName);
+        }
+        Long tableId = tableNameToId.remove(tableName);
+        if (tableId == null) {
+            LOG.warn("table [{}] does not exist when drop", tableName);
+            return;
+        }
+        idToTbl.remove(tableId);
+        setLastUpdateTime(System.currentTimeMillis());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
+                extCatalog.getId(), getFullName(), tableName);
     }
 
     @Override
@@ -374,8 +385,16 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     // Only used for sync hive metastore event
-    public void addMemoryTable(String tableName, long tableId) {
-        throw new NotImplementedException("addMemoryTable is not implemented at external database.");
+    public boolean registerTable(TableIf tableIf) {
+        long tableId = tableIf.getId();
+        String tableName = tableIf.getName();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("create table [{}]", tableName);
+        }
+        tableNameToId.put(tableName, tableId);
+        idToTbl.put(tableId, newExternalTable(tableName, tableId, extCatalog));
+        setLastUpdateTime(System.currentTimeMillis());
+        return true;
     }
 
     @Override

@@ -17,16 +17,16 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable> {
-
-    private static final Logger LOG = LogManager.getLogger(PaimonExternalDatabase.class);
 
     public PaimonExternalDatabase(ExternalCatalog extCatalog, Long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.PAIMON);
@@ -40,28 +40,5 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     public List<PaimonExternalTable> getTablesOnIdOrder() {
         // Sort the name instead, because the id may change.
         return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
-    }
-
-    @Override
-    public void removeMemoryTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop table [{}]", tableName);
-        }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("drop table [{}] failed", tableName);
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void addMemoryTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
-        tableNameToId.put(tableName, tableId);
-        PaimonExternalTable table = new PaimonExternalTable(tableId, tableName, name,
-                (PaimonExternalCatalog) extCatalog);
-        idToTbl.put(tableId, table);
     }
 }

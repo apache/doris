@@ -29,9 +29,9 @@ public class InfoSchemaDbTest {
     public void testNormal() throws IOException, DdlException {
         Database db = new InfoSchemaDb();
 
-        Assert.assertFalse(db.addMemoryTable(null));
+        Assert.assertFalse(db.registerTable(null));
         Assert.assertFalse(db.createTableWithLock(null, false, false).first);
-        db.removeMemoryTable("authors");
+        db.unregisterTable("authors");
         Assert.assertThrows(IOException.class, () -> db.write(null));
         Assert.assertNull(db.getTableNullable("authors"));
     }

@@ -15,26 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.datasource.hive;
 
-// Information schema used for MySQL compatible.
-public class InfoSchemaDb extends MysqlCompatibleDatabase {
-    public static final String DATABASE_NAME = "information_schema";
-    public static final long DATABASE_ID = 0L;
+import org.apache.doris.datasource.CatalogDatabase;
 
-    public InfoSchemaDb() {
-        super(DATABASE_ID, DATABASE_NAME);
-    }
+import lombok.Data;
 
-    @Override
-    protected void initTables() {
-        for (Table table : SchemaTable.TABLE_MAP.values()) {
-            super.registerTable(table);
-        }
-    }
+import java.util.Map;
 
-    @Override
-    public boolean registerTable(TableIf table) {
-        return false;
-    }
+@Data
+public class HiveCatalogDatabase implements CatalogDatabase {
+    private String dbName;
+    private String locationUri;
+    private Map<String, String> properties;
+    private String comment;
 }

@@ -23,7 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.HMSCachedClient;
-import org.apache.doris.datasource.hive.HMSCachedClientFactory;
+import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
@@ -78,7 +78,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
                 throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
             }
         }
-        HMSCachedClient cachedClient = HMSCachedClientFactory.createCachedClient(hiveConf, 1, null);
+        HMSCachedClient cachedClient = HiveMetadataOps.createCachedClient(hiveConf, 1, null);
         String location = cachedClient.getCatalogLocation("hive");
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, location);
         hiveCatalog.initialize(icebergCatalogType, catalogProperties);

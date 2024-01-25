@@ -50,12 +50,12 @@ public abstract class MysqlCompatibleDatabase extends Database {
      * @note: Rename a table of mysql database in MYSQL ls allowed.
      */
     @Override
-    public boolean addMemoryTable(Table table) {
-        return super.addMemoryTable(table);
+    public boolean registerTable(TableIf table) {
+        return super.registerTable(table);
     }
 
     @Override
-    public void removeMemoryTable(String name) {
+    public void unregisterTable(String name) {
         // Do nothing
     }
 

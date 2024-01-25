@@ -216,11 +216,11 @@ public abstract class DorisHttpTestCase {
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
-            db.addMemoryTable(table);
+            db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
-            db.addMemoryTable(table1);
+            db.registerTable(table1);
             EsTable esTable = newEsTable("es_table");
-            db.addMemoryTable(esTable);
+            db.registerTable(esTable);
 
             InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(internalCatalog) {

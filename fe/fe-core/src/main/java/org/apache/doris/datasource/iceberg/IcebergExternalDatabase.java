@@ -46,27 +46,4 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
         // Sort the name instead, because the id may change.
         return getTables().stream().sorted(Comparator.comparing(TableIf::getName)).collect(Collectors.toList());
     }
-
-    @Override
-    public void removeMemoryTable(String tableName) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("drop table [{}]", tableName);
-        }
-        Long tableId = tableNameToId.remove(tableName);
-        if (tableId == null) {
-            LOG.warn("drop table [{}] failed", tableName);
-        }
-        idToTbl.remove(tableId);
-    }
-
-    @Override
-    public void addMemoryTable(String tableName, long tableId) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("create table [{}]", tableName);
-        }
-        tableNameToId.put(tableName, tableId);
-        IcebergExternalTable table = new IcebergExternalTable(tableId, tableName, name,
-                (IcebergExternalCatalog) extCatalog);
-        idToTbl.put(tableId, table);
-    }
 }

@@ -34,6 +34,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsExternalDatabase;
+import org.apache.doris.datasource.hive.ExternalMetadataOps;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -105,6 +106,7 @@ public abstract class ExternalCatalog
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
     protected boolean invalidCacheInInit = true;
+    protected ExternalMetadataOps metadataOps;
 
     private ExternalSchemaCache schemaCache;
     private String comment;
@@ -134,15 +136,20 @@ public abstract class ExternalCatalog
 
     /**
      * set some default properties when creating catalog
+     * @return list of database names in this catalog
      */
+    protected List<String> listDatabaseNames() {
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Unsupported operation: "
+                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+        } else {
+            return metadataOps.listDatabaseNames();
+        }
+    }
+
     public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
 
     }
-
-    /**
-     * @return list of database names in this catalog
-     */
-    protected abstract List<String> listDatabaseNames();
 
     /**
      * @param dbName
@@ -583,30 +590,48 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
+    @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
-        throw new NotImplementedException("dropDatabase not implemented");
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new NotImplementedException("dropDatabase not implemented");
+        }
+        metadataOps.createDb(stmt);
     }
 
+    @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
-        throw new NotImplementedException("dropDatabase not implemented");
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new NotImplementedException("dropDatabase not implemented");
+        }
+        metadataOps.dropDb(stmt);
     }
 
     @Override
     public void createTable(CreateTableStmt stmt) throws UserException {
-        throw new NotImplementedException("createTable not implemented");
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new NotImplementedException("createTable not implemented");
+        }
+        metadataOps.createTable(stmt);
     }
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
-        throw new NotImplementedException("dropTable not implemented");
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new NotImplementedException("dropTable not implemented");
+        }
+        metadataOps.dropTable(stmt);
     }
 
-    public void removeDatabase(String dbName) {
-        throw new NotImplementedException("dropDatabase not implemented");
+    public void unregisterDatabase(String dbName) {
+        throw new NotImplementedException("unregisterDatabase not implemented");
     }
 
-    public void addDatabase(long dbId, String dbName) {
-        throw new NotImplementedException("createDatabase not implemented");
+    public void registerDatabase(long dbId, String dbName) {
+        throw new NotImplementedException("registerDatabase not implemented");
     }
 
     public Map<String, Boolean> getIncludeDatabaseMap() {

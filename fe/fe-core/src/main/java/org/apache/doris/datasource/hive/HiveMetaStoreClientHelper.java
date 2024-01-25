@@ -150,7 +150,7 @@ public class HiveMetaStoreClientHelper {
         }
     }
 
-    public static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
+    private static IMetaStoreClient getClient(String metaStoreUris) throws DdlException {
         HiveConf hiveConf = new HiveConf();
         hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, metaStoreUris);
         hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),

@@ -26,6 +26,7 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
 
 import java.util.List;
 import java.util.Map;
@@ -63,8 +64,6 @@ public class IcebergGlueExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
-        return nsCatalog.listNamespaces().stream()
-            .map(Namespace::toString)
-            .collect(Collectors.toList());
+        return metadataOps.listDatabaseNames();
     }
 }

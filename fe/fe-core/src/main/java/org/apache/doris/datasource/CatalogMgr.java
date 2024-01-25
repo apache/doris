@@ -31,6 +31,7 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.NamedExternalTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -45,7 +46,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
@@ -747,14 +747,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public void unloadExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
             throws DdlException {
-        CatalogIf catalog = nameToCatalog.get(catalogName);
+        CatalogIf<?> catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + catalogName);
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog Tables");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
+        ExternalDatabase<?> db = ((ExternalCatalog) catalog).getDbNullable(dbName);
         if (db == null) {
             if (!ignoreIfExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
@@ -772,10 +772,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            db.removeMemoryTable(table.getName());
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(
-                        catalog.getId(), db.getFullName(), table.getName());
-            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
+            db.unregisterTable(table.getName());
         } finally {
             db.writeUnlock();
         }
@@ -817,7 +814,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-
+        // TODO：防止event和catalog建表的tableID冲突
         long tblId = Env.getCurrentEnv().getExternalMetaIdMgr().getTblId(catalog.getId(), dbName, tableName);
         // -1L means it will be dropped later, ignore
         if (tblId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
@@ -826,12 +823,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         db.writeLock();
         try {
-            ((HMSExternalDatabase) db).addMemoryTable(tableName, tblId);
-            ((HMSExternalDatabase) db).setLastUpdateTime(System.currentTimeMillis());
-            table = db.getTableNullable(tableName);
-            if (table != null) {
-                ((HMSExternalTable) table).setEventUpdateTime(updateTime);
-            }
+            NamedExternalTable namedTable = NamedExternalTable.of(tblId, tableName, dbName, (ExternalCatalog) catalog);
+            namedTable.setUpdateTime(updateTime);
+            db.registerTable(namedTable);
         } finally {
             db.writeUnlock();
         }
@@ -853,9 +847,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             return;
         }
-
-        ((HMSExternalCatalog) catalog).removeDatabase(dbName);
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(catalog.getId(), dbName);
+        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
     public void addExternalDatabase(String dbName, String catalogName, boolean ignoreIfExists)
@@ -881,7 +873,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        ((HMSExternalCatalog) catalog).addDatabase(dbId, dbName);
+        ((HMSExternalCatalog) catalog).registerDatabase(dbId, dbName);
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName,

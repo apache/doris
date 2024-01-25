@@ -15,26 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.datasource.hive;
 
-// Information schema used for MySQL compatible.
-public class InfoSchemaDb extends MysqlCompatibleDatabase {
-    public static final String DATABASE_NAME = "information_schema";
-    public static final long DATABASE_ID = 0L;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 
-    public InfoSchemaDb() {
-        super(DATABASE_ID, DATABASE_NAME);
-    }
+import java.util.List;
 
-    @Override
-    protected void initTables() {
-        for (Table table : SchemaTable.TABLE_MAP.values()) {
-            super.registerTable(table);
-        }
-    }
+public interface ExternalMetadataOps {
 
-    @Override
-    public boolean registerTable(TableIf table) {
-        return false;
-    }
+    void createDb(CreateDbStmt stmt) throws DdlException;
+
+    void dropDb(DropDbStmt stmt) throws DdlException;
+
+    void createTable(CreateTableStmt stmt) throws UserException;
+
+    void dropTable(DropTableStmt stmt) throws DdlException;
+
+    List<String> listDatabaseNames();
+
+    List<String> listTableNames(String db);
+
+    boolean tableExist(String dbName, String tblName);
 }

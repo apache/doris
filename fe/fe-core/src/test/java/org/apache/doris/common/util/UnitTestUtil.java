@@ -123,7 +123,7 @@ public class UnitTestUtil {
 
         // db
         Database db = new Database(dbId, DB_NAME);
-        db.addMemoryTable(table);
+        db.registerTable(table);
         return db;
     }
 

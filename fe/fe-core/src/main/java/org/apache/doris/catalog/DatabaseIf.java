@@ -263,7 +263,9 @@ public interface DatabaseIf<T extends TableIf> {
         return (OlapTable) table;
     }
 
-    void removeMemoryTable(String tableName);
+    boolean registerTable(TableIf table);
+
+    void unregisterTable(String tableName);
 
     CatalogIf getCatalog();
 
