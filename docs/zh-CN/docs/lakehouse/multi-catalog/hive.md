@@ -396,6 +396,19 @@ Apache Ranger是一个用来在Hadoop平台上进行监控，启用服务，以�
 "access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
 ```
 
+>注意:
+>
+>"access_controller.properties.ranger.service.name"指的是service的类型，例如hive，hdfs等
+> 如果`ranger-hive-security.xml`配置如下，"access_controller.properties.ranger.service.name"应设置为`hive`而不是`testhive`
+>
+
+```sql
+<property>
+   <name>ranger.plugin.hive.service.name</name>
+   <value>testhive</value>
+</property>
+```
+
 2. 配置所有 FE 环境：
 
     1. 将 HMS conf 目录下的配置文件ranger-hive-audit.xml,ranger-hive-security.xml,ranger-policymgr-ssl.xml复制到 FE 的 conf 目录下。

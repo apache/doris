@@ -19,6 +19,8 @@
 
 #include <memory>
 
+#include "olap/storage_engine.h"
+
 namespace doris {
 namespace cloud {
 class CloudMetaMgr;
@@ -26,15 +28,32 @@ class CloudMetaMgr;
 
 class CloudTabletMgr;
 
-class CloudStorageEngine {
+class CloudStorageEngine final : public BaseStorageEngine {
 public:
-    CloudStorageEngine();
+    CloudStorageEngine(const UniqueId& backend_uid);
 
-    ~CloudStorageEngine();
+    ~CloudStorageEngine() override;
+
+    Status open() override;
+    void stop() override;
+    bool stopped() override;
+
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
+
+    Status start_bg_threads() override;
+
+    Status set_cluster_id(int32_t cluster_id) override {
+        _effective_cluster_id = cluster_id;
+        return Status::OK();
+    }
 
     cloud::CloudMetaMgr& meta_mgr() { return *_meta_mgr; }
 
+    CloudTabletMgr& tablet_mgr() { return *_tablet_mgr; }
+
 private:
+    std::atomic_bool _stopped {false};
+
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
 };

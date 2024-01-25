@@ -48,6 +48,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.CaseWhenToIf;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
@@ -460,6 +461,7 @@ public class Analyzer {
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             rules.add(ElementAtToSlotRefRule.INSTANCE);
             rules.add(FunctionAlias.INSTANCE);
+            rules.add(CaseWhenToIf.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -76,6 +77,13 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         logicalPlan = logicalPlan.recomputeLogicalProperties();
         logicalPlan.getOutputSet().forEach(s -> replaceMap.put(s.getExprId(), s));
         return logicalPlan;
+    }
+
+    @Override
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Map<ExprId, Slot> replaceMap) {
+        logicalSink = (LogicalSink<? extends Plan>) super.visit(logicalSink, replaceMap);
+        List<NamedExpression> newOutputExprs = updateExpressions(logicalSink.getOutputExprs(), replaceMap);
+        return logicalSink.withOutputExprs(newOutputExprs);
     }
 
     @Override

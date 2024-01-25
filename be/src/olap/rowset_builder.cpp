@@ -128,7 +128,7 @@ Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context)
         }
         _rowset_ids.clear();
     } else {
-        RETURN_IF_ERROR(tablet()->all_rs_id(cur_max_version, &_rowset_ids));
+        RETURN_IF_ERROR(tablet()->get_all_rs_id_unlocked(cur_max_version, &_rowset_ids));
     }
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
     mow_context =
@@ -185,7 +185,8 @@ Status RowsetBuilder::init() {
     RETURN_IF_ERROR(prepare_txn());
 
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_tablet->tablet_schema());
+    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                 *_tablet->tablet_schema());
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -201,7 +202,7 @@ Status RowsetBuilder::init() {
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
-    _pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);
+    _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 

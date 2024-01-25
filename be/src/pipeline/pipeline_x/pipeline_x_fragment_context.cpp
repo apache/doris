@@ -133,12 +133,12 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         LOG(WARNING) << "PipelineXFragmentContext is cancelled due to timeout : " << debug_string();
     }
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg), _fragment_id)) {
-        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _is_report_on_cancel = false;
+        } else {
             for (auto& id : _fragment_instance_ids) {
                 LOG(WARNING) << "PipelineXFragmentContext cancel instance: " << print_id(id);
             }
-        } else {
-            _set_is_report_on_cancel(false); // TODO bug llj
         }
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -618,10 +618,16 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
                             task->add_upstream_dependency(
-                                    pipeline_id_to_task[dep]->get_downstream_dependency());
+                                    pipeline_id_to_task[dep]->get_downstream_dependency(),
+                                    pipeline_id_to_task[dep]->get_shared_states());
                         }
                     }
                 }
+            }
+        }
+        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+            if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
+                auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
             }
         }
@@ -739,7 +745,7 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
                                             is_shuffled_hash_join, shuffle_idx_to_instance_idx));
 
     // 2. Create and initialize LocalExchangeSharedState.
-    auto shared_state = LocalExchangeSharedState::create_shared();
+    auto shared_state = LocalExchangeSharedState::create_shared(_num_instances);
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
@@ -771,12 +777,10 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
     }
-    shared_state->source_dependencies.resize(_num_instances, nullptr);
-    shared_state->mem_trackers.resize(_num_instances, nullptr);
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
-    sink_dep->set_shared_state(shared_state);
-    shared_state->sink_dependency = sink_dep.get();
+    sink_dep->set_shared_state(shared_state.get());
+    shared_state->sink_dependency = sink_dep;
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
@@ -1219,10 +1223,7 @@ Status PipelineXFragmentContext::submit() {
 
     int submit_tasks = 0;
     Status st;
-    auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (_task_group_entity) {
-        scheduler = _exec_env->pipeline_task_group_scheduler();
-    }
+    auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t.get());

@@ -31,7 +31,8 @@ under the License.
 `VARCHAR strleft(VARCHAR str, INT len)`
 
 
-它返回具有指定长度的字符串的左边部分，长度的单位为utf8字符，此函数的另一个别名为[left](./left.md)。
+它返回具有指定长度的字符串的左边部分，长度的单位为utf8字符，此函数的另一个别名为 `left`。
+如果函数参数含有NULL值那么函数将始终返回NULL，如果整型参数小于等于0，那么将返回空 “”。
 
 ### example
 
@@ -42,6 +43,24 @@ mysql> select strleft("Hello doris",5);
 +------------------------+
 | Hello                  |
 +------------------------+
+mysql> select strleft("Hello doris",-5);
++----------------------------+
+| strleft('Hello doris', -5) |
++----------------------------+
+|                            |
++----------------------------+
+mysql> select strleft("Hello doris",NULL);
++------------------------------+
+| strleft('Hello doris', NULL) |
++------------------------------+
+| NULL                         |
++------------------------------+
+mysql> select strleft(NULL,3);
++------------------+
+| strleft(NULL, 3) |
++------------------+
+| NULL             |
++------------------+
 ```
 ### keywords
-    STRLEFT
+    STRLEFT, LEFT

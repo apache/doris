@@ -93,6 +93,8 @@ public class MetadataViewer {
 
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;
+                            } else if (replica.isUserDrop()) {
+                                status = ReplicaStatus.DROP;
                             }
 
                             if (filterReplica(status, statusFilter, op)) {
@@ -109,6 +111,7 @@ public class MetadataViewer {
                             row.add(String.valueOf(replica.getSchemaHash()));
                             row.add(String.valueOf(replica.getVersionCount()));
                             row.add(String.valueOf(replica.isBad()));
+                            row.add(String.valueOf(replica.isUserDrop()));
                             row.add(replica.getState().name());
                             row.add(status.name());
                             result.add(row);
@@ -129,6 +132,7 @@ public class MetadataViewer {
                             row.add("-1");
                             row.add("-1");
                             row.add("-1");
+                            row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(FeConstants.null_string);
                             row.add(ReplicaStatus.MISSING.name());

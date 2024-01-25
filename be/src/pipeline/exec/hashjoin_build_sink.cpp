@@ -364,7 +364,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     }
                     return;
                 }
-                if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32, RowRefListType>(
+                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32, RowRefListType>(
                             *_shared_state->hash_table_variants, _build_expr_ctxs)) {
                     _shared_state->hash_table_variants
                             ->emplace<vectorized::SerializedHashTableContext<RowRefListType>>();
