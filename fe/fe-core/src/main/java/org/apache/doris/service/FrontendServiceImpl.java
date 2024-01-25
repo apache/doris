@@ -2122,9 +2122,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
             StreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
-                planner = new StreamLoadPlanner(db, table, streamLoadTask);
-            } else {
                 planner = new CloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
+            } else {
+                planner = new StreamLoadPlanner(db, table, streamLoadTask);
             }
 
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
