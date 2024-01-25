@@ -294,6 +294,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     watch.start();
     while (!_tablet_schema_for_index->contains(index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
+        RETURN_IF_ERROR(_check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
@@ -308,7 +309,15 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
         while (true) {
         };
     });
-    if (!_is_init.load() || _is_closed.load()) {
+    if (!_is_init.load()) {
+        return Status::InternalError("stream {} is not opened, load_id={}", _stream_id,
+                                     print_id(_load_id));
+    }
+    if (_is_closed.load()) {
+        return _check_cancel();
+    }
+    // if there are other sinks remaining, let the last sink handle close wait
+    if (_use_cnt > 0) {
         return Status::OK();
     }
     if (timeout_ms <= 0) {
@@ -324,12 +333,27 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
                     print_id(_load_id), _dst_id, _stream_id);
         }
     }
+    RETURN_IF_ERROR(_check_cancel());
     if (!_is_eos.load()) {
         return Status::InternalError(
                 "stream closed without eos, load_id={}, dst_id={}, stream_id={}",
                 print_id(_load_id), _dst_id, _stream_id);
     }
     return Status::OK();
+}
+
+void LoadStreamStub::cancel(Status reason) {
+    LOG(WARNING) << *this << " is cancelled because of " << reason;
+    {
+        std::lock_guard<bthread::Mutex> lock(_cancel_mutex);
+        _cancel_reason = reason;
+        _is_cancelled.store(true);
+    }
+    {
+        std::lock_guard<bthread::Mutex> lock(_close_mutex);
+        _is_closed.store(true);
+        _close_cv.notify_all();
+    }
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
@@ -365,6 +389,7 @@ Status LoadStreamStub::_send_with_buffer(butil::IOBuf& buf, bool sync) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
+        RETURN_IF_ERROR(_check_cancel());
         int ret;
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());

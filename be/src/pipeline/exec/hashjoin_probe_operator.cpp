@@ -56,6 +56,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
     _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
     _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
+    _init_probe_side_timer = ADD_TIMER(profile(), "InitProbeSideTime");
     return Status::OK();
 }
 

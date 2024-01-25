@@ -32,11 +32,54 @@ workload group 可限制组内任务在单个be节点上的计算资源和内存
 
 ## workload group属性
 
-* cpu_share: 必选，用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
+* cpu_share: 可选，默认值为1024，取值范围是正整数。用于设置workload group获取cpu时间的多少，可以实现cpu资源软隔离。cpu_share 是相对值，表示正在运行的workload group可获取cpu资源的权重。例如，用户创建了3个workload group g-a、g-b和g-c，cpu_share 分别为 10、30、40，某一时刻g-a和g-b正在跑任务，而g-c没有任务，此时g-a可获得 25% (10 / (10 + 30))的cpu资源，而g-b可获得75%的cpu资源。如果系统只有一个workload group正在运行，则不管其cpu_share的值为多少，它都可获取全部的cpu资源。
 
-* memory_limit: 必选，用于设置workload group可以使用be内存的百分比。workload group内存限制的绝对值为：`物理内存 * mem_limit * memory_limit`，其中 mem_limit 为be配置项。系统所有workload group的 memory_limit总合不可超过100%。workload group在绝大多数情况下保证组内任务可使用memory_limit的内存，当workload group内存使用超出该限制后，组内内存占用较大的任务可能会被cancel以释放超出的内存，参考 enable_memory_overcommit。
+* memory_limit: 可选，默认值0%，不限制，取值范围1%~100%，用于设置workload group可以使用be内存的百分比。Workload Group可用的最大内存，所有group的累加值不可以超过100%，通常与enable_memory_overcommit配合使用。如果一个机器的内存为64G，mem_limit=50%，那么该group的实际物理内存=64G * 90%(be conf mem_limit) * 50%= 28.8G，这里的90%是BE进程级别的mem_limit参数，限制整个BE进程的内存用量。一个集群中所有Workload Group的memory_limit的累加值不能超过100%。
 
-* enable_memory_overcommit: 可选，用于开启workload group内存软隔离，默认为false。如果设置为false，则该workload group为内存硬隔离，系统检测到workload group内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该workload group为内存软隔离，如果系统有空闲内存资源则该workload group在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有workload group开启该配置时，所有workload group的 memory_limit 总和低于100%，剩余部分用于workload group内存超发。
+* enable_memory_overcommit: 可选，用于开启workload group内存软隔离，默认为true。如果设置为false，则该workload group为内存硬隔离，系统检测到workload group内存使用超出限制后将立即cancel组内内存占用最大的若干个任务，以释放超出的内存；如果设置为true，则该workload group为内存软隔离，如果系统有空闲内存资源则该workload group在超出memory_limit的限制后可继续使用系统内存，在系统总内存紧张时会cancel组内内存占用最大的若干个任务，释放部分超出的内存以缓解系统内存压力。建议在有workload group开启该配置时，所有workload group的 memory_limit 总和低于100%，剩余部分用于workload group内存超发。
+
+* cpu_hard_limit：可选，默认值-1%，不限制。取值范围1%~100%，CPU硬限制模式下，Workload Group最大可用的CPU百分比，不管当前机器的CPU资源是否被用满，Workload Group的最大CPU用量都不能超过cpu_hard_limit，
+  所有Workload Group的cpu_hard_limit累加值不能超过100%。2.1版本新增属性
+* max_concurrency：可选，最大查询并发数，默认值为整型最大值，也就是不做并发的限制。运行中的查询数量达到该值时，新来的查询会进入排队的逻辑。
+* max_queue_size：可选，查询排队队列的长度，当排队队列已满时，新来的查询会被拒绝。默认值为0，含义是不排队。
+* queue_timeout：可选，查询在排队队列中的超时时间，单位为毫秒，如果查询在队列中的排队时间超过这个值，那么就会直接抛出异常给客户端。默认值为0，含义是不排队。
+
+注意事项：
+
+1 目前暂不支持CPU的软限和硬限的同时使用，一个集群某一时刻只能是软限或者硬限，下文中会描述切换方法。
+
+2 所有属性均为可选，但是在创建Workload Group时需要指定至少一个属性。
+
+## 配置cgroup v1的环境
+Doris的2.0版本使用基于Doris的调度实现CPU资源的限制，但是从2.1版本起，Doris默认使用基于CGroup v1版本对CPU资源进行限制（暂不支持CGroup v2），因此如果期望在2.1版本对CPU资源进行约束，那么需要BE所在的节点上已经安装好CGroup v1的环境。
+
+用户如果在2.0版本使用了Workload Group的软限并升级到了2.1版本，那么也需要配置CGroup。
+
+1 首先确认BE所在节点已经安装好CGroup v1版本，确认存在路径```/sys/fs/cgroup/cpu/```即可。
+
+2 在cgroup的cpu路径下新建一个名为doris的目录，这个目录名用户可以自行指定
+
+```mkdir /sys/fs/cgroup/cpu/doris```
+
+3 需要保证Doris的BE进程对于这个目录有读/写/执行权限
+```
+// 修改这个目录的权限为可读可写可执行
+chmod 770 /sys/fs/cgroup/cpu/doris
+
+// 把这个目录的归属划分给doris的账户
+chonw -R doris:doris /sys/fs/cgroup/cpu/doris
+```
+
+4 修改BE的配置，指定cgroup的路径
+```
+方法1：修改be.conf然后重启BE
+doris_cgroup_cpu_path = /sys/fs/cgroup/cpu/doris
+
+方法2：可以通过动态修改内存的方式
+curl -X POST http://{be_ip}:{be_http_port}/api/update_config?doris_cgroup_cpu_path=/sys/fs/cgroup/cpu/doris
+```
+
+需要注意的是，目前的workload group暂时不支持一个机器多个BE的部署方式。
 
 ## workload group使用
 
@@ -55,6 +98,8 @@ properties (
     "enable_memory_overcommit"="true"
 );
 ```
+此时配置的CPU限制为软限。
+
 创建workload group详细可参考：[CREATE-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP.md)，另删除workload group可参考[DROP-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP.md)；修改workload group可参考：[ALTER-WORKLOAD-GROUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP.md)；查看workload group可参考：[WORKLOAD_GROUPS()](../sql-manual/sql-functions/table-functions/workload-group.md)和[SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md)。
 
 3. 开启pipeline执行引擎，workload group cpu隔离基于pipeline执行引擎实现，因此需开启session变量：
@@ -89,13 +134,60 @@ properties (
     "queue_timeout" = "3000"
 );
 ```
-目前的workload group支持查询排队的功能，可以在新建group时进行指定，需要以下三个参数:
-* max_concurrency，当前group允许的最大查询数;超过最大并发的查询到来时会进入排队逻辑
-* max_queue_size，查询排队的长度;当队列满了之后，新来的查询会被拒绝
-* queue_timeout，查询在队列中等待的时间，如果查询等待时间超过这个值，那么查询会被拒绝，时间单位为毫秒
 
 需要注意的是，目前的排队设计是不感知FE的个数的，排队的参数只在单FE粒度生效，例如：
 
 一个Doris集群配置了一个work load group，设置max_concurrency = 1
 如果集群中有1FE，那么这个workload group在Doris集群视角看同时只会运行一个SQL
 如果有3台FE，那么在Doris集群视角看最大可运行的SQL个数为3
+
+### 配置CPU的硬限
+目前Doris默认运行CPU的软限，如果期望使用Workload Group的硬限功能，可以按照如下流程操作。
+
+1 在FE中开启CPU的硬限的功能，如果有多个FE，那么需要在每个FE上都进行相同操作。
+```
+1 修改磁盘上fe.conf的配置
+experimental_enable_cpu_hard_limit = true
+
+2 修改内存中的配置
+ADMIN SET FRONTEND CONFIG ("enable_cpu_hard_limit" = "true");
+```
+
+2 修改Workload Group的cpu_hard_limit属性
+```
+alter workload group group1 properties ( 'cpu_hard_limit'='20%' );
+```
+
+3 查看当前的Workload Group的配置，可以看到尽管此时cpu_share的值可能不为0，但是由于开启了硬限模式，那么查询在执行时也会走CPU的硬限。也就是说CPU软硬限的开关不影响元数据的修改。
+```
+mysql [(none)]>select name, cpu_share,memory_limit,enable_memory_overcommit,cpu_hard_limit from workload_groups() where name='group1';
++--------+-----------+--------------+--------------------------+----------------+
+| Name   | cpu_share | memory_limit | enable_memory_overcommit | cpu_hard_limit |
++--------+-----------+--------------+--------------------------+----------------+
+| group1 |        10 | 45%          | true                     | 20%            |
++--------+-----------+--------------+--------------------------+----------------+
+1 row in set (0.03 sec)
+```
+
+### CPU软硬限模式切换的说明
+目前Doris暂不支持同时运行CPU的软限和硬限，一个Doris集群在任意时刻只能是CPU软限或者CPU硬限。
+用户可以在两种模式之间进行切换，主要切换方法如下：
+
+1 假如当前的集群配置是默认的CPU软限制，然后期望改成CPU的硬限，那么首先需要把Workload Group的cpu_hard_limit参数修改成一个有效的值
+```
+alter workload group group1 properties ( 'cpu_hard_limit'='20%' );
+```
+需要修改当前集群中所有的Workload Group的这个属性，所有Workload Group的cpu_hard_limit的累加值不能超过100%
+由于CPU的硬限无法给出一个有效的默认值，因此如果只打开开关但是不修改属性，那么CPU的硬限也无法生效。
+
+2 在所有FE中打开CPU硬限的开关
+```
+1 修改磁盘上fe.conf的配置
+experimental_enable_cpu_hard_limit = true
+
+2 修改内存中的配置
+ADMIN SET FRONTEND CONFIG ("enable_cpu_hard_limit" = "true");
+```
+
+如果用户期望从CPU的硬限切换回CPU的软限，那么只需要在FE修改enable_cpu_hard_limit的值为false即可。
+CPU软限的属性cpu_share默认会填充一个有效值1024(如果之前未指定cpu_share的值)，用户可以根据group的优先级对cpu_share的值进行重新调整。

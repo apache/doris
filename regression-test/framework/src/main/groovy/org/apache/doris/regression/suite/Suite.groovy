@@ -26,6 +26,7 @@ import groovy.json.JsonSlurper
 import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.action.BenchmarkAction
+import org.apache.doris.regression.action.WaitForAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
@@ -472,6 +473,10 @@ class Suite implements GroovyInterceptable {
 
     void benchmark(Closure actionSupplier) {
         runAction(new BenchmarkAction(context), actionSupplier)
+    }
+
+    void waitForSchemaChangeDone(Closure actionSupplier) {
+        runAction(new WaitForAction(context), actionSupplier)
     }
 
     String getBrokerName() {
@@ -932,5 +937,30 @@ class Suite implements GroovyInterceptable {
         }
         Assert.assertEquals(true, !createdTableName.isEmpty())
     }
-}
 
+    String[][] deduplicate_tablets(String[][] tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+
+    ArrayList deduplicate_tablets(ArrayList tablets) {
+        def result = [:]
+
+        tablets.each { row ->
+            def tablet_id = row[0]
+            if (!result.containsKey(tablet_id)) {
+                result[tablet_id] = row
+            }
+        }
+
+        return result.values().toList()
+    }
+}

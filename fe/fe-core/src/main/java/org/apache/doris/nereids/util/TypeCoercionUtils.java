@@ -1120,7 +1120,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForComparison(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForComparison(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType(), intStringToString);
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));
@@ -1348,7 +1348,7 @@ public class TypeCoercionUtils {
             }
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
-                Optional<DataType> newDataType = findCommonComplexTypeForCaseWhen(leftFields.get(i).getDataType(),
+                Optional<DataType> newDataType = findWiderTypeForTwoForCaseWhen(leftFields.get(i).getDataType(),
                         rightFields.get(i).getDataType());
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));

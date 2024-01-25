@@ -427,19 +427,31 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .partition_id = rows.partition_id,
                 .load_id = _load_id,
                 .tuple_desc = _output_tuple_desc,
-                .table_schema_param = _schema.get(),
+                .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
         };
+        bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
                 req.slots = &index->slots;
                 req.schema_hash = index->schema_hash;
+                index_not_found = false;
                 break;
             }
         }
-        return DeltaWriterV2::open(&req, streams, _state);
+        if (index_not_found) {
+            LOG(WARNING) << "index " << rows.index_id
+                         << " not found in schema, load_id=" << print_id(_load_id);
+            return std::unique_ptr<DeltaWriterV2>(nullptr);
+        }
+        return std::make_unique<DeltaWriterV2>(&req, streams, _state);
     });
+    if (delta_writer == nullptr) {
+        LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
+                     << ", load_id=" << print_id(_load_id);
+        return Status::InternalError("failed to open DeltaWriter for tablet {}", tablet_id);
+    }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
@@ -457,7 +469,10 @@ Status VTabletWriterV2::_cancel(Status status) {
         _delta_writer_for_tablet.reset();
     }
     for (const auto& [_, streams] : _streams_for_node) {
-        streams->release(status);
+        for (const auto& stream : streams->streams()) {
+            stream->cancel(status);
+        }
+        streams->release();
     }
     return Status::OK();
 }
@@ -514,7 +529,7 @@ Status VTabletWriterV2::close(Status exec_status) {
         // defer stream release to prevent memory leak
         Defer defer([&] {
             for (const auto& [_, streams] : _streams_for_node) {
-                streams->release(status);
+                streams->release();
             }
             _streams_for_node.clear();
         });

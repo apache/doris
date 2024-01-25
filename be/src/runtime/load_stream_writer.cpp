@@ -71,8 +71,9 @@ using namespace ErrorCode;
 
 LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
         : _req(*context), _rowset_writer(nullptr) {
-    _rowset_builder =
-            std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+    // TODO(plat1ko): CloudStorageEngine
+    _rowset_builder = std::make_unique<RowsetBuilder>(
+            ExecEnv::GetInstance()->storage_engine().to_local(), *context, profile);
 }
 
 LoadStreamWriter::~LoadStreamWriter() = default;

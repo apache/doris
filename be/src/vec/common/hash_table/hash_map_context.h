@@ -31,6 +31,7 @@
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/exec/join/join_op.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -41,15 +42,13 @@ template <typename Base>
 struct DataWithNullKey;
 
 template <typename HashMap>
-struct MethodBase {
+struct MethodBaseInner {
     using Key = typename HashMap::key_type;
     using Mapped = typename HashMap::mapped_type;
     using Value = typename HashMap::value_type;
-    using Iterator = typename HashMap::iterator;
     using HashMapType = HashMap;
 
     std::shared_ptr<HashMap> hash_table;
-    Iterator iterator;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
@@ -58,19 +57,12 @@ struct MethodBase {
     // use in join case
     std::vector<uint32_t> bucket_nums;
 
-    MethodBase() { hash_table.reset(new HashMap()); }
-    virtual ~MethodBase() = default;
+    MethodBaseInner() { hash_table.reset(new HashMap()); }
+    virtual ~MethodBaseInner() = default;
 
     virtual void reset() {
         arena.clear();
         inited_iterator = false;
-    }
-
-    void init_iterator() {
-        if (!inited_iterator) {
-            inited_iterator = true;
-            iterator = hash_table->begin();
-        }
     }
 
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
@@ -128,19 +120,21 @@ struct MethodBase {
 
     template <typename State>
     ALWAYS_INLINE auto find(State& state, size_t i) {
-        prefetch<true>(i);
+        if constexpr (!is_string_hash_map()) {
+            prefetch<true>(i);
+        }
         return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
     }
 
     template <typename State, typename F, typename FF>
     ALWAYS_INLINE auto& lazy_emplace(State& state, size_t i, F&& creator,
                                      FF&& creator_for_null_key) {
-        prefetch<false>(i);
+        if constexpr (!is_string_hash_map()) {
+            prefetch<false>(i);
+        }
         return state.lazy_emplace_key(*hash_table, i, keys[i], hash_values[i], creator,
                                       creator_for_null_key);
     }
-
-    static constexpr bool need_presis() { return std::is_same_v<Key, StringRef>; }
 
     static constexpr bool is_string_hash_map() {
         return std::is_same_v<StringHashMap<Mapped>, HashMap> ||
@@ -149,7 +143,14 @@ struct MethodBase {
 
     template <typename Key, typename Origin>
     static void try_presis_key(Key& key, Origin& origin, Arena& arena) {
-        if constexpr (need_presis()) {
+        if constexpr (std::is_same_v<Key, StringRef>) {
+            key.data = arena.insert(key.data, key.size);
+        }
+    }
+
+    template <typename Key, typename Origin>
+    static void try_presis_key_and_origin(Key& key, Origin& origin, Arena& arena) {
+        if constexpr (std::is_same_v<Origin, StringRef>) {
             origin.data = arena.insert(origin.data, origin.size);
             if constexpr (!is_string_hash_map()) {
                 key = origin;
@@ -159,6 +160,29 @@ struct MethodBase {
 
     virtual void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                           size_t num_rows) = 0;
+};
+
+template <typename T>
+concept IteratoredMap = requires(T* map) { typename T::iterator; };
+
+template <typename HashMap>
+struct MethodBase : public MethodBaseInner<HashMap> {
+    using Iterator = void*;
+    Iterator iterator;
+    void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
+};
+
+template <IteratoredMap HashMap>
+struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
+    using Iterator = typename HashMap::iterator;
+    using Base = MethodBaseInner<HashMap>;
+    Iterator iterator;
+    void init_iterator() {
+        if (!Base::inited_iterator) {
+            Base::inited_iterator = true;
+            iterator = Base::hash_table->begin();
+        }
+    }
 };
 
 template <typename TData>
@@ -303,7 +327,6 @@ struct MethodOneNumber : public MethodBase<TData> {
                                                     ->get_raw_data()
                                                     .data
                                           : key_columns[0]->get_raw_data().data);
-        std::string name = key_columns[0]->get_name();
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
@@ -547,14 +570,23 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
 };
 
 template <typename RowRefListType>
-using SerializedHashTableContext = MethodSerialized<JoinFixedHashMap<StringRef, RowRefListType>>;
+using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef, RowRefListType>>;
 
 template <class T, typename RowRefListType>
 using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, JoinFixedHashMap<T, RowRefListType, HashCRC32<T>>>;
+        MethodOneNumber<T, JoinHashMap<T, RowRefListType, HashCRC32<T>>>;
 
 template <class Key, bool has_null, typename Value>
-using FixedKeyHashTableContext =
-        MethodKeysFixed<JoinFixedHashMap<Key, Value, HashCRC32<Key>>, has_null>;
+using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, Value, HashCRC32<Key>>, has_null>;
+
+template <class Key, bool has_null>
+using SetFixedKeyHashTableContext =
+        MethodKeysFixed<HashMap<Key, RowRefListWithFlags, HashCRC32<Key>>, has_null>;
+
+template <class T>
+using SetPrimaryTypeHashTableContext =
+        MethodOneNumber<T, HashMap<T, RowRefListWithFlags, HashCRC32<T>>>;
+
+using SetSerializedHashTableContext = MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>;
 
 } // namespace doris::vectorized

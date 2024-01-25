@@ -35,6 +35,7 @@
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/types.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
@@ -57,9 +58,22 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
+    template <class TARGET>
+    TARGET* cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<TARGET*>(this);
+    }
+    template <class TARGET>
+    const TARGET* cast() const {
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<const TARGET*>(this);
+    }
     DependencySPtr source_dep = nullptr;
     DependencySPtr sink_dep = nullptr;
-
     virtual ~BasicSharedState() = default;
 };
 
@@ -86,11 +100,8 @@ public:
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
-    std::shared_ptr<BasicSharedState> shared_state() { return _shared_state; }
-    void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
-        _shared_state = shared_state;
-    }
-    void clear_shared_state() { _shared_state.reset(); }
+    BasicSharedState* shared_state() { return _shared_state; }
+    void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
@@ -111,6 +122,19 @@ public:
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
+    void set_block_to_read() {
+        DCHECK(_is_write_dependency) << debug_string();
+        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
+        _shared_state->source_dep->block();
+    }
+    void set_ready_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->set_ready();
+    }
+    void set_block_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->block();
+    }
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block() { _ready = false; }
@@ -126,7 +150,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
+    BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -470,7 +494,6 @@ public:
 
 struct SetSharedState : public BasicSharedState {
 public:
-    SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
     vectorized::Block build_block; // build to source
     //record element size in hashtable
@@ -502,24 +525,22 @@ public:
 
     /// called in setup_local_state
     void hash_table_init() {
+        using namespace vectorized;
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<
-                        vectorized::I8HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<
-                        vectorized::I16HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<
-                        vectorized::I32HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -527,27 +548,21 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<
-                        vectorized::I64HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<
-                        vectorized::I128HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
                 break;
             default:
-                hash_table_variants->emplace<
-                        vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetSerializedHashTableContext>();
             }
             return;
         }
-
-        if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32,
-                                            vectorized::RowRefListWithFlags>(
+        if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
                     *hash_table_variants, child_exprs_lists[0])) {
-            hash_table_variants->emplace<
-                    vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+            hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
     }
 };
@@ -610,9 +625,10 @@ class Exchanger;
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
     std::vector<DependencySPtr> source_dependencies;
-    Dependency* sink_dependency;
+    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;

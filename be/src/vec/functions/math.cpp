@@ -153,7 +153,7 @@ struct SignImpl {
 struct NameSign {
     static constexpr auto name = "sign";
 };
-using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign, false>;
+using FunctionSign = FunctionUnaryArithmetic<SignImpl, NameSign>;
 
 template <typename A>
 struct AbsImpl {
@@ -176,7 +176,7 @@ struct NameAbs {
     static constexpr auto name = "abs";
 };
 
-using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs, false>;
+using FunctionAbs = FunctionUnaryArithmetic<AbsImpl, NameAbs>;
 
 template <typename A>
 struct NegativeImpl {
@@ -189,7 +189,7 @@ struct NameNegative {
     static constexpr auto name = "negative";
 };
 
-using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative, false>;
+using FunctionNegative = FunctionUnaryArithmetic<NegativeImpl, NameNegative>;
 
 template <typename A>
 struct PositiveImpl {
@@ -202,7 +202,7 @@ struct NamePositive {
     static constexpr auto name = "positive";
 };
 
-using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive, false>;
+using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive>;
 
 struct SinName {
     static constexpr auto name = "sin";
@@ -237,7 +237,7 @@ struct NameRadians {
     static constexpr auto name = "radians";
 };
 
-using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians, false>;
+using FunctionRadians = FunctionUnaryArithmetic<RadiansImpl, NameRadians>;
 
 template <typename A>
 struct DegreesImpl {
@@ -252,7 +252,7 @@ struct NameDegrees {
     static constexpr auto name = "degrees";
 };
 
-using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees, false>;
+using FunctionDegrees = FunctionUnaryArithmetic<DegreesImpl, NameDegrees>;
 
 struct NameBin {
     static constexpr auto name = "bin";

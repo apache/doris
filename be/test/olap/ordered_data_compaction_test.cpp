@@ -74,7 +74,7 @@ using namespace ErrorCode;
 namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static StorageEngine* k_engine = nullptr;
+static StorageEngine* engine_ref = nullptr;
 
 class OrderedDataCompactionTest : public ::testing::Test {
 protected:
@@ -90,22 +90,19 @@ protected:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = std::make_unique<DataDir>(*k_engine, absolute_dir);
-        static_cast<void>(_data_dir->update_capacity());
         doris::EngineOptions options;
-        k_engine = new StorageEngine(options);
-        ExecEnv::GetInstance()->set_storage_engine(k_engine);
+        auto engine = std::make_unique<StorageEngine>(options);
+        engine_ref = engine.get();
+        _data_dir = std::make_unique<DataDir>(*engine_ref, absolute_dir);
+        static_cast<void>(_data_dir->update_capacity());
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
-        if (k_engine != nullptr) {
-            k_engine->stop();
-            delete k_engine;
-            k_engine = nullptr;
-            ExecEnv::GetInstance()->set_storage_engine(nullptr);
-        }
+        engine_ref = nullptr;
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
     TabletSchemaSPtr create_schema(KeysType keys_type = DUP_KEYS) {
@@ -238,7 +235,8 @@ protected:
                                      &writer_context);
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(writer_context, true, &rowset_writer);
+        Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
+                                                       &rowset_writer);
         EXPECT_TRUE(s.ok());
 
         uint32_t num_rows = 0;
@@ -347,7 +345,7 @@ protected:
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
                                TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
-        TabletSharedPtr tablet(new Tablet(*k_engine, tablet_meta, _data_dir.get()));
+        TabletSharedPtr tablet(new Tablet(*engine_ref, tablet_meta, _data_dir.get()));
         static_cast<void>(tablet->init());
         if (has_delete_handler) {
             // delete data with key < 1000

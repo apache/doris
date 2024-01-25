@@ -81,7 +81,7 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
-                            return pushMinMax(agg, agg.child(), ImmutableList.of());
+                            return pushMinMaxSum(agg, agg.child(), ImmutableList.of());
                         })
                         .toRule(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
@@ -102,13 +102,16 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
-                            return pushMinMax(agg, agg.child().child(), agg.child().getProjects());
+                            return pushMinMaxSum(agg, agg.child().child(), agg.child().getProjects());
                         })
                         .toRule(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN)
         );
     }
 
-    private LogicalAggregate<Plan> pushMinMax(LogicalAggregate<? extends Plan> agg,
+    /**
+     * Push down Min/Max/Sum through join.
+     */
+    public static LogicalAggregate<Plan> pushMinMaxSum(LogicalAggregate<? extends Plan> agg,
             LogicalJoin<Plan, Plan> join, List<NamedExpression> projects) {
         List<Slot> leftOutput = join.left().getOutput();
         List<Slot> rightOutput = join.right().getOutput();
@@ -124,6 +127,9 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
             } else {
                 throw new IllegalStateException("Slot " + slot + " not found in join output");
             }
+        }
+        if (leftFuncs.isEmpty() && rightFuncs.isEmpty()) {
+            return null;
         }
 
         Set<Slot> leftGroupBy = new HashSet<>();
@@ -177,6 +183,11 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
         Preconditions.checkState(left != join.left() || right != join.right());
         Plan newJoin = join.withChildren(left, right);
 
+        // top agg
+        // replace
+        // min(x) -> min(min#)
+        // max(x) -> max(max#)
+        // sum(x) -> sum(sum#)
         List<NamedExpression> newOutputExprs = new ArrayList<>();
         for (NamedExpression ne : agg.getOutputExpressions()) {
             if (ne instanceof Alias && ((Alias) ne).child() instanceof AggregateFunction) {

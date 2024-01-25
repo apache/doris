@@ -23,9 +23,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/sort_block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/utils/util.hpp"
@@ -571,7 +569,9 @@ bool ColumnNullable::has_null(size_t size) const {
 }
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable) {
-    if (is_column_nullable(*column)) return column;
+    if (is_column_nullable(*column)) {
+        return column;
+    }
 
     if (is_column_const(*column)) {
         return ColumnConst::create(

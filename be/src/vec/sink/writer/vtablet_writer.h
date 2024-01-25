@@ -219,7 +219,7 @@ public:
     ~VNodeChannel();
 
     // called before open, used to add tablet located in this backend. called by IndexChannel::init
-    void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
+    void add_tablet(const TTabletWithPartition& tablet) { _tablets_wait_open.emplace_back(tablet); }
     std::string debug_tablets() const {
         std::stringstream ss;
         for (const auto& tab : _all_tablets) {
@@ -233,14 +233,15 @@ public:
         _slave_tablet_nodes[tablet_id] = slave_nodes;
     }
 
-    // build a request and build corresponding connect to BE.
-    void open();
-    // for auto partition, we use this to open more tablet.
-    void incremental_open();
-
+    // this function is NON_REENTRANT
     Status init(RuntimeState* state);
-
+    /// these two functions will call open_internal. should keep that clear --- REENTRANT
+    // build corresponding connect to BE. NON-REENTRANT
+    void open();
+    // for auto partition, we use this to open more tablet. KEEP IT REENTRANT
+    void incremental_open();
     // this will block until all request transmission which were opened or incremental opened finished.
+    // this function will called multi times. NON_REENTRANT
     Status open_wait();
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
@@ -258,8 +259,6 @@ public:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     void mark_close();
-
-    bool is_send_data_rpc_done() const;
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -370,6 +369,7 @@ protected:
     std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
 
     std::vector<TTabletWithPartition> _all_tablets;
+    std::vector<TTabletWithPartition> _tablets_wait_open;
     // map from tablet_id to node_id where slave replicas locate in
     std::unordered_map<int64_t, std::vector<int64_t>> _slave_tablet_nodes;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
@@ -390,6 +390,7 @@ protected:
     // The IndexChannel is definitely accessible until the NodeChannel is closed.
     std::mutex _closed_lock;
     bool _is_closed = false;
+    bool _inited = false;
 
     RuntimeState* _state = nullptr;
     // A context lock for callbacks, the callback has to lock the ctx, to avoid
@@ -407,6 +408,7 @@ protected:
     using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
                                   std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
+    // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
 
     bool _is_incremental;
@@ -527,14 +529,10 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status try_close(RuntimeState* state, Status exec_status);
-
     // the consumer func of sending pending batches in every NodeChannel.
     // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
-
-    bool is_close_done();
 
     Status on_partitions_created(TCreatePartitionResult* result);
 
@@ -561,6 +559,8 @@ private:
     void _cancel_all_channel(Status status);
 
     Status _incremental_open_node_channel(const std::vector<TOlapTablePartition>& partitions);
+
+    void _do_try_close(RuntimeState* state, const Status& exec_status);
 
     TDataSink _t_sink;
 

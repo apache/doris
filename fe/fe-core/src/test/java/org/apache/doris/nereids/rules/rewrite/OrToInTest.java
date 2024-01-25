@@ -109,4 +109,19 @@ class OrToInTest extends ExpressionRewriteTestHelper {
                 rewritten.toSql());
     }
 
+    @Test
+    void test6() {
+        String expr = "col = 1 or col = 2 or col in (1, 2, 3)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
+        Assertions.assertEquals("col IN (1, 2, 3)", rewritten.toSql());
+    }
+
+    @Test
+    void test7() {
+        String expr = "A = 1 or A = 2 or abs(A)=5 or A in (1, 2, 3) or B = 1 or B = 2 or B in (1, 2, 3) or B+1 in (4, 5, 7)";
+        Expression expression = PARSER.parseExpression(expr);
+        Expression rewritten = new OrToIn().rewrite(expression, new ExpressionRewriteContext(null));
+        Assertions.assertEquals("(((A IN (1, 2, 3) OR B IN (1, 2, 3)) OR (abs(A) = 5)) OR (B + 1) IN (4, 5, 7))", rewritten.toSql());
+    }
 }

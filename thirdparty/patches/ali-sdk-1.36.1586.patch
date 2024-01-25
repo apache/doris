@@ -1,0 +1,62 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 25e0a8d7f..afb8c68c5 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -11,10 +11,13 @@ message(STATUS "Project version: ${PROJECT_VERSION}")
+ set(TARGET_OUTPUT_NAME_PREFIX "alibabacloud-sdk-" CACHE STRING "The target's output name prefix")
+ set(BUILD_PRODUCT "" CACHE STRING "Build by lower name of product")
+ 
+-option(BUILD_SHARED_LIBS  "Enable shared library" ON)
++option(BUILD_SHARED_LIBS  "Enable shared library" OFF)
+ option(BUILD_UNIT_TESTS "Enable unit tests" OFF)
+ option(BUILD_FUNCTION_TESTS "Enable function test" OFF)
+ 
++option(TP_INSTALL_DIR "Third party install dir")
++message("Third party install dir: ${TP_INSTALL_DIR}")
++
+ set(LIB_TYPE STATIC)
+ 
+ if(BUILD_SHARED_LIBS)
+diff --git a/core/CMakeLists.txt b/core/CMakeLists.txt
+index b0ab27d3b..222a3e5f7 100755
+--- a/core/CMakeLists.txt
++++ b/core/CMakeLists.txt
+@@ -160,6 +160,10 @@ endif()
+ target_include_directories(core
+ 	PRIVATE include )
+ 
++link_directories(${TP_INSTALL_DIR}/include/)
++
++include_directories(${TP_INSTALL_DIR}/lib64)
++
+ if(CMAKE_HOST_WIN32)
+ 	ExternalProject_Get_Property(curl INSTALL_DIR)
+ 	set(curl_install_dir ${INSTALL_DIR})
+@@ -185,7 +189,7 @@ if(CMAKE_HOST_WIN32)
+ 			_CRT_SECURE_NO_WARNINGS)
+ else()
+ 	target_include_directories(core
+-		PRIVATE /usr/include/jsoncpp)
++		PRIVATE ${TP_INSTALL_DIR}/include)
+ 	target_link_libraries(core
+ 		crypto
+ 		curl
+@@ -207,4 +211,4 @@ install(TARGETS core
+ 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+ 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+ 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+-	)
+\ No newline at end of file
++	)
+diff --git a/core/include/alibabacloud/core/NetworkProxy.h b/core/include/alibabacloud/core/NetworkProxy.h
+index 033f6b31d..44e1ea655 100644
+--- a/core/include/alibabacloud/core/NetworkProxy.h
++++ b/core/include/alibabacloud/core/NetworkProxy.h
+@@ -19,6 +19,7 @@
+ 
+ #include "CoreExport.h"
+ #include <string>
++#include <cstdint>  // Fix GCC compile issue
+ 
+ namespace AlibabaCloud {
+ class ALIBABACLOUD_CORE_EXPORT NetworkProxy {

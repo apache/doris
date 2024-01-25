@@ -241,6 +241,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
+    _init_probe_side_timer = ADD_CHILD_TIMER(probe_phase_profile, "InitProbeSideTime", "ProbeTime");
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
@@ -1048,7 +1049,7 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     return;
                 }
 
-                if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32, RowRefListType>(
+                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32, RowRefListType>(
                             *_hash_table_variants, _build_expr_ctxs)) {
                     _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
                 }

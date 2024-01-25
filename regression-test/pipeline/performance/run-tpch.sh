@@ -117,6 +117,7 @@ exit_flag=0
     echo "#### 3. run tpch-sf${SF} query"
     set_session_variable runtime_filter_mode global
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
+    echo
     cold_run_time_threshold=${cold_run_time_threshold_master:-120000} # ms
     hot_run_time_threshold=${hot_run_time_threshold_master:-42000}    # ms
     if [[ "${target_branch}" == "branch-2.0" ]]; then

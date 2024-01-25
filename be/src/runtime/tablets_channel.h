@@ -150,7 +150,7 @@ protected:
     // initialized in open function
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
-    std::unique_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
 
     TupleDescriptor* _tuple_desc = nullptr;
 

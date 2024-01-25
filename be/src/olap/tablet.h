@@ -123,7 +123,7 @@ public:
 
     size_t num_rows();
     int version_count() const;
-    bool exceed_version_limit(int32_t limit) const override;
+    bool exceed_version_limit(int32_t limit) override;
     uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
@@ -149,14 +149,6 @@ public:
     Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                           std::vector<RowsetSharedPtr>& to_delete, bool check_delete = false);
 
-    // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
-    // The caller must call hold _meta_lock when call this two function.
-    const RowsetSharedPtr get_rowset_by_version(const Version& version,
-                                                bool find_is_stale = false) const;
-    const RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
-
-    const RowsetSharedPtr rowset_with_max_version() const;
-
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
@@ -170,9 +162,9 @@ public:
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     // If skip_missing_version is true, return ok even there are missing versions.
-    Status capture_consistent_versions(const Version& spec_version,
-                                       std::vector<Version>* version_path,
-                                       bool skip_missing_version, bool quiet) const;
+    Status capture_consistent_versions_unlocked(const Version& spec_version, Versions* version_path,
+                                                bool skip_missing_version, bool quiet) const;
+
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -183,10 +175,7 @@ public:
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) const override;
-
-    Status capture_rs_readers(const std::vector<Version>& version_path,
-                              std::vector<RowSetSplits>* rs_splits) const;
+                              bool skip_missing_version) override;
 
     // meta lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
@@ -206,11 +195,6 @@ public:
     uint32_t calc_compaction_score(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
-
-    // operation for clone
-    void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
-    void calc_missed_versions_unlocked(int64_t spec_version,
-                                       std::vector<Version>* missed_versions) const;
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -289,10 +273,6 @@ public:
     void build_tablet_report_info(TTabletInfo* tablet_info,
                                   bool enable_consecutive_missing_check = false,
                                   bool enable_path_check = false);
-
-    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
-    // caller should hold the _meta_lock before calling this method
-    void generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
@@ -486,7 +466,6 @@ public:
             RowsetSharedPtr dst_rowset,
             const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
                     location_map);
-    Status all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
     void sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
 
     bool check_all_rowset_segment();
@@ -541,7 +520,7 @@ public:
 
     int64_t get_table_id() { return _tablet_meta->table_id(); }
 
-    // binlog releated functions
+    // binlog related functions
     bool is_enable_binlog();
     bool is_binlog_enabled() { return _tablet_meta->binlog_config().is_enable(); }
     int64_t binlog_ttl_ms() const { return _tablet_meta->binlog_config().ttl_seconds(); }
@@ -563,7 +542,6 @@ public:
 
 private:
     Status _init_once_action();
-    void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     Status _contains_version(const Version& version);
 
@@ -583,9 +561,6 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     uint32_t _calc_base_compaction_score() const;
 
-    // When the proportion of empty edges in the adjacency matrix used to represent the version graph
-    // in the version tracker is greater than the threshold, rebuild the version tracker
-    bool _reconstruct_version_tracker_if_necessary();
     void _init_context_common_fields(RowsetWriterContext& context);
 
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
@@ -607,7 +582,6 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -615,7 +589,6 @@ public:
 private:
     StorageEngine& _engine;
     DataDir* _data_dir = nullptr;
-    TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
@@ -634,13 +607,6 @@ private:
     // during publish_txn, which might take hundreds of milliseconds
     mutable std::mutex _rowset_update_lock;
 
-    // After version 0.13, all newly created rowsets are saved in _rs_version_map.
-    // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
-    // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
-    // These _stale rowsets are been removed when rowsets' pathVersion is expired,
-    // this policy is judged and computed by TimestampedVersionTracker.
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
@@ -773,7 +739,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;
