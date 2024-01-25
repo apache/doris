@@ -85,8 +85,6 @@ public:
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
-    enum class DiskRemainingLevel { LOW, MID, HIGH };
-
     [[nodiscard]] Status open();
 
     static StorageEngine* instance() { return ExecEnv::GetInstance()->get_storage_engine(); }
@@ -511,7 +509,7 @@ public:
 struct DirInfo {
     DataDir* data_dir;
 
-    StorageEngine::DiskRemainingLevel available_level;
+    int available_level = 0;
 
     bool operator<(const DirInfo& other) const {
         if (available_level != other.available_level) {
