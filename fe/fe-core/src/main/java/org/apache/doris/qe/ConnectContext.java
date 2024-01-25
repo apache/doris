@@ -1041,9 +1041,13 @@ public class ConnectContext {
         this.cloudCluster = cluster;
     }
 
-    // 1 Use an explicitly specified cluster
-    // 2 If no cluster is specified, the user's default cluster is used.
-    // 3 If the user does not have a default cluster, select a cluster with permissions for the user.
+    /**
+     * @return Returns an available cluster in the following order
+     *         1 Use an explicitly specified cluster
+     *         2 If no cluster is specified, the user's default cluster is used
+     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
+     *         Returns null when there is no available cluster
+     */
     public String getCloudCluster() {
         String cluster = null;
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {

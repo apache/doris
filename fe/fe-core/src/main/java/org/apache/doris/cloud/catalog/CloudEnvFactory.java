@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -26,10 +28,14 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 
@@ -104,5 +110,11 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public GlobalTransactionMgrIface createGlobalTransactionMgr(Env env) {
         return new CloudGlobalTransactionMgr();
+    }
+
+    @Override
+    public BrokerLoadJob createBrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt,
+            UserIdentity userInfo) throws MetaNotFoundException {
+        return new CloudBrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
     }
 }

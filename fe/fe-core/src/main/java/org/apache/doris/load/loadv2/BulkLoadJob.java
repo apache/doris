@@ -27,10 +27,9 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.load.CloudBrokerLoadJob;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -122,13 +121,9 @@ public abstract class BulkLoadJob extends LoadJob {
         try {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
-                    if (Config.isCloudMode()) {
-                        bulkLoadJob = new CloudBrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
-                    } else {
-                        bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
-                    }
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
+                            stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
@@ -400,15 +395,9 @@ public abstract class BulkLoadJob extends LoadJob {
         try {
             switch (insertStmt.getLoadType()) {
                 case BROKER_LOAD:
-                    if (Config.isCloudMode()) {
-                        bulkLoadJob = new CloudBrokerLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
-                                (BrokerDesc) insertStmt.getResourceDesc(),
-                                insertStmt.getOrigStmt(), insertStmt.getUserInfo());
-                    } else {
-                        bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
-                                (BrokerDesc) insertStmt.getResourceDesc(),
-                                insertStmt.getOrigStmt(), insertStmt.getUserInfo());
-                    }
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
+                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 case SPARK_LOAD:
                     bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
