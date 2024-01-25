@@ -30,6 +30,19 @@ Stream load is a synchronous way of importing. Users import local files or data 
 
 Stream load is mainly suitable for importing local files or data from data streams through procedures.
 
+:::tip
+
+In comparison to single-threaded imports using `curl`, Doris Parallel-Streamload is a client tool designed for importing data into Apache Doris. it reduces the ingestion latency of large datasets by its concurrent importing capabilities. It comes with the following features:
+
+- Concurrent imports: multi-threaded import for the Stream Load method. You can set the concurrency level using the `workers` parameter.
+- Multi-file import: simultaneous import of multiple files and directories with one shot. It supports recursive file fetching and allows you to specify file names with wildcard characters.
+- Resumable loading: In case of partial import failures, it can resume data loading from the point of failure.
+- Auto retry: In case of loading failures, it can automatically retry a default number of times. If the loading remains unsuccessful, it will print the command for manual retry.
+
+See [Doris Parallel-Streamload](../docs/ecosystem/doris-parallel-streamload) for detailed instructions and best practices.
+:::
+
+
 ## Basic Principles
 
 The following figure shows the main flow of Stream load, omitting some import details.

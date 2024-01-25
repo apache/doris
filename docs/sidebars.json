@@ -252,6 +252,7 @@
             "items": [
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
+                "ecosystem/doris-streamloader",
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
