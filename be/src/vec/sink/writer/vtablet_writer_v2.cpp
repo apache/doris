@@ -550,9 +550,10 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
+            auto close_wait_timeout_ms = _state->execution_timeout() * 1000;
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
-                    RETURN_IF_ERROR(stream->close_wait());
+                    RETURN_IF_ERROR(stream->close_wait(close_wait_timeout_ms));
                 }
             }
         }

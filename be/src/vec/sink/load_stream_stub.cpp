@@ -316,9 +316,6 @@ Status LoadStreamStub::close_wait(int64_t timeout_ms) {
     if (_is_closed.load()) {
         return _check_cancel();
     }
-    if (timeout_ms <= 0) {
-        timeout_ms = config::close_load_stream_timeout_ms;
-    }
     DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
     std::unique_lock<bthread::Mutex> lock(_close_mutex);
     if (!_is_closed.load()) {
