@@ -287,8 +287,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         int connectCount = 0;
         if (ConnectContext.get() != null) {
             StatementContext stmtContext = ConnectContext.get().getStatementContext();
-            for (Expression expr : stmtContext.getJoinFilters()) {
-                connectCount += Collections.disjoint(expr.getInputSlots(), plan.getOutputSet()) ? 0 : 1;
+            // in UT, stmtContext is null
+            if (stmtContext != null) {
+                for (Expression expr : stmtContext.getJoinFilters()) {
+                    connectCount += Collections.disjoint(expr.getInputSlots(), plan.getOutputSet()) ? 0 : 1;
+                }
             }
         }
         return connectCount;
