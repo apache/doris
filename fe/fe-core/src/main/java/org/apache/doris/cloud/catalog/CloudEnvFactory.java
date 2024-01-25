@@ -117,4 +117,9 @@ public class CloudEnvFactory extends EnvFactory {
             UserIdentity userInfo) throws MetaNotFoundException {
         return new CloudBrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
     }
+
+    @Override
+    public BrokerLoadJob createBrokerLoadJob() {
+        return new CloudBrokerLoadJob();
+    }
 }

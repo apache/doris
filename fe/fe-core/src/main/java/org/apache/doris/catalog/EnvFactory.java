@@ -102,4 +102,8 @@ public class EnvFactory {
             UserIdentity userInfo) throws MetaNotFoundException {
         return new BrokerLoadJob(dbId, label, brokerDesc, originStmt, userInfo);
     }
+
+    public BrokerLoadJob createBrokerLoadJob() {
+        return new BrokerLoadJob();
+    }
 }
