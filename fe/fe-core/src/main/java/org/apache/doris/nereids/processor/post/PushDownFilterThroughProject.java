@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -42,6 +43,11 @@ public class PushDownFilterThroughProject extends PlanPostProcessor {
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+        if (project.getProjects().stream().anyMatch(
+                namedExpression -> namedExpression.containsType(PushDownToProjectionFunction.class))) {
+            // ignore project which is pulled up from LogicalOlapScan
+            return filter;
+        }
         PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
                 project.child());

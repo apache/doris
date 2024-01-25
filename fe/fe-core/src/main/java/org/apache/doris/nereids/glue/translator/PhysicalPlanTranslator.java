@@ -69,6 +69,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -81,6 +82,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -1619,131 +1621,184 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    // Get top most PushDownToProjectionFunction from expression
+    private Expression getOriginalFunctionForRewritten(NamedExpression expression) {
+        List<Expression> targetExpr = expression.collectFirst(PushDownToProjectionFunction.class::isInstance);
+        if (!targetExpr.isEmpty()) {
+            return targetExpr.get(0);
+        }
+        return null;
+    }
+
+    // register rewritten slots from original PushDownToProjectionFunction
+    private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
+        // register slots that are rewritten from element_at/etc..
+        for (NamedExpression expr : project.getProjects()) {
+            Slot rewrittenSlot = context.getConnectContext()
+                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
+            if (rewrittenSlot != null) {
+                TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
+            }
+        }
+    }
+
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
-        if (project.child(0) instanceof AbstractPhysicalJoin) {
-            ((AbstractPhysicalJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
-        }
-        if (project.child(0) instanceof PhysicalFilter) {
-            if (project.child(0).child(0) instanceof AbstractPhysicalJoin) {
-                ((AbstractPhysicalJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
-            }
-        }
+        boolean allMatch = project.getProjects().stream().allMatch(namedExpr -> namedExpr instanceof Alias
+                && ((Alias) namedExpr).child() instanceof PushDownToProjectionFunction
+                    || namedExpr instanceof SlotReference);
+        boolean anyMatch = project.getProjects().stream().anyMatch(namedExpr -> namedExpr instanceof Alias
+                && ((Alias) namedExpr).child() instanceof PushDownToProjectionFunction);
+        // project contains any PushDownToProjectionFunction and
+        // all the project is either SlotReference or PushDownToProjectionFunction
+        // indicates it is a pulled up rewritten project from LogicalOlapScan from Analyzer rule
+        // e.g. BindSlotWithPath
+        if (anyMatch && allMatch) {
+            Preconditions.checkState(project.child() instanceof PhysicalOlapScan);
+            PlanFragment inputFragment = project.child(0).accept(this, context);
 
-        PlanFragment inputFragment = project.child(0).accept(this, context);
+            Preconditions.checkState(inputFragment.getPlanRoot() instanceof OlapScanNode);
+            OlapScanNode scanNode = (OlapScanNode) inputFragment.getPlanRoot();
+            registerRewrittenSlot(project, scanNode);
 
-        List<Expr> projectionExprs = project.getProjects()
-                .stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
-        List<Slot> slots = project.getProjects()
-                .stream()
-                .map(NamedExpression::toSlot)
-                .collect(Collectors.toList());
-
-        // process multicast sink
-        if (inputFragment instanceof MultiCastPlanFragment) {
-            MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
-            DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
-                    multiCastDataSink.getDataStreamSinks().size() - 1);
-            TupleDescriptor projectionTuple = generateTupleDesc(slots, null, context);
-            dataStreamSink.setProjections(projectionExprs);
-            dataStreamSink.setOutputTupleDesc(projectionTuple);
+            List<Expr> projectionExprs = project.getProjects()
+                    .stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+            scanNode.setRewrittenProjectList(projectionExprs);
             return inputFragment;
-        }
-
-        PlanNode inputPlanNode = inputFragment.getPlanRoot();
-        List<Expr> conjuncts = inputPlanNode.getConjuncts();
-        Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
-        for (Expr expr : projectionExprs) {
-            Expr.extractSlots(expr, requiredSlotIdSet);
-        }
-        Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
-        for (Expr expr : conjuncts) {
-            Expr.extractSlots(expr, requiredSlotIdSet);
-        }
-        // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
-        // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
-        // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
-        if (inputPlanNode instanceof JoinNodeBase) {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-            JoinNodeBase joinNode = (JoinNodeBase) inputPlanNode;
-            joinNode.setvOutputTupleDesc(tupleDescriptor);
-            joinNode.setvSrcToOutputSMap(projectionExprs);
-            // prune the hashOutputSlotIds
-            if (joinNode instanceof HashJoinNode) {
-                ((HashJoinNode) joinNode).getHashOutputSlotIds().clear();
-                Set<ExprId> requiredExprIds = Sets.newHashSet();
-                Set<SlotId> requiredOtherConjunctsSlotIdSet = Sets.newHashSet();
-                List<Expr> otherConjuncts = ((HashJoinNode) joinNode).getOtherJoinConjuncts();
-                for (Expr expr : otherConjuncts) {
-                    Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
-                }
-                requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
-                requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
-                for (ExprId exprId : requiredExprIds) {
-                    SlotId slotId = ((HashJoinNode) joinNode).getHashOutputExprSlotIdMap().get(exprId);
-                    Preconditions.checkState(slotId != null);
-                    ((HashJoinNode) joinNode).addSlotIdToHashOutputSlotIds(slotId);
-                }
-            }
-            return inputFragment;
-        }
-
-        if (inputPlanNode instanceof TableFunctionNode) {
-            TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
-            tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
-        }
-
-        if (inputPlanNode instanceof ScanNode) {
-            TupleDescriptor projectionTuple = null;
-            // slotIdsByOrder is used to ensure the ScanNode's output order is same with current Project
-            // if we change the output order in translate project, the upper node will receive wrong order
-            // tuple, since they get the order from project.getOutput() not scan.getOutput()./
-            List<SlotId> slotIdsByOrder = Lists.newArrayList();
-            if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
-                    || new HashSet<>(projectionExprs).size() != projectionExprs.size()
-                    || projectionExprs.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
-                projectionTuple = generateTupleDesc(slots,
-                                  ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
-                inputPlanNode.setProjectList(projectionExprs);
-                inputPlanNode.setOutputTupleDesc(projectionTuple);
-            } else {
-                for (int i = 0; i < slots.size(); ++i) {
-                    context.addExprIdSlotRefPair(slots.get(i).getExprId(),
-                            (SlotRef) projectionExprs.get(i));
-                    slotIdsByOrder.add(((SlotRef) projectionExprs.get(i)).getSlotId());
-                }
-            }
-
-            // TODO: this is a temporary scheme to support two phase read when has project.
-            //  we need to refactor all topn opt into rbo stage.
-            if (inputPlanNode instanceof OlapScanNode) {
-                ArrayList<SlotDescriptor> olapScanSlots =
-                        context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
-                SlotDescriptor lastSlot = olapScanSlots.get(olapScanSlots.size() - 1);
-                if (lastSlot.getColumn() != null
-                        && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
-                    if (projectionTuple != null) {
-                        injectRowIdColumnSlot(projectionTuple);
-                        SlotRef slotRef = new SlotRef(lastSlot);
-                        inputPlanNode.getProjectList().add(slotRef);
-                        requiredByProjectSlotIdSet.add(lastSlot.getId());
-                    } else {
-                        slotIdsByOrder.add(lastSlot.getId());
-                    }
-                    requiredSlotIdSet.add(lastSlot.getId());
-                }
-            }
-            updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
-                    requiredByProjectSlotIdSet, slotIdsByOrder, context);
         } else {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
-            inputPlanNode.setProjectList(projectionExprs);
-            inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            if (project.child(0) instanceof AbstractPhysicalJoin) {
+                ((AbstractPhysicalJoin<?, ?>) project.child(0)).setShouldTranslateOutput(false);
+            }
+            if (project.child(0) instanceof PhysicalFilter) {
+                if (project.child(0).child(0) instanceof AbstractPhysicalJoin) {
+                    ((AbstractPhysicalJoin<?, ?>) project.child(0).child(0)).setShouldTranslateOutput(false);
+                }
+            }
+
+            PlanFragment inputFragment = project.child(0).accept(this, context);
+
+            if (inputFragment.getPlanRoot() instanceof OlapScanNode) {
+                // function already pushed down in projection
+                // e.g. select count(distinct cast(element_at(v, 'a') as int)) from tbl;
+                registerRewrittenSlot(project, (OlapScanNode) inputFragment.getPlanRoot());
+            }
+
+            List<Expr> projectionExprs = project.getProjects()
+                    .stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+            List<Slot> slots = project.getProjects()
+                    .stream()
+                    .map(NamedExpression::toSlot)
+                    .collect(Collectors.toList());
+
+            // process multicast sink
+            if (inputFragment instanceof MultiCastPlanFragment) {
+                MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
+                DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
+                        multiCastDataSink.getDataStreamSinks().size() - 1);
+                TupleDescriptor projectionTuple = generateTupleDesc(slots, null, context);
+                dataStreamSink.setProjections(projectionExprs);
+                dataStreamSink.setOutputTupleDesc(projectionTuple);
+                return inputFragment;
+            }
+
+            PlanNode inputPlanNode = inputFragment.getPlanRoot();
+            List<Expr> conjuncts = inputPlanNode.getConjuncts();
+            Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
+            for (Expr expr : projectionExprs) {
+                Expr.extractSlots(expr, requiredSlotIdSet);
+            }
+            Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
+            for (Expr expr : conjuncts) {
+                Expr.extractSlots(expr, requiredSlotIdSet);
+            }
+            // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
+            // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
+            // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
+            if (inputPlanNode instanceof JoinNodeBase) {
+                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+                JoinNodeBase joinNode = (JoinNodeBase) inputPlanNode;
+                joinNode.setvOutputTupleDesc(tupleDescriptor);
+                joinNode.setvSrcToOutputSMap(projectionExprs);
+                // prune the hashOutputSlotIds
+                if (joinNode instanceof HashJoinNode) {
+                    ((HashJoinNode) joinNode).getHashOutputSlotIds().clear();
+                    Set<ExprId> requiredExprIds = Sets.newHashSet();
+                    Set<SlotId> requiredOtherConjunctsSlotIdSet = Sets.newHashSet();
+                    List<Expr> otherConjuncts = ((HashJoinNode) joinNode).getOtherJoinConjuncts();
+                    for (Expr expr : otherConjuncts) {
+                        Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
+                    }
+                    requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                    requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                    for (ExprId exprId : requiredExprIds) {
+                        SlotId slotId = ((HashJoinNode) joinNode).getHashOutputExprSlotIdMap().get(exprId);
+                        Preconditions.checkState(slotId != null);
+                        ((HashJoinNode) joinNode).addSlotIdToHashOutputSlotIds(slotId);
+                    }
+                }
+                return inputFragment;
+            }
+
+            if (inputPlanNode instanceof TableFunctionNode) {
+                TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
+                tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
+            }
+
+            if (inputPlanNode instanceof ScanNode) {
+                TupleDescriptor projectionTuple = null;
+                // slotIdsByOrder is used to ensure the ScanNode's output order is same with current Project
+                // if we change the output order in translate project, the upper node will receive wrong order
+                // tuple, since they get the order from project.getOutput() not scan.getOutput()./
+                List<SlotId> slotIdsByOrder = Lists.newArrayList();
+                if (requiredByProjectSlotIdSet.size() != requiredSlotIdSet.size()
+                        || new HashSet<>(projectionExprs).size() != projectionExprs.size()
+                        || projectionExprs.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
+                    projectionTuple = generateTupleDesc(slots,
+                            ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                    inputPlanNode.setProjectList(projectionExprs);
+                    inputPlanNode.setOutputTupleDesc(projectionTuple);
+                } else {
+                    for (int i = 0; i < slots.size(); ++i) {
+                        context.addExprIdSlotRefPair(slots.get(i).getExprId(),
+                                (SlotRef) projectionExprs.get(i));
+                        slotIdsByOrder.add(((SlotRef) projectionExprs.get(i)).getSlotId());
+                    }
+                }
+
+                // TODO: this is a temporary scheme to support two phase read when has project.
+                //  we need to refactor all topn opt into rbo stage.
+                if (inputPlanNode instanceof OlapScanNode) {
+                    ArrayList<SlotDescriptor> olapScanSlots =
+                            context.getTupleDesc(inputPlanNode.getTupleIds().get(0)).getSlots();
+                    SlotDescriptor lastSlot = olapScanSlots.get(olapScanSlots.size() - 1);
+                    if (lastSlot.getColumn() != null
+                            && lastSlot.getColumn().getName().equals(Column.ROWID_COL)) {
+                        if (projectionTuple != null) {
+                            injectRowIdColumnSlot(projectionTuple);
+                            SlotRef slotRef = new SlotRef(lastSlot);
+                            inputPlanNode.getProjectList().add(slotRef);
+                            requiredByProjectSlotIdSet.add(lastSlot.getId());
+                        } else {
+                            slotIdsByOrder.add(lastSlot.getId());
+                        }
+                        requiredSlotIdSet.add(lastSlot.getId());
+                    }
+                }
+                updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
+                        requiredByProjectSlotIdSet, slotIdsByOrder, context);
+            } else {
+                TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+                inputPlanNode.setProjectList(projectionExprs);
+                inputPlanNode.setOutputTupleDesc(tupleDescriptor);
+            }
+            return inputFragment;
         }
-        return inputFragment;
     }
 
     /**

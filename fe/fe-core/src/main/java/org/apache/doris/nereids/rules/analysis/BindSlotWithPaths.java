@@ -18,25 +18,19 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.Unbound;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
-import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -53,56 +47,31 @@ public class BindSlotWithPaths implements AnalysisRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                RuleType.BINDING_SLOT_WITH_PATHS.build(logicalPlan().thenApply(ctx -> {
-                    if (!ctx.connectContext.getSessionVariable().isEnableRewriteElementAtToSlot()
-                            || ctx.root instanceof Unbound) {
-                        return ctx.root;
-                    }
-                    LogicalPlan plan = ctx.root;
-                    List<Expression> expressions = new ArrayList<>(plan.getExpressions());
-                    if (plan instanceof LogicalAggregate) {
-                        expressions.addAll(((LogicalAggregate<?>) (plan)).getGroupByExpressions());
-                    }
-                    if (expressions.stream().anyMatch(SlotReference::containsPathsSlotReference)) {
-                        // Indicates a missing column in schema but real slots bind with parent column.
-                        // Need to combine slots withs paths and slots in computeOutput
-                        Set<Slot> pathsSlots = expressions.stream()
-                                .flatMap(expression -> {
-                                    List<SlotReference> slotReferences =
-                                            expression.collectToList(SlotReference.class::isInstance);
-                                    return slotReferences.stream();
-                                })
-                                .filter(SlotReference::hasSubColPath)
-                                .collect(Collectors.toSet());
-                        plan.foreachUp((child) -> {
-                            if (child instanceof LogicalOlapScan) {
-                                // With new logical properties that contains new slots with paths
-                                LogicalOlapScan logicalOlapScan = (LogicalOlapScan) child;
-                                List<Slot> outputSlots = logicalOlapScan.getOutput();
-                                StatementContext stmtCtx = ConnectContext.get().getStatementContext();
-                                List<Slot> olapScanPathSlots = pathsSlots.stream().filter(
-                                        slot -> {
-                                            return stmtCtx.getRelationBySlot(slot) != null
-                                                    && stmtCtx.getRelationBySlot(slot).getRelationId()
-                                                    == logicalOlapScan.getRelationId();
-                                        }).collect(
-                                        Collectors.toList());
-                                Supplier<List<Slot>> mergedSupplier = () -> {
-                                    Set<Slot> mergedList = new HashSet<>(outputSlots);
-                                    mergedList.addAll(olapScanPathSlots);
-                                    return new ArrayList<>(mergedList);
-                                };
-                                logicalOlapScan.setMutableLogicalProperties(
-                                                   new LogicalProperties(mergedSupplier,
-                                                           () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
-
-                            } else if (child instanceof AbstractPlan) {
-                                ((AbstractPlan) child).initMutableLogicalProperties();
-                            }
-                        });
-                    }
-                    return ctx.root;
-                }))
+                // only scan
+                RuleType.BINDING_SLOT_WITH_PATHS_SCAN.build(
+                        logicalOlapScan().whenNot(LogicalOlapScan::isProjectPulledUp).thenApply(ctx -> {
+                            LogicalOlapScan logicalOlapScan = ctx.root;
+                            List<NamedExpression> newProjectsExpr = new ArrayList<>(logicalOlapScan.getOutput());
+                            Set<SlotReference> pathsSlots = ctx.statementContext.getAllPathsSlots();
+                            // With new logical properties that contains new slots with paths
+                            StatementContext stmtCtx = ConnectContext.get().getStatementContext();
+                            List<Slot> olapScanPathSlots = pathsSlots.stream().filter(
+                                    slot -> {
+                                        return stmtCtx.getRelationBySlot(slot) != null
+                                                && stmtCtx.getRelationBySlot(slot).getRelationId()
+                                                == logicalOlapScan.getRelationId();
+                                    }).collect(
+                                    Collectors.toList());
+                            List<NamedExpression> newExprs = olapScanPathSlots.stream()
+                                    .map(SlotReference.class::cast)
+                                    .map(slotReference ->
+                                            new Alias(slotReference.getExprId(),
+                                                    stmtCtx.getOriginalExpr(slotReference), slotReference.getName()))
+                                    .collect(
+                                            Collectors.toList());
+                            newProjectsExpr.addAll(newExprs);
+                            return new LogicalProject(newProjectsExpr, logicalOlapScan.withProjectPulledUp());
+                        }))
         );
     }
 }

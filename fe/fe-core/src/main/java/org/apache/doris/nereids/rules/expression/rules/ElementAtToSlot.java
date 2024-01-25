@@ -78,7 +78,7 @@ public class ElementAtToSlot extends DefaultExpressionRewriter<ExpressionRewrite
                 topColumnSlot.nullable(), topColumnSlot.getQualifier(),
                 topColumnSlot.getColumn().get(), Optional.of(topColumnSlot.getInternalName()),
                 fullPaths);
-        ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef);
+        ctx.addPathSlotRef(topColumnSlot, fullPaths, slotRef, elementAt);
         ctx.addSlotToRelation(slotRef, ctx.getRelationBySlot(topColumnSlot));
 
         return slotRef;

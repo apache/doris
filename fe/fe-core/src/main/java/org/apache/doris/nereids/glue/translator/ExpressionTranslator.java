@@ -88,6 +88,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HighOrderFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
@@ -192,6 +193,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             return (OlapTable) left.getTableDirect();
         }
         return null;
+    }
+
+    @Override
+    public Expr visitElementAt(ElementAt elementAt, PlanTranslatorContext context) {
+        SlotReference rewrittenSlot = (SlotReference) context.getConnectContext()
+                                    .getStatementContext().getRewrittenSlotRefByOriginalExpr(elementAt);
+        Preconditions.checkNotNull(rewrittenSlot);
+        return context.findSlotRef(rewrittenSlot.getExprId());
     }
 
     @Override
