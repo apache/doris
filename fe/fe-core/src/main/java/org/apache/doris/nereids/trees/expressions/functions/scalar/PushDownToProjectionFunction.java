@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 /**
  * Function that could be rewritten and pushed down to projection
  */
 public interface PushDownToProjectionFunction {
+    // check if specified function could be pushed down to project
+    static boolean validToPushDown(Expression pushDownExpr) {
+        // Currently only Variant type could be pushed down
+        return pushDownExpr instanceof PushDownToProjectionFunction && pushDownExpr.getDataType().isVariantType();
+    }
 }
