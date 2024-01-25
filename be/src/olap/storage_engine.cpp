@@ -77,7 +77,6 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
-#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
@@ -498,8 +497,6 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
         }
     }
 
-    DBUG_EXECUTE_IF("StorageEngine.get_candidate_stores.all_disk_same_level", return);
-
     if (dir_infos.size() <= 1) {
         return;
     }
@@ -509,22 +506,30 @@ void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
         return;
     }
 
-    std::vector<double> level_max_usages;
-    level_max_usages.push_back(usages[0]);
+    std::vector<double> level_min_usages;
+    level_min_usages.push_back(usages[0]);
     for (auto usage : usages) {
+        // usage < 0.7 consider as one level, give a small skew
         if (usage < 0.7 - (config.high_disk_avail_level_diff_usages / 2.0)) {
             continue;
         }
 
-        if (usage > level_max_usages.back() + config::high_disk_avail_level_diff_usages) {
-            level_max_usages.push_back(usage);
+        // at high usages,  default 15% is one level
+        // for example: there disk usages are:   0.66,  0.72,  0.83
+        // then level_min_usages = [0.66, 0.83], divide disks into 2 levels:  [0.66, 0.72], [0.83]
+        if (usage >= level_min_usages.back() + config::high_disk_avail_level_diff_usages) {
+            level_min_usages.push_back(usage);
         }
     }
     for (auto& dir_info : dir_infos) {
         double usage = dir_info.data_dir->get_usage(0);
-        for (size_t i = 1; i < level_max_usages.size() && usage >= level_max_usages[i]; i++) {
+        for (size_t i = 1; i < level_min_usages.size() && usage >= level_min_usages[i]; i++) {
             dir_info.available_level++;
         }
+
+        // when usage is too high, no matter consider balance now,
+        // make it a higher level.
+        // for example, two disks and usages are: 0.85 and 0.92, then let tablets fall on the first disk.
         if (usage > 0.9) {
             dir_info.available_level++;
         }

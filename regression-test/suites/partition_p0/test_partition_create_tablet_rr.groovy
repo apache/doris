@@ -51,8 +51,6 @@ suite("test_partition_create_tablet_rr") {
     }
 
     docker(options) {
-        cluster.injectDebugPoints(NodeType.BE, ['StorageEngine.get_candidate_stores.all_disk_same_level':null])
-
         sleep 2000
         def single_hdd_tbl = "single_HDD_tbl"
         def single_ssd_tbl = "single_SDD_tbl"
