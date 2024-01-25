@@ -1,1 +1,0 @@
-SELECT cast(v:repo.name as string) as repo_name, count(), count(distinct cast(v:actor.login as string)) FROM github_events WHERE cast(v:type as string) = 'PullRequestEvent' AND cast(v:payload.action as string) = 'opened' GROUP BY cast(v:repo.name as string) ORDER BY 2,1,3 DESC LIMIT 50
