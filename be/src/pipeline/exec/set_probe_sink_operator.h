@@ -76,7 +76,7 @@ public:
 
     void set_cur_child_id(int id) {
         _child_idx = id;
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        ((SetSharedState*)_shared_state)->probe_finished_children_dependency[id] = this;
         block();
     }
 

@@ -446,7 +446,6 @@ public class ColumnDefinition {
                 } else {
                     name = "CHAR";
                     maxLen = ScalarType.MAX_CHAR_LENGTH;
-                    return;
                 }
                 int len = scalarType.getLength();
                 // len is decided by child, when it is -1.

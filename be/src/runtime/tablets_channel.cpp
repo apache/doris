@@ -192,8 +192,8 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.table_schema_param = _schema;
 
         // TODO(plat1ko): CloudDeltaWriter
-        auto delta_writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest,
-                                                          _profile, _load_id);
+        auto delta_writer = std::make_unique<DeltaWriter>(
+                ExecEnv::GetInstance()->storage_engine().to_local(), &wrequest, _profile, _load_id);
         ss << "[" << tablet.tablet_id() << "]";
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
@@ -457,8 +457,8 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
         };
 
         // TODO(plat1ko): CloudDeltaWriter
-        auto writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest, _profile,
-                                                    _load_id);
+        auto writer = std::make_unique<DeltaWriter>(
+                ExecEnv::GetInstance()->storage_engine().to_local(), &wrequest, _profile, _load_id);
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
             _tablet_writers.emplace(tablet.tablet_id(), std::move(writer));

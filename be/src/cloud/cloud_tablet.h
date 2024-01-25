@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <atomic>
-
 #include "olap/base_tablet.h"
 
 namespace doris {

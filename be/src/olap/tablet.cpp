@@ -1655,23 +1655,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 }
 
-// should use this method to get a copy of current tablet meta
-// there are some rowset meta in local meta store and in in-memory tablet meta
-// but not in tablet meta in local meta store
-void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const {
-    std::shared_lock rdlock(_meta_lock);
-    generate_tablet_meta_copy_unlocked(new_tablet_meta);
-}
-
-// this is a unlocked version of generate_tablet_meta_copy()
-// some method already hold the _meta_lock before calling this,
-// such as EngineCloneTask::_finish_clone -> tablet->revise_tablet_meta
-void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const {
-    TabletMetaPB tablet_meta_pb;
-    _tablet_meta->to_meta_pb(&tablet_meta_pb);
-    new_tablet_meta->init_from_pb(tablet_meta_pb);
-}
-
 Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
                                                         const TabletSharedPtr& tablet,
                                                         std::shared_ptr<Compaction>& compaction,
@@ -1845,8 +1828,8 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_rowset_writer(RowsetWriterC
     context.rowset_id = _engine.next_rowset_id();
     _init_context_common_fields(context);
     std::unique_ptr<RowsetWriter> rowset_writer;
-    if (auto st = RowsetFactory::create_rowset_writer(context, vertical, &rowset_writer); !st.ok())
-            [[unlikely]] {
+    if (auto st = RowsetFactory::create_rowset_writer(_engine, context, vertical, &rowset_writer);
+        !st.ok()) [[unlikely]] {
         return unexpected(std::move(st));
     }
     return rowset_writer;
@@ -1887,7 +1870,7 @@ Status Tablet::create_transient_rowset_writer(RowsetWriterContext& context,
                                               std::unique_ptr<RowsetWriter>* rowset_writer) {
     context.rowset_id = rowset_id;
     _init_context_common_fields(context);
-    return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
+    return RowsetFactory::create_rowset_writer(_engine, context, false, rowset_writer);
 }
 
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
@@ -2245,8 +2228,21 @@ bool Tablet::_has_data_to_cooldown() {
     int64_t min_local_version = std::numeric_limits<int64_t>::max();
     RowsetSharedPtr rowset;
     std::shared_lock meta_rlock(_meta_lock);
+    // Ususally once the tablet has done cooldown successfully then the first
+    // rowset would always be remote rowset
+    bool has_cooldowned = false;
+    for (const auto& [_, rs] : _rs_version_map) {
+        if (!rs->is_local()) {
+            has_cooldowned = true;
+            break;
+        }
+    }
     for (auto& [v, rs] : _rs_version_map) {
-        if (rs->is_local() && v.first < min_local_version && rs->data_disk_size() > 0) {
+        auto predicate = rs->is_local() && v.first < min_local_version;
+        if (!has_cooldowned) {
+            predicate = predicate && (rs->data_disk_size() > 0);
+        }
+        if (predicate) {
             // this is a local rowset and has data
             min_local_version = v.first;
             rowset = rs;

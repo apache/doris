@@ -22,12 +22,14 @@
 #include <memory>
 
 #include "beta_rowset.h"
+#include "cloud/config.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -45,17 +47,18 @@ Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::s
     return Status::Error<ROWSET_TYPE_NOT_FOUND>("invalid rowset_type"); // should never happen
 }
 
-Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context, bool is_vertical,
+Status RowsetFactory::create_rowset_writer(StorageEngine& engine,
+                                           const RowsetWriterContext& context, bool is_vertical,
                                            std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
         return Status::Error<ROWSET_INVALID>("invalid rowset_type");
     }
     if (context.rowset_type == BETA_ROWSET) {
         if (is_vertical) {
-            output->reset(new VerticalBetaRowsetWriter(*StorageEngine::instance()));
+            *output = std::make_unique<VerticalBetaRowsetWriter>(engine);
             return (*output)->init(context);
         }
-        output->reset(new BetaRowsetWriter(*StorageEngine::instance()));
+        *output = std::make_unique<BetaRowsetWriter>(engine);
         return (*output)->init(context);
     }
     return Status::Error<ROWSET_TYPE_NOT_FOUND>("invalid rowset_type");

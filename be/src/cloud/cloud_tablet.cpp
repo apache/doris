@@ -407,7 +407,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     *json_result = std::string(strbuf.GetString());
 }
 
-inline void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
+void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
     // cumulative point should only be reset to -1, or be increased
     CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
             << "Unexpected cumulative point: " << new_point
