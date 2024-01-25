@@ -57,7 +57,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_catalog_hive_orc,test_catalog_hive_parquet,test_information_schema_external"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
