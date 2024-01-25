@@ -247,6 +247,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
 Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    _timeout_watch.start();
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -550,10 +551,11 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
-            auto close_wait_timeout_ms = _state->execution_timeout() * 1000;
+            auto remain_ms = _state->execution_timeout() * 1000 -
+                             _timeout_watch.elapsed_time() / 1000 / 1000;
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
-                    RETURN_IF_ERROR(stream->close_wait(close_wait_timeout_ms));
+                    RETURN_IF_ERROR(stream->close_wait(remain_ms));
                 }
             }
         }
