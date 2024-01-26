@@ -787,7 +787,7 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
-            if (useFixReplica == -1) {
+            if (useFixReplica <= -1) {
                 if (skipMissingVersion) {
                     // sort by replica's last success version, higher success version in the front.
                     replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
@@ -795,7 +795,7 @@ public class OlapScanNode extends ScanNode {
                     Collections.shuffle(replicas);
                 }
             } else {
-                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
