@@ -116,13 +116,6 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
-    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-
-    for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        if (auto* bf = _runtime_filters[i]->get_bloomfilter()) {
-            RETURN_IF_ERROR(bf->init_with_fixed_length());
-        }
-    }
     return Status::OK();
 }
 
