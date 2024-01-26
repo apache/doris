@@ -502,6 +502,7 @@ public class CreateFunctionStmt extends DdlStmt {
         try {
             URL url = new URL(userFile);
             try (Store<Void> store = Store.withoutData()) {
+                // TODO: Check the wasm function parameter type. wasmtime-java does not currently support obtaining parameters from function.
                 try (Engine engine = store.engine();
                         Module module = Module.fromFile(engine, url.getFile())) {
                     return;
