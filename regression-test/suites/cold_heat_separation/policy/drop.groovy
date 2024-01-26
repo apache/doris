@@ -150,6 +150,29 @@ suite("drop_policy") {
         // fail to drop, there are tables using this policy
         assertEquals(drop_policy_fail_ret, null)
 
+        create_table_use_created_policy = try_sql """
+            CREATE TABLE IF NOT EXISTS create_table_binding_created_policy_1
+            (
+                k1 BIGINT,
+                k2 date,
+                v1 VARCHAR(2048)
+            )
+            UNIQUE KEY(k1, k2)
+            PARTITION BY RANGE(k2)(
+                partition p1 VALUES LESS THAN ("2014-01-01") ("storage_policy" = "drop_policy_test_has_table_bind_1"),
+                partition p2 VALUES LESS THAN ("2015-01-01"),
+                partition p3 VALUES LESS THAN ("2016-01-01")
+            )
+            DISTRIBUTED BY HASH (k1) BUCKETS 3
+            PROPERTIES(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false"
+            );
+        """
+        // storage policy is disabled on mow table
+
+        assertEquals(create_table_use_created_policy.size(), 1);
+
         drop_policy_fail_ret = try_sql """
             DROP STORAGE POLICY drop_policy_test_has_table_bind_1
         """
@@ -158,6 +181,10 @@ suite("drop_policy") {
 
         sql """
         DROP TABLE create_table_binding_created_policy;
+        """
+
+        sql """
+        DROP TABLE create_table_binding_created_policy_1;
         """
 
         sql """
