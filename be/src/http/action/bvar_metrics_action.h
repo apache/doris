@@ -22,20 +22,17 @@
 namespace doris {
 
 class HttpRequest;
-class BvarMetricRegistry;
 
 class BvarMetricsAction : public HttpHandlerWithAuth {
 public:
-    BvarMetricsAction(BvarMetricRegistry* bvar_metric_registry, ExecEnv* exec_env, TPrivilegeHier::type hier,
+    BvarMetricsAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                   TPrivilegeType::type type)
-            : HttpHandlerWithAuth(exec_env, hier, type), bvar_metric_registry_(bvar_metric_registry) {}
+            : HttpHandlerWithAuth(exec_env, hier, type) {}
 
     ~BvarMetricsAction() override = default;
 
     void handle(HttpRequest* req) override;
 
-private:
-    BvarMetricRegistry* bvar_metric_registry_;
 };
 
 } // namespace doris

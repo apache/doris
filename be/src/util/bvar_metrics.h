@@ -128,41 +128,15 @@ public:
     
     std::shared_ptr<BvarMetric> get_metric(const std::string& name);
 
-    // Register a hook, this hook will called before get_metric is called
-    void register_hook(const std::string& name, const std::function<void()>& hook);
-    void deregister_hook(const std::string& name);
-    void trigger_hook_unlocked(bool force) const;
-
 private:
     std::string entity_name_;
     
     BvarMetricType type_;
     
     std::unordered_map<std::string, std::shared_ptr<BvarMetric>> metrics_;
-
-    std::map<std::string, std::function<void()>> hooks_;
     
     bthread::Mutex mutex_;
 };
 
-class BvarMetricRegistry {
-public:
-    BvarMetricRegistry() = default;
-    BvarMetricRegistry(const std::string& registry_name) : registry_name_(registry_name) {}
-    BvarMetricRegistry(const BvarMetricRegistry& registry)
-            : registry_name_(registry.registry_name_), entities_(registry.entities_) {}
-
-    std::shared_ptr<BvarMetricEntity> register_entity(const std::string& name, BvarMetricType type = BvarMetricType::COUNTER);
-    void deregister_entity(const std::string& name);
-
-    std::string to_prometheus() const;
-    // std::string to_json(bool with_tablet_metrics = false) const;
-    // std::string to_core_string() const;
-
-private:
-    const std::string registry_name_;
-    std::unordered_map<std::string, std::shared_ptr<BvarMetricEntity>> entities_;
-    bthread::Mutex mutex_;
-};
 
 } // namespace doris

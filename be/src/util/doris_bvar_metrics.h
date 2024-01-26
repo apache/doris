@@ -37,26 +37,24 @@ public:
         bool init_system_metrics = false,
         const std::set<std::string>& disk_devices = std::set<std::string>(),
         const std::vector<std::string>& network_interfaces = std::vector<std::string>());
-
-    BvarMetricRegistry* get_bvar_metric_registry() { return &bvar_metric_registry_; }
-    SystemBvarMetrics* get_system_bvar_metrics() { return system_metrics_.get(); }
-    BvarMetricEntity* get_server_entity() { return server_metric_entity_.get(); }
+    
+    void register_entity(BvarMetricEntity entity);
+    // SystemBvarMetrics* get_system_bvar_metrics() { return system_metrics_.get(); }
 
     std::string to_prometheus() const;
 
 private:
-    DorisBvarMetrics();
+    DorisBvarMetrics() = default;
 
 private:
     static const std::string s_registry_name_;
-    static const std::string s_hook_name_;
-
-    BvarMetricRegistry bvar_metric_registry_;
     
     std::unique_ptr<SystemBvarMetrics> system_metrics_;
 
-    std::shared_ptr<BvarMetricEntity> server_metric_entity_;
+    std::vector<std::shared_ptr<BvarMetricEntity>> entities_;
 };
+
+extern BvarAdderMetric<int64_t> g_adder_fragment_requests_total;
 
 extern BvarAdderMetric<int64_t> g_adder_timeout_canceled_fragment_count;
 extern BvarAdderMetric<int64_t> g_adder_file_created_total;
