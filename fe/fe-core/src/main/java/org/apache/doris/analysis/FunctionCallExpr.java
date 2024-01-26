@@ -24,7 +24,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -2454,18 +2453,18 @@ public class FunctionCallExpr extends Expr {
         Function fn = null;
         String dbName = fnName.analyzeDb(analyzer);
         if (!Strings.isNullOrEmpty(dbName)) {
-            // check operation privilege
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
-            }
             // TODO(gaoxin): ExternalDatabase not implement udf yet.
-            DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
-            if (db != null && (db instanceof Database)) {
+            Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+            if (db != null) {
+                // check operation privilege
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+                }
                 Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
                         Type.INVALID, false);
-                fn = ((Database) db).getFunction(searchDesc,
-                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                fn = db.getFunction(searchDesc,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             }
         }
         // find from the internal database first, if not, then from the global functions
