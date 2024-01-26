@@ -201,7 +201,7 @@ using HashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash, Grower, 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 using NormalHashMap = HashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash>;
 
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+template <typename Key, typename Hash = DefaultHash<Key>>
 using JoinHashMap = JoinHashTable<Key, Hash>;
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
