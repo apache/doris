@@ -1015,6 +1015,7 @@ visible_functions = {
 
         [['to_days'], 'INT', ['DATEV2'], ''],
         [['time_to_sec'], 'INT', ['TIME'], ''],
+        [['time_to_sec'], 'INT', ['TIMEV2'], ''],
         [['sec_to_time'], 'TIME', ['INT'], ''],
 
         [['year'], 'SMALLINT', ['DATETIMEV2'], ''],
