@@ -850,8 +850,8 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         auto status = Status::OK();
         if (download_request.__isset.remote_tablet_snapshots) {
             SnapshotLoader loader(_env, download_request.job_id, agent_task_req.signature);
-            loader.remote_http_download(download_request.remote_tablet_snapshots,
-                                        &downloaded_tablet_ids);
+            status = loader.remote_http_download(download_request.remote_tablet_snapshots,
+                                                 &downloaded_tablet_ids);
         } else {
             std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
                     _env, download_request.job_id, agent_task_req.signature,

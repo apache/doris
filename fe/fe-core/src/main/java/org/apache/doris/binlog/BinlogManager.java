@@ -457,10 +457,22 @@ public class BinlogManager {
         int length = dis.readInt();
         byte[] data = new byte[length];
         dis.readFully(data);
-        TMemoryInputTransport transport = new TMemoryInputTransport(data);
+        Boolean isLargeBinlog = length > 8 * 1024 * 1024;
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {}", length);
+        }
+
+        TMemoryInputTransport transport = new TMemoryInputTransport();
+        transport.getConfiguration().setMaxMessageSize(1024 * 1024 * 1024);
+        transport.reset(data);
+
         TBinaryProtocol protocol = new TBinaryProtocol(transport);
         TBinlog binlog = new TBinlog();
         binlog.read(protocol);
+
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {} type {}", length, binlog.type);
+        }
         return binlog;
     }
 
