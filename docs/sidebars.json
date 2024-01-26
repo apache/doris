@@ -1375,6 +1375,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
