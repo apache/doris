@@ -64,8 +64,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
@@ -2614,7 +2614,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     String autoUnit = ((LiteralExpr) child).getStringValue();
                                     if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
                                         throw new AnalysisException(
-                                                "If support auto partition and dynamic partition at same time, they must have the same interval unit.");
+                                                "If support auto partition and dynamic partition at same time, "
+                                                        + "they must have the same interval unit.");
                                     }
                                 }
                             }
