@@ -28,7 +28,7 @@ under the License.
 
 ALTER TABLE COLUMN
 
-## Description
+### Description
 
 This statement is used to perform a schema change operation on an existing table. The schema change is asynchronous, and the task is returned when the task is submitted successfully. After that, you can use the [SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) command to view the progress.
 
@@ -38,7 +38,7 @@ Doris has the concept of materialized index after table construction. After succ
 Doris 1.2.0 supports light schema change for light scale structure changes, and addition and subtraction operations for value columns can be completed more quickly and synchronously. You can manually specify "light_schema_change" = 'true' when creating a table. This parameter is enabled by default for versions 2.0.0 and later.
 :::
 
-## Grammar:
+### Grammar:
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
@@ -296,10 +296,10 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   - You can adjust the key column only within the range of the key column. The same applies to the value column
 :::
   
-## Keywords
+### Keywords
 
 ```text
 ALTER, TABLE, COLUMN, ALTER TABLE
 ```
 
-## Best Practice
+### Best Practice
