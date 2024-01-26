@@ -70,6 +70,7 @@ class TupleDescriptor;
 class CalcDeleteBitmapToken;
 enum CompressKind : int;
 class RowsetBinlogMetasPB;
+struct TabletTxnInfo;
 
 namespace io {
 class RemoteFileSystem;
@@ -471,10 +472,7 @@ public:
             const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
             CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
 
-    Status update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                const RowsetIdUnorderedSet& pre_rowset_ids,
-                                DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                RowsetWriter* rowset_writer = nullptr);
+    Status update_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
