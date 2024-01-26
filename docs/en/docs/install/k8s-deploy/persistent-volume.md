@@ -42,12 +42,8 @@ Recommended node directory type for persistent storage:
 Doris-Operator outputs logs to the console and the specified directory at the same time. If the user's Kubernetes system has complete log collection capabilities, log information at the Doris INFO level (default) can be collected through console output.
 However, it is still recommended to configure PVC to persist log files, because in addition to INFO level logs, there are also logs such as fe.out, be.out, audit.log and garbage collection logs, which facilitates quick problem location and audit log backtracking.
 
-***
-
 ConfigMap is a resource object used to store configuration files in Kubernetes. It allows dynamically mounting configuration files and decouples configuration files from applications, making configuration management more flexible and maintainable.
 Like PVCs, ConfigMap can be referenced by Pods in order to use configuration data in the application.
-
-****
 
 
 ## StorageClass
@@ -272,7 +268,7 @@ data:
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-  core-site.xml:
+  core-site.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
     <configuration>

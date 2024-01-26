@@ -42,12 +42,9 @@ PV 提供多种存储类型，主要分为两大类：网络存储、本地存�
 Doris-Operator 同时将日志输出到 console 和 指定目录下。如果用户的 Kubernetes 系统有完整的日志收集能力，可通过 console 输出来收集 Doris INFO 级别（默认）的日志信息。
 但是这里仍然推荐配置 PVC 来持久化日志文件，因为除了 INFO 级别日志还会有诸如 fe.out、be.out、audit.log 以及 垃圾回收日志，便于快速定位问题和审计日志回溯。
 
-***
 
 ConfigMap 是 Kubernetes 中用于存储配置文件的资源对象，它允许动态挂载配置文件，并将配置文件与应用程序解耦，使得配置的管理更加灵活和可维护。
 像 PVC 一样 ConfigMap 可以被 Pod 引用，以便在应用程序中使用配置数据。
-
-****
 
 
 ## StorageClass
@@ -272,7 +269,7 @@ data:
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-  core-site.xml:
+  core-site.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
     <configuration>
