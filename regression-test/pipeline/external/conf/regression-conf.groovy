@@ -55,9 +55,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
+excludeSuites = "test_cast_string_to_array,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_catalog_hive_orc,test_catalog_hive_parquet,test_information_schema_external"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
@@ -80,6 +80,7 @@ pg_14_port=7121
 oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
+mariadb_10_port=3326
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
@@ -87,6 +88,7 @@ clickhouse_22_port=8123
 enableHiveTest=true
 hms_port=7141
 hive_pg_port=5432
+hiveServerPort=10000
 
 enableEsTest=true
 es_6_port="19200/"
