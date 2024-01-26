@@ -168,6 +168,11 @@ public class FEFunctions {
         return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
+    @FEFunction(name = "date_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral dateSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return dateAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
     @FEFunction(name = "years_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral yearsSub(LiteralExpr date, LiteralExpr year) throws AnalysisException {
         return yearsAdd(date, new IntLiteral(-(int) year.getLongValue()));
@@ -180,6 +185,11 @@ public class FEFunctions {
 
     @FEFunction(name = "days_sub", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral daysSub(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
+    @FEFunction(name = "days_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateLiteral daysSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 

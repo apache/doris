@@ -146,6 +146,17 @@ public class TimestampArithmeticExpr extends Expr {
         if (t1 == PrimitiveType.DATEV2) {
             return Type.DATEV2;
         }
+        // could try cast to date first, then cast to datetime
+        if (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) {
+            if (((StringLiteral) getChild(0)).canConvertToDateType(Type.DATEV2)) {
+                try {
+                    setChild(0, new DateLiteral(((StringLiteral) getChild(0)).getValue(), Type.DATEV2));
+                } catch (AnalysisException e) {
+                    return Type.INVALID;
+                }
+                return Type.DATEV2;
+            }
+        }
         if (PrimitiveType.isImplicitCast(t1, PrimitiveType.DATETIME)) {
             if (Config.enable_date_conversion) {
                 if (t1 == PrimitiveType.NULL_TYPE) {
