@@ -155,7 +155,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 
     // To prevent from null info lost, we should not call function since the function framework will wrap
     // nullable to Variant instead of the root of Variant
-    // Nullable(Array(int)) -> Variant<Nullable(Array(int))>
+    // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
+    // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
     if (WhichDataType(remove_nullable(type)).is_variant_type()) {
         // set variant root column/type to from column/type
         auto variant = ColumnObject::create(true /*always nullable*/);
