@@ -750,6 +750,7 @@ public class StmtExecutor {
             } else {
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
+                parsedStmt.checkPriv();
             }
 
             if (prepareStmt instanceof PrepareStmt && !isExecuteStmt) {
