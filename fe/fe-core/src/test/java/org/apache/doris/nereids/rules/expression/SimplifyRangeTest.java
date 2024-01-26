@@ -116,11 +116,11 @@ public class SimplifyRangeTest {
         assertRewrite("TA + TC = 1 and TA + TC > 10", "FALSE");
         assertRewrite("TA + TC > 5 or TA + TC < 1", "TA + TC > 5 or TA + TC < 1");
         assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC > 10", "TA + TC > 1");
-        assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC < 10", "TRUE");
+        assertRewrite("TA + TC > 5 or TA + TC > 1 or TA + TC < 10", "(not (TA + TC) IS NULL)");
         assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC > 10", "TA + TC > 10");
         assertRewrite("TA + TC > 5 and TA + TC > 1 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
         assertRewrite("TA + TC > 1 or TA + TC < 1", "TA + TC > 1 or TA + TC < 1");
-        assertRewrite("TA + TC > 1 or TA + TC < 10", "TRUE");
+        assertRewrite("TA + TC > 1 or TA + TC < 10", "(not (TA + TC) IS NULL)");
         assertRewrite("TA + TC > 5 and TA + TC < 10", "TA + TC > 5 and TA + TC < 10");
         assertRewrite("TA + TC > 5 and TA + TC > 10", "TA + TC > 10");
         assertRewrite("TA + TC > 5 + 1 and TA + TC > 10", "TA + TC > 5 + 1 and TA + TC > 10");
