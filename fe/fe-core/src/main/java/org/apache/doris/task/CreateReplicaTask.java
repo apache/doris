@@ -336,6 +336,9 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setStorageFormat(storageFormat);
         }
 
+        if (invertedIndexStorageFormat != null) {
+            createTabletReq.setInvertedIndexStorageFormat(invertedIndexStorageFormat);
+        }
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
