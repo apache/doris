@@ -81,6 +81,7 @@ private:
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
+    std::shared_ptr<vectorized::PartitionSortInfo> _partition_sort_info = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
