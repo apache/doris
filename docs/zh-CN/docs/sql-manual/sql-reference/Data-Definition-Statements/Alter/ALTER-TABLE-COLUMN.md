@@ -28,7 +28,7 @@ under the License.
 
 ALTER TABLE COLUMN
 
-## Description
+### Description
 
 该语句用于对已有 table 进行 Schema change 操作。schema change 是异步的，任务提交成功则返回，之后可使用[SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
@@ -37,7 +37,7 @@ Doris 在建表之后有物化索引的概念，在建表成功后为 base 表�
 Doris 在 1.2.0 支持了 light schema change 轻量表结构变更，对于值列的加减操作，可以更快地，同步地完成。可以在建表时手动指定 "light_schema_change" = 'true'，2.0.0 及之后版本该参数默认开启。
 :::
 
-## 语法：
+### 语法：
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
@@ -294,11 +294,11 @@ ALTER TABLE [database.]table table_name MODIFY COLUMN column_name column_type [K
   - key 列只能调整 key 列的范围内进行调整，value 列同理
 :::
 
-## Keywords
+### Keywords
 
 ```text
 ALTER, TABLE, COLUMN, ALTER TABLE
 ```
 
-## Best Practice
+### Best Practice
 
