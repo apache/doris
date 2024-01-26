@@ -62,6 +62,12 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     // Whether adding the subquery's output to projects
     private final boolean needAddSubOutputToProjects;
 
+    /*
+    * This flag is indicate the mark join slot can be non-null or not
+    * in InApplyToJoin rule, if it's semi join with non-null mark slot
+    * we can safely change the mark conjunct to hash conjunct
+    * see SubqueryToApply rule for more info
+    */
     private final boolean isMarkJoinSlotNotNull;
 
     private LogicalApply(Optional<GroupExpression> groupExpression,

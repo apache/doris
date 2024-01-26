@@ -1292,7 +1292,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
         TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
 
-        if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty ^ isMarkJoinConjunctsEmpty)
+        if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty != isMarkJoinConjunctsEmpty)
                 && (joinType == JoinType.LEFT_ANTI_JOIN
                 || joinType == JoinType.LEFT_SEMI_JOIN
                 || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
@@ -1315,7 +1315,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
                 leftIntermediateSlotDescriptor.add(sd);
             }
-        } else if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty ^ isMarkJoinConjunctsEmpty)
+        } else if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty != isMarkJoinConjunctsEmpty)
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                 if (!rightSlotDescriptor.isMaterialized()) {

@@ -109,6 +109,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 ctx.statementContext, shouldOutputMarkJoinSlot.get(i));
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
+                        /*
+                        * the idea is replacing each mark join slot with null and false literal
+                        * then run FoldConstant rule, if the evaluate result are:
+                        * 1. all true
+                        * 2. all null and false (in logicalFilter, we discard both null and false values)
+                        * the mark slot can be non-nullable boolean
+                        * we pass this info to LogicalApply. And in InApplyToJoin rule
+                        * if it's semi join with non-null mark slot
+                        * we can safely change the mark conjunct to hash conjunct
+                        */
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
                                         ? ExpressionUtils.canInferNotNullForMarkSlot(
                                                 TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, null))
@@ -226,13 +236,20 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
+                        /*
+                        * the idea is replacing each mark join slot with null and false literal
+                        * then run FoldConstant rule, if the evaluate result are:
+                        * 1. all true
+                        * 2. all null and false (in logicalFilter, we discard both null and false values)
+                        * the mark slot can be non-nullable boolean
+                        * we pass this info to LogicalApply. And in InApplyToJoin rule
+                        * if it's semi join with non-null mark slot
+                        * we can safely change the mark conjunct to hash conjunct
+                        */
                         boolean isMarkSlotNotNull = conjunct.containsType(MarkJoinSlotReference.class)
-                                        ? ExpressionUtils
-                                                .canInferNotNullForMarkSlot(
-                                                        TrySimplifyPredicateWithMarkJoinSlot.INSTANCE
-                                                                .rewrite(conjunct,
-                                                                        null))
-                                        : false;
+                                ? ExpressionUtils.canInferNotNullForMarkSlot(
+                                    TrySimplifyPredicateWithMarkJoinSlot.INSTANCE.rewrite(conjunct, null))
+                                : false;
                         applyPlan = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
