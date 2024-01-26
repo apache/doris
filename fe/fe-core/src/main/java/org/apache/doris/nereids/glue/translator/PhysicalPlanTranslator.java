@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -1619,6 +1620,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    // Get top most PushDownToProjectionFunction from expression
+    private Expression getOriginalFunctionForRewritten(NamedExpression expression) {
+        List<Expression> targetExpr = expression.collectFirst(PushDownToProjectionFunction.class::isInstance);
+        if (!targetExpr.isEmpty()) {
+            return targetExpr.get(0);
+        }
+        return null;
+    }
+
+    // register rewritten slots from original PushDownToProjectionFunction
+    private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
+        // register slots that are rewritten from element_at/etc..
+        for (NamedExpression expr : project.getProjects()) {
+            if (context != null
+                    && context.getConnectContext() != null
+                    && context.getConnectContext().getStatementContext() != null) {
+                Slot rewrittenSlot = context.getConnectContext()
+                        .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
+                if (rewrittenSlot != null) {
+                    TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                    context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
+                }
+            }
+        }
+    }
+
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
@@ -1632,6 +1659,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanFragment inputFragment = project.child(0).accept(this, context);
+
+        if (inputFragment.getPlanRoot() instanceof OlapScanNode) {
+            // function already pushed down in projection
+            // e.g. select count(distinct cast(element_at(v, 'a') as int)) from tbl;
+            registerRewrittenSlot(project, (OlapScanNode) inputFragment.getPlanRoot());
+        }
 
         List<Expr> projectionExprs = project.getProjects()
                 .stream()
@@ -1706,7 +1739,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     || new HashSet<>(projectionExprs).size() != projectionExprs.size()
                     || projectionExprs.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
                 projectionTuple = generateTupleDesc(slots,
-                                  ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
                 inputPlanNode.setProjectList(projectionExprs);
                 inputPlanNode.setOutputTupleDesc(projectionTuple);
             } else {

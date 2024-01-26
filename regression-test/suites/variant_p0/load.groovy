@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant", "variant_type"){
+suite("regression_test_variant", "nonConcurrent"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -366,7 +366,7 @@ suite("regression_test_variant", "variant_type"){
         table_name = "all_sparse_columns"
         create_table.call(table_name, "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
-        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 

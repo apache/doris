@@ -94,6 +94,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -200,6 +201,8 @@ public class OlapScanNode extends ScanNode {
 
     private boolean shouldColoScan = false;
 
+    protected List<Expr> rewrittenProjectList;
+
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
@@ -253,6 +256,10 @@ public class OlapScanNode extends ScanNode {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
         }
+    }
+
+    public void setRewrittenProjectList(List<Expr> rewrittenProjectList) {
+        this.rewrittenProjectList = rewrittenProjectList;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -1301,6 +1308,11 @@ public class OlapScanNode extends ScanNode {
         }
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT");
+        }
+
+        if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
+            output.append(prefix).append("rewrittenProjectList: ").append(
+                    getExplainString(rewrittenProjectList)).append("\n");
         }
 
         return output.toString();
