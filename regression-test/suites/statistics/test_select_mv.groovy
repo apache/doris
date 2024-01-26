@@ -21,17 +21,17 @@ suite("test_select_mv") {
     def dup_sql2 = """select mv_key2 from test_dup index dup1 order by mv_key2;"""
     def dup_sql3 = """select count(mv_key2) from test_dup index dup1;"""
     def dup_sql4 = """select min(mv_key2), max(mv_key2), count(mv_key2), sum(mv_key2) from test_dup index dup1;"""
-    def dup_sql5 = """select `mva_SUM__CAST(value AS BIGINT)` as a from test_dup index dup1 order by a;"""
-    def dup_sql6 = """select count(`mva_SUM__CAST(value AS BIGINT)`) from test_dup index dup1;"""
-    def dup_sql7 = """select min(`mva_SUM__CAST(value AS BIGINT)`), max(`mva_SUM__CAST(value AS BIGINT)`), ndv(`mva_SUM__CAST(value AS BIGINT)`), sum(`mva_SUM__CAST(value AS BIGINT)`) from test_dup index dup1;"""
+    def dup_sql5 = """select `mva_SUM__CAST(``value`` AS BIGINT)` as a from test_dup index dup1 order by a;"""
+    def dup_sql6 = """select count(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_dup index dup1;"""
+    def dup_sql7 = """select min(`mva_SUM__CAST(``value`` AS BIGINT)`), max(`mva_SUM__CAST(``value`` AS BIGINT)`), ndv(`mva_SUM__CAST(``value`` AS BIGINT)`), sum(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_dup index dup1;"""
 
     def agg_sql1 = """select count(*) from test_agg;"""
     def agg_sql2 = """select mv_key2 from test_agg index agg1 order by mv_key2;"""
     def agg_sql3 = """select count(mv_key2) from test_agg index agg1;"""
     def agg_sql4 = """select min(mv_key2), max(mv_key2), count(mv_key2), sum(mv_key2) from test_agg index agg1;"""
-    def agg_sql5 = """select `mva_SUM__CAST(value AS BIGINT)` as a from test_agg index agg1 order by a;"""
-    def agg_sql6 = """select count(`mva_SUM__CAST(value AS BIGINT)`) from test_agg index agg1;"""
-    def agg_sql7 = """select min(`mva_SUM__CAST(value AS BIGINT)`), max(`mva_SUM__CAST(value AS BIGINT)`), ndv(`mva_SUM__CAST(value AS BIGINT)`), sum(`mva_SUM__CAST(value AS BIGINT)`) from test_agg index agg1;"""
+    def agg_sql5 = """select `mva_SUM__CAST(``value`` AS BIGINT)` as a from test_agg index agg1 order by a;"""
+    def agg_sql6 = """select count(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_agg index agg1;"""
+    def agg_sql7 = """select min(`mva_SUM__CAST(``value`` AS BIGINT)`), max(`mva_SUM__CAST(``value`` AS BIGINT)`), ndv(`mva_SUM__CAST(``value`` AS BIGINT)`), sum(`mva_SUM__CAST(``value`` AS BIGINT)`) from test_agg index agg1;"""
 
 
     sql """drop database if exists test_select_mv"""
