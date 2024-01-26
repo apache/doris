@@ -48,14 +48,15 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - start);
         if (duration.count() > LoadBlockQueue::MEM_BACK_PRESSURE_WAIT_TIMEOUT) {
-            return Status::TimedOut(
+            return Status::TimedOut<false>(
                     "Wal memory back pressure wait too much time! Load block queue txn id: {}, "
-                    "label: {}, instance id: {}",
-                    txn_id, label, load_instance_id.to_string());
+                    "label: {}, instance id: {}, consumed memory: {}",
+                    txn_id, label, load_instance_id.to_string(),
+                    _all_block_queues_bytes->load(std::memory_order_relaxed));
         }
     }
     if (UNLIKELY(runtime_state->is_cancelled())) {
-        return Status::Cancelled(runtime_state->cancel_reason());
+        return Status::Cancelled<false>(runtime_state->cancel_reason());
     }
     RETURN_IF_ERROR(status);
     if (block->rows() > 0) {
@@ -126,7 +127,7 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
     }
     if (runtime_state->is_cancelled()) {
-        auto st = Status::Cancelled(runtime_state->cancel_reason());
+        auto st = Status::Cancelled<false>(runtime_state->cancel_reason());
         _cancel_without_lock(st);
         return st;
     }
