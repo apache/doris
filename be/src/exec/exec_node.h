@@ -79,6 +79,17 @@ public:
     // If overridden in subclass, must first call superclass's prepare().
     [[nodiscard]] virtual Status prepare(RuntimeState* state);
 
+    /*
+     * For open and alloc_resource:
+     *  Base class ExecNode's `open` only calls `alloc_resource`, which opens some public projections.
+     *  If was overrided, `open` must call corresponding `alloc_resource` since it's a (early) part of opening.
+     *  Or just call `ExecNode::open` is alternative way.
+     *  Then `alloc_resource` call father's after it's own business to make the progress completed, including the projections.
+     *  In Pipeline engine: 
+     *      PipeContext::prepare -> node::prepare
+     *      Task::open -> StreamingOp::open -> node::alloc_resource, for sink+source splits, only open in SinkOperator.
+     *  So in pipeline, the things directly done by open(like call child's) wouldn't be done in `open`.
+    */
     // Performs any preparatory work prior to calling get_next().
     // Can be called repeatedly (after calls to close()).
     // Caller must not be holding any io buffers. This will cause deadlock.
