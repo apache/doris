@@ -134,7 +134,8 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
                     src, ImmutableList.of(scanSlot), ImmutableList.of(probeExpr),
-                    type, exprOrder, builderNode, buildSideNdv, scan);
+                    type, exprOrder, builderNode, buildSideNdv,
+                    !context.getStatementContext().isHasUnknownColStats(), scan);
             this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
