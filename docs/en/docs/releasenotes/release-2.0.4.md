@@ -34,10 +34,10 @@ Thanks to our community users and developers, about 333 improvements and bug fix
 
 ## Behavior change
 - More reasonable and accurate precision and scale inference for decimal data type
-  [[improvement](decimal) use new way for decimal arithmetic precision promotion(#27787) #28034](https://github.com/apache/doris/pull/28034)
+  - [https://github.com/apache/doris/pull/28034](https://github.com/apache/doris/pull/28034)
 
 - Support drop policy for user or role
-  [[fix](polixy)support drop policy for user or role #29488](https://github.com/apache/doris/pull/29488)
+  - [https://github.com/apache/doris/pull/29488](https://github.com/apache/doris/pull/29488)
 
 ## New features
 
@@ -62,6 +62,7 @@ See the complete list of improvements and bug fixes on github [dev/2.0.4-merged]
 
 
 ## Credits
+
 Last but not least, this release would not have been possible without the following contributors: 
 
 airborne12, amorynan, AshinGau, BePPPower, bingquanzhao, BiteTheDDDDt, bobhan1, ByteYue, caiconghui,CalvinKirs, cambyzju, caoliang-web, catpineapple, csun5285, dataroaring, deardeng, dutyu, eldenmoon, englefly, feifeifeimoon, fornaix, Gabriel39, gnehil, HappenLee, hello-stephen, HHoflittlefish777,hubgeter, hust-hhb, ixzc, jacktengg, jackwener, Jibing-Li, kaka11chen, KassieZ, LemonLiTree,liaoxin01, LiBinfeng-01, lihuigang, liugddx, luwei16, morningman, morrySnow, mrhhsg, Mryange, nextdreamblue, Nitin-Kashyap, platoneko, py023, qidaye, shuke987, starocean999, SWJTU-ZhangLei, w41ter, wangbo, wsjz, wuwenchi, Xiaoccer, xiaokang, XieJiann, xingyingone, xinyiZzz, xuwei0912, xy720, xzj7019, yujun777, zclllyybb, zddr, zhangguoqiang666, zhangstar333, zhannngchen, zhiqiang-hhhh, zy-kkk, zzzxl1993
