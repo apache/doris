@@ -729,7 +729,8 @@ enum TJoinOp {
   // on the build side. Those NULLs are considered candidate matches, and therefore could
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
-  NULL_AWARE_LEFT_ANTI_JOIN
+  NULL_AWARE_LEFT_ANTI_JOIN,
+  NULL_AWARE_LEFT_SEMI_JOIN
 }
 
 enum TJoinDistributionType {
@@ -772,6 +773,7 @@ struct THashJoinNode {
 
   11: optional bool is_mark
   12: optional TJoinDistributionType dist_type
+  13: optional list<Exprs.TExpr> mark_join_conjuncts
 }
 
 struct TNestedLoopJoinNode {
@@ -791,6 +793,8 @@ struct TNestedLoopJoinNode {
   7: optional bool is_mark
 
   8: optional list<Exprs.TExpr> join_conjuncts
+
+  9: optional list<Exprs.TExpr> mark_join_conjuncts
 }
 
 struct TMergeJoinNode {

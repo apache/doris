@@ -107,7 +107,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
                                    _join_op == TJoinOp::RIGHT_ANTI_JOIN;
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
+            _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::LEFT_SEMI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
@@ -154,6 +155,35 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         // build table should not be deduplicated.
         DCHECK(!_build_unique);
         DCHECK(_have_other_join_conjunct);
+    }
+
+    if (tnode.hash_join_node.__isset.mark_join_conjuncts) {
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.hash_join_node.mark_join_conjuncts,
+                                                 _mark_join_conjuncts));
+        DCHECK(_is_mark_join);
+
+        /// We make mark join conjuncts as equal conjuncts for null aware join,
+        /// so `_mark_join_conjuncts` should be empty if this is null aware join.
+        DCHECK_EQ(_mark_join_conjuncts.empty(),
+                  _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                          _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+    }
+
+#ifndef NDEBUG
+    /// mark join should be half join
+    if (_is_mark_join) {
+        DCHECK(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
+               _join_op == TJoinOp::RIGHT_ANTI_JOIN || _join_op == TJoinOp::RIGHT_SEMI_JOIN)
+                << "join(op: " << _join_op << ") should not be mark join";
+    }
+#endif
+
+    if ((_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+        _have_other_join_conjunct) {
+        _build_indexes_null = std::make_shared<std::vector<uint32_t>>();
     }
 
     _runtime_filters.resize(_runtime_filter_descs.size());
@@ -250,6 +280,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+    }
+
     RETURN_IF_ERROR(VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
 
     // right table data types
@@ -300,6 +335,7 @@ void HashJoinNode::prepare_for_next() {
     _build_index = 0;
     _ready_probe = false;
     _last_probe_match = -1;
+    _last_probe_null_mark = -1;
     _prepare_probe_block();
 }
 
@@ -309,39 +345,6 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     if (_short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
-        return Status::OK();
-    }
-
-    /// `_has_null_in_build_side` means have null value in build side.
-    /// `_short_circuit_for_null_in_build_side` means short circuit if has null in build side(e.g. null aware left anti join).
-    if (_has_null_in_build_side && _short_circuit_for_null_in_build_side && _is_mark_join) {
-        /// We need to create a column as mark with all rows set to NULL.
-        auto block_rows = _probe_block.rows();
-        if (block_rows == 0) {
-            *eos = _probe_eos;
-            return Status::OK();
-        }
-
-        Block temp_block;
-        //get probe side output column
-        for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            temp_block.insert(_probe_block.get_by_position(i));
-        }
-        auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
-                                                  ColumnUInt8::create(block_rows, 1));
-        temp_block.insert(
-                {std::move(mark_column), make_nullable(std::make_shared<DataTypeUInt8>()), ""});
-
-        {
-            SCOPED_TIMER(_join_filter_timer);
-            RETURN_IF_ERROR(
-                    VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
-        }
-
-        RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
-        temp_block.clear();
-        release_block_memory(_probe_block);
-        reached_limit(output_block, eos);
         return Status::OK();
     }
 
@@ -667,6 +670,10 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->open(state));
     }
+
+    for (auto& conjunct : _mark_join_conjuncts) {
+        RETURN_IF_ERROR(conjunct->open(state));
+    }
     return Status::OK();
 }
 
@@ -754,6 +761,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             // arena will be shared with other instances.
             _shared_hash_table_context->arena = _arena;
             _shared_hash_table_context->block = _build_block;
+            _shared_hash_table_context->build_indexes_null = _build_indexes_null;
             _shared_hash_table_context->hash_table_variants = _hash_table_variants;
             _shared_hash_table_context->short_circuit_for_null_in_probe_side =
                     _has_null_in_build_side;
@@ -786,6 +794,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                 *std::static_pointer_cast<HashTableVariants>(
                         _shared_hash_table_context->hash_table_variants));
         _build_block = _shared_hash_table_context->block;
+        _build_indexes_null = _shared_hash_table_context->build_indexes_null;
 
         if (!_shared_hash_table_context->runtime_filters.empty()) {
             auto ret = std::visit(
@@ -816,9 +825,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _process_hashtable_ctx_variants_init(state);
     }
 
-    // Since the comparison of null values is meaningless, null aware left anti join should not output null
+    // Since the comparison of null values is meaningless, null aware left anti/semi join should not output null
     // when the build side is not empty.
-    if (_build_block && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+    if (_build_block && (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                         _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)) {
         _probe_ignore_null = true;
     }
     _init_short_circuit_for_probe();
@@ -917,11 +927,10 @@ bool HashJoinNode::_need_probe_null_map(Block& block, const std::vector<int>& re
 void HashJoinNode::_set_build_ignore_flag(Block& block, const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        if (!_is_null_safe_eq_join[i]) {
+        if (!_is_null_safe_eq_join[i] && !_short_circuit_for_null_in_build_side) {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<ColumnNullable>(*column)) {
-                _build_side_ignore_null |= (_join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                                            !_store_null_in_hash_table[i]);
+                _build_side_ignore_null |= !_store_null_in_hash_table[i];
             }
         }
     }
@@ -962,30 +971,33 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
 
     st = std::visit(
             Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           LOG(FATAL) << "FATAL: uninited hash table";
                           __builtin_unreachable();
                           return Status::OK();
                       },
                       [&](auto&& arg, auto&& join_op, auto has_null_value,
-                          auto short_circuit_for_null_in_build_side) -> Status {
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
 
                           ProcessHashTableBuild<HashTableCtxType, HashJoinNode>
                                   hash_table_build_process(rows, block, raw_ptrs, this,
                                                            state->batch_size(), state);
-                          return hash_table_build_process
-                                  .template run<JoinOpType::value, has_null_value,
-                                                short_circuit_for_null_in_build_side>(
-                                          arg,
-                                          has_null_value || short_circuit_for_null_in_build_side
-                                                  ? &null_map_val->get_data()
-                                                  : nullptr,
-                                          &_has_null_in_build_side);
+                          return hash_table_build_process.template run<
+                                  JoinOpType::value, has_null_value,
+                                  short_circuit_for_null_in_build_side, with_other_conjuncts>(
+                                  arg,
+                                  has_null_value || short_circuit_for_null_in_build_side
+                                          ? &null_map_val->get_data()
+                                          : nullptr,
+                                  &_has_null_in_build_side);
                       }},
             *_hash_table_variants, _join_op_variants, make_bool_variant(_build_side_ignore_null),
-            make_bool_variant(_short_circuit_for_null_in_build_side));
+            make_bool_variant(_short_circuit_for_null_in_build_side),
+            make_bool_variant(_have_other_join_conjunct));
 
     return st;
 }

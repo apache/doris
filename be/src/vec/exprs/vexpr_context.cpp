@@ -223,6 +223,50 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
     return Status::OK();
 }
 
+Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block* block,
+                                       ColumnUInt8& null_map, IColumn::Filter& filter) {
+    const auto& rows = block->rows();
+    if (rows == 0) {
+        return Status::OK();
+    }
+
+    null_map.resize(rows);
+    auto* final_null_map = null_map.get_data().data();
+    memset(final_null_map, 0, rows);
+    filter.resize_fill(rows, 1);
+    auto* final_filter_ptr = filter.data();
+
+    for (const auto& conjunct : conjuncts) {
+        int result_column_id = -1;
+        RETURN_IF_ERROR(conjunct->execute(block, &result_column_id));
+        auto& filter_column =
+                unpack_if_const(block->get_by_position(result_column_id).column).first;
+        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+            const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+            const IColumn::Filter& result =
+                    assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+            auto* __restrict filter_data = result.data();
+            auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+            DCHECK_EQ(rows, nullable_column->size());
+
+            for (size_t i = 0; i != rows; ++i) {
+                // null and null    => null
+                // null and true    => null
+                // null and false   => false
+                final_null_map[i] = (final_null_map[i] & (null_map_data[i] | filter_data[i])) |
+                                    (null_map_data[i] & (final_null_map[i] | final_filter_ptr[i]));
+                final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
+            }
+        } else {
+            auto* filter_data = assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
+            for (size_t i = 0; i != rows; ++i) {
+                final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
+            }
+        }
+    }
+    return Status::OK();
+}
+
 // TODO Performance Optimization
 // need exception safety
 Status VExprContext::execute_conjuncts_and_filter_block(

@@ -74,6 +74,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(any(), any()).when(JoinUtils::shouldNestedLoopJoin)
+                .whenNot(LogicalJoin::isMarkJoin)
                 .when(join -> supportJoinType.contains(join.getJoinType())
                         && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())
                 .thenApply(ctx -> {
