@@ -58,10 +58,17 @@ import java.util.stream.Collectors;
  * Utils for join
  */
 public class JoinUtils {
+    /**
+     * couldShuffle
+     */
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
-        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
+        // standalone mark join would consider null value from both build and probe side, so must use broadcast join.
+        // mark join with hash conjuncts can shuffle by hash conjuncts
+        // TODO actually standalone mark join can use shuffle, but need do nullaware shuffle to broadcast null value
+        //  to all instances
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin()
+                || (!join.getMarkJoinConjuncts().isEmpty() && join.getHashJoinConjuncts().isEmpty()));
     }
 
     public static boolean couldBroadcast(Join join) {
@@ -173,10 +180,14 @@ public class JoinUtils {
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {
-        return join.getHashJoinConjuncts().isEmpty();
+        // currently, mark join conjuncts only has one conjunct, so we always get the first element here
+        return join.getHashJoinConjuncts().isEmpty() && (join.getMarkJoinConjuncts().isEmpty()
+                || !(join.getMarkJoinConjuncts().get(0) instanceof EqualPredicate));
     }
 
     public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
+        // this function is only called by hyper graph, which reject mark join
+        // so mark join is not processed here
         return hashConjuncts.isEmpty();
     }
 
