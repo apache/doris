@@ -1587,7 +1587,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_pipeline_load = false;
+    public static boolean enable_pipeline_load = true;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**
