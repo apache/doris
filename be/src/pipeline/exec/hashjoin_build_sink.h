@@ -109,6 +109,13 @@ protected:
     vectorized::MutableBlock _build_side_mutable_block;
     std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
     bool _has_set_need_null_map_for_build = false;
+
+    /*
+     * The comparison result of a null value with any other value is null,
+     * which means that for most join(exclude: null aware join, null equal safe join),
+     * the result of an equality condition involving null should be false,
+     * so null does not need to be added to the hash table.
+     */
     bool _build_side_ignore_null = false;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
     std::vector<int> _build_col_ids;

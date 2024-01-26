@@ -261,7 +261,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           vectorized::ProcessHashTableBuild<HashTableCtxType,
                                                             HashJoinBuildSinkLocalState>
-                                  hash_table_build_process(rows, block, raw_ptrs, this,
+                                  hash_table_build_process(rows, raw_ptrs, this,
                                                            state->batch_size(), state);
                           return hash_table_build_process
                                   .template run<JoinOpType::value, has_null_value,
@@ -297,24 +297,23 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
-                using RowRefListType = vectorized::RowRefList;
                 if (_build_expr_ctxs.size() == 1 && !p._store_null_in_hash_table[0]) {
                     // Single column optimization
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
                     case TYPE_BOOLEAN:
                     case TYPE_TINYINT:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::I8HashTableContext<RowRefListType>>();
+                                ->emplace<vectorized::I8HashTableContext>();
                         break;
                     case TYPE_SMALLINT:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::I16HashTableContext<RowRefListType>>();
+                                ->emplace<vectorized::I16HashTableContext>();
                         break;
                     case TYPE_INT:
                     case TYPE_FLOAT:
                     case TYPE_DATEV2:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::I32HashTableContext<RowRefListType>>();
+                                ->emplace<vectorized::I32HashTableContext>();
                         break;
                     case TYPE_BIGINT:
                     case TYPE_DOUBLE:
@@ -322,7 +321,7 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::I64HashTableContext<RowRefListType>>();
+                                ->emplace<vectorized::I64HashTableContext>();
                         break;
                     case TYPE_LARGEINT:
                     case TYPE_DECIMALV2:
@@ -341,26 +340,26 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
                         vectorized::WhichDataType which(idx);
                         if (which.is_decimal32()) {
                             _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I32HashTableContext<RowRefListType>>();
+                                    ->emplace<vectorized::I32HashTableContext>();
                         } else if (which.is_decimal64()) {
                             _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I64HashTableContext<RowRefListType>>();
+                                    ->emplace<vectorized::I64HashTableContext>();
                         } else {
                             _shared_state->hash_table_variants
-                                    ->emplace<vectorized::I128HashTableContext<RowRefListType>>();
+                                    ->emplace<vectorized::I128HashTableContext>();
                         }
                         break;
                     }
                     default:
                         _shared_state->hash_table_variants
-                                ->emplace<vectorized::SerializedHashTableContext<RowRefListType>>();
+                                ->emplace<vectorized::SerializedHashTableContext>();
                     }
                     return;
                 }
-                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32, RowRefListType>(
+                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(
                             *_shared_state->hash_table_variants, _build_expr_ctxs)) {
                     _shared_state->hash_table_variants
-                            ->emplace<vectorized::SerializedHashTableContext<RowRefListType>>();
+                            ->emplace<vectorized::SerializedHashTableContext>();
                 }
             },
             _shared_state->join_op_variants,
@@ -413,14 +412,15 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
         const auto vexpr = _build_expr_ctxs.back()->root();
 
-        bool null_aware = eq_join_conjunct.__isset.opcode &&
-                          eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
+        /// null safe equal means null = null is true, the operator in SQL should be: <=>.
+        const bool is_null_safe_equal = eq_join_conjunct.__isset.opcode &&
+                                        eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
 
-        _is_null_safe_eq_join.push_back(null_aware);
+        _is_null_safe_eq_join.push_back(is_null_safe_equal);
 
         // if is null aware, build join column and probe join column both need dispose null value
         _store_null_in_hash_table.emplace_back(
-                null_aware ||
+                is_null_safe_equal ||
                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
     }
     return Status::OK();

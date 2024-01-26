@@ -973,7 +973,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
                           using JoinOpType = std::decay_t<decltype(join_op)>;
 
                           ProcessHashTableBuild<HashTableCtxType, HashJoinNode>
-                                  hash_table_build_process(rows, block, raw_ptrs, this,
+                                  hash_table_build_process(rows, raw_ptrs, this,
                                                            state->batch_size(), state);
                           return hash_table_build_process
                                   .template run<JoinOpType::value, has_null_value,
@@ -993,29 +993,27 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block) {
 void HashJoinNode::_hash_table_init(RuntimeState* state) {
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
-                using RowRefListType = RowRefList;
-
                 if (_build_expr_ctxs.size() == 1 && !_store_null_in_hash_table[0]) {
                     // Single column optimization
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
                     case TYPE_BOOLEAN:
                     case TYPE_TINYINT:
-                        _hash_table_variants->emplace<I8HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I8HashTableContext>();
                         break;
                     case TYPE_SMALLINT:
-                        _hash_table_variants->emplace<I16HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I16HashTableContext>();
                         break;
                     case TYPE_INT:
                     case TYPE_FLOAT:
                     case TYPE_DATEV2:
-                        _hash_table_variants->emplace<I32HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I32HashTableContext>();
                         break;
                     case TYPE_BIGINT:
                     case TYPE_DOUBLE:
                     case TYPE_DATETIME:
                     case TYPE_DATE:
                     case TYPE_DATETIMEV2:
-                        _hash_table_variants->emplace<I64HashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<I64HashTableContext>();
                         break;
                     case TYPE_LARGEINT:
                     case TYPE_DECIMALV2:
@@ -1030,23 +1028,23 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                                                 : type_ptr->get_type_id();
                         WhichDataType which(idx);
                         if (which.is_decimal32()) {
-                            _hash_table_variants->emplace<I32HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I32HashTableContext>();
                         } else if (which.is_decimal64()) {
-                            _hash_table_variants->emplace<I64HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I64HashTableContext>();
                         } else {
-                            _hash_table_variants->emplace<I128HashTableContext<RowRefListType>>();
+                            _hash_table_variants->emplace<I128HashTableContext>();
                         }
                         break;
                     }
                     default:
-                        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
+                        _hash_table_variants->emplace<SerializedHashTableContext>();
                     }
                     return;
                 }
 
-                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32, RowRefListType>(
-                            *_hash_table_variants, _build_expr_ctxs)) {
-                    _hash_table_variants->emplace<SerializedHashTableContext<RowRefListType>>();
+                if (!try_get_hash_map_context_fixed<JoinHashMap, HashCRC32>(*_hash_table_variants,
+                                                                            _build_expr_ctxs)) {
+                    _hash_table_variants->emplace<SerializedHashTableContext>();
                 }
             },
             _join_op_variants, make_bool_variant(_have_other_join_conjunct));
