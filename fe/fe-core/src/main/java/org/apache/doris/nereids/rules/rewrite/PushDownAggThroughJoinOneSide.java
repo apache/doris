@@ -24,8 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -46,22 +48,22 @@ import java.util.Set;
  * TODO: distinct
  * Related paper "Eager aggregation and lazy aggregation".
  * <pre>
- * aggregate: Min/Max(x)
+ * aggregate: Min/Max/Sum(x)
  * |
  * join
  * |   \
  * |    *
  * (x)
  * ->
- * aggregate: Min/Max(min1)
+ * aggregate: Min/Max/Sum(min1)
  * |
  * join
  * |   \
  * |    *
- * aggregate: Min/Max(x) as min1
+ * aggregate: Min/Max/Sum(x) as min1
  * </pre>
  */
-public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
+public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
@@ -71,19 +73,20 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
-                                    .allMatch(f -> (f instanceof Min || f instanceof Max) && !f.isDistinct() && f.child(
-                                            0) instanceof Slot);
+                                    .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
+                                            || (f instanceof Count && !((Count) f).isCountStar())) && !f.isDistinct()
+                                            && f.child(0) instanceof Slot);
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
                                     .getSessionVariable().getEnableNereidsRules();
-                            if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN.type())) {
+                            if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE.type())) {
                                 return null;
                             }
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
-                            return pushMinMaxSum(agg, agg.child(), ImmutableList.of());
+                            return pushMinMaxSumCount(agg, agg.child(), ImmutableList.of());
                         })
-                        .toRule(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN),
+                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
                         .when(agg -> agg.child().isAllSlots())
                         .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
@@ -91,27 +94,27 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
-                                    .allMatch(
-                                            f -> (f instanceof Min || f instanceof Max) && !f.isDistinct() && f.child(
-                                                    0) instanceof Slot);
+                                    .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
+                                            || (f instanceof Count && (!((Count) f).isCountStar()))) && !f.isDistinct()
+                                            && f.child(0) instanceof Slot);
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
                                     .getSessionVariable().getEnableNereidsRules();
-                            if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN.type())) {
+                            if (!enableNereidsRules.contains(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE.type())) {
                                 return null;
                             }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
-                            return pushMinMaxSum(agg, agg.child().child(), agg.child().getProjects());
+                            return pushMinMaxSumCount(agg, agg.child().child(), agg.child().getProjects());
                         })
-                        .toRule(RuleType.PUSH_DOWN_MIN_MAX_THROUGH_JOIN)
+                        .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE)
         );
     }
 
     /**
      * Push down Min/Max/Sum through join.
      */
-    public static LogicalAggregate<Plan> pushMinMaxSum(LogicalAggregate<? extends Plan> agg,
+    public static LogicalAggregate<Plan> pushMinMaxSumCount(LogicalAggregate<? extends Plan> agg,
             LogicalJoin<Plan, Plan> join, List<NamedExpression> projects) {
         List<Slot> leftOutput = join.left().getOutput();
         List<Slot> rightOutput = join.right().getOutput();
@@ -183,21 +186,22 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
         Preconditions.checkState(left != join.left() || right != join.right());
         Plan newJoin = join.withChildren(left, right);
 
-        // top agg
+        // top agg TODO: AVG
         // replace
         // min(x) -> min(min#)
         // max(x) -> max(max#)
         // sum(x) -> sum(sum#)
+        // count(x) -> sum(count#)
         List<NamedExpression> newOutputExprs = new ArrayList<>();
         for (NamedExpression ne : agg.getOutputExpressions()) {
             if (ne instanceof Alias && ((Alias) ne).child() instanceof AggregateFunction) {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
                 Slot slot = (Slot) func.child(0);
                 if (leftSlotToOutput.containsKey(slot)) {
-                    Expression newFunc = func.withChildren(leftSlotToOutput.get(slot).toSlot());
+                    Expression newFunc = replaceAggFunc(func, leftSlotToOutput.get(slot).toSlot());
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else if (rightSlotToOutput.containsKey(slot)) {
-                    Expression newFunc = func.withChildren(rightSlotToOutput.get(slot).toSlot());
+                    Expression newFunc = replaceAggFunc(func, rightSlotToOutput.get(slot).toSlot());
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else {
                     throw new IllegalStateException("Slot " + slot + " not found in join output");
@@ -209,5 +213,13 @@ public class PushDownMinMaxThroughJoin implements RewriteRuleFactory {
 
         // TODO: column prune project
         return agg.withAggOutputChild(newOutputExprs, newJoin);
+    }
+
+    private static Expression replaceAggFunc(AggregateFunction func, Slot inputSlot) {
+        if (func instanceof Count) {
+            return new Sum(inputSlot);
+        } else {
+            return func.withChildren(inputSlot);
+        }
     }
 }
