@@ -33,7 +33,9 @@ under the License.
 
 ## 行为变更
 - 提供了更精确的 Precision 和 Scale 推导，可满足金融场景计算的高要求
+  - [https://github.com/apache/doris/pull/28034](https://github.com/apache/doris/pull/28034)
 - Drop Policy 支持了 User 和 Role
+  - [https://github.com/apache/doris/pull/29488](https://github.com/apache/doris/pull/29488)
 
 ## 新功能
 - 新优化器支持了 datev1， datetimev1 及 decimalv2 数据类型
