@@ -36,7 +36,7 @@ void BvarMetricsAction::handle(HttpRequest* req) {
     } else if (type == "json") {
         // str = bvar_metric_registry_->to_json(with_tablet == "true");
     } else {
-        str = bvar_metric_registry_->to_prometheus();
+        str = DorisBvarMetrics::instance()->to_prometheus();
     }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");

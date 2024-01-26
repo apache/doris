@@ -120,30 +120,6 @@ std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name
     }
 }
 
-void BvarMetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
-    std::lock_guard<bthread::Mutex> l(mutex_);
-#ifndef BE_TEST
-    DCHECK(hooks_.find(name) == hooks_.end()) << "hook is already exist! " << entity_name_ << ":" << name;
-#endif
-    hooks_.emplace(name, hook);
-}
-
-void BvarMetricEntity::deregister_hook(const std::string& name) {
-    std::lock_guard<bthread::Mutex> l(mutex_);
-    hooks_.erase(name);
-}
-
-void BvarMetricEntity::trigger_hook_unlocked(bool force) const {
-    // When 'enable_metric_calculator' is true, hooks will be triggered by a background thread,
-    // see 'calculate_metrics' in daemon.cpp for more details.
-    if (!force && config::enable_metric_calculator) {
-        return;
-    }
-    for (const auto& hook : hooks_) {
-        hook.second();
-    }
-}
-
 std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     std::stringstream ss;
     ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
@@ -153,32 +129,6 @@ std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     return ss.str();
 }
 
-std::shared_ptr<BvarMetricEntity> BvarMetricRegistry::register_entity(const std::string& name, BvarMetricType type){
-    std::lock_guard<bthread::Mutex> l(mutex_);
-    std::shared_ptr<BvarMetricEntity> entity = std::make_shared<BvarMetricEntity>(name, type);
-    auto it = entities_.find(name);
-    if (it == entities_.end()) {
-        entities_[name] = entity;
-    }
-
-    return entities_[name];
-}
-
-void BvarMetricRegistry::deregister_entity(const std::string& name){
-    std::lock_guard<bthread::Mutex> l(mutex_);
-    auto it = entities_.find(name);
-    if (it != entities_.end()) {
-        entities_.erase(it);
-    }
-}
-
-std::string BvarMetricRegistry::to_prometheus() const{
-    std::stringstream ss;
-    for (auto entity : entities_) {
-        ss << entity.second->to_prometheus(registry_name_);
-    }
-    return ss.str();
-}
 
 template class BvarAdderMetric<int64_t>;
 template class BvarAdderMetric<double>;

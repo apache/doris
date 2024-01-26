@@ -20,33 +20,38 @@
 namespace doris {
 
 const std::string DorisBvarMetrics::s_registry_name_ = "doris_be";
-const std::string DorisBvarMetrics::s_hook_name_ = "doris_metrics";
-
-DorisBvarMetrics::DorisBvarMetrics() : bvar_metric_registry_(s_registry_name_) {}
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
                               const std::vector<std::string>& network_interfaces) {
-    if (init_system_metrics) {
-        system_metrics_.reset(
-                new SystemBvarMetrics(&bvar_metric_registry_, disk_devices, network_interfaces));
-    }       
-                         
-    auto file_create_total_ptr = bvar_metric_registry_.register_entity("file_create_total", BvarMetricType::COUNTER);
+    auto file_create_total_ptr =
+            std::make_shared<BvarMetricEntity>("file_create_total", BvarMetricType::COUNTER);
+    entities_.push_back(file_create_total_ptr);
     file_create_total_ptr->register_metric("file_create_total", g_adder_file_created_total);
 
-    auto timeout_canceled_fragment_count = bvar_metric_registry_.register_entity("timeout_canceled", BvarMetricType::GAUGE);
+    auto timeout_canceled_fragment_count =
+            std::make_shared<BvarMetricEntity>("timeout_canceled", BvarMetricType::GAUGE);
+    entities_.push_back(timeout_canceled_fragment_count);
     timeout_canceled_fragment_count->register_metric("timeout_canceled_fragment_count",
                                          g_adder_timeout_canceled_fragment_count);
 
-    auto test_ptr = bvar_metric_registry_.register_entity("test", BvarMetricType::COUNTER);
+    auto test_ptr = std::make_shared<BvarMetricEntity>("test", BvarMetricType::COUNTER);
+    entities_.push_back(test_ptr);
     test_ptr->register_metric("fragment_request_total", g_adder_fragment_requests_total);
     test_ptr->register_metric("fragment_request_duration", g_adder_fragment_request_duration_us);
     test_ptr->register_metric("query_scan_byte", g_adder_query_scan_bytes);
     test_ptr->register_metric("segment_read_total", g_adder_segment_read_total);
 }
 
+void DorisBvarMetrics::register_entity(BvarMetricEntity entity) {
+
+}
+
 std::string DorisBvarMetrics::to_prometheus() const{
-    return bvar_metric_registry_.to_prometheus();
+    std::stringstream ss;
+    for (auto entity : entities_) {
+        ss << entity->to_prometheus(s_registry_name_);
+    }
+    return ss.str();
 }
 
 // timeout_canceled_fragment_count_entity
