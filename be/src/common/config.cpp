@@ -260,6 +260,7 @@ DEFINE_mInt32(doris_scanner_queue_size, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
 // number of max scan keys
 DEFINE_mInt32(doris_max_scan_key_num, "48");
 // the max number of push down values of a single column.
