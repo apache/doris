@@ -1502,6 +1502,10 @@ public class Env {
                 VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
                 LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
                         + "to new default value: {}", newBcFactorVal);
+
+                // similar reason as above, need to upgrade enable_nereids_planner to true
+                VariableMgr.enableNereidsPlanner();
+                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
         }
 
