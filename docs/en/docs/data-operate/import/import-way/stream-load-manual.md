@@ -26,20 +26,21 @@ under the License.
 
 # Stream Load
 
-Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
+Stream load is a synchronous way of importing. Users load local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 
 Stream load is mainly suitable for importing local files or data from data streams through procedures.
 
 :::tip
 
-In comparison to single-threaded imports using `curl`, Doris Parallel-Streamload is a client tool designed for importing data into Apache Doris. it reduces the ingestion latency of large datasets by its concurrent importing capabilities. It comes with the following features:
+In comparison to single-threaded load using `curl`, Doris-Streamloader is a client tool designed for loading data into Apache Doris. it reduces the ingestion latency of large datasets by its concurrent loading capabilities. It comes with the following features:
 
-- Concurrent imports: multi-threaded import for the Stream Load method. You can set the concurrency level using the `workers` parameter.
-- Multi-file import: simultaneous import of multiple files and directories with one shot. It supports recursive file fetching and allows you to specify file names with wildcard characters.
-- Resumable loading: In case of partial import failures, it can resume data loading from the point of failure.
-- Auto retry: In case of loading failures, it can automatically retry a default number of times. If the loading remains unsuccessful, it will print the command for manual retry.
+- **Parallel loading**: multi-threaded load for the Stream Load method. You can set the parallelism level using the `workers` parameter.
+- **Multi-file load:** simultaneously load of multiple files and directories with one shot. It supports recursive file fetching and allows you to specify file names with wildcard characters.
+- **Path traversal support:** support path traversal when the source files are in directories
+- **Resilience and continuity:** in case of partial load failures, it can resume data loading from the point of failure.
+- **Automatic retry mechanism:** in case of loading failures, it can automatically retry a default number of times. If the loading remains unsuccessful, it will print the command for manual retry.
 
-See [Doris Parallel-Streamload](../docs/ecosystem/doris-parallel-streamload) for detailed instructions and best practices.
+See [Doris-Streamloader](../docs/ecosystem/doris-parallel-streamload) for detailed instructions and best practices.
 :::
 
 

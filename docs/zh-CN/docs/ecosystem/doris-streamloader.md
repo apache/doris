@@ -35,28 +35,18 @@ under the License.
 
 ## 获取与安装
 
-**2.0 版本** 
+**1.0 版本** 
 
-Release Note:  https://github.com/apache/doris-streamloader/releases
+源代码:  https://github.com/apache/doris-streamloader
 
-| 版本    | 日期      |  平台  |  链接  |
+<!-- | 版本    | 日期      |  平台  |  链接  |
 |---|---|---|---|
-| v2.0   |  20231110 |  x86  | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/x64/v2.0/parallel_streamload （待定链接，需替换）|
-| v2.0   | 20231110  | aarch | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/arm/v2.0/parallel_streamload （待定链接，需替换）|
-
-**1.0 版本 (不再推荐使用)**
-
-| 版本    | 日期      |  平台  |  链接  |
-|---|---|---|---|
-| v1.0  |  20230914 |  x86  | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/x64/v1.0/parallel_streamload （待定链接，需替换）|
-| v1.0   | 20230914  | aarch | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/arm/v1.0/parallel_streamload （待定链接，需替换）|
-
+| v1.0   |  20231110 |  x86  | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/x64/v2.0/parallel_streamload （待定链接，需替换）|
+| v1.0   | 20231110  | aarch | selectdb-tools.oss-cn-beijing.aliyuncs.com/laihui/arm/v2.0/parallel_streamload （待定链接，需替换）|
 
 :::note
 获取结果即为可执行二进制。
-:::
-
-
+::: -->
 
 ## 使用方法
 
