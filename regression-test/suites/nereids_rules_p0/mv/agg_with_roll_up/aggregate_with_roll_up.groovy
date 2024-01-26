@@ -886,6 +886,47 @@ suite("aggregate_with_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_2"""
 
 
+    // bitmap_union roll up to bitmap_union_count
+    def mv25_3 = """
+           select l_shipdate, o_orderdate, l_partkey, l_suppkey,
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    def query25_3 = """
+            select o_orderdate,  l_suppkey + l_partkey,
+            sum(o_totalprice) + max(o_totalprice) - min(o_totalprice),
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) + bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_suppkey + l_partkey;
+    """
+    order_qt_query25_3_before "${query25_3}"
+    check_rewrite(mv25_3, query25_3, "mv25_3")
+    order_qt_query25_3_after "${query25_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_3"""
+
+
     // single table
     // filter + use roll up dimension
     def mv1_1 = """
@@ -1121,6 +1162,33 @@ suite("aggregate_with_roll_up") {
     check_rewrite(mv29_1, query29_1, "mv29_1")
     order_qt_query29_1_after "${query29_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_1"""
+
+
+    // mv and query both are scalar aggregate, and query calc the aggregate function
+    def mv29_2 = """
+            select
+            sum(o_totalprice) as sum_total,
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            count(*) as count_all,
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1,
+            bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
+    """
+    def query29_2 = """
+            select
+            count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2,
+            (sum(o_totalprice) + min(o_totalprice)) * count(*),
+            min(o_totalprice) + count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate;
+    """
+    order_qt_query29_2_before "${query29_2}"
+    check_rewrite(mv29_2, query29_2, "mv29_2")
+    order_qt_query29_2_after "${query29_2}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_2"""
+
 
     // join input has simple agg, simple agg which can not contains rollup, cube
     // can not rewrite, because avg doesn't support roll up now

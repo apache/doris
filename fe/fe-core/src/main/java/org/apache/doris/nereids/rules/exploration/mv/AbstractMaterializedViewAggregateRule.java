@@ -24,6 +24,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount
 import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -169,32 +172,95 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                         topExpression,
                         queryTopPlan);
-                // try to roll up
-                List<Object> queryFunctions =
-                        queryFunctionShuttled.collectFirst(expr -> expr instanceof AggregateFunction);
-                if (queryFunctions.isEmpty()) {
-                    materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
-                            Pair.of("Can not found query function",
-                                    String.format("queryFunctionShuttled = %s", queryFunctionShuttled)));
-                    return null;
-                }
-                Function rollupAggregateFunction = rollup((AggregateFunction) queryFunctions.get(0),
-                        queryFunctionShuttled, mvExprToMvScanExprQueryBased);
-                if (rollupAggregateFunction == null) {
+                Pair<Map<Expression, Expression>, Boolean> rollupContext = Pair.of(mvExprToMvScanExprQueryBased, true);
+                // queryFunctionShuttled maybe sum(column) + count(*), so need to use expression rewriter
+                Expression rollupedExpression = queryFunctionShuttled.accept(
+                        new DefaultExpressionRewriter<Pair<Map<Expression, Expression>, Boolean>>() {
+                            @Override
+                            public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
+                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
+                                if (!rollupContext.second) {
+                                    return null;
+                                }
+                                Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                                        aggregateFunction,
+                                        queryTopPlan);
+                                Function rollupAggregateFunction = rollup(aggregateFunction, queryFunctionShuttled,
+                                        mvExprToMvScanExprQueryBased);
+                                if (rollupAggregateFunction == null) {
+                                    rollupContext.second = false;
+                                    return null;
+                                }
+                                return rollupAggregateFunction;
+                            }
+
+                            @Override
+                            public Expression visitSlot(Slot slot, Pair<Map<Expression, Expression>, Boolean> context) {
+                                // roll up aggregate function, which should not contains the slotReference
+                                rollupContext.second = false;
+                                return null;
+                            }
+
+                            @Override
+                            public Expression visit(Expression expr,
+                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
+                                if (!rollupContext.second) {
+                                    return null;
+                                }
+                                return super.visit(expr, rollupContext);
+                            }
+                        }, rollupContext);
+                if (!rollupContext.second) {
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Query function roll up fail",
-                                    String.format("queryFunction = %s,\n queryFunctionShuttled = %s,\n"
-                                                    + "mvExprToMvScanExprQueryBased = %s",
-                                            queryFunctions.get(0), queryFunctionShuttled,
-                                            mvExprToMvScanExprQueryBased)));
+                                    String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
+                                            queryFunctionShuttled, mvExprToMvScanExprQueryBased)));
                     return null;
                 }
-                finalAggregateExpressions.add(new Alias(rollupAggregateFunction));
+                finalAggregateExpressions.add(new Alias(rollupedExpression));
             } else {
                 // if group by expression, try to rewrite group by expression
                 Expression queryGroupShuttledExpr =
                         ExpressionUtils.shuttleExpressionWithLineage(topExpression, queryTopPlan);
-                if (!mvExprToMvScanExprQueryBased.containsKey(queryGroupShuttledExpr)) {
+                Pair<Map<Expression, Expression>, Boolean> rewriteContext = Pair.of(mvExprToMvScanExprQueryBased, true);
+                // group by expression maybe group by a + b, so we need expression rewriter
+                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(
+                        new DefaultExpressionRewriter<Pair<Map<Expression, Expression>, Boolean>>() {
+                            @Override
+                            public Expression visitSlotReference(SlotReference slotReference,
+                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
+                                if (!rollupContext.second) {
+                                    return null;
+                                }
+                                if (rollupContext.first.containsKey(slotReference)) {
+                                    return rollupContext.first.get(slotReference);
+                                } else {
+                                    rollupContext.second = false;
+                                }
+                                return null;
+                            }
+
+                            @Override
+                            public Expression visitAggregateExpression(AggregateExpression aggregateExpression,
+                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
+                                // roll up group by expression, which should not contains the aggregate function
+                                rollupContext.second = false;
+                                return null;
+                            }
+
+                            @Override
+                            public Expression visit(Expression expr,
+                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
+                                if (!rollupContext.second) {
+                                    return null;
+                                }
+                                if (rollupContext.first.containsKey(expr)) {
+                                    return rollupContext.first.get(expr);
+                                }
+                                return super.visit(expr, rollupContext);
+                            }
+                        }, rewriteContext);
+                if (!rewriteContext.second) {
                     // group expr can not rewrite by view
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("View dimensions doesn't not cover the query dimensions",
@@ -202,9 +268,10 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                                             mvExprToMvScanExprQueryBased, queryGroupShuttledExpr)));
                     return null;
                 }
-                Expression expression = mvExprToMvScanExprQueryBased.get(queryGroupShuttledExpr);
-                finalAggregateExpressions.add((NamedExpression) expression);
-                finalGroupExpressions.add(expression);
+                NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
+                        ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
+                finalAggregateExpressions.add(groupByExpression);
+                finalGroupExpressions.add(groupByExpression);
             }
         }
         // add project to guarantee group by column ref is slot reference,
