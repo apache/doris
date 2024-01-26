@@ -48,6 +48,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -2118,7 +2119,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (isMultiTableRequest) {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
+
+            StreamLoadPlanner planner = null;
+            if (Config.isCloudMode()) {
+                planner = new CloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
+            } else {
+                planner = new StreamLoadPlanner(db, table, streamLoadTask);
+            }
+
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
             if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {

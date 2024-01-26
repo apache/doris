@@ -22,6 +22,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -755,7 +756,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         LoadJob job = null;
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
-            job = new BrokerLoadJob();
+            job = EnvFactory.getInstance().createBrokerLoadJob();
         } else if (type == EtlJobType.SPARK) {
             job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
