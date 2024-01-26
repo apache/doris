@@ -47,6 +47,7 @@
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"

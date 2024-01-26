@@ -79,8 +79,12 @@ public:
             : _fs(fs), _path(path), _index_meta(*index_meta) {
         io::Path io_path(_path);
         _index_dir = io_path.parent_path();
-        _index_file_name = InvertedIndexDescriptor::get_index_file_name(
-                io_path.filename(), index_meta->index_id(), index_meta->get_index_suffix());
+        if (_index_meta.get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V2) {
+            _index_file_name = InvertedIndexDescriptor::get_index_file_name(io_path.filename());
+        } else {
+            _index_file_name = InvertedIndexDescriptor::get_index_file_name(
+                    io_path.filename(), index_meta->index_id(), index_meta->get_index_suffix());
+        }
     }
     virtual ~InvertedIndexReader() = default;
 

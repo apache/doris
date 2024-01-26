@@ -249,6 +249,14 @@ public:
 
     void set_escaped_escaped_index_suffix_path(const std::string& name);
 
+    InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
+        return _inverted_index_storage_format;
+    }
+
+    void set_inverted_index_storage_format(const InvertedIndexStorageFormatPB& format) {
+        _inverted_index_storage_format = format;
+    }
+
 private:
     int64_t _index_id = -1;
     // Identify the different index with the same _index_id
@@ -257,6 +265,7 @@ private:
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
     std::map<string, string> _properties;
+    InvertedIndexStorageFormatPB _inverted_index_storage_format;
 };
 
 class TabletSchema {
@@ -334,6 +343,7 @@ public:
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
+    std::vector<TabletIndex> get_indexes_for_column_by_copy(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
     const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,

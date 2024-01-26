@@ -153,6 +153,9 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         auto index_dir = path.parent_path();
         auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                 path.filename(), _index_meta.index_id(), _index_meta.get_index_suffix());
+        if (_index_meta.get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V2) {
+            index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename());
+        }
         auto index_file_path = index_dir / index_file_name;
         InvertedIndexQueryCache::CacheKey cache_key {
                 index_file_path, "", InvertedIndexQueryType::UNKNOWN_QUERY, "null_bitmap"};
@@ -160,12 +163,29 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
         if (cache->lookup(cache_key, cache_handle)) {
             return Status::OK();
         }
+        std::unique_ptr<DorisMultiIndexCompoundReader> multi_compound_reader;
 
         if (!dir) {
-            dir = new DorisCompoundReader(
-                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
-                    index_file_name.c_str(), config::inverted_index_read_buffer_size);
-            owned_dir = true;
+            if (_index_meta.get_inverted_index_storage_format() ==
+                InvertedIndexStorageFormatPB::V2) {
+                multi_compound_reader = std::make_unique<DorisMultiIndexCompoundReader>(
+                        DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
+                        index_file_name.c_str(), config::inverted_index_read_buffer_size);
+                CLuceneError err;
+
+                dir = multi_compound_reader->open(_index_meta.index_id(), err);
+                if (dir == nullptr) {
+                    return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "DorisMultiIndexCompoundReader open error occurred, reason={}",
+                            err.what());
+                }
+                owned_dir = true;
+            } else {
+                dir = new DorisCompoundReader(
+                        DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
+                        index_file_name.c_str(), config::inverted_index_read_buffer_size);
+                owned_dir = true;
+            }
         }
 
         // ownership of null_bitmap and its deletion will be transfered to cache

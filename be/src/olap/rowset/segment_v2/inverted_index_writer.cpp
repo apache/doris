@@ -195,7 +195,10 @@ public:
     }
 
     Status create_index_directory(std::unique_ptr<DorisCompoundDirectory>& dir) {
-        bool use_compound_file_writer = true;
+        bool use_compound_file_writer =
+                _index_meta->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1
+                        ? true
+                        : false;
         bool can_use_ram_dir = true;
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id(),
