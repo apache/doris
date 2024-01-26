@@ -71,9 +71,8 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.forType(TinyIntType.INSTANCE)),
                 new DecimalLiteral(new BigDecimal(12)));
 
-        // TODO case failed, cast(12 as DecimalV2(5, 1)) -> 12 decimalv2(2, 0)
-        // cast tinyint as decimalv2(5,1)
-        // assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5,1)), new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5,1), new BigDecimal("12.0")));
+        assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5,1)),
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5,1), new BigDecimal("12.0")));
 
         // cast tinyint as decimalv3(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.forType(TinyIntType.INSTANCE)),
@@ -83,16 +82,13 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 1),
                         new BigDecimal("12.0")));
 
-        // TODO cast(12 as decimalv3(2,1)) -> 12.0 decimalv3(2,1), and 12.0 decimalv3(2,1) == 12.0 decimalv3(3,1) ??
         // cast tinyint as decimalv3(2,1)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.createDecimalV3Type(2, 1)),
-                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(3, 1),
-                        new BigDecimal("12.0")));
+                new Cast(tinyIntLiteral, DecimalV3Type.createDecimalV3Type(2, 1)));
 
-        // TODO cast(12 as decimalv2(2,1)) -> 12 decimalv2(2,0) ??
         // cast tinyint as decimalv2(2,1)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(2, 1)),
-                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(2, 0), new BigDecimal("12")));
+                new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(2, 1)));
 
         Expression smallIntLiteral = new SmallIntLiteral((short) 30000);
         // cast smallint as smallint
@@ -151,8 +147,6 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 1),
                         new BigDecimal("12.0")));
 
-        // TODO this is different from cast(12 as decimalv3(2,1))
-        // cast decimalv3(3,1) as decimalv3(2,1)
         assertRewrite(new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(2, 1)),
                 new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(2, 1)));
 
