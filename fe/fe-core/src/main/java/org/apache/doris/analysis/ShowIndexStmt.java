@@ -34,6 +34,7 @@ public class ShowIndexStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Table", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Index_id", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Non_unique", ScalarType.createVarchar(10)))
                     .addColumn(new Column("Key_name", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(64)))
