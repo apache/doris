@@ -42,12 +42,9 @@ PV 提供多种存储类型，主要分为两大类：网络存储、本地存�
 Doris-Operator 同时将日志输出到 console 和 指定目录下。如果用户的 Kubernetes 系统有完整的日志收集能力，可通过 console 输出来收集 Doris INFO 级别（默认）的日志信息。
 但是这里仍然推荐配置 PVC 来持久化日志文件，因为除了 INFO 级别日志还会有诸如 fe.out、be.out、audit.log 以及 垃圾回收日志，便于快速定位问题和审计日志回溯。
 
-***
 
 ConfigMap 是 Kubernetes 中用于存储配置文件的资源对象，它允许动态挂载配置文件，并将配置文件与应用程序解耦，使得配置的管理更加灵活和可维护。
 像 PVC 一样 ConfigMap 可以被 Pod 引用，以便在应用程序中使用配置数据。
-
-****
 
 
 ## StorageClass
@@ -165,7 +162,7 @@ data:
     enable_fqdn_mode = true
 ```
 
-注意，使用 FE 的 ConfigMap ，必须为 `fe.conf` 添加 `enable_fqdn_mode = true`，具体原因可参考 [此处文档](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/fqdn)
+注意，使用 FE 的 ConfigMap ，必须为 `fe.conf` 添加 `enable_fqdn_mode = true`，具体原因可参考 [此处文档](https://doris.apache.org/zh-CN/docs/dev/admin-manual/cluster-management/fqdn)
 
 BE 的 ConfigMap 样例
 ```yaml
@@ -256,7 +253,7 @@ spec:
 这里的 `resolveKey` 是传入配置文件名（必须是`fe.conf`，`be.conf` 或 `apache_hdfs_broker.conf`，cn 节点也是 `be.conf`） 用以解析传入的 Doris 集群配置的文件，doris-operator 会去解析该文件去指导 doriscluster 的定制化部署。
 
 ## 为 conf 目录添加特殊配置文件
-本段落用来供参考 需要在 Doris 节点的 conf 目录放置配置其他文件的容器化部署方案。比如常见的 [数据湖联邦查询](https://doris.apache.org/zh-CN/docs/lakehouse/multi-catalog/hive) 的 hdfs 配置文件映射。
+本段落用来供参考 需要在 Doris 节点的 conf 目录放置配置其他文件的容器化部署方案。比如常见的 [数据湖联邦查询](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hive) 的 hdfs 配置文件映射。
 
 这里以 BE 的 ConfigMap 和 需要添加的 core-site.xml 文件为例：
 ```yaml
@@ -272,7 +269,7 @@ data:
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
-  core-site.xml:
+  core-site.xml: |
     <?xml version="1.0" encoding="UTF-8"?>
     <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
     <configuration>
@@ -420,5 +417,5 @@ data:
     
     storage_root_path = /opt/apache-doris/be/storage,medium:ssd;/opt/apache-doris/be/storage1,medium:ssd
 ```
-在使用多盘时，`ConfigMap` 中 `storage_root_path` 对应值中的路径要与 `doriscluster` 中 `persistentVolume` 各个挂载路径对应。[`storage_root_path`](https://doris.apache.org/zh-CN/docs/admin-manual/config/be-config/?_highlight=storage_root_path#%E6%9C%8D%E5%8A%A1) 对应的书写规则请参考链接中文档。
+在使用多盘时，`ConfigMap` 中 `storage_root_path` 对应值中的路径要与 `doriscluster` 中 `persistentVolume` 各个挂载路径对应。[`storage_root_path`](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/be-config/#storage_root_path) 对应的书写规则请参考链接中文档。
 在使用云盘的情形下，介质统一使用 `SSD`。
