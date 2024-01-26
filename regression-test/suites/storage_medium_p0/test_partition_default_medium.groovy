@@ -28,9 +28,9 @@ suite("test_partition_default_medium") {
     def checkCreateTablePartitionDefaultMediumEq = {tbl, sum ->
         sleep 1000
 
-        def partiions = sql_return_maparray "SHOW PARTITIONS FROM $tbl;"
+        def partitions = sql_return_maparray "SHOW PARTITIONS FROM $tbl;"
         def partitionsMedium = [:]
-        partiions.each {
+        partitions.each {
             def num = partitionsMedium.get(it.StorageMedium)
             if (partitionsMedium) {
                 partitionsMedium.put(it.StorageMedium, ++num)
@@ -47,8 +47,10 @@ suite("test_partition_default_medium") {
     docker(options) {
         def single_partition_tbl = "single_partition_tbl"
         def multi_partition_tbl = "multi_partition_tbl"
+        def dynamic_partition_tbl = "dynamic_partition_tbl"
         sql """drop table if exists $single_partition_tbl"""
         sql """drop table if exists $multi_partition_tbl"""
+        sql """drop table if exists $dynamic_partition_tbl"""
 
         sql """
             CREATE TABLE ${single_partition_tbl}
@@ -84,5 +86,24 @@ suite("test_partition_default_medium") {
             DISTRIBUTED BY HASH(k1) BUCKETS 32;
         """
         checkCreateTablePartitionDefaultMediumEq(multi_partition_tbl, 3)
+
+        sql """
+            CREATE TABLE $dynamic_partition_tbl
+            (
+                k1 DATE
+            )
+            PARTITION BY RANGE(k1) ()
+            DISTRIBUTED BY HASH(k1)
+            PROPERTIES
+            (
+                "dynamic_partition.enable" = "true",
+                "dynamic_partition.time_unit" = "DAY",
+                "dynamic_partition.start" = "-7",
+                "dynamic_partition.end" = "3",
+                "dynamic_partition.prefix" = "p",
+                "dynamic_partition.buckets" = "32"
+            );
+        """
+        checkCreateTablePartitionDefaultMediumEq(dynamic_partition_tbl, 4)
     }
 }

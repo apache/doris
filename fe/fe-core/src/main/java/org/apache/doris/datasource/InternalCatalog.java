@@ -1906,9 +1906,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             TabletMeta tabletMeta = new TabletMeta(dbId, tbl.getId(), partitionId, indexId,
                     schemaHash, dataProperty.getStorageMedium());
             realStorageMedium = createTablets(index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc,
-                tabletMeta, tabletIdSet, idGeneratorBuffer, isStorageMediumSpecified);
+                tabletMeta, tabletIdSet, idGeneratorBuffer, dataProperty.isStorageMediumSpecified());
             if (realStorageMedium != null && !realStorageMedium.equals(dataProperty.getStorageMedium())) {
                 dataProperty.setStorageMedium(realStorageMedium);
+                LOG.info("real medium not eq default "
+                        + "tableName={} tableId={} partitionName={} partitionId={} readMedium {}",
+                        tableName, tableId, partitionName, partitionId, realStorageMedium);
             }
 
             boolean ok = false;
