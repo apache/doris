@@ -2249,6 +2249,9 @@ public class ShowExecutor {
         if (status != TransactionStatus.UNKNOWN) {
             resultSet = new ShowResultSet(showStmt.getMetaData(),
                     transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
+            resultSet =  new ShowResultSet(showStmt.getMetaData(),
+                transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
         } else {
             Long txnId = showStmt.getTxnId();
             String label = showStmt.getLabel();
