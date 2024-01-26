@@ -51,8 +51,7 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
     @Test
     public void testSimplify() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
-        assertRewriteAfterSimplify("CAST('1' AS STRING)", "'1'",
-                StringType.INSTANCE);
+        assertRewriteAfterSimplify("CAST('1' AS STRING)", "'1'", StringType.INSTANCE);
         assertRewriteAfterSimplify("CAST('1' AS VARCHAR)", "'1'",
                 VarcharType.createVarcharType(-1));
         assertRewriteAfterSimplify("CAST(1 AS DECIMAL)", "1",
@@ -71,8 +70,9 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.forType(TinyIntType.INSTANCE)),
                 new DecimalLiteral(new BigDecimal(12)));
 
-        assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5,1)),
-                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5,1), new BigDecimal("12.0")));
+        assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5, 1)),
+                new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5, 1),
+                        new BigDecimal("12.0")));
 
         // cast tinyint as decimalv3(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.forType(TinyIntType.INSTANCE)),
@@ -190,7 +190,6 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         Expression expectedExpression = PARSER.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
         Assertions.assertEquals(expectedType, rewritten.getDataType());
-
     }
 
 }
