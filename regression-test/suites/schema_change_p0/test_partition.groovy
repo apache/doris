@@ -64,7 +64,6 @@ suite("test_partition") {
     sql """ALTER TABLE ${tblName} DROP PARTITION new_p1;"""
     order_qt_sql_2 """SELECT * from ${tblName};"""
     checkPartition(tblName);
-    sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
 
     //modify partition storage_medium
     sql """ALTER TABLE ${tblName} modify PARTITION old_p1 set("storage_medium"="HDD");"""
@@ -93,5 +92,6 @@ suite("test_partition") {
         exception "Not support set 'in_memory'='true' now!"
     }
 
+    sql """DROP TABLE IF EXISTS ${tblName} FORCE; """
 
 }
