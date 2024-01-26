@@ -511,7 +511,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // query pulledUp predicates should have null reject predicates and contains any require noNullable slot
         return !queryPulledUpPredicates.containsAll(nullRejectPredicates)
                 && requireNoNullableViewSlot.stream().noneMatch(
-                set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
+                        set -> Sets.intersection(set, queryUsedNeedRejectNullSlotsViewBased).isEmpty());
     }
 
     /**
