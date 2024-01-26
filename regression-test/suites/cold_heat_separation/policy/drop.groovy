@@ -127,7 +127,7 @@ suite("drop_policy") {
                 k2 date,
                 v1 VARCHAR(2048)
             )
-            UNIQUE KEY(k1)
+            UNIQUE KEY(k1, k2)
             PARTITION BY RANGE(k2)(
                 partition p1 VALUES LESS THAN ("2014-01-01") ("storage_policy" = "drop_policy_test_has_table_bind_1"),
                 partition p2 VALUES LESS THAN ("2015-01-01"),
