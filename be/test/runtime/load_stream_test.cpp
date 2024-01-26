@@ -807,7 +807,8 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_tablet) {
     wait_for_ack(3);
     EXPECT_EQ(g_response_stat.num, 3);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
-    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 2);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids[1], ABNORMAL_TABLET_ID);
 
     // server will close stream on CLOSE_LOAD
     wait_for_close();
