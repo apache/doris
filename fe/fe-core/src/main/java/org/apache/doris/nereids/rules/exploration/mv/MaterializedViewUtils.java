@@ -195,6 +195,9 @@ public class MaterializedViewUtils {
         @Override
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
+            if (join.isMarkJoin()) {
+                context.setPctPossible(false);
+            }
             Plan left = join.child(0);
             Set<Column> leftColumnSet = left.getOutputSet().stream()
                     .filter(slot -> slot instanceof SlotReference

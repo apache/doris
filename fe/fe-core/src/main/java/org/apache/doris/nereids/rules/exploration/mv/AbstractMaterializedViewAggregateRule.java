@@ -118,7 +118,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // Firstly,if group by expression between query and view is equals, try to rewrite expression directly
         Plan queryTopPlan = queryTopPlanAndAggPair.key();
         if (isGroupByEquals(queryTopPlanAndAggPair, viewTopPlanAndAggPair, viewToQuerySlotMapping)) {
-            List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getExpressions(),
+            List<Expression> rewrittenQueryExpressions = rewriteExpression(queryTopPlan.getOutput(),
                     queryTopPlan,
                     materializationContext.getMvExprToMvScanExprMapping(),
                     viewToQuerySlotMapping,
@@ -135,7 +135,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     Pair.of("Can not rewrite expression when no roll up",
                             String.format("expressionToWrite = %s,\n mvExprToMvScanExprMapping = %s,\n"
                                             + "viewToQuerySlotMapping = %s",
-                                    queryTopPlan.getExpressions(),
+                                    queryTopPlan.getOutput(),
                                     materializationContext.getMvExprToMvScanExprMapping(),
                                     viewToQuerySlotMapping)));
         }
@@ -161,7 +161,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
         List<NamedExpression> finalOutputExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
-        List<? extends Expression> queryExpressions = queryTopPlan.getExpressions();
+        List<? extends Expression> queryExpressions = queryTopPlan.getOutput();
         // permute the mv expr mapping to query based
         Map<Expression, Expression> mvExprToMvScanExprQueryBased =
                 materializationContext.getMvExprToMvScanExprMapping().keyPermute(viewToQuerySlotMapping)
@@ -342,7 +342,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Plan queryTopPlan = topPlanAndAggPair.key();
         Set<Expression> topGroupByExpressions = new HashSet<>();
         Set<Expression> topFunctionExpressions = new HashSet<>();
-        queryTopPlan.getExpressions().forEach(expression -> {
+        queryTopPlan.getOutput().forEach(expression -> {
             if (expression.anyMatch(expr -> expr instanceof NamedExpression
                     && queryAggFunctionSet.contains(((NamedExpression) expr).getExprId()))) {
                 topFunctionExpressions.add(expression);
@@ -378,14 +378,13 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         HyperGraph hyperGraph = structInfo.getHyperGraph();
         for (AbstractNode node : hyperGraph.getNodes()) {
             StructInfoNode structInfoNode = (StructInfoNode) node;
-            if (!structInfoNode.getPlan().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    SUPPORTED_JOIN_TYPE_SET)) {
+            if (!structInfoNode.getPlan().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
                 return false;
             }
-            for (JoinEdge edge : hyperGraph.getJoinEdges()) {
-                if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
-                    return false;
-                }
+        }
+        for (JoinEdge edge : hyperGraph.getJoinEdges()) {
+            if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
+                return false;
             }
         }
         return true;
