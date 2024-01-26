@@ -36,6 +36,9 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_bloom.h"
+#include "parquet_bloom_predicate.h"
+#include "parquet_bloom_reader.h"
 #include "util/obj_lru_cache.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
@@ -205,12 +208,23 @@ private:
     void _init_chunk_dicts();
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
-    Status _process_bloom_filter(bool* filter_group);
+    Status _process_bloom_filter(bool* filter_group, const tparquet::RowGroup& row_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
 
+    bool _filter_by_bloom(const ColumnValueRangeType& col_value_range,
+                          const FieldSchema* col_schema, std::unique_ptr<BloomFilter>& bf);
+    template <PrimitiveType T>
+    std::vector<BloomScanPredicate> _value_range_to_predicate_bloom(
+            const ColumnValueRange<T>& col_value_range);
+    template <PrimitiveType T>
+    static bool _apply_filter_bloom(const ColumnValueRange<T>& col_value_range,
+                                    const BloomScanPredicate& predicate,
+                                    const FieldSchema* col_schema,
+                                    std::unique_ptr<BloomFilter>& bf);
+    BloomFilterReader& get_bloom_filter_reader();
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -272,5 +286,6 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
+    std::unique_ptr<BloomFilterReader> bloom_filter_reader_ = nullptr;
 };
 } // namespace doris::vectorized
