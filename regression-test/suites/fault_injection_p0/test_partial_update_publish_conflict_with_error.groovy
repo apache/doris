@@ -155,7 +155,7 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
     try {
         GetDebugPoint().enableDebugPointForAllBEs(dbug_point, [percent : 1.0])
         do_streamload_2pc_commit(txnId2)
-        sleep(5000)
+        sleep(3000)
     } catch(Exception e) {
         logger.info(e.getMessage())
         throw e
@@ -163,7 +163,8 @@ suite("test_partial_update_publish_conflict_with_error", "nonConcurrent") {
         GetDebugPoint().disableDebugPointForAllBEs(dbug_point)
     }
     // publish will retry until success
-    wait_for_publish(txnId2, 10)
+    // FE retry may take logger time, wait for 20 secs
+    wait_for_publish(txnId2, 20)
 
     sql "sync;"
     qt_sql """ select * from ${tableName} order by k1;"""
