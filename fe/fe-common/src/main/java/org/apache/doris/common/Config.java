@@ -2148,7 +2148,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
         "设置 binlog 消息最字节长度",
         "Set the maximum byte length of binlog message"})
-    public static long max_binlog_messsage_size = 1024 * 1024 * 1024;
+    public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
