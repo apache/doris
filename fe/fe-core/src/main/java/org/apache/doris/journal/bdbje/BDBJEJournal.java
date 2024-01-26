@@ -49,6 +49,7 @@ import com.sleepycat.je.rep.ReplicaWriteException;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.TimeConsistencyPolicy;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,6 +60,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+
 
 /*
  * This is the bdb implementation of Journal interface.
@@ -132,9 +134,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         // Write the journals to bdb.
         for (int i = 0; i < RETRY_TIME; i++) {
             Transaction txn = null;
+            StopWatch watch = StopWatch.createStarted();
             try {
                 // The default config is constructed from the configs of environment.
                 txn = bdbEnvironment.getReplicatedEnvironment().beginTransaction(null, null);
+                dataSize = 0;
                 for (int j = 0; j < entitySize; ++j) {
                     JournalBatch.Entity entity = entities.get(j);
                     DatabaseEntry theKey = idToKey(firstId + j);
@@ -152,6 +156,18 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase(dataSize);
                     MetricRepo.COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.increase(dataSize);
+                    MetricRepo.HISTO_JOURNAL_BATCH_SIZE.update(entitySize);
+                    MetricRepo.HISTO_JOURNAL_BATCH_DATA_SIZE.update(dataSize);
+                }
+
+                if (entitySize > 32) {
+                    LOG.warn("write bdb journal batch is too large, batch size {}, the first journal id {}, "
+                            + "data size {}", entitySize, firstId, dataSize);
+                }
+
+                if (dataSize > 640 * 1024) {  // 640KB
+                    LOG.warn("write bdb journal batch data is too large, data size {}, the first journal id {}, "
+                            + "batch size {}", dataSize, firstId, entitySize);
                 }
 
                 return firstId;
@@ -187,6 +203,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             } finally {
                 if (txn != null) {
                     txn.abort();
+                }
+                watch.stop();
+                if (watch.getTime() > 100000) {  // 100ms
+                    LOG.warn("write bdb is too slow, cost {}ms, the first journal id, batch size {}, data size{}",
+                            watch.getTime(), firstId, entitySize, dataSize);
                 }
             }
         }
