@@ -41,6 +41,9 @@ public class JournalBatch {
     //
     // The writable data will be serialized and saved in the journal batch with an internal
     // representation, so it is safety to update the data object once this function returned.
+    //
+    // If the batch is too large, it may cause a latency spike. Generally, we recommend controlling
+    // the number of batch entities to less than 32 and the batch data size to less than 640KB.
     public void addJournal(short op, Writable data) throws IOException {
         if (op == OperationType.OP_TIMESTAMP) {
             // OP_TIMESTAMP is not supported, see `BDBJEJournal.write` for details.
