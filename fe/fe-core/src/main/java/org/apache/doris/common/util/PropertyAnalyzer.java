@@ -41,6 +41,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -100,6 +101,8 @@ public class PropertyAnalyzer {
      * v2: beta rowset
      */
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
+
+    public static final String PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT = "inverted_index_storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
@@ -991,6 +994,26 @@ public class PropertyAnalyzer {
             return TStorageFormat.V2;
         } else {
             throw new AnalysisException("unknown storage format: " + storageFormat);
+        }
+    }
+
+    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties) throws AnalysisException {
+        String invertedIndexStorageFormat = "";
+        if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);
+        } else {
+            return TInvertedIndexStorageFormat.V2;
+        }
+
+        if (invertedIndexStorageFormat.equalsIgnoreCase("v1")) {
+            return TInvertedIndexStorageFormat.V1;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("v2")) {
+            return TInvertedIndexStorageFormat.V2;
+        } else if (invertedIndexStorageFormat.equalsIgnoreCase("default")) {
+            return TInvertedIndexStorageFormat.V2;
+        } else {
+            throw new AnalysisException("unknown inverted index storage format: " + invertedIndexStorageFormat);
         }
     }
 

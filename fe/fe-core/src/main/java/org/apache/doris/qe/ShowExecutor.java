@@ -925,6 +925,11 @@ public class ShowExecutor {
                     storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
                 }
                 rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat));
+
+                String invertedIndexStorageFormat = (tbl instanceof OlapTable) ?
+                        ((OlapTable) tbl).getInvertedIndexStorageFormat().toString() :
+                        "NONE";
+                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), invertedIndexStorageFormat));
             } else {
                 rows.add(Lists.newArrayList(tbl.getName()));
             }
