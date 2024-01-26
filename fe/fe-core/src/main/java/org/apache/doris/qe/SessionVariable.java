@@ -1243,7 +1243,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 70;
+    public int autoAnalyzeTableWidthThreshold = 100;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
