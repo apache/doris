@@ -33,14 +33,20 @@ public class TableCommitInfo implements Writable {
     private long tableId;
     @SerializedName(value = "idToPartitionCommitInfo")
     private Map<Long, PartitionCommitInfo> idToPartitionCommitInfo;
+    @SerializedName(value = "version")
+    private long version;
+    @SerializedName(value = "versionTime")
+    private long versionTime;
 
     public TableCommitInfo() {
 
     }
 
-    public TableCommitInfo(long tableId) {
+    public TableCommitInfo(long tableId, long version, long visibleTime) {
         this.tableId = tableId;
         idToPartitionCommitInfo = Maps.newHashMap();
+        this.version = version;
+        this.versionTime = visibleTime;
     }
 
     @Override
@@ -88,5 +94,21 @@ public class TableCommitInfo implements Writable {
 
     public PartitionCommitInfo getPartitionCommitInfo(long partitionId) {
         return this.idToPartitionCommitInfo.get(partitionId);
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public void setVersion(long version) {
+        this.version = version;
+    }
+
+    public long getVersionTime() {
+        return versionTime;
+    }
+
+    public void setVersionTime(long versionTime) {
+        this.versionTime = versionTime;
     }
 }

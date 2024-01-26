@@ -83,6 +83,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -1309,8 +1310,8 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId,table.getNextVersion(),System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1944,6 +1945,9 @@ public class DatabaseTransactionMgr {
                             transactionState, partition.getId(), version);
                 }
             }
+            long tableVersion = tableCommitInfo.getVersion();
+            long tableVersionTime = tableCommitInfo.getVersionTime();
+            table.updateVisibleVersionAndTime(tableVersion,tableVersionTime);
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();
