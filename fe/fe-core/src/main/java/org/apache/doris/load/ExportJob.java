@@ -394,7 +394,7 @@ public class ExportJob implements Writable {
     }
 
     /**
-     * Generate outfile select stmt
+     * Generate select outfile stmtement
      * @throws UserException
      */
     private void generateQueryStmt() throws UserException {
