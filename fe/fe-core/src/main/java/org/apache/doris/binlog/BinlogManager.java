@@ -463,7 +463,7 @@ public class BinlogManager {
         }
 
         TMemoryInputTransport transport = new TMemoryInputTransport();
-        transport.getConfiguration().setMaxMessageSize(1024 * 1024 * 1024);
+        transport.getConfiguration().setMaxMessageSize(Config.max_binlog_messsage_size);
         transport.reset(data);
 
         TBinaryProtocol protocol = new TBinaryProtocol(transport);
