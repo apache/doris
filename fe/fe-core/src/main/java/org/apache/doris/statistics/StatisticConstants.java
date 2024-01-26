@@ -98,7 +98,7 @@ public class StatisticConstants {
 
     public static final int TASK_QUEUE_CAP = 10;
 
-    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 70;
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 100;
 
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 
