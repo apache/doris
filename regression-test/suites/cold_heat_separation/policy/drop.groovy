@@ -150,7 +150,7 @@ suite("drop_policy") {
         // fail to drop, there are tables using this policy
         assertEquals(drop_policy_fail_ret, null)
 
-        def drop_policy_fail_ret = try_sql """
+        drop_policy_fail_ret = try_sql """
             DROP STORAGE POLICY drop_policy_test_has_table_bind_1
         """
         // fail to drop, there are partitions using this policy
