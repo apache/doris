@@ -1315,7 +1315,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
-        TInvertedIndexStorageFormat invertedIndexStorageFormat = PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
+        TInvertedIndexStorageFormat invertedIndexStorageFormat =
+                PropertyAnalyzer.analyzeInvertedIndexStorageFormat(propertyMap);
 
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop

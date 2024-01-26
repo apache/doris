@@ -997,7 +997,8 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties) throws AnalysisException {
+    public static TInvertedIndexStorageFormat analyzeInvertedIndexStorageFormat(Map<String, String> properties)
+            throws AnalysisException {
         String invertedIndexStorageFormat = "";
         if (properties != null && properties.containsKey(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
             invertedIndexStorageFormat = properties.get(PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT);

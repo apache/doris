@@ -2379,7 +2379,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT, invertedIndexStorageFormat.name());
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                invertedIndexStorageFormat.name());
         tableProperty.buildInvertedIndexStorageFormat();
     }
 
