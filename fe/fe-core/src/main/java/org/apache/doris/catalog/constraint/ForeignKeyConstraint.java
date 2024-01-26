@@ -59,7 +59,7 @@ public class ForeignKeyConstraint extends Constraint {
     }
 
     public Set<String> getPrimaryKeyNames() {
-        return foreignToReference.keySet();
+        return ImmutableSet.copyOf(foreignToReference.values());
     }
 
     public Set<String> getReferencedColumnNames() {
