@@ -99,7 +99,7 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     public List<Slot> computeOutput() {
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, qualifier))
+                .map(col -> SlotReference.fromColumn(col, qualifier, this))
                 .collect(ImmutableList.toImmutableList());
     }
 
