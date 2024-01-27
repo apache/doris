@@ -540,7 +540,7 @@ public:
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter(true);
+                    change_to_bloom_filter();
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
@@ -1319,7 +1319,6 @@ Status IRuntimeFilter::_create_wrapper(RuntimeFilterParamsContext* state, const 
     }
     wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
-
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
