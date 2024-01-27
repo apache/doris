@@ -29,6 +29,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
@@ -319,8 +320,14 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
 
 Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         RowsetWriterContext& context, bool vertical) {
-    return ResultError(
-            Status::NotSupported("CloudTablet::create_rowset_writer is not implemented"));
+    context.rowset_id = _engine.next_rowset_id();
+    // FIXME(plat1ko): Seems `tablet_id` and `index_id` has been set repeatedly
+    context.tablet_id = tablet_id();
+    context.index_id = index_id();
+    context.partition_id = partition_id();
+    context.rowset_dir = remote_tablet_path(tablet_id());
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
 int64_t CloudTablet::get_cloud_base_compaction_score() const {
@@ -407,7 +414,7 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     *json_result = std::string(strbuf.GetString());
 }
 
-inline void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
+void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
     // cumulative point should only be reset to -1, or be increased
     CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
             << "Unexpected cumulative point: " << new_point

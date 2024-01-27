@@ -25,12 +25,13 @@
 namespace doris {
 
 class HttpRequest;
+class StorageEngine;
 
 // make snapshot
 // be_host:be_http_port/api/snapshot?tablet_id=123&schema_hash=456
-class SnapshotAction : public HttpHandlerWithAuth {
+class SnapshotAction final : public HttpHandlerWithAuth {
 public:
-    explicit SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+    explicit SnapshotAction(ExecEnv* exec_env, StorageEngine& engine, TPrivilegeHier::type hier,
                             TPrivilegeType::type type);
 
     ~SnapshotAction() override = default;
@@ -39,6 +40,8 @@ public:
 
 private:
     int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
+
+    StorageEngine& _engine;
 }; // end class SnapshotAction
 
 } // end namespace doris

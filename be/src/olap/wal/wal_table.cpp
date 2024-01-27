@@ -183,7 +183,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
                 client->loadTxnRollback(result, request);
             },
             10000L);
-    auto result_status = Status::create(result.status);
+    auto result_status = Status::create<false>(result.status);
     LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
     return result_status;
 }
@@ -264,6 +264,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
         // wait stream load finish
         RETURN_IF_ERROR(ctx->future.get());
         if (ctx->status.ok()) {
+            ctx->auth.auth_code = wal_id;
             auto commit_st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
             st = commit_st;
         } else if (!ctx->status.ok()) {
@@ -327,14 +328,14 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
     Status status;
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
-        status = Status::InternalError("Have not get FE Master heartbeat yet");
+        status = Status::InternalError<false>("Have not get FE Master heartbeat yet");
     } else {
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->getColumnInfo(result, request);
                 }));
-        status = Status::create(result.status);
+        status = Status::create<false>(result.status);
         if (!status.ok()) {
             return status;
         }

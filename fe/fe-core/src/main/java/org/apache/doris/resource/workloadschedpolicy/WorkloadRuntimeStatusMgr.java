@@ -70,6 +70,8 @@ public class WorkloadRuntimeStatusMgr {
                     auditEvent.scanBytes = queryStats.scan_bytes;
                     auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
                 }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
             }
@@ -139,6 +141,7 @@ public class WorkloadRuntimeStatusMgr {
         } else {
             long currentTime = System.currentTimeMillis();
             for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
+                LOG.info("log2109 queryid={}, shuffle={}", entry.getKey(), entry.getValue().shuffle_send_bytes);
                 queryIdMap.put(entry.getKey(), entry.getValue());
                 queryLastReportTime.put(entry.getKey(), currentTime);
             }
@@ -175,6 +178,8 @@ public class WorkloadRuntimeStatusMgr {
         dst.scan_rows += src.scan_rows;
         dst.scan_bytes += src.scan_bytes;
         dst.cpu_ms += src.cpu_ms;
+        dst.shuffle_send_bytes += src.shuffle_send_bytes;
+        dst.shuffle_send_rows += src.shuffle_send_rows;
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }

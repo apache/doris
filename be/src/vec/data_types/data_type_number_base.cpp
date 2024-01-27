@@ -23,11 +23,12 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <streamvbyte.h>
-#include <string.h>
 
+#include <cstring>
 #include <limits>
 #include <type_traits>
 
+#include "agent/be_exec_version_manager.h"
 #include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
@@ -122,9 +123,9 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     }
     if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        __int128_t value = StringParser::string_to_int<__int128>(
-                node.large_int_literal.value.c_str(), node.large_int_literal.value.size(),
-                &parse_result);
+        auto value = StringParser::string_to_int<__int128>(node.large_int_literal.value.c_str(),
+                                                           node.large_int_literal.value.size(),
+                                                           &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
             value = MAX_INT128;
         }
@@ -162,7 +163,7 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
 template <typename T>
 int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                  int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         auto size = sizeof(T) * column.size();
         if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return sizeof(uint32_t) + size;
@@ -178,7 +179,7 @@ int64_t DataTypeNumberBase<T>::get_uncompressed_serialized_bytes(const IColumn& 
 template <typename T>
 char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
                                        int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         // row num
         const auto mem_size = column.size() * sizeof(T);
         *reinterpret_cast<uint32_t*>(buf) = mem_size;
@@ -215,7 +216,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
 template <typename T>
 const char* DataTypeNumberBase<T>::deserialize(const char* buf, IColumn* column,
                                                int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         // row num
         uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);

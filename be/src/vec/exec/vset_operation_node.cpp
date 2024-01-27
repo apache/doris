@@ -183,16 +183,16 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         switch (_child_expr_lists[0][0]->root()->result_type()) {
         case TYPE_BOOLEAN:
         case TYPE_TINYINT:
-            _hash_table_variants->emplace<I8HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
             break;
         case TYPE_SMALLINT:
-            _hash_table_variants->emplace<I16HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
         case TYPE_DECIMAL32:
-            _hash_table_variants->emplace<I32HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
             break;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
@@ -200,21 +200,21 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         case TYPE_DATE:
         case TYPE_DECIMAL64:
         case TYPE_DATETIMEV2:
-            _hash_table_variants->emplace<I64HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
             break;
         case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL128I:
-            _hash_table_variants->emplace<I128HashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
             break;
         default:
-            _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+            _hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
         return;
     }
-    if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32, RowRefListWithFlags>(
+    if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
                 *_hash_table_variants, _child_expr_lists[0])) {
-        _hash_table_variants->emplace<SerializedHashTableContext<RowRefListWithFlags>>();
+        _hash_table_variants->emplace<SetSerializedHashTableContext>();
     }
 }
 

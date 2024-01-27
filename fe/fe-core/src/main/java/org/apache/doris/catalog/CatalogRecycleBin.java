@@ -40,6 +40,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -220,28 +221,36 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized void eraseDatabase(long currentTimeMs, int keepNum) {
-        // 1. erase expired database
-        Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIter = idToDatabase.entrySet().iterator();
-        while (dbIter.hasNext()) {
-            Map.Entry<Long, RecycleDatabaseInfo> entry = dbIter.next();
-            RecycleDatabaseInfo dbInfo = entry.getValue();
-            Database db = dbInfo.getDb();
-            if (isExpire(db.getId(), currentTimeMs)) {
-                // erase db
-                dbIter.remove();
-                idToRecycleTime.remove(entry.getKey());
-                Env.getCurrentEnv().eraseDatabase(db.getId(), true);
-                LOG.info("erase db[{}]", db.getId());
+        int eraseNum = 0;
+        StopWatch watch = StopWatch.createStarted();
+        try {
+            // 1. erase expired database
+            Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIter = idToDatabase.entrySet().iterator();
+            while (dbIter.hasNext()) {
+                Map.Entry<Long, RecycleDatabaseInfo> entry = dbIter.next();
+                RecycleDatabaseInfo dbInfo = entry.getValue();
+                Database db = dbInfo.getDb();
+                if (isExpire(db.getId(), currentTimeMs)) {
+                    // erase db
+                    dbIter.remove();
+                    idToRecycleTime.remove(entry.getKey());
+                    Env.getCurrentEnv().eraseDatabase(db.getId(), true);
+                    LOG.info("erase db[{}]", db.getId());
+                    eraseNum++;
+                }
             }
-        }
-        // 2. erase exceed number
-        if (keepNum < 0) {
-            return;
-        }
-        Set<String> dbNames = idToDatabase.values().stream().map(d -> d.getDb().getFullName())
-                .collect(Collectors.toSet());
-        for (String dbName : dbNames) {
-            eraseDatabaseWithSameName(dbName, currentTimeMs, keepNum);
+            // 2. erase exceed number
+            if (keepNum < 0) {
+                return;
+            }
+            Set<String> dbNames = idToDatabase.values().stream().map(d -> d.getDb().getFullName())
+                    .collect(Collectors.toSet());
+            for (String dbName : dbNames) {
+                eraseDatabaseWithSameName(dbName, currentTimeMs, keepNum);
+            }
+        } finally {
+            watch.stop();
+            LOG.info("eraseDatabase eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
         }
     }
 
@@ -327,46 +336,54 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized void eraseTable(long currentTimeMs, int keepNum) {
-        // 1. erase expired tables
-        Iterator<Map.Entry<Long, RecycleTableInfo>> tableIter = idToTable.entrySet().iterator();
-        while (tableIter.hasNext()) {
-            Map.Entry<Long, RecycleTableInfo> entry = tableIter.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            Table table = tableInfo.getTable();
-            long tableId = table.getId();
+        int eraseNum = 0;
+        StopWatch watch = StopWatch.createStarted();
+        try {
+            // 1. erase expired tables
+            Iterator<Map.Entry<Long, RecycleTableInfo>> tableIter = idToTable.entrySet().iterator();
+            while (tableIter.hasNext()) {
+                Map.Entry<Long, RecycleTableInfo> entry = tableIter.next();
+                RecycleTableInfo tableInfo = entry.getValue();
+                Table table = tableInfo.getTable();
+                long tableId = table.getId();
 
-            if (isExpire(tableId, currentTimeMs)) {
-                if (table.getType() == TableType.OLAP) {
-                    Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                if (isExpire(tableId, currentTimeMs)) {
+                    if (table.getType() == TableType.OLAP) {
+                        Env.getCurrentEnv().onEraseOlapTable((OlapTable) table, false);
+                    }
+
+                    // erase table
+                    tableIter.remove();
+                    idToRecycleTime.remove(tableId);
+
+                    // log
+                    Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
+                    LOG.info("erase table[{}]", tableId);
+                    eraseNum++;
                 }
+            } // end for tables
 
-                // erase table
-                tableIter.remove();
-                idToRecycleTime.remove(tableId);
-
-                // log
-                Env.getCurrentEnv().getEditLog().logEraseTable(tableId);
-                LOG.info("erase table[{}]", tableId);
+            // 2. erase exceed num
+            if (keepNum < 0) {
+                return;
             }
-        } // end for tables
-
-        // 2. erase exceed num
-        if (keepNum < 0) {
-            return;
-        }
-        Map<Long, Set<String>> dbId2TableNames = Maps.newHashMap();
-        for (RecycleTableInfo tableInfo : idToTable.values()) {
-            Set<String> tblNames = dbId2TableNames.get(tableInfo.dbId);
-            if (tblNames == null) {
-                tblNames = Sets.newHashSet();
-                dbId2TableNames.put(tableInfo.dbId, tblNames);
+            Map<Long, Set<String>> dbId2TableNames = Maps.newHashMap();
+            for (RecycleTableInfo tableInfo : idToTable.values()) {
+                Set<String> tblNames = dbId2TableNames.get(tableInfo.dbId);
+                if (tblNames == null) {
+                    tblNames = Sets.newHashSet();
+                    dbId2TableNames.put(tableInfo.dbId, tblNames);
+                }
+                tblNames.add(tableInfo.getTable().getName());
             }
-            tblNames.add(tableInfo.getTable().getName());
-        }
-        for (Map.Entry<Long, Set<String>> entry : dbId2TableNames.entrySet()) {
-            for (String tblName : entry.getValue()) {
-                eraseTableWithSameName(entry.getKey(), tblName, currentTimeMs, keepNum);
+            for (Map.Entry<Long, Set<String>> entry : dbId2TableNames.entrySet()) {
+                for (String tblName : entry.getValue()) {
+                    eraseTableWithSameName(entry.getKey(), tblName, currentTimeMs, keepNum);
+                }
             }
+        } finally {
+            watch.stop();
+            LOG.info("eraseTable eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
         }
     }
 
@@ -441,43 +458,51 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     }
 
     private synchronized void erasePartition(long currentTimeMs, int keepNum) {
-        // 1. erase expired partitions
-        Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
-            RecyclePartitionInfo partitionInfo = entry.getValue();
-            Partition partition = partitionInfo.getPartition();
+        int eraseNum = 0;
+        StopWatch watch = StopWatch.createStarted();
+        try {
+            // 1. erase expired partitions
+            Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
+                RecyclePartitionInfo partitionInfo = entry.getValue();
+                Partition partition = partitionInfo.getPartition();
 
-            long partitionId = entry.getKey();
-            if (isExpire(partitionId, currentTimeMs)) {
-                Env.getCurrentEnv().onErasePartition(partition);
-                // erase partition
-                iterator.remove();
-                idToRecycleTime.remove(partitionId);
-                // log
-                Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
-                LOG.info("erase partition[{}]. reason: expired", partitionId);
-            }
-        } // end for partitions
+                long partitionId = entry.getKey();
+                if (isExpire(partitionId, currentTimeMs)) {
+                    Env.getCurrentEnv().onErasePartition(partition);
+                    // erase partition
+                    iterator.remove();
+                    idToRecycleTime.remove(partitionId);
+                    // log
+                    Env.getCurrentEnv().getEditLog().logErasePartition(partitionId);
+                    LOG.info("erase partition[{}]. reason: expired", partitionId);
+                    eraseNum++;
+                }
+            } // end for partitions
 
-        // 2. erase exceed number
-        if (keepNum < 0) {
-            return;
-        }
-        com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames = HashBasedTable.create();
-        for (RecyclePartitionInfo partitionInfo : idToPartition.values()) {
-            Set<String> partitionNames = dbTblId2PartitionNames.get(partitionInfo.dbId, partitionInfo.tableId);
-            if (partitionNames == null) {
-                partitionNames = Sets.newHashSet();
-                dbTblId2PartitionNames.put(partitionInfo.dbId, partitionInfo.tableId, partitionNames);
+            // 2. erase exceed number
+            if (keepNum < 0) {
+                return;
             }
-            partitionNames.add(partitionInfo.getPartition().getName());
-        }
-        for (Cell<Long, Long, Set<String>> cell : dbTblId2PartitionNames.cellSet()) {
-            for (String partitionName : cell.getValue()) {
-                erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName, currentTimeMs,
-                        keepNum);
+            com.google.common.collect.Table<Long, Long, Set<String>> dbTblId2PartitionNames = HashBasedTable.create();
+            for (RecyclePartitionInfo partitionInfo : idToPartition.values()) {
+                Set<String> partitionNames = dbTblId2PartitionNames.get(partitionInfo.dbId, partitionInfo.tableId);
+                if (partitionNames == null) {
+                    partitionNames = Sets.newHashSet();
+                    dbTblId2PartitionNames.put(partitionInfo.dbId, partitionInfo.tableId, partitionNames);
+                }
+                partitionNames.add(partitionInfo.getPartition().getName());
             }
+            for (Cell<Long, Long, Set<String>> cell : dbTblId2PartitionNames.cellSet()) {
+                for (String partitionName : cell.getValue()) {
+                    erasePartitionWithSameName(cell.getRowKey(), cell.getColumnKey(), partitionName, currentTimeMs,
+                            keepNum);
+                }
+            }
+        } finally {
+            watch.stop();
+            LOG.info("erasePartition eraseNum: {} cost: {}ms", eraseNum, watch.getTime());
         }
     }
 

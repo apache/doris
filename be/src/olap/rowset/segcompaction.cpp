@@ -74,7 +74,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
         std::vector<uint32_t>& return_columns,
         std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
-    auto ctx = _writer->_context;
+    const auto& ctx = _writer->_context;
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
@@ -90,8 +90,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         seg_iterators.push_back(std::move(iter));
     }
 
-    *reader = std::unique_ptr<vectorized::VerticalBlockReader> {
-            new vectorized::VerticalBlockReader(&row_sources_buf)};
+    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
@@ -199,7 +198,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(_writer->_engine.segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
     if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");

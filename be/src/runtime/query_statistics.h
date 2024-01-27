@@ -65,7 +65,9 @@ public:
               cpu_nanos(0),
               returned_rows(0),
               max_peak_memory_bytes(0),
-              current_used_memory_bytes(0) {}
+              current_used_memory_bytes(0),
+              shuffle_send_bytes(0),
+              shuffle_send_rows(0) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -80,6 +82,14 @@ public:
 
     void add_cpu_nanos(int64_t delta_cpu_time) {
         this->cpu_nanos.fetch_add(delta_cpu_time, std::memory_order_relaxed);
+    }
+
+    void add_shuffle_send_bytes(int64_t delta_bytes) {
+        this->shuffle_send_bytes.fetch_add(delta_bytes, std::memory_order_relaxed);
+    }
+
+    void add_shuffle_send_rows(int64_t delta_rows) {
+        this->shuffle_send_rows.fetch_add(delta_rows, std::memory_order_relaxed);
     }
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
@@ -115,8 +125,10 @@ public:
     void clear() {
         scan_rows.store(0, std::memory_order_relaxed);
         scan_bytes.store(0, std::memory_order_relaxed);
-
         cpu_nanos.store(0, std::memory_order_relaxed);
+        shuffle_send_bytes.store(0, std::memory_order_relaxed);
+        shuffle_send_rows.store(0, std::memory_order_relaxed);
+
         returned_rows = 0;
         max_peak_memory_bytes.store(0, std::memory_order_relaxed);
         clearNodeStatistics();
@@ -152,6 +164,9 @@ private:
     NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
     std::atomic<int64_t> current_used_memory_bytes;
+
+    std::atomic<int64_t> shuffle_send_bytes;
+    std::atomic<int64_t> shuffle_send_rows;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.

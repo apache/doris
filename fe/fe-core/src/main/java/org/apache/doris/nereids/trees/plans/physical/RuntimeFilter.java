@@ -23,7 +23,6 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -52,22 +51,27 @@ public class RuntimeFilter {
 
     private final List<PhysicalRelation> targetScans = Lists.newArrayList();
 
+    private final boolean bloomFilterSizeCalculatedByNdv;
+
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, TRuntimeFilterType type,
-            int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
-                         PhysicalRelation scan) {
-        this(id, src, targets, ImmutableList.copyOf(targets), type, exprOrder,
-                builderNode, false, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
-    }
-
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
-                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode, long buildSideNdv,
+                         boolean bloomFilterSizeCalculatedByNdv,
                          PhysicalRelation scan) {
         this(id, src, targets, targetExpressions, type, exprOrder,
-                builderNode, bitmapFilterNotIn, buildSideNdv, TMinMaxRuntimeFilterType.MIN_MAX, scan);
+                builderNode, false, buildSideNdv, bloomFilterSizeCalculatedByNdv,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
+    }
+
+    public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
+                         TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
+                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
+                         PhysicalRelation scan) {
+        this(id, src, targets, targetExpressions, type, exprOrder,
+                builderNode, bitmapFilterNotIn, buildSideNdv, bloomFilterSizeCalculatedByNdv,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
     }
 
     /**
@@ -75,7 +79,8 @@ public class RuntimeFilter {
      */
     public RuntimeFilter(RuntimeFilterId id, Expression src, List<Slot> targets, List<Expression> targetExpressions,
                          TRuntimeFilterType type, int exprOrder, AbstractPhysicalJoin builderNode,
-                         boolean bitmapFilterNotIn, long buildSideNdv, TMinMaxRuntimeFilterType tMinMaxType,
+                         boolean bitmapFilterNotIn, long buildSideNdv, boolean bloomFilterSizeCalculatedByNdv,
+                         TMinMaxRuntimeFilterType tMinMaxType,
                          PhysicalRelation scan) {
         this.id = id;
         this.srcSlot = src;
@@ -85,6 +90,7 @@ public class RuntimeFilter {
         this.exprOrder = exprOrder;
         this.builderNode = builderNode;
         this.bitmapFilterNotIn = bitmapFilterNotIn;
+        this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
         this.buildSideNdv = buildSideNdv <= 0 ? -1L : buildSideNdv;
         this.tMinMaxType = tMinMaxType;
         builderNode.addRuntimeFilter(this);
@@ -97,10 +103,6 @@ public class RuntimeFilter {
 
     public Expression getSrcExpr() {
         return srcSlot;
-    }
-
-    public List<Slot> getTargetExprs() {
-        return targetSlots;
     }
 
     public RuntimeFilterId getId() {
@@ -131,17 +133,14 @@ public class RuntimeFilter {
         return buildSideNdv;
     }
 
-    public void addTargetSlot(Slot target, PhysicalRelation scan) {
+    public void addTargetSlot(Slot target, Expression targetExpression, PhysicalRelation scan) {
+        targetExpressions.add(targetExpression);
         targetSlots.add(target);
         targetScans.add(scan);
     }
 
     public List<Slot> getTargetSlots() {
         return targetSlots;
-    }
-
-    public void addTargetExpression(Expression targetExpr) {
-        targetExpressions.add(targetExpr);
     }
 
     public List<PhysicalRelation> getTargetScans() {
@@ -156,7 +155,7 @@ public class RuntimeFilter {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
-                .append("[").append(getSrcExpr()).append("->").append(targetSlots)
+                .append("[").append(getSrcExpr()).append("->").append(targetExpressions)
                 .append("(ndv/size = ").append(buildSideNdv).append("/")
                 .append(org.apache.doris.planner.RuntimeFilter.expectRuntimeFilterSize(buildSideNdv))
                 .append(")");
@@ -171,8 +170,12 @@ public class RuntimeFilter {
         StringBuilder sb = new StringBuilder();
         sb.append("RF").append(id.asInt())
                 .append(" ").append(getSrcExpr().toSql()).append("->[").append(
-                        targetSlots.stream().map(slot -> slot.getName()).collect(Collectors.joining(",")))
+                        targetExpressions.stream().map(expr -> expr.toSql()).collect(Collectors.joining(",")))
                 .append("]");
         return sb.toString();
+    }
+
+    public boolean isBloomFilterSizeCalculatedByNdv() {
+        return bloomFilterSizeCalculatedByNdv;
     }
 }

@@ -247,6 +247,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
 
 Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     RETURN_IF_ERROR(_init(state, profile));
+    _timeout_watch.start();
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -427,7 +428,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .partition_id = rows.partition_id,
                 .load_id = _load_id,
                 .tuple_desc = _output_tuple_desc,
-                .table_schema_param = _schema.get(),
+                .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
         };
@@ -445,7 +446,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::open(&req, streams, _state);
+        return std::make_unique<DeltaWriterV2>(&req, streams, _state);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -550,9 +551,11 @@ Status VTabletWriterV2::close(Status exec_status) {
 
         {
             SCOPED_TIMER(_close_load_timer);
+            auto remain_ms = _state->execution_timeout() * 1000 -
+                             _timeout_watch.elapsed_time() / 1000 / 1000;
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
-                    RETURN_IF_ERROR(stream->close_wait());
+                    RETURN_IF_ERROR(stream->close_wait(remain_ms));
                 }
             }
         }

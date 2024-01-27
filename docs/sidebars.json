@@ -26,7 +26,9 @@
                     "label": "Deploy Doris on Kubernetes",
                     "items": [
                         "install/k8s-deploy/operator-deploy",
-                        "install/k8s-deploy/helm-chart-deploy"
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume"
                     ]
                 },
                 {
@@ -459,7 +461,6 @@
                                 "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat-ws",
-                                "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
                                 "sql-manual/sql-functions/string-functions/sub-replace",
                                 "sql-manual/sql-functions/string-functions/append-trailing-char-if-absent",
@@ -478,8 +479,6 @@
                                 "sql-manual/sql-functions/string-functions/field",
                                 "sql-manual/sql-functions/string-functions/find-in-set",
                                 "sql-manual/sql-functions/string-functions/replace",
-                                "sql-manual/sql-functions/string-functions/left",
-                                "sql-manual/sql-functions/string-functions/right",
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
                                 "sql-manual/sql-functions/string-functions/split-part",
@@ -1252,7 +1251,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1376,6 +1376,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
