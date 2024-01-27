@@ -594,7 +594,8 @@ public class DatabaseTransactionMgr {
                                     tabletVersionFailedReplicas);
 
                             String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
-                                            + " < load required replica num %s. table %s, partition: [ id=%s, commit version %s"
+                                            + " < load required replica num %s. table %s, partition: [ id=%s, "
+                                            + "commit version %s"
                                             + ", visible version %s ], this tablet detail: %s",
                                     transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
                                     partition.getId(), partition.getCommittedVersion(), partition.getVisibleVersion(),
@@ -1854,8 +1855,10 @@ public class DatabaseTransactionMgr {
                             }
                         }
                         if (!isReplay && !tabletFailedReplicas.isEmpty()) {
-                            LOG.info("some replicas load data failed for committed txn {} on version {}, table {}, "
-                                            + "partition {}, tablet {}, {} replicas load data succ: {}, {} replicas load "
+                            LOG.info("some replicas load data failed for committed "
+                                            + "txn {} on version {}, table {}, "
+                                            + "partition {}, tablet {}, {} replicas "
+                                            + "load data succ: {}, {} replicas load "
                                             + "data fail: {}",
                                     transactionState.getTransactionId(), partitionCommitInfo.getVersion(),
                                     tableId, partitionId, tablet.getId(), tabletSuccReplicas.size(),
