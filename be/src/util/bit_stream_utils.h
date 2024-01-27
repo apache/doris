@@ -29,6 +29,12 @@ using doris::BitUtil;
 
 namespace doris {
 
+// Maximum byte length of a vlq encoded int
+constexpr int MAX_VLQ_BYTE_LEN = 5;
+
+// Maximum byte length of a vlq encoded int64
+constexpr int MAX_VLQ_BYTE_LEN_FOR_INT64 = 10;
+
 // Utility class to write bit/byte streams.  This class can write data to either be
 // bit packed or byte aligned (and a single stream that has a mix of both).
 class BitWriter {
@@ -61,7 +67,7 @@ public:
 
     // Write a Vlq encoded int to the buffer. The value is written byte aligned.
     // For more details on vlq: en.wikipedia.org/wiki/Variable-length_quantity
-    void PutVlqInt(int32_t v);
+    void PutVlqInt(uint32_t v);
 
     // Get the index to the next aligned byte and advance the underlying buffer by num_bytes.
     size_t GetByteIndexAndAdvance(int num_bytes) {
@@ -136,12 +142,6 @@ public:
 
     // Seek to a specific bit in the buffer
     void SeekToBit(unsigned int stream_position);
-
-    // Maximum byte length of a vlq encoded int
-    static const int MAX_VLQ_BYTE_LEN = 5;
-
-    // Maximum byte length of a vlq encoded int64
-    static const int MAX_VLQ_BYTE_LEN_FOR_INT64 = 10;
 
     bool is_initialized() const { return buffer_ != nullptr; }
 
@@ -249,7 +249,7 @@ public:
     }
 
     /// Maximum supported bitwidth for reader.
-    static const int MAX_BITWIDTH = BitPacking::MAX_BITWIDTH;
+    static constexpr int MAX_BITWIDTH = BitPacking::MAX_BITWIDTH;
 
 private:
     /// Current read position in the buffer.
