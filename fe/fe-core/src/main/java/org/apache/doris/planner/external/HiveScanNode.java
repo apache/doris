@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import lombok.Setter;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -178,7 +179,7 @@ public class HiveScanNode extends FileQueryScanNode {
             // so that we can unify the interface.
             HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                     hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null, null);
+                    hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
             this.totalPartitionNum = 1;
             this.readPartitionNum = 1;
             resPartitions.add(dummyPartition);

@@ -33,15 +33,50 @@ import java.util.Set;
  */
 public interface MTMVRelatedTableIf extends TableIf {
 
+    /**
+     * Get all partitions of the table
+     *
+     * @return partitionId->PartitionItem
+     */
     Map<Long, PartitionItem> getPartitionItems();
 
+    /**
+     * Obtain the latest update time of partition data
+     *
+     * @param partitionId
+     * @param item
+     * @return millisecond
+     * @throws AnalysisException
+     */
     long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException;
 
+    /**
+     * getPartitionType LIST/RANGE/UNPARTITIONED
+     *
+     * @return
+     */
     PartitionType getPartitionType();
 
+    /**
+     * getPartitionColumnNames
+     *
+     * @return
+     * @throws DdlException
+     */
     Set<String> getPartitionColumnNames() throws DdlException;
 
+    /**
+     * Obtain the latest update time of table data
+     *
+     * @return
+     * @throws AnalysisException
+     */
     long getLastModifyTime() throws AnalysisException;
 
+    /**
+     * getPartitionColumns
+     *
+     * @return
+     */
     List<Column> getPartitionColumns();
 }

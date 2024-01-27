@@ -76,6 +76,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
@@ -714,7 +715,7 @@ public class StatisticsUtil {
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
-                    table.getRemoteTable().getSd().getLocation(), null, null));
+                    table.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap()));
         }
         // Get files for all partitions.
         String bindBrokerName = table.getCatalog().bindBrokerName();
