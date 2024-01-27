@@ -307,7 +307,7 @@ public class CloudClusterChecker extends MasterDaemon {
             Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
                     .filter(c -> c.getType() != Type.SQL)
                     .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
-            LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
+            LOG.info("get cluster info : {}", remoteClusterIdToPB);
 
             try {
                 // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
