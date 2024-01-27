@@ -280,6 +280,8 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
         "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
     fi
 fi
+# build modified thirdparty (brpc)
+"${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
 
 update_submodule() {
     local submodule_path=$1
