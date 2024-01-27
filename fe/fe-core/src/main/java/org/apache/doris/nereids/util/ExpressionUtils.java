@@ -239,7 +239,8 @@ public class ExpressionUtils {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
-        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext = new ExpressionLineageReplacer.ExpressionReplaceContext(
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                new ExpressionLineageReplacer.ExpressionReplaceContext(
                 expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
                 targetTypes,
                 tableIdentifiers);
@@ -334,7 +335,6 @@ public class ExpressionUtils {
      * Replace expression node in the expression tree by `replaceMap` in top-down
      * manner.
      * For example.
-     * 
      * <pre>
      * input expression: a > 1
      * replaceMap: a -> b + c
