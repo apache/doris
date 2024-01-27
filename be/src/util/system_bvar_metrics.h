@@ -17,12 +17,40 @@
 
 #pragma once
 
+#include "util/bvar_metrics.h"
+#include <vector>
+#include <string>
+#include <memory>
+#include <unordered_map>
+
 namespace doris {
+
+struct CpuMetrics;
+struct MemoryMetrics;
+struct DiskMetrics;
+struct NetworkMetrics;
+struct FileDescriptorMetrics;
+struct SnmpMetrics;
+struct LoadAverageMetrics;
+struct ProcMetrics;
 
 class SystemBvarMetrics {
 public:
-    SystemBvarMetrics() = default;
-    void get_cpu_info();
-};
+    SystemBvarMetrics();
+    
+    std::string to_prometheus(const std::string& registry_name) const;
+private:
+    void install_cpu_metrics();
+    // void update_cpu_metrics();
+    void register_cpu_metrics(BvarMetricEntity* entity, const std::string& cpu_name);
+    void get_cpu_name();
+private:
+    std::vector<std::string> cpu_names_;
+    char* line_ptr_ = nullptr;
+    size_t line_buf_size_ = 0;
+    
+    std::unordered_map<std::string, 
+                       std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
 
+};
 } // namespace doris

@@ -51,7 +51,9 @@ private:
     
     std::unique_ptr<SystemBvarMetrics> system_metrics_;
 
-    std::vector<std::shared_ptr<BvarMetricEntity>> entities_;
+    std::unordered_map<std::string, 
+                       std::vector<std::shared_ptr<BvarMetricEntity>>> entities_map_;
+
 };
 
 extern BvarAdderMetric<int64_t> g_adder_fragment_requests_total;

@@ -127,7 +127,9 @@ public:
     std::string to_prometheus(const std::string& registry_name);    
     
     std::shared_ptr<BvarMetric> get_metric(const std::string& name);
-
+    std::string get_name() const { return entity_name_; }
+    BvarMetricType get_type() const { return type_; }
+    
 private:
     std::string entity_name_;
     
