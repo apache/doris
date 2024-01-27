@@ -441,13 +441,32 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
+    debug_string(out);
+    return std::move(out).str();
+}
+
+void VExpr::debug_string(std::stringstream& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
     out << " type=" << _type.debug_string();
 
     if (!_children.empty()) {
-        out << " children=" << debug_string(_children);
+        out << " children=";
+        debug_string(_children, out);
     }
+}
 
-    return out.str();
+bool VExpr::check_string_over_limit(std::stringstream& out) {
+    return out.view().size() > config::expr_debug_string_limit_length;
+}
+
+std::string VExpr::limit_debug_string(std::stringstream& out) {
+    if (!check_string_over_limit(out)) {
+        return out.str();
+    }
+    auto&& str = out.str();
+    return str.substr(0, config::expr_debug_string_limit_length);
 }
 
 std::string VExpr::debug_string(const VExprSPtrs& exprs) {
@@ -459,7 +478,7 @@ std::string VExpr::debug_string(const VExprSPtrs& exprs) {
     }
 
     out << "]";
-    return out.str();
+    return std::move(out).str();
 }
 
 std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
@@ -470,6 +489,16 @@ std::string VExpr::debug_string(const VExprContextSPtrs& ctxs) {
     return debug_string(exprs);
 }
 
+void VExpr::debug_string(const VExprSPtrs& exprs, std::stringstream& out) {
+    out << "[";
+
+    for (int i = 0; i < exprs.size(); ++i) {
+        out << (i == 0 ? "" : " ");
+        exprs[i]->debug_string(out);
+    }
+
+    out << "]";
+}
 bool VExpr::is_constant() const {
     return std::all_of(_children.begin(), _children.end(),
                        [](const VExprSPtr& expr) { return expr->is_constant(); });

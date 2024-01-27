@@ -865,6 +865,9 @@ DEFINE_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
 DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+// truncating the debug string of a too long expr.
+DEFINE_Int32(expr_debug_string_limit_length, "4096");
+
 // Threshold of reading a small file into memory
 DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 

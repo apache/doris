@@ -67,11 +67,13 @@ public:
 
     const std::string& expr_name() const override { return _column_name; }
 
-    std::string debug_string() const override {
-        std::stringstream out;
-        out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name
-            << VExpr::debug_string() << ")";
-        return out.str();
+    void debug_string(std::stringstream& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
+        out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name;
+        VExpr::debug_string(out);
+        out << ")";
     }
 
 private:

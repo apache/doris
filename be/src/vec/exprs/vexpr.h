@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -159,10 +160,16 @@ public:
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
     virtual std::string debug_string() const;
+    virtual void debug_string(std::stringstream& out) const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
 
     void set_getting_const_col(bool val = true) { _getting_const_col = val; }
+
+    static void debug_string(const VExprSPtrs& exprs, std::stringstream& out);
+
+    static std::string limit_debug_string(std::stringstream& out);
+    static bool check_string_over_limit(std::stringstream& out);
 
     bool is_and_expr() const { return _fn.name.function_name == "and"; }
 

@@ -49,7 +49,7 @@ public:
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 
     const std::string& expr_name() const override { return _expr_name; }
-    std::string debug_string() const override;
+    void debug_string(std::stringstream& out) const override;
 
     std::string value() const;
 

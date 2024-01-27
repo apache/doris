@@ -914,6 +914,9 @@ DECLARE_mInt32(string_type_length_soft_limit_bytes);
 
 DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
 
+// truncating the debug string of a too long expr.
+DECLARE_Int32(expr_debug_string_limit_length);
+
 // Threshold fo reading a small file into memory
 DECLARE_mInt32(in_memory_file_size);
 

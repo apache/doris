@@ -51,7 +51,7 @@ public:
 
     [[nodiscard]] const std::string& expr_name() const override;
 
-    std::string debug_string() const override;
+    void debug_string(std::stringstream& out) const override;
 
 private:
     std::string _expr_name;

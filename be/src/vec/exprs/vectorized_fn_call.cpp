@@ -203,8 +203,10 @@ const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
 
-std::string VectorizedFnCall::debug_string() const {
-    std::stringstream out;
+void VectorizedFnCall::debug_string(std::stringstream& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
     out << "VectorizedFn[";
     out << _expr_name;
     out << "]{";
@@ -215,17 +217,18 @@ std::string VectorizedFnCall::debug_string() const {
         } else {
             out << ",";
         }
-        out << "\n" << input_expr->debug_string();
+        out << "\n";
+        input_expr->debug_string(out);
     }
     out << "}";
-    return out.str();
 }
 
 std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>& agg_fns) {
     std::stringstream out;
     out << "[";
     for (int i = 0; i < agg_fns.size(); ++i) {
-        out << (i == 0 ? "" : " ") << agg_fns[i]->debug_string();
+        out << (i == 0 ? "" : " ");
+        agg_fns[i]->debug_string(out);
     }
     out << "]";
     return out.str();

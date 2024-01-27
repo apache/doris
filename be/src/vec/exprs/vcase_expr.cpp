@@ -125,20 +125,21 @@ const std::string& VCaseExpr::expr_name() const {
     return _expr_name;
 }
 
-std::string VCaseExpr::debug_string() const {
-    std::stringstream out;
+void VCaseExpr::debug_string(std::stringstream& out) const {
+    if (check_string_over_limit(out)) {
+        return;
+    }
     out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
         << " function=" << _function_name << "){";
     bool first = true;
-    for (auto& input_expr : children()) {
+    for (const auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {
             out << ",";
         }
-        out << input_expr->debug_string();
+        input_expr->debug_string(out);
     }
     out << "}";
-    return out.str();
 }
 } // namespace doris::vectorized

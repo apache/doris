@@ -67,8 +67,10 @@ public:
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
 
-    std::string debug_string() const override {
-        std::stringstream out;
+    void debug_string(std::stringstream& out) const override {
+        if (check_string_over_limit(out)) {
+            return;
+        }
         out << "VLambdaFunctionCallExpr[";
         out << _expr_name;
         out << "]{";
@@ -79,10 +81,10 @@ public:
             } else {
                 out << ",";
             }
-            out << "\n" << input_expr->debug_string();
+            out << "\n";
+            input_expr->debug_string(out);
         }
         out << "}";
-        return out.str();
     }
 
 private:
