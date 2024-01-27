@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Set;
@@ -151,6 +152,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * Foreach treeNode. Top-down traverse implicitly, stop traverse if satisfy test.
+     * @param func foreach function
+     */
+    default void foreach(Predicate<TreeNode<NODE_TYPE>> func) {
+        boolean valid = func.test(this);
+        if (!valid) {
+            for (NODE_TYPE child : children()) {
+                child.foreach(func);
+            }
+        }
+    }
+
+    /**
      * Foreach treeNode. Top-down traverse implicitly.
      * @param func foreach function
      */
@@ -222,6 +236,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         });
         return (Set<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate firstly.
+     */
+    default <T> List<T> collectFirst(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        List<TreeNode<NODE_TYPE>> result = new ArrayList<>();
+        foreach(node -> {
+            if (result.isEmpty() && predicate.test(node)) {
+                result.add(node);
+            }
+            return !result.isEmpty();
+        });
+        return (List<T>) ImmutableList.copyOf(result);
     }
 
     /**

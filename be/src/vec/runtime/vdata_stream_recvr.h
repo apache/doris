@@ -20,16 +20,17 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -41,20 +42,16 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/query_statistics.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
-#include "vec/columns/column.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class MemTracker;
 class PBlock;
 class MemTrackerLimiter;
-class PQueryStatistics;
 class RuntimeState;
 
 namespace pipeline {
@@ -69,13 +66,12 @@ class VSortedRunMerger;
 
 class VDataStreamRecvr;
 
-class VDataStreamRecvr {
+class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
     VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                     int num_senders, bool is_merging, RuntimeProfile* profile,
-                     std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
+                     int num_senders, bool is_merging, RuntimeProfile* profile);
 
     virtual ~VDataStreamRecvr();
 
@@ -101,16 +97,9 @@ public:
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
 
-    void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
-        _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
-    }
-
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
     void remove_sender(int sender_id, int be_number, Status exec_status);
-
-    void remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
-                       Status exec_status);
 
     void cancel_stream(Status exec_status);
 
@@ -182,8 +171,6 @@ private:
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
-    std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
-
     bool _enable_pipeline;
     std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
             _sender_to_local_channel_dependency;
@@ -211,7 +198,7 @@ public:
         _local_channel_dependency = local_channel_dependency;
     }
 
-    virtual bool should_wait();
+    bool should_wait();
 
     virtual Status get_batch(Block* next_block, bool* eos);
 
@@ -239,6 +226,52 @@ protected:
     friend class pipeline::ExchangeLocalState;
     friend struct pipeline::ExchangeDataDependency;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
+
+    void try_set_dep_ready_without_lock();
+
+    // To record information about several variables in the event of a DCHECK failure.
+    //  DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
+#ifndef NDEBUG
+    constexpr static auto max_record_number = 128;
+    std::list<size_t> _record_block_queue;
+    std::list<int> _record_num_remaining_senders;
+#else
+#endif
+
+    // only in debug
+    ALWAYS_INLINE inline void _record_debug_info() {
+#ifndef NDEBUG
+        if (_record_block_queue.size() > max_record_number) {
+            _record_block_queue.pop_front();
+        }
+        if (_record_num_remaining_senders.size() > max_record_number) {
+            _record_num_remaining_senders.pop_front();
+        }
+        _record_block_queue.push_back(_block_queue.size());
+        _record_num_remaining_senders.push_back(_num_remaining_senders);
+#else
+#endif
+    }
+
+    ALWAYS_INLINE inline std::string _debug_string_info() {
+#ifndef NDEBUG
+        std::stringstream out;
+        DCHECK_EQ(_record_block_queue.size(), _record_num_remaining_senders.size());
+        out << "record_debug_info [  \n";
+
+        auto it1 = _record_block_queue.begin();
+        auto it2 = _record_num_remaining_senders.begin();
+        for (; it1 != _record_block_queue.end(); it1++, it2++) {
+            out << "( "
+                << "_block_queue size : " << *it1 << " , _num_remaining_senders : " << *it2
+                << " ) \n";
+        }
+        out << "  ]\n";
+        return out.str();
+#else
+#endif
+        return "";
+    }
 
     // Not managed by this class
     VDataStreamRecvr* _recvr = nullptr;
@@ -272,7 +305,8 @@ public:
         DCHECK(_is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0)
                 << " _is_cancelled: " << _is_cancelled
                 << ", _block_queue_empty: " << _block_queue.empty()
-                << ", _num_remaining_senders: " << _num_remaining_senders;
+                << ", _num_remaining_senders: " << _num_remaining_senders << "\n"
+                << _debug_string_info();
         return _inner_get_batch_without_lock(block, eos);
     }
 

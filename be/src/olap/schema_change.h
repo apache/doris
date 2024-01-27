@@ -101,7 +101,7 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
+    SchemaChange() = default;
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -118,7 +118,6 @@ public:
 
         RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
                                        new_tablet_schema));
-        _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
@@ -147,21 +146,23 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
+        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+            writer.num_rows() + writer.num_rows_filtered() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
-                         << ", writer rows=" << writer.num_rows()
+                         << ", source_filtered_rows=" << reader->filtered_rows()
+                         << ", written_rows=" << writer.num_rows()
+                         << ", writer_filtered_rows=" << writer.num_rows_filtered()
                          << ", merged_rows=" << merged_rows()
-                         << ", filtered_rows=" << filtered_rows()
-                         << ", new_index_rows=" << writer.num_rows();
+                         << ", filtered_rows=" << filtered_rows();
             return false;
         }
         return true;
     }
 
 private:
-    uint64_t _filtered_rows;
-    uint64_t _merged_rows;
+    uint64_t _filtered_rows {};
+    uint64_t _merged_rows {};
 };
 
 class LinkedSchemaChange : public SchemaChange {
@@ -276,7 +277,8 @@ private:
     static Status _validate_alter_result(TabletSharedPtr new_tablet,
                                          const TAlterTabletReqV2& request);
 
-    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    static Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                              int64_t* real_alter_version);
 
     static Status _parse_request(const SchemaChangeParams& sc_params, BlockChanger* changer,
                                  bool* sc_sorting, bool* sc_directly);
@@ -284,6 +286,9 @@ private:
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
                                        const TabletColumn& column_schema, const std::string& value);
+
+    static Status _calc_delete_bitmap_for_mow_table(TabletSharedPtr new_tablet,
+                                                    int64_t alter_version);
 
     static std::shared_mutex _mutex;
     static std::unordered_set<int64_t> _tablet_ids_in_converting;

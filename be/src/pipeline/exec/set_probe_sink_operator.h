@@ -54,7 +54,7 @@ private:
 };
 
 template <bool is_intersect>
-class SetProbeSinkOperator : public StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>> {
+class SetProbeSinkOperator : public StreamingOperator<vectorized::VSetOperationNode<is_intersect>> {
 public:
     SetProbeSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* set_node);
 
@@ -76,7 +76,7 @@ public:
 
     void set_cur_child_id(int id) {
         _child_idx = id;
-        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        ((SetSharedState*)_shared_state)->probe_finished_children_dependency[id] = this;
         block();
     }
 
@@ -144,9 +144,9 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
-        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    DataDistribution required_data_distribution() const override {
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:

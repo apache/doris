@@ -44,6 +44,10 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
+    _partition_sort_info = std::make_shared<vectorized::PartitionSortInfo>(
+            &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
+            p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
+            p._top_n_algorithm, _shared_state->previous_row.get(), p._topn_phase);
     _init_hash_method();
     return Status::OK();
 }
@@ -100,7 +104,8 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         local_state.child_input_rows = local_state.child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(local_state._value_places.empty())) {
-                local_state._value_places.push_back(_pool->add(new vectorized::PartitionBlocks()));
+                local_state._value_places.push_back(_pool->add(new vectorized::PartitionBlocks(
+                        local_state._partition_sort_info, local_state._value_places.empty())));
             }
             //no partition key
             local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
@@ -120,8 +125,6 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(
                         _split_block_by_partition(input_block, state->batch_size(), local_state));
                 RETURN_IF_CANCELLED(state);
-                RETURN_IF_ERROR(
-                        state->check_query_state("VPartitionSortNode, while split input block."));
                 input_block->clear_column_data();
             }
         }
@@ -151,7 +154,11 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
         //so all data from child have sink completed
-        ((PartitionSortSourceDependency*)local_state._shared_state->source_dep)->set_always_ready();
+        {
+            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            local_state._shared_state->sink_eos = true;
+            local_state._dependency->set_ready_to_read();
+        }
     }
 
     return Status::OK();
@@ -185,13 +192,15 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *local_state._agg_arena_pool);
-                    auto aggregate_data = _pool->add(new vectorized::PartitionBlocks());
+                    auto* aggregate_data = _pool->add(new vectorized::PartitionBlocks(
+                            local_state._partition_sort_info, local_state._value_places.empty()));
                     local_state._value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);
                     local_state._num_partition++;
                 };
                 auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = _pool->add(new vectorized::PartitionBlocks());
+                    mapped = _pool->add(new vectorized::PartitionBlocks(
+                            local_state._partition_sort_info, local_state._value_places.empty()));
                     local_state._value_places.push_back(mapped);
                     local_state._num_partition++;
                 };
@@ -202,7 +211,7 @@ void PartitionSortSinkOperatorX::_emplace_into_hash_table(
                             agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
                     mapped->add_row_idx(row);
                 }
-                for (auto place : local_state._value_places) {
+                for (auto* place : local_state._value_places) {
                     SCOPED_TIMER(local_state._selector_block_timer);
                     place->append_block_by_selector(input_block, _child_x->row_desc(),
                                                     _has_global_limit, _partition_inner_limit,

@@ -101,7 +101,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows);
             }
         } else {
-            if (ctx->group_commit && status->is<DATA_QUALITY_ERROR>()) {
+            if (ctx->group_commit) {
                 ctx->number_total_rows = state->num_rows_load_total();
                 ctx->number_loaded_rows = state->num_rows_load_success();
                 ctx->number_filtered_rows = state->num_rows_load_filtered();

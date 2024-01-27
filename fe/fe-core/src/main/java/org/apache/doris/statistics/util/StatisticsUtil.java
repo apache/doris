@@ -73,7 +73,6 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -85,10 +84,12 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -149,7 +150,11 @@ public class StatisticsUtil {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-            return r.connectContext.getState();
+            QueryState state = r.connectContext.getState();
+            if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                throw new Exception(state.getErrorMessage());
+            }
+            return state;
         }
     }
 
@@ -178,6 +183,7 @@ public class StatisticsUtil {
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.enablePageCache = false;
+        sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
@@ -188,12 +194,13 @@ public class StatisticsUtil {
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
+        sessionVariable.enablePushDownMinMaxOnUnique = true;
+        sessionVariable.enablePushDownStringMinMax = true;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
     }
 
@@ -422,7 +429,7 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
-        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
             statsTbls.add(
@@ -730,8 +737,12 @@ public class StatisticsUtil {
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
-        for (FileScanTask task : tableScan.planFiles()) {
-            processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+        try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
+            for (FileScanTask task : fileScanTasks) {
+                processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+            }
+        } catch (IOException e) {
+            LOG.warn("Error to close FileScanTask.", e);
         }
         if (columnStatisticBuilder.getCount() > 0) {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()

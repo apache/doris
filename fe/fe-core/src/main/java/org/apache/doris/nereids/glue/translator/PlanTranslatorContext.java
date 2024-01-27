@@ -151,6 +151,10 @@ public class PlanTranslatorContext {
         return connectContext == null ? null : connectContext.getSessionVariable();
     }
 
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
         return statsUnknownColumnsMap.keySet();
     }
@@ -270,6 +274,11 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
+            if (slotReference.hasSubColPath()) {
+                slotDescriptor.setSubColLables(slotReference.getSubColPath());
+                slotDescriptor.setMaterializedColumnName(slotRef.getColumnName()
+                            + "." + String.join(".", slotReference.getSubColPath()));
+            }
         }
         slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());

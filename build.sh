@@ -42,6 +42,7 @@ Usage: $0 <options>
      --fe                   build Frontend and Spark DPP application. Default ON.
      --be                   build Backend. Default ON.
      --meta-tool            build Backend meta tool. Default OFF.
+     --cloud                build Cloud. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
      --audit                build audit loader. Default ON.
@@ -61,6 +62,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
@@ -117,6 +119,7 @@ if ! OPTS="$(getopt \
     -o '' \
     -l 'fe' \
     -l 'be' \
+    -l 'cloud' \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
@@ -138,6 +141,7 @@ eval set -- "${OPTS}"
 PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
+BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
@@ -154,6 +158,7 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
+
     BUILD_BROKER=1
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
@@ -175,6 +180,10 @@ else
         --be)
             BUILD_BE=1
             BUILD_BE_JAVA_EXTENSIONS=1
+            shift
+            ;;
+        --cloud)
+            BUILD_CLOUD=1
             shift
             ;;
         --broker)
@@ -244,6 +253,7 @@ else
     if [[ "${PARAMETER_COUNT}" -eq 3 ]] && [[ "${PARAMETER_FLAG}" -eq 1 ]]; then
         BUILD_FE=1
         BUILD_BE=1
+        BUILD_CLOUD=1
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
@@ -307,7 +317,7 @@ update_submodule() {
     fi
 }
 
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
     clean_fe
@@ -415,6 +425,7 @@ fi
 echo "Get params:
     BUILD_FE                    -- ${BUILD_FE}
     BUILD_BE                    -- ${BUILD_BE}
+    BUILD_CLOUD                 -- ${BUILD_CLOUD}
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_AUDIT                 -- ${BUILD_AUDIT}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
@@ -541,6 +552,42 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     cd "${DORIS_HOME}"
 fi
 
+# Clean and build cloud
+if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
+    if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h" ]]; then
+        rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/cloud_version.h"
+    fi
+    CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
+    echo "Build Cloud: ${CMAKE_BUILD_TYPE}"
+    CMAKE_BUILD_DIR="${DORIS_HOME}/cloud/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${CMAKE_BUILD_DIR}"
+        echo "clean cloud"
+    fi
+    MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
+    echo "-- Make program: ${MAKE_PROGRAM}"
+    echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
+    mkdir -p "${CMAKE_BUILD_DIR}"
+    cd "${CMAKE_BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DMAKE_TEST=OFF \
+        "${CMAKE_USE_CCACHE}" \
+        -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
+        -DUSE_DWARF="${USE_DWARF}" \
+        -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+        -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
+        "${DORIS_HOME}/cloud/"
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+    cd "${DORIS_HOME}"
+    echo "Build cloud done"
+fi
+
 if [[ "${BUILD_DOCS}" = "ON" ]]; then
     # Build docs, should be built before Frontend
     echo "Build docs"
@@ -590,9 +637,18 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
+        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
+        fi
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
+        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}"
+        else
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
+        fi
     fi
     cd "${DORIS_HOME}"
 fi
@@ -743,6 +799,11 @@ if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     rm -rf "${DORIS_OUTPUT}/audit_loader"/*
     cp -r -p "${DORIS_HOME}/fe_plugins/auditloader/output"/* "${DORIS_OUTPUT}/audit_loader"/
     cd "${DORIS_HOME}"
+fi
+
+if [[ ${BUILD_CLOUD} -eq 1 ]]; then
+    rm -rf "${DORIS_HOME}/output/ms"
+    cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
 
 echo "***************************************"

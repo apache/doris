@@ -41,7 +41,7 @@ statement
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? RIGHT_PAREN))
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
@@ -57,25 +57,20 @@ statement
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        (query | inlineTable)                                          #insertTable
+        query                                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
         whereClause                                                    #update
-    | explain? cte? DELETE FROM tableName=multipartIdentifier tableAlias
-        (PARTITION partition=identifierList)?
-        (USING relation (COMMA relation)*)
-        whereClause                                                    #delete
+    | explain? cte? DELETE FROM tableName=multipartIdentifier
+        partitionSpec? tableAlias
+        (USING relation (COMMA relation)*)?
+        whereClause?                                                   #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                 #load
-    | LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        resourceDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                 #resourceLoad
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                 #mysqlLoad
@@ -90,19 +85,24 @@ statement
         (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
+        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)?      #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
-    | ALTER TABLE table=relation
+    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
+    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
+    | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier      #cancelMTMVTask
+    | ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
-    | ALTER TABLE table=relation
+    | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
     | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     ;
 
@@ -120,7 +120,6 @@ partitionSpec
     // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
     // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
     // | PARTITIONS WITH RECENT
-        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc
@@ -129,7 +128,7 @@ dataDesc
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
-        (FORMAT AS format=identifier)?
+        (FORMAT AS format=identifierOrStringLiteral)?
         (columns=identifierList)?
         (columnsFromPath=colFromPath)?
         (columnMapping=colMappingList)?
@@ -158,15 +157,16 @@ refreshTrigger
     ;
 
 refreshSchedule
-    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
-    ;
-
-mvRefreshUnit
-    : SECOND | MINUTE | HOUR | DAY | WEEK
+    : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
 refreshMethod
-    : COMPLETE
+    : COMPLETE | AUTO
+    ;
+
+identifierOrStringLiteral
+    : identifier
+    | STRING_LITERAL
     ;
 
 identifierOrText
@@ -176,7 +176,7 @@ identifierOrText
     ;
 
 userIdentify
-    : user=identifierOrText (AT (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    : user=identifierOrText (ATSIGN (host=identifierOrText | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
     ;
 
 
@@ -226,7 +226,8 @@ mappingExpr
     ;
 
 withRemoteStorageSystem
-    : WITH S3 LEFT_PAREN
+    : resourceDesc
+    | WITH S3 LEFT_PAREN
         brokerProperties=propertyItemList
         RIGHT_PAREN
     | WITH HDFS LEFT_PAREN
@@ -288,6 +289,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -333,13 +335,13 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN joinHint? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
-joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
-    | HINT_START identifier HINT_END                                  #commentJoinHint
+distributeType
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
+    | HINT_START identifier HINT_END                                  #commentDistributeType
     ;
 
 relationHint
@@ -348,7 +350,7 @@ relationHint
     ;
 
 aggClause
-    : GROUP BY groupingElement?
+    : GROUP BY groupingElement
     ;
 
 groupingElement
@@ -437,12 +439,16 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition?
+    : multipartIdentifier materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?
       RIGHT_PAREN tableAlias                                               #tableValuedFunction
+    ;
+
+materializedViewName
+    : INDEX indexName=identifier
     ;
 
 propertyClause
@@ -504,7 +510,7 @@ partitionsDef
     ;
     
 partitionDef
-    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
     ;
     
 lessThanPartitionDef
@@ -597,7 +603,7 @@ rowConstructorItem
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -677,7 +683,7 @@ primaryExpression
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | ATSIGN identifierOrText                                                                  #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
-    | identifier                                                                               #columnReference
+    | BINARY? identifier                                                                       #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
@@ -756,10 +762,10 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING_LITERAL                                                                           #stringLiteral
+    | BINARY? STRING_LITERAL                                                                   #stringLiteral
     | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
     | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
@@ -897,6 +903,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
     | BEGIN
@@ -1066,6 +1073,7 @@ nonReserved
     | PASSWORD_HISTORY
     | PASSWORD_LOCK_TIME
     | PASSWORD_REUSE
+    | PARTITIONS
     | PATH
     | PAUSE
     | PERCENT

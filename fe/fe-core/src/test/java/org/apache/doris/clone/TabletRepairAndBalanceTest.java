@@ -106,9 +106,11 @@ public class TabletRepairAndBalanceTest {
         FeConstants.runningUnitTest = true;
         System.out.println(runningDir);
         FeConstants.runningUnitTest = true;
-        Config.tablet_checker_interval_ms = 1000;
+        Config.tablet_checker_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
         Config.colocate_group_relocate_delay_second = 1;
+        Config.schedule_slot_num_per_hdd_path = 1000;
+        Config.schedule_slot_num_per_ssd_path = 1000;
         Config.disable_balance = true;
         // 5 backends:
         // 127.0.0.1
@@ -265,7 +267,7 @@ public class TabletRepairAndBalanceTest {
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr3));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         // alter table's replica allocation failed, tag not enough

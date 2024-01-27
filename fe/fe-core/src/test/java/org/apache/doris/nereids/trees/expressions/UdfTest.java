@@ -58,7 +58,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
 
     @Override
     protected void runBeforeEach() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Test
@@ -75,7 +75,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 .when(relation -> relation.getProjects().get(0).child(0).equals(expected))
                 );
 
-        connectContext.setDatabase("default_cluster:test_1");
+        connectContext.setDatabase("test_1");
         Expression expected1 = new HoursAdd(new Now(new IntegerLiteral(3)), new IntegerLiteral(3));
         PlanChecker.from(connectContext)
                 .analyze(sql)

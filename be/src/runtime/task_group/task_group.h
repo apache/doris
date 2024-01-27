@@ -29,6 +29,7 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -43,7 +44,6 @@ namespace taskgroup {
 
 class TaskGroup;
 struct TaskGroupInfo;
-class ScanTaskQueue;
 
 template <typename QueueType>
 class TaskGroupEntity {
@@ -88,9 +88,6 @@ private:
 using TaskGroupPipelineTaskEntity = TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
 using TGPTEntityPtr = TaskGroupPipelineTaskEntity*;
 
-using TaskGroupScanTaskEntity = TaskGroupEntity<ScanTaskQueue>;
-using TGSTEntityPtr = TaskGroupScanTaskEntity*;
-
 struct TgTrackerLimiterGroup {
     std::unordered_set<std::shared_ptr<MemTrackerLimiter>> trackers;
     std::mutex group_lock;
@@ -101,7 +98,6 @@ public:
     explicit TaskGroup(const TaskGroupInfo& tg_info);
 
     TaskGroupPipelineTaskEntity* task_entity() { return &_task_entity; }
-    TGSTEntityPtr local_scan_task_entity() { return &_local_scan_entity; }
 
     int64_t version() const { return _version; }
 
@@ -146,6 +142,16 @@ public:
         return _memory_limit > 0;
     }
 
+    void add_query(TUniqueId query_id) { _query_id_set.insert(query_id); }
+
+    void remove_query(TUniqueId query_id) { _query_id_set.erase(query_id); }
+
+    void shutdown() { _is_shutdown = true; }
+
+    int query_num() { return _query_id_set.size(); }
+
+    bool is_shutdown() { return _is_shutdown; }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -155,9 +161,14 @@ private:
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
     TaskGroupPipelineTaskEntity _task_entity;
-    TaskGroupScanTaskEntity _local_scan_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
     std::atomic<int> _cpu_hard_limit;
+
+    // means task group is mark dropped
+    // new query can not submit
+    // waiting running query to be cancelled or finish
+    bool _is_shutdown = false;
+    std::unordered_set<TUniqueId> _query_id_set;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;

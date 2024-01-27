@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AnalyticSourceOperator final : public SourceOperator<AnalyticSourceOperatorBuilder> {
+class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
 public:
     AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
 
@@ -83,9 +83,10 @@ private:
         auto need_more_input = _whether_need_next_partition(_shared_state->found_partition_end);
         if (need_more_input) {
             _dependency->block();
+            _dependency->set_ready_to_write();
             _shared_state->sink_dep->set_ready();
         } else {
-            _shared_state->sink_dep->block();
+            _dependency->set_block_to_write();
             _dependency->set_ready();
         }
         return need_more_input;

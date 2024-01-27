@@ -58,7 +58,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
         String test_insert_all_types = "test_mysql_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_ctas = "test_mysql_ctas";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
@@ -166,12 +166,30 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
             order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
             order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
-            order_qt_ex_tb21  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+            order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
+            order_qt_ex_tb21_3  """ select `key`, `id` from ${ex_tb21} where `key` in (1,2) order by id;"""
+            order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
+            order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
+            order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
+            order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
+            order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
             order_qt_information_schema """ show tables from information_schema; """
             order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
             order_qt_dt """select * from ${dt}; """
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
+            order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+            explain {
+                sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+            }
+
+            explain {
+                sql("select /*+ SET_VAR(enable_ext_func_pred_pushdown = false) */ `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+                contains """SELECT `datetime` FROM `doris_test`.`all_types`"""
+            }
 
             // test insert
             String uuid1 = UUID.randomUUID().toString();
@@ -365,7 +383,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 		}
         try {
             sql """ use ${ex_db_name}"""
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
             order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
             order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
             order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
@@ -384,25 +402,25 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             explain {
                 sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (timestamp0 > '2022-01-01 00:00:00')"
+                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(k6, NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
             }
             explain {
                 sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(ifnull(k6, NULL), NULL) = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "false"); """
+            sql """ set enable_ext_func_pred_pushdown = "false"; """
             explain {
                 sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (`k8` = 1)"
+                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
             }
-            sql """ admin set frontend config ("enable_func_pushdown" = "true"); """
+            sql """ set enable_ext_func_pred_pushdown = "true"; """
         } finally {
 			res_dbs_log = sql "show databases;"
 			for(int i = 0;i < res_dbs_log.size();i++) {

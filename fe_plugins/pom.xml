@@ -65,11 +65,19 @@ under the License.
     <modules>
         <module>auditdemo</module>
         <module>auditloader</module>
+        <module>trino-converter</module>
+        <module>sparksql-converter</module>
     </modules>
     <properties>
-        <log4j2.version>2.18.0</log4j2.version>
-        <doris.version>2.0-SNAPSHOT</doris.version>
         <project.scm.id>github</project.scm.id>
+        <plugin-ut.parallel>1</plugin-ut.parallel>
+        <doris.version>1.2-SNAPSHOT</doris.version>
+        <trino.parser.version>395</trino.parser.version>
+        <log4j2.version>2.18.0</log4j2.version>
+        <log4j.verion>1.2.17</log4j.verion>
+        <lombok.version>1.18.24</lombok.version>
+        <junit.version>5.8.2</junit.version>
+        <jmockit.version>1.49</jmockit.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -137,7 +145,35 @@ under the License.
             <dependency>
                 <groupId>log4j</groupId>
                 <artifactId>log4j</artifactId>
-                <version>1.2.17</version>
+                <version>${log4j.verion}</version>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
+            <dependency>
+                <groupId>org.jmockit</groupId>
+                <artifactId>jmockit</artifactId>
+                <version>${jmockit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
+            <dependency>
+                <groupId>org.junit.vintage</groupId>
+                <artifactId>junit-vintage-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-params -->
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-params</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

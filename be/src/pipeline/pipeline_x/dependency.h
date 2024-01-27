@@ -35,11 +35,13 @@
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/types.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vpartition_sort_node.h"
+#include "vec/exec/vset_operation_node.h"
 
 namespace doris::pipeline {
 
@@ -56,17 +58,28 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep = nullptr;
-    Dependency* sink_dep = nullptr;
-
-    std::atomic<int> ref_count = 0;
-
-    void ref() { ref_count++; }
-    virtual Status close(RuntimeState* state) { return Status::OK(); }
+    template <class TARGET>
+    TARGET* cast() {
+        DCHECK(dynamic_cast<TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<TARGET*>(this);
+    }
+    template <class TARGET>
+    const TARGET* cast() const {
+        DCHECK(dynamic_cast<const TARGET*>(this))
+                << " Mismatch type! Current type is " << typeid(*this).name()
+                << " and expect type is" << typeid(TARGET).name();
+        return reinterpret_cast<const TARGET*>(this);
+    }
+    DependencySPtr source_dep = nullptr;
+    DependencySPtr sink_dep = nullptr;
     virtual ~BasicSharedState() = default;
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
+    ENABLE_FACTORY_CREATOR(Dependency);
+
 public:
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
@@ -87,12 +100,9 @@ public:
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] virtual std::string name() const { return _name; }
     void add_child(std::shared_ptr<Dependency> child) { _children.push_back(child); }
-    std::shared_ptr<BasicSharedState> shared_state() { return _shared_state; }
-    void set_shared_state(std::shared_ptr<BasicSharedState> shared_state) {
-        _shared_state = shared_state;
-    }
+    BasicSharedState* shared_state() { return _shared_state; }
+    void set_shared_state(BasicSharedState* shared_state) { _shared_state = shared_state; }
     virtual std::string debug_string(int indentation_level = 0);
-    virtual bool push_to_blocking_queue() const { return false; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_watcher() {
@@ -112,15 +122,26 @@ public:
         DCHECK(_shared_state->source_dep != nullptr) << debug_string();
         _shared_state->source_dep->set_ready();
     }
+    void set_block_to_read() {
+        DCHECK(_is_write_dependency) << debug_string();
+        DCHECK(_shared_state->source_dep != nullptr) << debug_string();
+        _shared_state->source_dep->block();
+    }
+    void set_ready_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->set_ready();
+    }
+    void set_block_to_write() {
+        DCHECK(_shared_state->sink_dep != nullptr) << debug_string();
+        _shared_state->sink_dep->block();
+    }
 
     // Notify downstream pipeline tasks this dependency is blocked.
     virtual void block() { _ready = false; }
 
 protected:
     void _add_block_task(PipelineXTask* task);
-    bool _is_cancelled() const {
-        return push_to_blocking_queue() ? false : _query_ctx->is_cancelled();
-    }
+    bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
     const int _node_id;
@@ -129,7 +150,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state;
+    BasicSharedState* _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -279,16 +300,6 @@ public:
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
 
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", Dependency::_name);
-        for (auto& child : Dependency::_children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
-
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
@@ -307,23 +318,16 @@ public:
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
-    ~AggSharedState() override = default;
+    ~AggSharedState() override {
+        if (probe_expr_ctxs.empty()) {
+            _close_without_key();
+        } else {
+            _close_with_serialized_key();
+        }
+    }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
                 std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
-    }
-    Status close(RuntimeState* state) override {
-        if (ref_count.fetch_sub(1) == 1) {
-            for (auto* aggregate_evaluator : aggregate_evaluators) {
-                aggregate_evaluator->close(state);
-            }
-            if (probe_expr_ctxs.empty()) {
-                _close_without_key();
-            } else {
-                _close_with_serialized_key();
-            }
-        }
-        return Status::OK();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
@@ -457,6 +461,7 @@ struct HashJoinSharedState : public JoinSharedState {
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
+    std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
     bool probe_ignore_null = false;
 };
 
@@ -475,6 +480,8 @@ public:
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     std::unique_ptr<vectorized::SortCursorCmp> previous_row;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
 };
 
 class AsyncWriterDependency final : public Dependency {
@@ -488,10 +495,7 @@ public:
 
 struct SetSharedState : public BasicSharedState {
 public:
-    SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
-    //record memory during running
-    int64_t mem_used = 0;
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
@@ -502,7 +506,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<vectorized::HashTableVariants> hash_table_variants =
+    std::unique_ptr<vectorized::SetHashTableVariants> hash_table_variants =
             nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
@@ -522,24 +526,22 @@ public:
 
     /// called in setup_local_state
     void hash_table_init() {
+        using namespace vectorized;
         if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
             // Single column optimization
             switch (child_exprs_lists[0][0]->root()->result_type()) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
-                hash_table_variants->emplace<
-                        vectorized::I8HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt8>>();
                 break;
             case TYPE_SMALLINT:
-                hash_table_variants->emplace<
-                        vectorized::I16HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt16>>();
                 break;
             case TYPE_INT:
             case TYPE_FLOAT:
             case TYPE_DATEV2:
             case TYPE_DECIMAL32:
-                hash_table_variants->emplace<
-                        vectorized::I32HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt32>>();
                 break;
             case TYPE_BIGINT:
             case TYPE_DOUBLE:
@@ -547,36 +549,39 @@ public:
             case TYPE_DATE:
             case TYPE_DECIMAL64:
             case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<
-                        vectorized::I64HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt64>>();
                 break;
             case TYPE_LARGEINT:
             case TYPE_DECIMALV2:
             case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<
-                        vectorized::I128HashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetPrimaryTypeHashTableContext<UInt128>>();
                 break;
             default:
-                hash_table_variants->emplace<
-                        vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+                hash_table_variants->emplace<SetSerializedHashTableContext>();
             }
             return;
         }
-
-        if (!try_get_hash_map_context_fixed<JoinFixedHashMap, HashCRC32,
-                                            vectorized::RowRefListWithFlags>(
+        if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
                     *hash_table_variants, child_exprs_lists[0])) {
-            hash_table_variants->emplace<
-                    vectorized::SerializedHashTableContext<vectorized::RowRefListWithFlags>>();
+            hash_table_variants->emplace<SetSerializedHashTableContext>();
         }
     }
 };
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
+    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
     HASH_SHUFFLE = 1,
+    // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
+    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
     BUCKET_HASH_SHUFFLE = 3,
+    // Passthrough data blocks to all channels.
+    BROADCAST = 4,
+    // Passthrough data to channels evenly in an adaptive way.
+    ADAPTIVE_PASSTHROUGH = 5,
+    // Send all data to the first channel.
+    PASS_TO_ONE = 6,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -589,50 +594,85 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "PASSTHROUGH";
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         return "BUCKET_HASH_SHUFFLE";
+    case ExchangeType::BROADCAST:
+        return "BROADCAST";
+    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+        return "ADAPTIVE_PASSTHROUGH";
+    case ExchangeType::PASS_TO_ONE:
+        return "PASS_TO_ONE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+
+struct DataDistribution {
+    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+            : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(const DataDistribution& other)
+            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    DataDistribution& operator=(const DataDistribution& other) {
+        distribution_type = other.distribution_type;
+        partition_exprs = other.partition_exprs;
+        return *this;
+    }
+    ExchangeType distribution_type;
+    std::vector<TExpr> partition_exprs;
+};
 
 class Exchanger;
 
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
+    LocalExchangeSharedState(int num_instances);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<Dependency*> source_dependencies;
-    Dependency* sink_dependency;
+    std::vector<DependencySPtr> source_dependencies;
+    DependencySPtr sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
-        for (auto* dep : source_dependencies) {
+        for (auto& dep : source_dependencies) {
             DCHECK(dep);
             dep->set_ready();
         }
     }
 
-    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
+    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
 
     void set_ready_to_read(int channel_id) {
-        auto* dep = source_dependencies[channel_id];
+        auto& dep = source_dependencies[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }
 
-    void add_mem_usage(int channel_id, size_t delta) {
+    void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
         mem_trackers[channel_id]->consume(delta);
+        if (update_total_mem_usage) {
+            add_total_mem_usage(delta);
+        }
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
+        mem_trackers[channel_id]->release(delta);
+        if (update_total_mem_usage) {
+            sub_total_mem_usage(delta);
+        }
+    }
+
+    void add_total_mem_usage(size_t delta) {
         if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
             sink_dependency->block();
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta) {
-        mem_trackers[channel_id]->release(delta);
-        if (mem_usage.fetch_sub(delta) < config::local_exchange_buffer_mem_limit) {
+    void sub_total_mem_usage(size_t delta) {
+        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
             sink_dependency->set_ready();
         }
     }

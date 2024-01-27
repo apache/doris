@@ -90,12 +90,22 @@ private:
     bool _should_push_down_value_predicates() const;
     bool _is_merge_iterator() const {
         return _read_context->need_ordered_result &&
-               _rowset->rowset_meta()->is_segments_overlapping();
+               _rowset->rowset_meta()->is_segments_overlapping() && _get_segment_num() > 1;
+    }
+
+    int32_t _get_segment_num() const {
+        auto [seg_start, seg_end] = _segment_offsets;
+        if (seg_start == seg_end) {
+            seg_start = 0;
+            seg_end = _rowset->num_segments();
+        }
+        return seg_end - seg_start;
     }
 
     DorisCallOnce<Status> _init_iter_once;
 
     std::pair<int, int> _segment_offsets;
+    std::vector<RowRanges> _segment_row_ranges;
 
     SchemaSPtr _input_schema;
     RowsetReaderContext* _read_context = nullptr;

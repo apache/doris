@@ -23,11 +23,13 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -45,6 +47,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The common util for materialized view
@@ -63,7 +66,7 @@ public class MaterializedViewUtils {
         Slot columnExpr = null;
         // get column slot
         for (Slot outputSlot : outputExpressions) {
-            if (outputSlot.getName().equals(column)) {
+            if (outputSlot.getName().equalsIgnoreCase(column)) {
                 columnExpr = outputSlot;
                 break;
             }
@@ -122,6 +125,23 @@ public class MaterializedViewUtils {
         return analyzedPlan.accept(TableQueryOperatorChecker.INSTANCE, null);
     }
 
+    /**
+     * Extract struct info from plan, support to get struct info from logical plan or plan in group.
+     */
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
+        if (plan.getGroupExpression().isPresent() && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos()
+                .isEmpty()) {
+            return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();
+        } else {
+            // build struct info and add them to current group
+            List<StructInfo> structInfos = StructInfo.of(plan);
+            if (plan.getGroupExpression().isPresent()) {
+                plan.getGroupExpression().get().getOwnerGroup().addStructInfo(structInfos);
+            }
+            return structInfos;
+        }
+    }
+
     private static final class TableQueryOperatorChecker extends DefaultPlanVisitor<Boolean, Void> {
         public static final TableQueryOperatorChecker INSTANCE = new TableQueryOperatorChecker();
 
@@ -175,6 +195,28 @@ public class MaterializedViewUtils {
         @Override
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
+            Plan left = join.child(0);
+            Set<Column> leftColumnSet = left.getOutputSet().stream()
+                    .filter(slot -> slot instanceof SlotReference
+                            && slot.isColumnFromTable())
+                    .map(slot -> ((SlotReference) slot).getColumn().get())
+                    .collect(Collectors.toSet());
+            boolean useLeft = leftColumnSet.contains(context.getMvPartitionColumn().getColumn().get());
+            JoinType joinType = join.getJoinType();
+            if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
+                context.setPctPossible(true);
+            } else if (joinType.isLeftJoin()
+                    || joinType.isLefSemiJoin()
+                    || joinType.isLeftAntiJoin()) {
+                context.setPctPossible(useLeft);
+            } else if (joinType.isRightJoin()
+                    || joinType.isRightAntiJoin()
+                    || joinType.isRightSemiJoin()) {
+                context.setPctPossible(!useLeft);
+            } else {
+                // un supported join type
+                context.setPctPossible(false);
+            }
             return visit(join, context);
         }
 
@@ -198,6 +240,7 @@ public class MaterializedViewUtils {
             if (partitionColumnSet.contains(mvReferenceColumn)) {
                 context.setRelatedTable(table);
                 context.setRelatedTableColumn(mvReferenceColumn);
+                context.setPctPossible(!mvReferenceColumn.isAllowNull());
             }
             return visit(relation, context);
         }
@@ -272,6 +315,7 @@ public class MaterializedViewUtils {
         private boolean pctPossible = true;
         private TableIf relatedTable;
         private Column relatedTableColumn;
+        private boolean joinNullGenerateSide;
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn) {
             this.mvPartitionColumn = mvPartitionColumn;
@@ -303,6 +347,14 @@ public class MaterializedViewUtils {
 
         public void setRelatedTableColumn(Column relatedTableColumn) {
             this.relatedTableColumn = relatedTableColumn;
+        }
+
+        public boolean isJoinNullGenerateSide() {
+            return joinNullGenerateSide;
+        }
+
+        public void setJoinNullGenerateSide(boolean joinNullGenerateSide) {
+            this.joinNullGenerateSide = joinNullGenerateSide;
         }
     }
 

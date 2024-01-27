@@ -19,7 +19,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vtablet_sink_v2.h"
+#include "vec/sink/volap_table_sink_v2.h"
 
 namespace doris {
 
@@ -34,12 +34,12 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class OlapTableSinkV2Operator final : public DataSinkOperator<OlapTableSinkV2OperatorBuilder> {
+class OlapTableSinkV2Operator final : public DataSinkOperator<vectorized::VOlapTableSinkV2> {
 public:
     OlapTableSinkV2Operator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkV2OperatorX;
@@ -104,6 +104,7 @@ public:
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

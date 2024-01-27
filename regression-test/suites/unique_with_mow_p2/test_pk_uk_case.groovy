@@ -26,7 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 
-suite("test_pk_uk_case") {
+suite("test_pk_uk_case_unique_with_mow_p2") {
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
 

@@ -174,7 +174,7 @@ suite("test_array_export", "export") {
         result = sql """
             SELECT * FROM ${tableName} t ORDER BY k1 INTO OUTFILE "file://${outFile}/";
         """
-        url = result[0][3]
+        def url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         if (backends.size() > 1) {
             // custer will scp files

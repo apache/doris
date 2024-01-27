@@ -69,7 +69,6 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        createDorisCluster();
         createDatabase("mock_db");
         useDatabase("mock_db");
         createTable("create table mock_tbl1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
@@ -433,25 +432,27 @@ public class PropertyConverterTest extends TestWithFeService {
         String catalogName = "hms_glue_old";
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
+        Map<String, String> properties = catalog.getProperties();
         Assertions.assertEquals(properties.size(), 20);
+        Assertions.assertEquals("s3.us-east-1.amazonaws.com", properties.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 29);
 
         String query = "create catalog hms_glue properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.type'='glue',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com',\n"
-                    + "    'glue.access_key' = 'akk',\n"
-                    + "    'glue.secret_key' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.type'='glue',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com.cn',\n"
+                + "    'glue.access_key' = 'akk',\n"
+                + "    'glue.secret_key' = 'skk'\n"
+                + ");";
         catalogName = "hms_glue";
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
-        Map<String, String> propertiesNew = catalogNew.getCatalogProperty().getProperties();
+        Map<String, String> propertiesNew = catalogNew.getProperties();
         Assertions.assertEquals(propertiesNew.size(), 20);
+        Assertions.assertEquals("s3.us-east-1.amazonaws.com.cn", propertiesNew.get(S3Properties.ENDPOINT));
 
         Map<String, String> hdPropsNew = catalogNew.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdPropsNew.size(), 29);

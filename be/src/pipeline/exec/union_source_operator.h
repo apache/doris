@@ -48,7 +48,7 @@ private:
     std::shared_ptr<DataQueue> _data_queue;
 };
 
-class UnionSourceOperator final : public SourceOperator<UnionSourceOperatorBuilder> {
+class UnionSourceOperator final : public SourceOperator<vectorized::VUnionNode> {
 public:
     UnionSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* node,
                         std::shared_ptr<DataQueue>);
@@ -86,7 +86,6 @@ public:
     UnionSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
-    std::shared_ptr<UnionSharedState> create_shared_state();
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 

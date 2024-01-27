@@ -17,21 +17,21 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -40,29 +40,34 @@ import java.util.stream.Collectors;
  * This is responsible for common join rewriting
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
-    private static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET =
-            Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
+
+    protected final String currentClassName = this.getClass().getSimpleName();
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMappings,
+            SlotMapping targetToSourceMapping,
             Plan tempRewritedPlan,
             MaterializationContext materializationContext) {
-
-        List<? extends Expression> queryShuttleExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                queryStructInfo.getExpressions(),
-                queryStructInfo.getOriginalPlan());
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
-                queryShuttleExpression,
-                materializationContext.getViewExpressionIndexMapping(),
-                queryToViewSlotMappings
+                queryStructInfo.getExpressions(),
+                queryStructInfo.getOriginalPlan(),
+                materializationContext.getMvExprToMvScanExprMapping(),
+                targetToSourceMapping,
+                true
         );
         // Can not rewrite, bail out
-        if (expressionsRewritten == null
-                || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
+        if (expressionsRewritten.isEmpty()) {
+            materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
+                    Pair.of("Rewrite expressions by view in join fail",
+                            String.format("expressionToRewritten is %s,\n mvExprToMvScanExprMapping is %s,\n"
+                                            + "targetToSourceMapping = %s",
+                                    queryStructInfo.getExpressions(),
+                                    materializationContext.getMvExprToMvScanExprMapping(),
+                                    targetToSourceMapping)));
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in
@@ -72,7 +77,10 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                     queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
         return new LogicalProject<>(
-                expressionsRewritten.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                expressionsRewritten.stream()
+                        .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
+                        .map(NamedExpression.class::cast)
+                        .collect(Collectors.toList()),
                 tempRewritedPlan);
     }
 

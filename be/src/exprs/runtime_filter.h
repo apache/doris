@@ -186,7 +186,7 @@ enum RuntimeFilterState {
 class IRuntimeFilter {
 public:
     IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                   const TRuntimeFilterDesc* desc)
+                   const TRuntimeFilterDesc* desc, bool is_global = false, int parallel_tasks = -1)
             : _state(state),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -206,40 +206,17 @@ public:
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
-
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
-            : _query_ctx(query_ctx),
-              _pool(pool),
-              _filter_id(desc->filter_id),
-              _is_broadcast_join(true),
-              _has_remote_target(false),
-              _has_local_target(false),
-              _rf_state(RuntimeFilterState::NOT_READY),
-              _rf_state_atomic(RuntimeFilterState::NOT_READY),
-              _role(RuntimeFilterRole::PRODUCER),
-              _expr_order(-1),
-              _always_true(false),
-              _is_ignored(false),
-              registration_time_(MonotonicMillis()),
-              _wait_infinitely(query_ctx->runtime_filter_wait_infinitely()),
-              _rf_wait_time_ms(query_ctx->runtime_filter_wait_time_ms()),
-              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
+              _profile(new RuntimeProfile(_name)),
+              _is_global(is_global),
+              _parallel_build_tasks(parallel_tasks) {}
 
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                         bool build_bf_exactly = false);
-
-    static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                         const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
+                         bool build_bf_exactly = false, bool is_global = false,
+                         int parallel_tasks = 0);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -251,7 +228,7 @@ public:
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish();
+    Status publish(bool publish_local = false);
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -307,17 +284,15 @@ public:
     static Status create_wrapper(RuntimeFilterParamsContext* state,
                                  const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
     Status update_filter(const UpdateRuntimeFilterParamsV2* param, int64_t start_apply);
 
-    void set_ignored() { _is_ignored = true; }
-
-    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
+    void set_ignored(const std::string& msg);
 
     // for ut
     bool is_bloomfilter();
@@ -370,7 +345,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout;
+            res = _state->execution_timeout;
             // Convert to ms
             res *= 1000;
         } else {
@@ -384,6 +359,8 @@ public:
     int64_t registration_time() const { return registration_time_; }
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
+
+    Status merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num);
 
 protected:
     // serialize _wrapper to protobuf
@@ -424,7 +401,6 @@ protected:
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
-    QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
@@ -479,7 +455,18 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile::Counter* _merge_local_rf_timer = nullptr;
     bool _opt_remote_rf;
+    // `_is_global` indicates whether this runtime filter is global on this BE.
+    // All runtime filters should be merged on each BE if it is global.
+    // This is improvement for pipelineX.
+    const bool _is_global = false;
+    std::mutex _local_merge_mutex;
+    // There are `_parallel_build_tasks` pipeline tasks to build runtime filter.
+    // We should call `signal` once all runtime filters are done and merged to one
+    // (e.g. `_merged_rf_num` is equal to `_parallel_build_tasks`).
+    int _merged_rf_num = 0;
+    const int _parallel_build_tasks = -1;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };

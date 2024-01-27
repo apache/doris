@@ -107,19 +107,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super(-1, LoadDataSourceType.KAFKA);
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+    public KafkaRoutineLoadJob(Long id, String name,
                                long dbId, long tableId, String brokerList, String topic,
                                UserIdentity userIdentity) {
-        super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA, userIdentity);
+        super(id, name, dbId, tableId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+    public KafkaRoutineLoadJob(Long id, String name,
                                long dbId, String brokerList, String topic,
                                UserIdentity userIdentity, boolean isMultiTable) {
-        super(id, name, clusterName, dbId, LoadDataSourceType.KAFKA, userIdentity);
+        super(id, name, dbId, LoadDataSourceType.KAFKA, userIdentity);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
@@ -226,7 +226,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         taskKafkaProgress.put(kafkaPartition,
                                 ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id,
                             maxBatchIntervalS * 2 * 1000, taskKafkaProgress, isMultiTable());
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
@@ -325,13 +325,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         try {
             this.newCurrentKafkaPartition = getAllKafkaPartitions();
         } catch (Exception e) {
+            String msg = e.getMessage()
+                        + " may be Kafka properties set in job is error"
+                        + " or no partition in this topic that should check Kafka";
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                    .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                    .add("error_msg", msg)
                     .build(), e);
             if (this.state == JobState.NEED_SCHEDULE) {
                 unprotectUpdateState(JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
-                                "Job failed to fetch all current partition with error " + e.getMessage()),
+                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR, msg),
                         false /* not replay */);
             }
         }
@@ -412,7 +414,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         KafkaRoutineLoadJob kafkaRoutineLoadJob;
         if (kafkaProperties.isMultiTable()) {
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getClusterName(), db.getId(),
+                    db.getId(),
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo(), true);
         } else {
             OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
@@ -420,7 +422,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             long tableId = olapTable.getId();
             // init kafka routine load job
             kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                    db.getClusterName(), db.getId(), tableId,
+                    db.getId(), tableId,
                     kafkaProperties.getBrokerList(), kafkaProperties.getTopic(), stmt.getUserInfo());
         }
         kafkaRoutineLoadJob.setOptional(stmt);
@@ -704,7 +706,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
-    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) {
+    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
                     && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
@@ -734,11 +736,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
         // check again
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
-            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
-                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
-                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
-                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
-                return true;
+            Integer partitionId = entry.getKey();
+            if (cachedPartitionWithLatestOffsets.containsKey(partitionId)) {
+                long partitionLatestOffset = cachedPartitionWithLatestOffsets.get(partitionId);
+                long recordPartitionOffset = entry.getValue();
+                if (recordPartitionOffset < partitionLatestOffset) {
+                    LOG.debug("has more data to consume. offsets to be consumed: {},"
+                            + " latest offsets: {}, task {}, job {}",
+                            partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                    return true;
+                } else if (recordPartitionOffset > partitionLatestOffset) {
+                    String msg = "offset set in job: " + recordPartitionOffset
+                                + " is greater than kafka latest offset: "
+                                + partitionLatestOffset + " partition id: "
+                                + partitionId;
+                    throw new UserException(msg);
+                }
             }
         }
 

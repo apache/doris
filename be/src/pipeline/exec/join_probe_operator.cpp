@@ -65,9 +65,15 @@ void JoinProbeLocalState<DependencyType, Derived>::_construct_mutable_join_block
             _join_block.insert({type_ptr->create_column(), type_ptr, slot_desc->col_name()});
         }
     }
+
     if (p._is_mark_join) {
-        DCHECK(!p._is_mark_join ||
-               _join_block.get_by_position(_join_block.columns() - 1).column->is_nullable());
+        _mark_column_id = _join_block.columns() - 1;
+#ifndef NDEBUG
+        const auto& mark_column = assert_cast<const vectorized::ColumnNullable&>(
+                *_join_block.get_by_position(_mark_column_id).column);
+        auto& nested_column = mark_column.get_nested_column();
+        DCHECK(check_and_get_column<vectorized::ColumnUInt8>(nested_column) != nullptr);
+#endif
     }
 }
 
@@ -134,9 +140,8 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
+
         DCHECK(output_block->rows() == rows);
     }
 
@@ -183,7 +188,8 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                            : false)
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join) {
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

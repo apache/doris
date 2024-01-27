@@ -36,9 +36,11 @@ suite("test_create_table") {
             CLUSTER BY (`c_name`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
-                    "replication_num" = "1"
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "false"
              );
         """
+        // test mor table
         exception "Cluster keys only support unique keys table which enabled enable_unique_key_merge_on_write"
     }
 
@@ -203,6 +205,8 @@ suite("test_create_table") {
     }
 
     sql """set enable_nereids_planner=true;"""
+    sql """set enable_nereids_dml=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
     // duplicate table with cluster keys
     test {
         sql """

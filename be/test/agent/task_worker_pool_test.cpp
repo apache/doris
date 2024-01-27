@@ -25,6 +25,7 @@
 #include <chrono>
 #include <thread>
 
+#include "olap/options.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -44,6 +45,7 @@ TEST(TaskWorkerPoolTest, TaskWorkerPool) {
     workers.submit_task(task);
     workers.submit_task(task); // Pending and ignored when stop
 
+    std::this_thread::sleep_for(200ms);
     workers.stop();
 
     workers.submit_task(task); // Ignore
@@ -89,23 +91,19 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     EXPECT_EQ(normal_count.load(), 2);
     EXPECT_EQ(high_prior_count.load(), 3);
 
-    workers.submit_task(task);
-    workers.submit_task(task);
-    workers.submit_task(task); // Pending and ignored when stop
     workers.stop();
 
     EXPECT_EQ(normal_count.load(), 2);
-    EXPECT_EQ(high_prior_count.load(), 5);
+    EXPECT_EQ(high_prior_count.load(), 3);
 
     workers.submit_task(task); // Ignore
 
     EXPECT_EQ(normal_count.load(), 2);
-    EXPECT_EQ(high_prior_count.load(), 5);
+    EXPECT_EQ(high_prior_count.load(), 3);
 }
 
 TEST(TaskWorkerPoolTest, ReportWorkerPool) {
-    StorageEngine engine({});
-    ExecEnv::GetInstance()->set_storage_engine(&engine);
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
     Defer defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
 
     TMasterInfo master_info;
@@ -123,7 +121,7 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     std::this_thread::sleep_for(1s);
     EXPECT_EQ(count.load(), 2);
 
-    engine.notify_listener("test");
+    ExecEnv::GetInstance()->storage_engine().notify_listener("test");
     std::this_thread::sleep_for(100ms);
     EXPECT_EQ(count.load(), 3);
 

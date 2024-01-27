@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
@@ -44,11 +46,26 @@ public class StructLiteral extends LiteralExpr {
     public StructLiteral(LiteralExpr... exprs) throws AnalysisException {
         type = new StructType();
         children = new ArrayList<>();
+        for (int i = 0; i < exprs.length; i++) {
+            if (!StructType.STRUCT.supportSubType(exprs[i].getType())) {
+                throw new AnalysisException("Invalid element type in STRUCT: " + exprs[i].getType());
+            }
+            ((StructType) type).addField(
+                    new StructField(StructField.DEFAULT_FIELD_NAME + (i + 1), exprs[i].getType()));
+            children.add(exprs[i]);
+        }
+    }
+
+    /**
+     * for nereids
+     */
+    public StructLiteral(Type type, LiteralExpr... exprs) throws AnalysisException {
+        this.type = type;
+        this.children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
             if (!StructType.STRUCT.supportSubType(expr.getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT: " + expr.getType());
             }
-            ((StructType) type).addField(new StructField(expr.getType()));
             children.add(expr);
         }
     }
@@ -71,10 +88,21 @@ public class StructLiteral extends LiteralExpr {
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
+    private String getStringValue(Expr expr) {
+        String stringValue = expr.getStringValue();
+        if (stringValue.isEmpty()) {
+            return "''";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + stringValue + "\"";
+        }
+        return stringValue;
+    }
+
     @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValue()));
+        children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
@@ -88,6 +116,18 @@ public class StructLiteral extends LiteralExpr {
     @Override
     public String getStringValueInFe() {
         List<String> list = new ArrayList<>(children.size());
+        // same with be default field index start with 1
+        for (int i = 0; i < children.size(); i++) {
+            Expr child = children.get(i);
+            list.add("\"" + ((StructType) type).getFields().get(i).getName() + "\": "
+                    + getStringLiteralForComplexType(child));
+        }
+        return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
+    public String getStringValueForStreamLoad() {
+        List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(getStringLiteralForComplexType(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
@@ -95,6 +135,11 @@ public class StructLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.STRUCT_LITERAL;
+        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
+        TTypeDesc container = new TTypeDesc();
+        container.setTypes(new ArrayList<TTypeNode>());
+        type.toThrift(container);
+        msg.setType(container);
     }
 
     @Override

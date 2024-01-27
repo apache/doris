@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_remote_hive, nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -32,11 +32,13 @@ suite("test_hive_statistic_timeout", "p2,external,hive,external_remote,external_
         logger.info("catalog " + catalog_name + " created")
 
         sql """use ${catalog_name}.tpch_1000_parquet"""
-        sql """set analyze_timeout=1"""
+        sql """set global analyze_timeout=1"""
         try {
             sql """analyze table part (p_partkey, p_container, p_type, p_retailprice) with sync with full;"""
         } catch (Exception e) {
             assertTrue(e.getMessage().contains("Cancelled"));
+        } finally {
+            sql """set global analyze_timeout=43200"""
         }
         sql """drop catalog ${catalog_name}""";
     }

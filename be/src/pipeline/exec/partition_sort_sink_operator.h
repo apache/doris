@@ -42,7 +42,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class PartitionSortSinkOperator final : public StreamingOperator<PartitionSortSinkOperatorBuilder> {
+class PartitionSortSinkOperator final : public StreamingOperator<vectorized::VPartitionSortNode> {
 public:
     PartitionSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
             : StreamingOperator(operator_builder, sort_node) {};
@@ -81,6 +81,7 @@ private:
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
+    std::shared_ptr<vectorized::PartitionSortInfo> _partition_sort_info = nullptr;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
@@ -105,11 +106,11 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return ExchangeType::NOOP;
+            return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();
         }
-        return ExchangeType::PASSTHROUGH;
+        return {ExchangeType::PASSTHROUGH};
     }
 
 private:

@@ -44,11 +44,11 @@ struct ProcessHashTableProbe {
 
     // output build side result column
     void build_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, bool have_other_join_conjunct);
+                                  int size, bool have_other_join_conjunct, bool is_mark_join);
 
     void probe_side_output_column(MutableColumns& mcol, const std::vector<bool>& output_slot_flags,
-                                  int size, int last_probe_index, size_t probe_size,
-                                  bool all_match_one, bool have_other_join_conjunct);
+                                  int size, int last_probe_index, bool all_match_one,
+                                  bool have_other_join_conjunct);
 
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
@@ -69,6 +69,10 @@ struct ProcessHashTableProbe {
     // The output result is determined by the other join conjunct result and same_to_prev struct
     Status do_other_join_conjuncts(Block* output_block, bool is_mark_join,
                                    std::vector<uint8_t>& visited, bool has_null_in_build_side);
+
+    template <bool with_other_conjuncts>
+    Status do_mark_join_conjuncts(Block* output_block, size_t hash_table_bucket_size,
+                                  const std::set<uint32_t>& null_result);
 
     template <typename HashTableType>
     typename HashTableType::State _init_probe_side(HashTableType& hash_table_ctx, size_t probe_rows,
@@ -109,6 +113,7 @@ struct ProcessHashTableProbe {
 
     RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;

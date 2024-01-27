@@ -414,12 +414,12 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
         rapidjson::Document jsonpaths_doc;
         if (!jsonpaths_doc.Parse(_jsonpaths.c_str(), _jsonpaths.length()).HasParseError()) {
             if (!jsonpaths_doc.IsArray()) {
-                return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
             }
             for (int i = 0; i < jsonpaths_doc.Size(); i++) {
                 const rapidjson::Value& path = jsonpaths_doc[i];
                 if (!path.IsString()) {
-                    return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+                    return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
                 std::vector<JsonPath> parsed_paths;
                 JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
@@ -427,7 +427,7 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
             }
 
         } else {
-            return Status::InvalidArgument("Invalid json path: {}", _jsonpaths);
+            return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
         }
     }
 
@@ -774,8 +774,9 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
         }
         RETURN_IF_ERROR(_append_error_msg(objectValue,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], lease check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1345,8 +1346,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }
@@ -1660,8 +1662,9 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
         RETURN_IF_ERROR(_append_error_msg(value,
                                           "There is no column matching jsonpaths in the json file, "
-                                          "columns:[{}], jsonpaths:{}, please check columns "
-                                          "and jsonpaths",
+                                          "columns:[{}], please check columns "
+                                          "and jsonpaths:" +
+                                                  _jsonpaths,
                                           col_names, valid));
         return Status::OK();
     }

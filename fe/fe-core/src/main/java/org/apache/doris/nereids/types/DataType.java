@@ -156,6 +156,24 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "decimalv2":
+                // NOTICE, maybe convert to decimalv3, so do not truc here.
+                switch (types.size()) {
+                    case 1:
+                        dataType = DecimalV2Type.CATALOG_DEFAULT_NOT_CONVERSION;
+                        break;
+                    case 2:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), 0, false);
+                        break;
+                    case 3:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)), false);
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
@@ -216,6 +234,9 @@ public abstract class DataType {
             case "date":
                 dataType = DateType.INSTANCE;
                 break;
+            case "datev1":
+                dataType = DateType.NOT_CONVERSION;
+                break;
             case "datev2":
                 dataType = DateV2Type.INSTANCE;
                 break;
@@ -230,6 +251,17 @@ public abstract class DataType {
                     case 2:
                         dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                         break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
+            case "datetimev1":
+                switch (types.size()) {
+                    case 1:
+                        dataType = DateTimeType.NOT_CONVERSION;
+                        break;
+                    case 2:
+                        throw new AnalysisException("Nereids do not support datetimev1 type with precision");
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
@@ -347,6 +379,8 @@ public abstract class DataType {
             return DecimalV2Type.createDecimalV2Type(precision, scale);
         } else if (type.isJsonbType()) {
             return JsonType.INSTANCE;
+        } else if (type.isVariantType()) {
+            return VariantType.INSTANCE;
         } else if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
@@ -586,6 +620,10 @@ public abstract class DataType {
 
     public boolean isMapType() {
         return this instanceof MapType;
+    }
+
+    public boolean isVariantType() {
+        return this instanceof VariantType;
     }
 
     public boolean isStructType() {

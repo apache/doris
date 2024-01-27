@@ -18,19 +18,32 @@
 #include "vec/functions/function_ip.h"
 
 namespace doris::vectorized {
-struct NameFunctionIPv4NumToString {
-    static constexpr auto name = "ipv4numtostring";
-};
 
 void register_function_ip(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();
-    factory.register_alias(NameFunctionIPv4NumToString::name, "inet_ntoa");
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>>();
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Default>>();
-    factory.register_function<FunctionIPv4StringToNum<IPStringToNumExceptionMode::Null>>();
-    factory.register_alias(FunctionIPv4StringToNum<IPStringToNumExceptionMode::Throw>::name,
-                           "inet_aton");
+    factory.register_function<FunctionIPv4NumToString>();
+    factory.register_alias(FunctionIPv4NumToString::name, "inet_ntoa");
+    factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Throw>>();
+    factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Default>>();
+    factory.register_function<FunctionIPv4StringToNum<IPExceptionMode::Null>>();
+    factory.register_alias(FunctionIPv4StringToNum<IPExceptionMode::Null>::name, "inet_aton");
     factory.register_function<FunctionIPv6NumToString>();
     factory.register_alias(FunctionIPv6NumToString::name, "inet6_ntoa");
+    factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Throw>>();
+    factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Default>>();
+    factory.register_function<FunctionIPv6StringToNum<IPExceptionMode::Null>>();
+    factory.register_alias(FunctionIPv6StringToNum<IPExceptionMode::Null>::name, "inet6_aton");
+    factory.register_function<FunctionIsIPv4Compat>();
+    factory.register_function<FunctionIsIPv4Mapped>();
+    factory.register_function<FunctionIsIPString<IPv4>>();
+    factory.register_function<FunctionIsIPString<IPv6>>();
+    factory.register_function<FunctionIsIPAddressInRange>();
+    factory.register_function<FunctionIPv4CIDRToRange>();
+    factory.register_function<FunctionIPv6CIDRToRange>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Throw, IPv4>>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Default, IPv4>>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Null, IPv4>>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Throw, IPv6>>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Default, IPv6>>();
+    factory.register_function<FunctionToIP<IPExceptionMode::Null, IPv6>>();
 }
 } // namespace doris::vectorized

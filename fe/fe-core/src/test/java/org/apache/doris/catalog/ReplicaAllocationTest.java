@@ -52,7 +52,8 @@ public class ReplicaAllocationTest {
     public void setUp() throws DdlException {
         new Expectations() {
             {
-                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, (TStorageMedium) any, false, true);
+                systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any, Maps.newHashMap(),
+                        (TStorageMedium) any, false, true);
                 minTimes = 0;
                 result = new Delegate() {
                     Map<Tag, List<Long>> selectBackendIdsForReplicaCreation() {

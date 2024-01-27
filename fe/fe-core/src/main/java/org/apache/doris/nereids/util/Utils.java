@@ -163,8 +163,10 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
-                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
+            if (!(predicate instanceof BinaryExpression)
+                    && (!(predicate instanceof Not) || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException("Unsupported correlated subquery with"
+                        + " non-equals correlated predicate " + predicate.toSql());
             }
 
             BinaryExpression binaryExpression;
@@ -274,5 +276,17 @@ public class Utils {
             name = name.replace("$", "_");
         }
         return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
+    }
+
+    /**
+     * Check the content if contains chinese or not, if true when contains chinese or false
+     */
+    public static boolean containChinese(String text) {
+        for (char textChar : text.toCharArray()) {
+            if (Character.UnicodeScript.of(textChar) == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
     }
 }

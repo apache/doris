@@ -639,6 +639,10 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    public boolean isDateType() {
+        return this.type.isDate() || this.type.isDateV2();
+    }
+
     @Override
     public String getStringValue() {
         char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
@@ -1534,6 +1538,14 @@ public class DateLiteral extends LiteralExpr {
                 days += ((weekdayB <= 3) ? 0 : 7) - weekdayB + (weekNum - 1) * 7 + weekday - 1;
             }
             getDateFromDaynr(days);
+        }
+
+        if (!timePartUsed && year > 0) {
+            if (format.equals("%Y")) {
+                month = day = 1;
+            } else if (format.equals("%Y-%m")) {
+                day = 1;
+            }
         }
 
         // Compute timestamp type

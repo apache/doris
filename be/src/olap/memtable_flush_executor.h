@@ -116,7 +116,7 @@ public:
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
-    void init(const std::vector<DataDir*>& data_dirs);
+    void init(int num_disk);
 
     Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
                               bool should_serial, bool is_high_priority);

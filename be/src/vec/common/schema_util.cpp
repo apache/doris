@@ -150,42 +150,34 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
                                      type->get_name());
     }
     Block tmp_block {arguments};
-    vectorized::ColumnNumbers argnum;
-    argnum.emplace_back(0);
-    argnum.emplace_back(1);
     size_t result_column = tmp_block.columns();
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
+
+    // To prevent from null info lost, we should not call function since the function framework will wrap
+    // nullable to Variant instead of the root of Variant
+    // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
+    // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
+    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+        // set variant root column/type to from column/type
+        auto variant = ColumnObject::create(true /*always nullable*/);
+        CHECK(arg.column->is_nullable());
+        variant->create_root(arg.type, arg.column->assume_mutable());
+        ColumnPtr nullable = ColumnNullable::create(
+                variant->get_ptr(),
+                check_and_get_column<ColumnNullable>(arg.column.get())->get_null_map_column_ptr());
+        *result = type->is_nullable() ? nullable : variant->get_ptr();
+        return Status::OK();
+    }
+
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
     // each line in original string column.
     ctx->set_string_as_jsonb_string(true);
     tmp_block.insert({nullptr, type, arg.name});
     RETURN_IF_ERROR(
-            function->execute(ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
-    *result = std::move(tmp_block.get_by_position(result_column).column);
-    // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
-    // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
-    // TODO rethink and better handle this sepecial situation
-    if (arg.type->is_nullable() && WhichDataType(remove_nullable(type)).is_variant_type()) {
-        auto variant = ColumnObject::create(true);
-        auto& old_variant =
-                (*result)->is_nullable()
-                        ? assert_cast<const ColumnObject&>(
-                                  assert_cast<const ColumnNullable&>(**result).get_nested_column())
-                        : assert_cast<const ColumnObject&>(*(*result)->assume_mutable());
-        DCHECK(!old_variant.get_root()->is_nullable());
-        auto nullable = ColumnNullable::create(
-                old_variant.get_root(),
-                assert_cast<const ColumnNullable&>(*arg.column).get_null_map_column_ptr());
-        variant->create_root(make_nullable(arg.type), nullable->assume_mutable());
-        if ((*result)->is_nullable()) {
-            *result = ColumnNullable::create(std::move(variant),
-                                             assert_cast<const ColumnNullable&>(*arg.column)
-                                                     .get_null_map_column_ptr()
-                                                     ->clone_resized(nullable->size()));
-        } else {
-            *result = std::move(variant);
-        }
-    }
+            function->execute(ctx.get(), tmp_block, {0}, result_column, arg.column->size()));
+    *result = tmp_block.get_by_position(result_column).column->convert_to_full_column_if_const();
+    VLOG_DEBUG << fmt::format("{} before convert {}, after convert {}", arg.name,
+                              arg.column->get_name(), (*result)->get_name());
     return Status::OK();
 }
 
@@ -422,6 +414,7 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) 
         bool is_nullable = column_ref->is_nullable();
         const auto& column = remove_nullable(column_ref);
         const auto& var = assert_cast<const ColumnObject&>(*column.get());
+        var.assume_mutable_ref().finalize();
         if (!var.is_scalar_variant()) {
             // already parsed
             continue;
@@ -431,12 +424,19 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) 
             // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
             // json str and parse them into variant
             RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
-                                        std::make_shared<DataTypeString>(), &raw_json_column));
+                                        var.get_root()->is_nullable()
+                                                ? make_nullable(std::make_shared<DataTypeString>())
+                                                : std::make_shared<DataTypeString>(),
+                                        &raw_json_column));
+            if (raw_json_column->is_nullable()) {
+                raw_json_column = assert_cast<const ColumnNullable*>(raw_json_column.get())
+                                          ->get_nested_column_ptr();
+            }
         } else {
             const auto& root = *var.get_root();
             raw_json_column =
                     root.is_nullable()
-                            ? static_cast<const ColumnNullable&>(root).get_nested_column_ptr()
+                            ? assert_cast<const ColumnNullable&>(root).get_nested_column_ptr()
                             : var.get_root();
         }
 
@@ -507,7 +507,9 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
     size_t result_column = tmp_block.columns();
     tmp_block.insert({nullptr, json_type, ""});
     RETURN_IF_ERROR(function->execute(nullptr, tmp_block, argnum, result_column, source->size()));
-    dst = tmp_block.get_by_position(result_column).column->assume_mutable();
+    dst = tmp_block.get_by_position(result_column)
+                  .column->convert_to_full_column_if_const()
+                  ->assume_mutable();
     return Status::OK();
 }
 // ---------------------------

@@ -52,9 +52,18 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         );
     """
 
+    sql """drop catalog ${file_ctl_name}""";
+    sql """drop catalog ${hms_ctl_name}""";
+
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            def all = """select * from all_table;"""
+            def all = """select * from all_table order by c1;"""
+            def all_with_parquet = """select * from all_table_with_parquet order by c1;"""
+            def predict_like_1 = """select * from all_table where c13 like '%3%' order by c1"""
+            def predict_like_2 = """select * from all_table where c13 like '13%' order by c1"""
+            def predict_like_3 = """select * from all_table where c13 like '13' order by c1"""
+            def predict_like_4 = """select * from all_table where c13 like '130str' order by c1"""
+            def predict_like_5 = """select * from all_table where c13 like '130str%' order by c1"""
             def c1 = """select * from all_table where c1=1;"""
             def c2 = """select * from all_table where c2=2;"""
             def c3 = """select * from all_table where c3=3;"""
@@ -160,6 +169,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             def c100= """select * from array_nested order by c1;"""
 
+            def c101="""select * from all_table where c1 is not null or c2 is not null order by c1"""
+
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -173,6 +184,12 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             sql """use `${catalog_name}`.`db1`"""
 
             qt_all all
+            qt_all_with_parquet all_with_parquet
+            qt_predict_like_1 predict_like_1
+            qt_predict_like_2 predict_like_2
+            qt_predict_like_3 predict_like_3
+            qt_predict_like_4 predict_like_4
+            qt_predict_like_5 predict_like_5
             qt_c1 c1
             qt_c2 c2
             qt_c3 c3
@@ -272,5 +289,24 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            qt_c101 c101
+
+            // test view from jion paimon
+            sql """ switch internal """
+            String view_db = "test_view_for_paimon"
+            sql """ drop database if exists ${view_db}"""
+            sql """ create database if not exists ${view_db}"""
+            sql """use ${view_db}"""
+            sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
+            sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
+            sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """
+            sql """ create table test_tst_6 properties ("replication_num" = "1") as 
+                        select f.c2,f.c3,c.c1 from 
+                            (select a.c2,b.c3 from test_tst_1 a inner join test_tst_2 b on a.c2=b.c2) f
+                    inner join test_tst_5 c on f.c2=c.c1;
+                """
+            def view1 = """select * from test_tst_6 order by c1"""
+
+            // qt_view1 view1
         }
 }

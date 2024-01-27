@@ -221,7 +221,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.2</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.3</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -260,14 +260,14 @@ under the License.
         <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
-        <netty-all.version>4.1.96.Final</netty-all.version>
+        <netty-all.version>4.1.104.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
-        <grpc.version>1.58.0</grpc.version>
-        <check.freamework.version>3.38.0</check.freamework.version>
+        <grpc.version>1.60.1</grpc.version>
+        <check.freamework.version>3.42.0</check.freamework.version>
         <protobuf.version>3.24.3</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -275,7 +275,7 @@ under the License.
         <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
         <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
-        <snappy-java.version>1.1.10.1</snappy-java.version>
+        <snappy-java.version>1.1.10.5</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
@@ -304,8 +304,8 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
-        <avro.version>1.11.2</avro.version>
-        <arrow.version>14.0.1</arrow.version>
+        <avro.version>1.11.3</avro.version>
+        <arrow.version>14.0.2</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -321,8 +321,8 @@ under the License.
         <hamcrest.version>2.1</hamcrest.version>
         <httpclient.version>4.5.13</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
-        <aws-java-sdk.version>1.12.519</aws-java-sdk.version>
-        <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
+        <aws-java-sdk.version>1.12.625</aws-java-sdk.version>
+        <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <dlf-metastore-client-hive.version>0.2.14</dlf-metastore-client-hive.version>
         <hadoop.version>3.3.6</hadoop.version>
         <joda.version>2.8.1</joda.version>
@@ -330,21 +330,21 @@ under the License.
         <spring.version>2.7.13</spring.version>
         <orc.version>1.8.4</orc.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
-        <zookeeper.version>3.4.14</zookeeper.version>
+        <zookeeper.version>3.9.1</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <jetty.version>9.4.53.v20231009</jetty.version>
         <immutables.version>2.9.3</immutables.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
         <!-- paimon -->
-        <paimon.version>0.5.0-incubating</paimon.version>
+        <paimon.version>0.6.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
-        <trino.parser.version>395</trino.parser.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
         <flatbuffers.version>1.12.0</flatbuffers.version>
@@ -553,8 +553,38 @@ under the License.
                 <groupId>org.apache.zookeeper</groupId>
                 <artifactId>zookeeper</artifactId>
                 <version>${zookeeper.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>ch.qos.logback</groupId>
+                        <artifactId>*</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
-
+            <dependency>
+                <groupId>org.eclipse.jetty.websocket</groupId>
+                <artifactId>websocket-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.websocket</groupId>
+                <artifactId>websocket-client</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.websocket</groupId>
+                <artifactId>websocket-servlet</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty.websocket</groupId>
+                <artifactId>websocket-common</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>
@@ -808,6 +838,16 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
+                <artifactId>netty-transport-udt</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-transport-rxtx</artifactId>
+                <version>${netty-all.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
                 <artifactId>netty-codec-memcache</artifactId>
                 <version>${netty-all.version}</version>
             </dependency>
@@ -881,6 +921,11 @@ under the License.
                 <groupId>org.objenesis</groupId>
                 <artifactId>objenesis</artifactId>
                 <version>${objenesis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-netty-shaded</artifactId>
+                <version>${grpc.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
@@ -1454,13 +1499,6 @@ under the License.
                 <groupId>com.vesoft</groupId>
                 <artifactId>client</artifactId>
                 <version>${vesoft.client.version}</version>
-            </dependency>
-            <!-- trino-parser The version of antlr-runtime in trino parser is need to be consistent with doris,
-            when upgrade trino-parser antlr-runtime version, should take care of trino-parser doris.-->
-            <dependency>
-                <groupId>io.trino</groupId>
-                <artifactId>trino-parser</artifactId>
-                <version>${trino.parser.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>

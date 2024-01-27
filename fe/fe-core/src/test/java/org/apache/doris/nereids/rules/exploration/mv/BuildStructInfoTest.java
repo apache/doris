@@ -41,7 +41,7 @@ class BuildStructInfoTest extends SqlTestBase {
                 .deriveStats()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph.toStructInfo(j);
+                            HyperGraph.builderForMv(j);
                             return true;
                         }));
 
@@ -58,7 +58,7 @@ class BuildStructInfoTest extends SqlTestBase {
                 .deriveStats()
                 .matches(logicalJoin()
                         .when(j -> {
-                            List<HyperGraph> hyperGraph = HyperGraph.toStructInfo(j);
+                            List<HyperGraph> hyperGraph = HyperGraph.builderForMv(j).buildAll();
                             Assertions.assertTrue(hyperGraph.get(0).getNodes().stream()
                                     .allMatch(n -> n.getPlan()
                                             .collectToList(GroupPlan.class::isInstance).isEmpty()));
@@ -77,9 +77,10 @@ class BuildStructInfoTest extends SqlTestBase {
                 .rewrite()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            HyperGraph structInfo = HyperGraph.builderForMv(j).buildAll().get(0);
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertEquals(0, (int) structInfo.getFilterEdge(0).getRejectEdges().get(0));
+                            Assertions.assertEquals(0, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
+                            Assertions.assertEquals(1, structInfo.getFilterEdge(0).getRightRejectEdge().size());
                             return true;
                         }));
 
@@ -90,9 +91,8 @@ class BuildStructInfoTest extends SqlTestBase {
                 .rewrite()
                 .matches(logicalJoin()
                         .when(j -> {
-                            HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
+                            HyperGraph structInfo = HyperGraph.builderForMv(j).buildAll().get(0);
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertTrue(structInfo.getFilterEdge(0).getRejectEdges().isEmpty());
                             return true;
                         }));
     }

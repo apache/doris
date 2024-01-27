@@ -38,7 +38,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class TableFunctionOperator final : public StatefulOperator<TableFunctionOperatorBuilder> {
+class TableFunctionOperator final : public StatefulOperator<vectorized::VTableFunctionNode> {
 public:
     TableFunctionOperator(OperatorBuilderBase* operator_builder, ExecNode* node);
 
@@ -94,6 +94,10 @@ public:
         auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();
         return !local_state._child_block->rows() &&
                local_state._child_source_state != SourceState::FINISHED;
+    }
+
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
     }
 
     Status push(RuntimeState* state, vectorized::Block* input_block,

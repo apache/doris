@@ -27,6 +27,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -41,8 +42,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.plugin.AuditEvent;
-import org.apache.doris.plugin.LoadAuditEvent;
+import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -67,6 +68,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -119,12 +121,13 @@ public abstract class BulkLoadJob extends LoadJob {
         try {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
-                    bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getBrokerDesc(),
-                            stmt.getOrigStmt(), stmt.getUserInfo());
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
+                            stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
-                        stmt.getOrigStmt(), stmt.getUserInfo());
+                            stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -209,7 +212,10 @@ public abstract class BulkLoadJob extends LoadJob {
             if (loadTask == null) {
                 return;
             }
-            if (loadTask.getRetryTime() <= 0) {
+            Predicate<LoadTask> isTaskTimeout =
+                    (LoadTask task) -> task instanceof LoadLoadingTask
+                            && ((LoadLoadingTask) task).getLeftTimeMs() <= 0;
+            if (loadTask.getRetryTime() <= 0 || isTaskTimeout.test(loadTask)) {
                 unprotectedExecuteCancel(failMsg, true);
                 logFinalOperation();
                 return;
@@ -332,6 +338,11 @@ public abstract class BulkLoadJob extends LoadJob {
         return userInfo;
     }
 
+    public void recycleProgress() {
+        // Recycle memory occupied by Progress.
+        Env.getCurrentProgressManager().removeProgress(String.valueOf(id));
+    }
+
     @Override
     protected void auditFinishedLoadJob() {
         try {
@@ -384,8 +395,8 @@ public abstract class BulkLoadJob extends LoadJob {
         try {
             switch (insertStmt.getLoadType()) {
                 case BROKER_LOAD:
-                    bulkLoadJob = new BrokerLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
-                            (BrokerDesc) insertStmt.getResourceDesc(),
+                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
+                            insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 case SPARK_LOAD:

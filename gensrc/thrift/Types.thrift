@@ -222,7 +222,10 @@ enum TTaskType {
     PUSH_COOLDOWN_CONF,
     PUSH_STORAGE_POLICY,
     ALTER_INVERTED_INDEX,
-    GC_BINLOG
+    GC_BINLOG,
+
+    // CLOUD
+    CALCULATE_DELETE_BITMAP = 1000
 }
 
 enum TStmtType {
@@ -424,6 +427,12 @@ struct TJdbcExecutorCtorParams {
   8: optional string driver_path
 
   9: optional TOdbcTableType table_type
+
+  10: optional i32 min_pool_size
+  11: optional i32 max_pool_size
+  12: optional i32 max_idle_time
+  13: optional i32 max_wait_time
+  14: optional bool keep_alive
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -702,6 +711,7 @@ enum TMetadataType {
   JOBS,
   TASKS,
   QUERIES,
+  WORKLOAD_SCHED_POLICY
 }
 
 enum TIcebergQueryType {

@@ -554,6 +554,20 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     }
 }
 
+TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
+                                                              const std::vector<std::string>& paths,
+                                                              int32_t parent_unique_id) {
+    TabletColumn subcol;
+    subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    subcol.set_is_nullable(true);
+    subcol.set_unique_id(-1);
+    subcol.set_parent_unique_id(parent_unique_id);
+    vectorized::PathInData path(root, paths);
+    subcol.set_path_info(path);
+    subcol.set_name(path.get_path());
+    return subcol;
+}
+
 void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
@@ -1205,6 +1219,18 @@ bool TabletSchema::has_inverted_index_with_index_id(int32_t index_id,
     }
 
     return false;
+}
+
+const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
+        int32_t index_id, const std::string& suffix_name) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i].index_type() == IndexType::INVERTED &&
+            _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
+            return &(_indexes[i]);
+        }
+    }
+
+    return nullptr;
 }
 
 const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,

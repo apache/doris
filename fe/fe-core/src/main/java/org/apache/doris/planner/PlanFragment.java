@@ -149,6 +149,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
+    private boolean hasNullAwareLeftAntiJoin = false;
+
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     /**
@@ -469,5 +471,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setBucketNum(int bucketNum) {
         this.bucketNum = bucketNum;
+    }
+
+    public boolean isHasNullAwareLeftAntiJoin() {
+        return hasNullAwareLeftAntiJoin;
+    }
+
+    public void setHasNullAwareLeftAntiJoin(boolean hasNullAwareLeftAntiJoin) {
+        this.hasNullAwareLeftAntiJoin = hasNullAwareLeftAntiJoin;
     }
 }

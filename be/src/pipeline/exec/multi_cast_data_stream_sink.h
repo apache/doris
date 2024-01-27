@@ -33,7 +33,7 @@ public:
 };
 
 class MultiCastDataStreamSinkOperator final
-        : public DataSinkOperator<MultiCastDataStreamSinkOperatorBuilder> {
+        : public DataSinkOperator<vectorized::MultiCastDataStreamSink> {
 public:
     MultiCastDataStreamSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
@@ -59,7 +59,6 @@ class MultiCastDataStreamSinkLocalState final
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
     using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     std::string name_suffix() override;
 
 private:
@@ -113,7 +112,7 @@ private:
     friend class MultiCastDataStreamSinkLocalState;
     ObjectPool* _pool;
     RowDescriptor _row_desc;
-    int _cast_sender_count;
+    const int _cast_sender_count;
     const TMultiCastDataStreamSink& _sink;
     friend class MultiCastDataStreamSinkLocalState;
 };

@@ -107,7 +107,7 @@ if [[ "${COMPONENTS}"x == ""x ]]; then
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
-    echo "Must set CONTAINER_UID to a unique name in custom_settings.sh"
+    echo "Must set CONTAINER_UID to a unique name in custom_settings.env"
     exit 1
 fi
 
@@ -180,6 +180,14 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
         sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
         sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es6/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es6/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es7/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es7/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es8/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es8/*
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/logs
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
         sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
     fi
 fi
@@ -190,8 +198,8 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
         sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
     fi
 fi
@@ -202,8 +210,8 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo rm "${ROOT}"/docker-compose/postgresql/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
         sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
     fi
 fi
@@ -214,8 +222,8 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
         sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
     fi
 fi
@@ -226,8 +234,8 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
         sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
     fi
 fi
@@ -238,8 +246,8 @@ if [[ "${RUN_CLICKHOUSE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env down
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo rm "${ROOT}"/docker-compose/clickhouse/data/* -rf
+        sudo mkdir -p "${ROOT}"/docker-compose/clickhouse/data/
         sudo docker compose -f "${ROOT}"/docker-compose/clickhouse/clickhouse.yaml --env-file "${ROOT}"/docker-compose/clickhouse/clickhouse.env up -d
     fi
 fi
@@ -253,39 +261,39 @@ if [[ "${RUN_KAFKA}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sed -i "s/localhost/${IP_HOST}/g" "${ROOT}"/docker-compose/kafka/kafka.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env down
-    start_kafka_producers() {
-        local container_id="$1"
-        local ip_host="$2"
-        local backup_dir=/home/work/pipline/backup_center
+    # start_kafka_producers() {
+    #     local container_id="$1"
+    #     local ip_host="$2"
+    #     local backup_dir=/home/work/pipline/backup_center
 
-        declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
+    #     declare -a topics=("basic_data" "basic_array_data" "basic_data_with_errors" "basic_array_data_with_errors" "basic_data_timezone" "basic_array_data_timezone" "multi_table_csv" "multi_table_csv1")
 
-        for topic in "${topics[@]}"; do
-            while IFS= read -r line; do
-                touch ${backup_dir}/kafka_info.log
-                echo $(date) >> ${backup_dir}/kafka_info.log
-                echo "docker exec "${container_id}" bash -c echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'" >> ${backup_dir}/kafka_info.log
-                docker exec "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
-            done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
-        done
+    #     for topic in "${topics[@]}"; do
+    #         while IFS= read -r line; do
+    #             touch ${backup_dir}/kafka_info.log
+    #             echo $(date) >> ${backup_dir}/kafka_info.log
+    #             echo "docker exec "${container_id}" bash -c echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'" >> ${backup_dir}/kafka_info.log
+    #             docker exec "${container_id}" bash -c "echo '$line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${topic}'"
+    #         done < "${ROOT}/docker-compose/kafka/scripts/${topic}.csv"
+    #     done
 
-        declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
+    #     declare -a json_topics=("basic_data_json" "basic_array_data_json" "basic_array_data_json_by_line" "basic_data_json_by_line" "multi_table_json" "multi_table_json1")
         
-        for json_topic in "${json_topics[@]}"; do
-            echo ${json_topics}
-            while IFS= read -r json_line; do
-                docker exec "${container_id}" bash -c "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
-                echo "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
-            done < "${ROOT}/docker-compose/kafka/scripts/${json_topic}.json"
-        done
-        # copy kafka log to backup path
-        docker cp "${container_id}":/opt/kafka/logs ${backup_dir}/kafka_logs
-    }
+    #     for json_topic in "${json_topics[@]}"; do
+    #         echo ${json_topics}
+    #         while IFS= read -r json_line; do
+    #             docker exec "${container_id}" bash -c "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
+    #             echo "echo '$json_line' | /opt/kafka/bin/kafka-console-producer.sh --broker-list '${ip_host}:19193' --topic '${json_topic}'"
+    #         done < "${ROOT}/docker-compose/kafka/scripts/${json_topic}.json"
+    #     done
+    #     # copy kafka log to backup path
+    #     docker cp "${container_id}":/opt/kafka/logs ${backup_dir}/kafka_logs
+    # }
 
     if [[ "${STOP}" -ne 1 ]]; then
         sudo docker compose -f "${ROOT}"/docker-compose/kafka/kafka.yaml --env-file "${ROOT}"/docker-compose/kafka/kafka.env up --build --remove-orphans -d
-        sleep 30s
-        start_kafka_producers "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
+        sleep 10s
+        # start_kafka_producers "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
 fi
 

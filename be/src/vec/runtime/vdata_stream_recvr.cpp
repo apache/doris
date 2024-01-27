@@ -100,7 +100,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _recvr->update_blocks_memory_usage(-block_byte_size);
     _block_queue.pop_front();
-    if (_block_queue.size() == 0 && _dependency) {
+    _record_debug_info();
+    if (_block_queue.empty() && _dependency) {
         if (!_is_cancelled && _num_remaining_senders > 0) {
             _dependency->block();
         }
@@ -120,6 +121,16 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     block->swap(*next_block);
     *eos = false;
     return Status::OK();
+}
+
+void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
+    if (!_dependency) {
+        return;
+    }
+    const bool should_wait = !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
+    if (!should_wait) {
+        _dependency->set_ready();
+    }
 }
 
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
@@ -178,9 +189,8 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
 
     if (!empty) {
         _block_queue.emplace_back(std::move(block), block_byte_size);
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        _record_debug_info();
+        try_set_dep_ready_without_lock();
     }
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
@@ -234,9 +244,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
 
     if (!empty) {
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        _record_debug_info();
+        try_set_dep_ready_without_lock();
         _data_arrival_cv.notify_one();
     }
 
@@ -269,13 +278,12 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     _sender_eos_set.insert(be_number);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
+    _record_debug_info();
     VLOG_FILE << "decremented senders: fragment_instance_id="
               << print_id(_recvr->fragment_instance_id()) << " node_id=" << _recvr->dest_node_id()
               << " #senders=" << _num_remaining_senders;
     if (_num_remaining_senders == 0) {
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        try_set_dep_ready_without_lock();
         _data_arrival_cv.notify_one();
     }
 }
@@ -288,9 +296,7 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         }
         _is_cancelled = true;
         _cancel_status = cancel_status;
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        try_set_dep_ready_without_lock();
         VLOG_QUERY << "cancelled stream: _fragment_instance_id="
                    << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
@@ -318,9 +324,7 @@ void VDataStreamRecvr::SenderQueue::close() {
         // is clear will be memory leak
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        try_set_dep_ready_without_lock();
 
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
@@ -332,12 +336,12 @@ void VDataStreamRecvr::SenderQueue::close() {
     _block_queue.clear();
 }
 
-VDataStreamRecvr::VDataStreamRecvr(
-        VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        bool is_merging, RuntimeProfile* profile,
-        std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
-        : _mgr(stream_mgr),
+VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
+                                   const RowDescriptor& row_desc,
+                                   const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+                                   int num_senders, bool is_merging, RuntimeProfile* profile)
+        : HasTaskExecutionCtx(state),
+          _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
           _query_mem_tracker(state->query_mem_tracker()),
           _query_id(state->query_id()),
@@ -349,7 +353,6 @@ VDataStreamRecvr::VDataStreamRecvr(
           _is_closed(false),
           _profile(profile),
           _peak_memory_usage_counter(nullptr),
-          _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()),
           _mem_available(std::make_shared<bool>(true)) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
@@ -478,17 +481,6 @@ void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_s
     _sender_queues[use_sender_id]->decrement_senders(be_number);
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics,
-                                     Status exec_status) {
-    if (!exec_status.ok()) {
-        cancel_stream(exec_status);
-        return;
-    }
-    int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->decrement_senders(be_number);
-    _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
-}
-
 void VDataStreamRecvr::cancel_stream(Status exec_status) {
     VLOG_QUERY << "cancel_stream: fragment_instance_id=" << print_id(_fragment_instance_id)
                << exec_status;
@@ -561,9 +553,8 @@ void VDataStreamRecvr::PipSenderQueue::add_block(Block* block, bool use_move) {
             return;
         }
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
-        if (_dependency) {
-            _dependency->set_ready();
-        }
+        _record_debug_info();
+        try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->update_blocks_memory_usage(block_mem_size);
         _data_arrival_cv.notify_one();

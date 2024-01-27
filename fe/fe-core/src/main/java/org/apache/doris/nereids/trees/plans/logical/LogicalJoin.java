@@ -18,24 +18,27 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -64,6 +67,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
+    private final List<Expression> markJoinConjuncts;
 
     // When the predicate condition contains subqueries and disjunctions, the join will be marked as MarkJoin.
     private final Optional<MarkJoinSlotReference> markJoinSlotReference;
@@ -73,110 +77,102 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     // Table bitmap for tables below this join
     private long bitmap = LongBitmap.newBitmap();
 
-    private JoinHint hint;
+    private DistributeHint hint;
 
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE,
-                Optional.empty(), Optional.empty(), Optional.empty(), leftChild, rightChild);
+        this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
     }
 
-    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint(DistributeType.NONE),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            JoinHint hint, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(), Optional.empty(),
-                Optional.empty(), leftChild, rightChild);
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION,
+                new DistributeHint(DistributeType.NONE), Optional.empty(),
+                Optional.empty(), Optional.empty(), ImmutableList.of(leftChild, rightChild), null);
     }
 
-    public LogicalJoin(
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, DistributeHint hint, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
     }
 
-    public LogicalJoin(
-            long bitmap,
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        this(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), Optional.empty(), leftChild, rightChild);
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, DistributeHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
+                markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
+    }
+
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+                       List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
+                       Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
+                       RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
+                markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
+    }
+
+    public LogicalJoin(long bitmap, JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, DistributeHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference, LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
+                markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(leftChild, rightChild), null);
         this.bitmap = LongBitmap.or(this.bitmap, bitmap);
     }
 
-    public LogicalJoin(
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference,
-            List<Plan> children) {
-        this(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), Optional.empty(), children);
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, DistributeHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
     }
 
-    private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
-            JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> children, JoinReorderContext joinReorderContext) {
+    public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+                       List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts, DistributeHint hint,
+                       Optional<MarkJoinSlotReference> markJoinSlotReference, List<Plan> children) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint,
+                markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+    }
+
+    private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts, List<Expression> markJoinConjuncts,
+            DistributeHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children,
+            JoinReorderContext joinReorderContext) {
         // Just use in withXXX method. Don't need check/copyOf()
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = hashJoinConjuncts;
-        this.otherJoinConjuncts = otherJoinConjuncts;
+        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
+        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
+        this.markJoinConjuncts = ImmutableList.copyOf(markJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
-        this.joinReorderContext.copyFrom(joinReorderContext);
+        if (joinReorderContext != null) {
+            this.joinReorderContext.copyFrom(joinReorderContext);
+        }
         this.markJoinSlotReference = markJoinSlotReference;
     }
 
-    private LogicalJoin(
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild,
-            RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
-        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.hint = Objects.requireNonNull(hint, "hint can not be null");
-        this.markJoinSlotReference = markJoinSlotReference;
-    }
-
-    private LogicalJoin(
-            JoinType joinType,
-            List<Expression> hashJoinConjuncts,
-            List<Expression> otherJoinConjuncts,
-            JoinHint hint,
-            Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties,
-            List<Plan> children) {
-        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
-        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
-        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
-        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
-        this.hint = Objects.requireNonNull(hint, "hint can not be null");
-        this.markJoinSlotReference = markJoinSlotReference;
+    public LogicalJoin<? extends Plan, ? extends Plan> swap() {
+        return withTypeChildren(getJoinType().swap(),
+                right(), left());
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -187,42 +183,76 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return hashJoinConjuncts;
     }
 
+    /**
+     * getConditionSlot
+     */
     public Set<Slot> getConditionSlot() {
+        // this function is called by rules which reject mark join
+        // so markJoinConjuncts is not processed here
+        Preconditions.checkState(!isMarkJoin(),
+                "shouldn't call mark join's getConditionSlot method");
         return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(ImmutableSet.toImmutableSet());
     }
 
+    /**
+     * getConditionExprId
+     */
     public Set<ExprId> getConditionExprId() {
+        // this function is called by rules which reject mark join
+        // so markJoinConjuncts is not processed here
+        Preconditions.checkState(!isMarkJoin(),
+                "shouldn't call mark join's getConditionExprId method");
         return Stream.concat(getHashJoinConjuncts().stream(), getOtherJoinConjuncts().stream())
                 .flatMap(expr -> expr.getInputSlotExprIds().stream()).collect(Collectors.toSet());
     }
 
+    /**
+     * getLeftConditionSlot
+     */
     public Set<Slot> getLeftConditionSlot() {
+        // TODO this function is used by TransposeSemiJoinAgg, we assume it can handle mark join correctly.
         Set<Slot> leftOutputSet = this.left().getOutputSet();
-        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
-                .flatMap(expr -> expr.getInputSlots().stream())
-                .filter(leftOutputSet::contains)
+        return Stream
+                .concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                        markJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).filter(leftOutputSet::contains)
                 .collect(ImmutableSet.toImmutableSet());
     }
 
+    /**
+     * getOnClauseCondition
+     */
     public Optional<Expression> getOnClauseCondition() {
-        return ExpressionUtils.optionalAnd(hashJoinConjuncts, otherJoinConjuncts);
+        // TODO this function is called by AggScalarSubQueryToWindowFunction and InferPredicates
+        //  we assume they can handle mark join correctly
+        Optional<Expression> normalJoinConjuncts =
+                ExpressionUtils.optionalAnd(hashJoinConjuncts, otherJoinConjuncts);
+        return normalJoinConjuncts.isPresent()
+                ? ExpressionUtils.optionalAnd(ImmutableList.of(normalJoinConjuncts.get()),
+                        markJoinConjuncts)
+                : ExpressionUtils.optionalAnd(markJoinConjuncts);
     }
 
     public JoinType getJoinType() {
         return joinType;
     }
 
-    public JoinHint getHint() {
+    public DistributeHint getDistributeHint() {
         return hint;
     }
 
-    public void setHint(JoinHint hint) {
+    public void setHint(DistributeHint hint) {
         this.hint = hint;
     }
 
     public boolean isMarkJoin() {
         return markJoinSlotReference.isPresent();
+    }
+
+    public List<Expression> getMarkJoinConjuncts() {
+        return markJoinConjuncts;
     }
 
     public JoinReorderContext getJoinReorderContext() {
@@ -244,10 +274,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "type", joinType,
                 "markJoinSlotReference", markJoinSlotReference,
                 "hashJoinConjuncts", hashJoinConjuncts,
-                "otherJoinConjuncts", otherJoinConjuncts);
-        if (hint != JoinHint.NONE) {
+                "otherJoinConjuncts", otherJoinConjuncts,
+                "markJoinConjuncts", markJoinConjuncts);
+        if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
-            args.add(hint);
+            args.add(hint.getExplainString());
         }
         return Utils.toSqlString("LogicalJoin[" + id.asInt() + "]", args.toArray());
     }
@@ -262,15 +293,16 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
         LogicalJoin<?, ?> that = (LogicalJoin<?, ?>) o;
         return joinType == that.joinType
-                && hint == that.hint
+                && hint.equals(that.hint)
                 && hashJoinConjuncts.equals(that.hashJoinConjuncts)
                 && otherJoinConjuncts.equals(that.otherJoinConjuncts)
+                && markJoinConjuncts.equals(that.markJoinConjuncts)
                 && Objects.equals(markJoinSlotReference, that.markJoinSlotReference);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
+        return Objects.hash(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference);
     }
 
     @Override
@@ -283,6 +315,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return new ImmutableList.Builder<Expression>()
                 .addAll(hashJoinConjuncts)
                 .addAll(otherJoinConjuncts)
+                .addAll(markJoinConjuncts)
                 .build();
     }
 
@@ -311,64 +344,86 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     @Override
     public LogicalJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), Optional.empty(), children, joinReorderContext);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(), children,
+                joinReorderContext);
     }
 
     @Override
     public LogicalJoin<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, Optional.of(getLogicalProperties()), children, joinReorderContext);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, groupExpression, Optional.of(getLogicalProperties()),
+                children, joinReorderContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, logicalProperties, children, joinReorderContext);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, groupExpression, logicalProperties, children,
+                joinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left, right);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), null);
     }
 
-    public LogicalJoin<Plan, Plan> withJoinConjuncts(
-            List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                hint, markJoinSlotReference, children);
+    public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
+    }
+
+    public LogicalJoin<Plan, Plan> withJoinConjuncts(List<Expression> hashJoinConjuncts,
+                                                     List<Expression> otherJoinConjuncts,
+                                                     List<Expression> markJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
             List<Expression> hashJoinConjuncts, Plan left, Plan right) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left, right);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), null);
     }
 
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, Plan left, Plan right) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference, left,
-                right);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), null);
+    }
+
+    public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
+                                                         List<Expression> otherJoinConjuncts,
+                                                         List<Expression> markJoinConjuncts, Plan left, Plan right) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), null);
     }
 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, children);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(), children, null);
     }
 
     public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left, right);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
+                ImmutableList.of(left, right), null);
     }
 
-    public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, children);
-    }
-
-    private @Nullable Pair<Set<Slot>, Set<Slot>> extractHashKeys() {
+    /**
+     * extractNullRejectHashKeys
+     */
+    public @Nullable Pair<Set<Slot>, Set<Slot>> extractNullRejectHashKeys() {
+        // this function is only used by computeFuncDeps, and function dependence calculation is disabled for mark join
+        // so markJoinConjuncts is not processed now
         Set<Slot> leftKeys = new HashSet<>();
         Set<Slot> rightKeys = new HashSet<>();
         for (Expression expression : hashJoinConjuncts) {
@@ -393,6 +448,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        if (isMarkJoin()) {
+            // TODO disable function dependence calculation for mark join, but need re-think this in future.
+            return FunctionalDependencies.EMPTY_FUNC_DEPS;
+        }
         //1. NALAJ and FOJ block functional dependencies
         if (joinType.isNullAwareLeftAntiJoin() || joinType.isFullOuterJoin()) {
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
@@ -411,7 +470,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
 
-        Pair<Set<Slot>, Set<Slot>> keys = extractHashKeys();
+        Pair<Set<Slot>, Set<Slot>> keys = extractNullRejectHashKeys();
         if (keys == null) {
             return FunctionalDependencies.EMPTY_FUNC_DEPS;
         }
@@ -421,8 +480,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // TODO: consider Null-safe hash condition when left and rigth is not nullable
         boolean isLeftUnique = left().getLogicalProperties()
                 .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.second);
         Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots
@@ -454,6 +513,26 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return fdBuilder.build();
     }
 
+    /**
+     * get Equal slot from join
+     */
+    public ImmutableEqualSet<Slot> getEqualSlots() {
+        // this function is only used by EliminateJoinByFK rule, and EliminateJoinByFK is disabled for mark join
+        // so markJoinConjuncts is not processed now
+        // TODO: Use fd in the future
+        if (!joinType.isInnerJoin() && !joinType.isSemiJoin()) {
+            return ImmutableEqualSet.empty();
+        }
+        ImmutableEqualSet.Builder<Slot> builder = new ImmutableEqualSet.Builder<>();
+        hashJoinConjuncts.stream()
+                .filter(e -> e instanceof EqualPredicate
+                        && e.child(0) instanceof Slot
+                        && e.child(1) instanceof Slot)
+                .forEach(e ->
+                        builder.addEqualPair((Slot) e.child(0), (Slot) e.child(1)));
+        return builder.build();
+    }
+
     @Override
     public JSONObject toJson() {
         JSONObject logicalJoin = super.toJson();
@@ -461,7 +540,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         properties.put("JoinType", joinType.toString());
         properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
         properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
-        properties.put("JoinHint", hint.toString());
+        properties.put("MarkJoinConjuncts", markJoinConjuncts.toString());
+        properties.put("DistributeHint", hint.toString());
         properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
         logicalJoin.put("Properties", properties);
         return logicalJoin;

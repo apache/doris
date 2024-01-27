@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 
+#include "cloud/config.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
@@ -52,7 +53,7 @@ VerticalBlockReader::~VerticalBlockReader() {
 
 Status VerticalBlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
-    if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
             static_cast<Tablet*>(_tablet.get())->report_error(res);
         }
@@ -214,7 +215,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
-        if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
         return status;
@@ -405,6 +406,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
+    block->set_columns(std::move(target_columns));
 
     return Status::OK();
 }
@@ -537,12 +539,15 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
         const auto& src_block = _next_row.block;
         assert(src_block->columns() == column_count);
-        for (size_t i = 0; i < column_count; ++i) {
-            target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
-                                           _next_row.row_pos);
-        }
+        RETURN_IF_CATCH_EXCEPTION({
+            for (size_t i = 0; i < column_count; ++i) {
+                target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
+                                               _next_row.row_pos);
+            }
+        });
         ++target_block_row;
     } while (target_block_row < _reader_context.batch_size);
+    block->set_columns(std::move(target_columns));
     return Status::OK();
 }
 

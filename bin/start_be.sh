@@ -89,6 +89,8 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
 fi
 
 # add java libs
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
@@ -231,7 +233,7 @@ if [[ -f "${pidfile}" ]]; then
     fi
 fi
 
-chmod 755 "${DORIS_HOME}/lib/doris_be"
+chmod 550 "${DORIS_HOME}/lib/doris_be"
 echo "start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
@@ -303,16 +305,15 @@ java_version="$(
 CUR_DATE=$(date +%Y%m%d-%H%M%S)
 LOG_PATH="-DlogPath=${DORIS_HOME}/log/jni.log"
 COMMON_OPTS="-Dsun.java.command=DorisBE -XX:-CriticalJNINatives"
-JDBC_OPTS="-DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000 -DJDBC_MAX_WAIT_TIME=5000"
 
 if [[ "${java_version}" -gt 8 ]]; then
     if [[ -z ${JAVA_OPTS_FOR_JDK_9} ]]; then
-        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+        JAVA_OPTS_FOR_JDK_9="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_9}"
 else
     if [[ -z ${JAVA_OPTS} ]]; then
-        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} ${JDBC_OPTS}"
+        JAVA_OPTS="-Xmx1024m ${LOG_PATH} -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS}"
     fi
     final_java_opt="${JAVA_OPTS}"
 fi

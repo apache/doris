@@ -19,13 +19,15 @@ suite("test_date_function_prune") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
+    sql "set runtime_filter_mode=OFF";
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set partition_pruning_expand_threshold=10;"
     sql "drop table if exists dp"
     sql """
         CREATE TABLE `dp` (
         `node_name` varchar(100) NULL COMMENT '',
-        `date_time` datetime NULL COMMENT '',
+        `date_time` datetime NULL COMMENT ''
         ) ENGINE=OLAP
         DUPLICATE KEY(`node_name`)
         COMMENT ''

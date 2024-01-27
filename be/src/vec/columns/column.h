@@ -453,6 +453,7 @@ public:
       * For example, if nan_direction_hint == -1 is used by descending sorting, NaNs will be at the end.
       *
       * For non Nullable and non floating point types, nan_direction_hint is ignored.
+      * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs,
                            int nan_direction_hint) const = 0;
@@ -602,9 +603,6 @@ public:
     // true if column has null element [0,size)
     virtual bool has_null(size_t size) const { return false; }
 
-    /// It's a special kind of column, that contain single value, but is not a ColumnConst.
-    virtual bool is_dummy() const { return false; }
-
     virtual bool is_exclusive() const { return use_count() == 1; }
 
     /// Clear data of column, just like vector clear
@@ -697,6 +695,8 @@ public:
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
 
@@ -730,7 +730,7 @@ using ColumnPtr = IColumn::Ptr;
 using MutableColumnPtr = IColumn::MutablePtr;
 using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
-
+using ColumnPtrs = std::vector<ColumnPtr>;
 using ColumnRawPtrs = std::vector<const IColumn*>;
 
 template <typename... Args>

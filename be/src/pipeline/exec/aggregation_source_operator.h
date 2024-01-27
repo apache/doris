@@ -39,7 +39,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class AggSourceOperator final : public SourceOperator<AggSourceOperatorBuilder> {
+class AggSourceOperator final : public SourceOperator<vectorized::AggregationNode> {
 public:
     AggSourceOperator(OperatorBuilderBase*, ExecNode*);
     // if exec node split to: sink, source operator. the source operator
@@ -63,7 +63,7 @@ public:
 
 private:
     bool _is_streaming_agg_state() {
-        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+        return ((SharedState*)Dependency::_shared_state)->data_queue != nullptr;
     }
 };
 

@@ -57,7 +57,7 @@ void Dependency::set_ready() {
 Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
@@ -66,7 +66,7 @@ Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
 Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
@@ -169,6 +169,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
 void RuntimeFilterDependency::sub_filters() {
     auto value = _filters.fetch_sub(1);
     if (value == 1) {
+        _watcher.stop();
         std::vector<PipelineXTask*> local_block_task {};
         {
             std::unique_lock<std::mutex> lc(_task_lock);
@@ -186,6 +187,11 @@ void LocalExchangeSharedState::sub_running_sink_operators() {
     if (exchanger->_running_sink_operators.fetch_sub(1) == 1) {
         _set_ready_for_read();
     }
+}
+
+LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
+    source_dependencies.resize(num_instances, nullptr);
+    mem_trackers.resize(num_instances, nullptr);
 }
 
 } // namespace doris::pipeline

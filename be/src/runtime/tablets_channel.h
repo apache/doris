@@ -80,6 +80,7 @@ class BaseDeltaWriter;
 class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
+struct WriteRequest;
 
 // Write channel for a particular (load, index).
 class BaseTabletsChannel {
@@ -93,9 +94,11 @@ public:
     // open + open writers
     Status incremental_open(const PTabletWriterOpenRequest& params);
 
+    virtual std::unique_ptr<BaseDeltaWriter> create_delta_writer(const WriteRequest& request) = 0;
+
     // no-op when this channel has been closed or cancelled
-    Status add_batch(const PTabletWriterAddBlockRequest& request,
-                     PTabletWriterAddBlockResult* response);
+    virtual Status add_batch(const PTabletWriterAddBlockRequest& request,
+                             PTabletWriterAddBlockResult* response) = 0;
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
@@ -109,16 +112,29 @@ public:
 
     void refresh_profile();
 
+    size_t total_received_rows() const { return _total_received_rows; }
+
+    size_t num_rows_filtered() const { return _num_rows_filtered; }
+
 protected:
+    Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
+                             std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
+                             PTabletWriterAddBlockResult* response);
+
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
+    // thread-unsafe, add a shared lock for `_tablet_writers_lock` if needed
+    bool _is_broken_tablet(int64_t tablet_id) const;
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                            int64_t tablet_id, Status error) const;
-    bool _is_broken_tablet(int64_t tablet_id);
+    void _build_tablet_to_rowidxs(
+            const PTabletWriterAddBlockRequest& request,
+            std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>*
+                    tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
@@ -141,7 +157,7 @@ protected:
     // initialized in open function
     int64_t _txn_id = -1;
     int64_t _index_id = -1;
-    std::unique_ptr<OlapTableSchemaParam> _schema;
+    std::shared_ptr<OlapTableSchemaParam> _schema;
 
     TupleDescriptor* _tuple_desc = nullptr;
 
@@ -181,6 +197,10 @@ protected:
     RuntimeProfile::Counter* _add_batch_timer = nullptr;
     RuntimeProfile::Counter* _write_block_timer = nullptr;
     RuntimeProfile::Counter* _incremental_open_timer = nullptr;
+
+    // record rows received and filtered
+    size_t _total_received_rows = 0;
+    size_t _num_rows_filtered = 0;
 };
 
 class DeltaWriter;
@@ -192,6 +212,11 @@ public:
                    bool is_high_priority, RuntimeProfile* profile);
 
     ~TabletsChannel() override;
+
+    std::unique_ptr<BaseDeltaWriter> create_delta_writer(const WriteRequest& request) override;
+
+    Status add_batch(const PTabletWriterAddBlockRequest& request,
+                     PTabletWriterAddBlockResult* response) override;
 
     Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                  PTabletWriterAddBlockResult* res, bool* finished) override;

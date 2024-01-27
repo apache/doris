@@ -130,7 +130,6 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
 
     return Status::OK();
 }
@@ -140,19 +139,20 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
 
         // update runtime predicate
         if (_use_topn_opt) {
             Field new_top = _sorter->get_top_value();
-            if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
+            if (!new_top.is_null() && new_top != old_top) {
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
-                bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
-                old_top = std::move(new_top);
+                if (!col.name.empty()) {
+                    bool is_reverse = sort_description[0].direction < 0;
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
+                                                                              is_reverse));
+                    old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {

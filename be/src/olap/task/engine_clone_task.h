@@ -15,19 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
+#pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
-#include "olap/tablet_meta.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/engine_task.h"
 
 namespace doris {
@@ -38,6 +36,7 @@ class TMasterInfo;
 class TTabletInfo;
 class Tablet;
 struct Version;
+class StorageEngine;
 
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
 const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
@@ -48,14 +47,14 @@ const uint32_t GET_LENGTH_TIMEOUT = 10;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineCloneTask : public EngineTask {
+class EngineCloneTask final : public EngineTask {
 public:
-    virtual Status execute();
+    Status execute() override;
 
-public:
-    EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info, int64_t signature,
-                    vector<TTabletInfo>* tablet_infos);
-    ~EngineCloneTask() {}
+    EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_req,
+                    const TMasterInfo& master_info, int64_t signature,
+                    std::vector<TTabletInfo>* tablet_infos);
+    ~EngineCloneTask() override = default;
 
 private:
     Status _do_clone();
@@ -69,8 +68,8 @@ private:
     Status _finish_full_clone(Tablet* tablet, const TabletMetaSharedPtr& cloned_tablet_meta);
 
     Status _make_and_download_snapshots(DataDir& data_dir, const std::string& local_data_path,
-                                        TBackend* src_host, string* src_file_path,
-                                        const vector<Version>& missing_versions,
+                                        TBackend* src_host, std::string* src_file_path,
+                                        const std::vector<Version>& missing_versions,
                                         bool* allow_incremental_clone);
 
     Status _set_tablet_info(bool is_new_tablet);
@@ -86,9 +85,12 @@ private:
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
+    std::string _mask_token(const std::string& str);
+
 private:
+    StorageEngine& _engine;
     const TCloneReq& _clone_req;
-    vector<TTabletInfo>* _tablet_infos = nullptr;
+    std::vector<TTabletInfo>* _tablet_infos = nullptr;
     int64_t _signature;
     const TMasterInfo& _master_info;
     int64_t _copy_size;
@@ -98,4 +100,3 @@ private:
 }; // EngineTask
 
 } // namespace doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
