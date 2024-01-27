@@ -268,6 +268,7 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
+echo $DORIS_THIRDPARTY
 # build thirdparty libraries if necessary
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     echo "Thirdparty libraries need to be build ..."
@@ -282,7 +283,7 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
 fi
 # build modified thirdparty (brpc)
 "${DORIS_THIRDPARTY}/download-thirdparty.sh"
-"${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+"${DORIS_THIRDPARTY}/build-thirdparty.sh" brpc -j "${PARALLEL}"
 
 update_submodule() {
     local submodule_path=$1
