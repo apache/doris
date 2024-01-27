@@ -3350,7 +3350,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (dbPrev instanceof MysqlCompatibleDatabase || db instanceof MysqlCompatibleDatabase) {
                     errMsg = String.format(
                             "Mysql compatibility problem, previous checkpoint already has a database with full name "
-                                    + "%s. If its name is mysql, try to add mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
+                                    + "%s. If its name is mysql, try to add "
+                                    + "mysqldb_replace_name=\"mysql_comp\" in fe.conf.",
                             db.getFullName());
                 } else {
                     errMsg = String.format("Logical error, duplicated database fullname: %s, id: %d %d.",
