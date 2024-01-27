@@ -16,6 +16,7 @@
 // under the License.
 
 #include "doris_bvar_metrics.h"
+#include <sstream>
 
 namespace doris {
 
@@ -23,19 +24,22 @@ const std::string DorisBvarMetrics::s_registry_name_ = "doris_be";
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
                               const std::vector<std::string>& network_interfaces) {
+    if (init_system_metrics) {
+        system_metrics_ = std::make_unique<SystemBvarMetrics>();
+    }
     auto file_create_total_ptr =
             std::make_shared<BvarMetricEntity>("file_create_total", BvarMetricType::COUNTER);
-    entities_.push_back(file_create_total_ptr);
+    entities_map_["file_create_total"].push_back(file_create_total_ptr);
     file_create_total_ptr->register_metric("file_create_total", g_adder_file_created_total);
 
     auto timeout_canceled_fragment_count =
             std::make_shared<BvarMetricEntity>("timeout_canceled", BvarMetricType::GAUGE);
-    entities_.push_back(timeout_canceled_fragment_count);
+    entities_map_["timeout_canceled"].push_back(timeout_canceled_fragment_count);
     timeout_canceled_fragment_count->register_metric("timeout_canceled_fragment_count",
                                          g_adder_timeout_canceled_fragment_count);
 
     auto test_ptr = std::make_shared<BvarMetricEntity>("test", BvarMetricType::COUNTER);
-    entities_.push_back(test_ptr);
+    entities_map_["test"].push_back(test_ptr);
     test_ptr->register_metric("fragment_request_total", g_adder_fragment_requests_total);
     test_ptr->register_metric("fragment_request_duration", g_adder_fragment_request_duration_us);
     test_ptr->register_metric("query_scan_byte", g_adder_query_scan_bytes);
@@ -48,9 +52,20 @@ void DorisBvarMetrics::register_entity(BvarMetricEntity entity) {
 
 std::string DorisBvarMetrics::to_prometheus() const{
     std::stringstream ss;
-    for (auto entity : entities_) {
-        ss << entity->to_prometheus(s_registry_name_);
+    for (auto& entities : entities_map_) {
+        if (entities.second.empty()) {
+            continue;
+        }
+        int count = 0;
+        for (auto& entity : entities.second) {
+            if (!count) {
+                ss << "# TYPE " << s_registry_name_ << "_" << entity->get_name() << " " << entity->get_type() << "\n";
+                count ++;
+            }
+            ss << entity->to_prometheus(s_registry_name_);
+        }
     }
+    if (system_metrics_) ss << system_metrics_->to_prometheus(s_registry_name_);
     return ss.str();
 }
 

@@ -122,7 +122,7 @@ std::shared_ptr<BvarMetric> BvarMetricEntity::get_metric(const std::string& name
 
 std::string BvarMetricEntity::to_prometheus(const std::string& registry_name) {
     std::stringstream ss;
-    ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
+    // ss << "# TYPE " << registry_name << "_" << entity_name_ << " " << type_ << "\n";
     for (auto metric_pair : metrics_) {
         ss << metric_pair.second->to_prometheus(registry_name);
     }
