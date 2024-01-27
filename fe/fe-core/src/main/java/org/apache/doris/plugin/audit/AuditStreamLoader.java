@@ -43,7 +43,7 @@ public class AuditStreamLoader {
     private String feIdentity;
 
     public AuditStreamLoader() {
-        this.hostPort = "127.0.0.1:" + Config.http_port;
+        this.hostPort = "127.0.0.1_" + Config.http_port;
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoaderPlugin.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
