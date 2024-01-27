@@ -667,7 +667,7 @@ RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
 
-    status = _build_rowset_meta(rowset_meta_);
+    status = _build_rowset_meta(tmp_rs_meta.get());
     if (!status.ok()) {
         LOG(WARNING) << "failed to build rowset meta, res=" << status;
         return nullptr;
