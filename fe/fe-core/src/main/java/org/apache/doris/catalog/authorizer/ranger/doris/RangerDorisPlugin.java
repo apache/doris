@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.doris;
 
-public enum HiveAccessType {
-    NONE, CREATE, ALTER, DROP, INDEX, LOCK, SELECT, UPDATE, USE, READ, WRITE, ALL, SERVICEADMIN,
-    TEMPUDFADMIN;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
+
+public class RangerDorisPlugin extends RangerBasePlugin {
+    public RangerDorisPlugin(String serviceName) {
+        super(serviceName, null, null);
+        super.init();
+    }
 }

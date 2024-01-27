@@ -22,11 +22,16 @@ import org.apache.doris.common.AuthorizationException;
 
 import java.util.Set;
 
-public class InternalCatalogAccessController implements CatalogAccessController {
+public class InternalAccessController implements CatalogAccessController {
     private Auth auth;
 
-    public InternalCatalogAccessController(Auth auth) {
+    public InternalAccessController(Auth auth) {
         this.auth = auth;
+    }
+
+    @Override
+    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+        return auth.checkGlobalPriv(currentUser, wanted);
     }
 
     @Override
@@ -48,5 +53,15 @@ public class InternalCatalogAccessController implements CatalogAccessController 
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         auth.checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
+    }
+
+    @Override
+    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+        return auth.checkResourcePriv(currentUser, resourceName, wanted);
+    }
+
+    @Override
+    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        return auth.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
     }
 }

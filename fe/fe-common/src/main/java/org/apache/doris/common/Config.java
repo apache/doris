@@ -2416,6 +2416,11 @@ public class Config extends ConfigBase {
     })
     public static int label_num_threshold = 2000;
 
+    @ConfField(description = {"指定 internal catalog 的默认鉴权类",
+            "Specify the default authentication class of internal catalog"},
+            options = {"default", "ranger-doris"})
+    public static String access_controller_type = "default";
+
     //==========================================================================
     //                    begin of cloud config
     //==========================================================================

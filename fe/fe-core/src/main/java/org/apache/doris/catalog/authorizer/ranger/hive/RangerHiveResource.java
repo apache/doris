@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
 import org.apache.ranger.plugin.policyengine.RangerAccessResourceImpl;
 
