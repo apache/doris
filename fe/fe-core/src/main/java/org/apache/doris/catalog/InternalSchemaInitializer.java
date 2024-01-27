@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
@@ -27,7 +26,6 @@ import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -46,7 +44,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -55,33 +52,6 @@ public class InternalSchemaInitializer extends Thread {
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
-
-    public static final List<ColumnDef> AUDIT_TABLE_COLUMNS;
-
-    static {
-        AUDIT_TABLE_COLUMNS = new ArrayList<>();
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("query_id", TypeDef.createVarchar(48), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("time", TypeDef.create(PrimitiveType.DATETIME), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("client_ip", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("user", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("catalog", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("db", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("state", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("error_code", TypeDef.create(PrimitiveType.INT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("error_message", TypeDef.create(PrimitiveType.STRING), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("query_time", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("scan_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("scan_rows", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("return_rows", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("stmt_id", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("is_query", TypeDef.create(PrimitiveType.TINYINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("frontend_ip", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("cpu_time_ms", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("sql_hash", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("sql_digest", TypeDef.createVarchar(128), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
-        AUDIT_TABLE_COLUMNS.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), true));
-    }
 
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
@@ -97,7 +67,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
                 Thread.currentThread()
                         .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
-                createDB();
+                createDb();
                 createTbl();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
@@ -162,7 +132,7 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     @VisibleForTesting
-    public static void createDB() {
+    public static void createDb() {
         CreateDbStmt createDbStmt = new CreateDbStmt(true, FeConstants.INTERNAL_DB_NAME,
                 null);
         try {
@@ -177,23 +147,6 @@ public class InternalSchemaInitializer extends Thread {
     public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        ColumnDef partId = new ColumnDef("part_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN));
-        partId.setAllowNull(true);
-        columnDefs.add(partId);
-        columnDefs.add(new ColumnDef("count", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("ndv", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("null_count", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("min", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
-        columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
-        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
         ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
                 "db_id", "tbl_id", "idx_id", "col_id", "part_id");
@@ -207,7 +160,7 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                tableName, InternalSchema.COL_STATS_SCHEMA, engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
@@ -217,16 +170,6 @@ public class InternalSchemaInitializer extends Thread {
     public CreateTableStmt buildHistogramTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.HISTOGRAM_TBL_NAME);
-        List<ColumnDef> columnDefs = new ArrayList<>();
-        columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
-        columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("db_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("tbl_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("idx_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("col_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
-        columnDefs.add(new ColumnDef("sample_rate", TypeDef.create(PrimitiveType.DOUBLE)));
-        columnDefs.add(new ColumnDef("buckets", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
-        columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
         String engineName = "olap";
         ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
                 "db_id", "tbl_id", "idx_id", "col_id");
@@ -240,7 +183,8 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                tableName, InternalSchema.HISTO_STATS_SCHEMA, engineName, keysDesc,
+                null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
@@ -271,7 +215,7 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, AUDIT_TABLE_COLUMNS, engineName, keysDesc, partitionDesc, distributionDesc,
+                tableName, InternalSchema.AUDIT_SCHEMA, engineName, keysDesc, partitionDesc, distributionDesc,
                 properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
