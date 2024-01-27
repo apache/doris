@@ -1,0 +1,86 @@
+From 419687464e275b2aaaf14ca4af975b134e06604f Mon Sep 17 00:00:00 2001
+From: Kaijie Chen <ckj@apache.org>
+Date: Sat, 27 Jan 2024 20:22:09 +0800
+Subject: [PATCH] print more logs
+
+---
+ src/brpc/policy/baidu_rpc_protocol.cpp | 7 +++++++
+ src/brpc/stream.cpp                    | 6 +++++-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/src/brpc/policy/baidu_rpc_protocol.cpp b/src/brpc/policy/baidu_rpc_protocol.cpp
+index 0239960e..499be8db 100644
+--- a/src/brpc/policy/baidu_rpc_protocol.cpp
++++ b/src/brpc/policy/baidu_rpc_protocol.cpp
+@@ -213,10 +213,15 @@ void SendRpcResponse(int64_t correlation_id,
+             Stream* s = (Stream*)stream_ptr->conn();
+             s->FillSettings(meta.mutable_stream_settings());
+             s->SetHostSocket(sock);
++            LOG(INFO) << "Stream=" << response_stream_id 
++                         << " was open before sending response";
+         } else {
+             LOG(WARNING) << "Stream=" << response_stream_id 
+                          << " was closed before sending response";
+         }
++    } else {
++        LOG(WARNING) << "Stream=" << response_stream_id 
++                        << " was invalid before sending response";
+     }
+ 
+     butil::IOBuf res_buf;
+@@ -234,6 +239,7 @@ void SendRpcResponse(int64_t correlation_id,
+     // Send rpc response over stream even if server side failed to create
+     // stream for some reasons.
+     if(cntl->has_remote_stream()){
++        LOG(INFO) << "cntl has remote stream, stream_id=" << response_stream_id << " socket=" << sock->description().c_str();
+         // Send the response over stream to notify that this stream connection
+         // is successfully built.
+         // Response_stream can be INVALID_STREAM_ID when error occurs.
+@@ -258,6 +264,7 @@ void SendRpcResponse(int64_t correlation_id,
+     } else{
+         // Have the risk of unlimited pending responses, in which case, tell
+         // users to set max_concurrency.
++        LOG(INFO) << "cntl has no remote stream, stream_id=" << response_stream_id << " socket=" << sock->description().c_str();
+         Socket::WriteOptions wopt;
+         wopt.ignore_eovercrowded = true;
+         if (sock->Write(&res_buf, &wopt) != 0) {
+diff --git a/src/brpc/stream.cpp b/src/brpc/stream.cpp
+index d8466d2a..381eeca0 100644
+--- a/src/brpc/stream.cpp
++++ b/src/brpc/stream.cpp
+@@ -224,6 +224,7 @@ void Stream::SetConnected() {
+ 
+ void Stream::SetConnected(const StreamSettings* remote_settings) {
+     bthread_mutex_lock(&_connect_mutex);
++    RPC_VLOG << "stream=" << id() << " closed=" << _closed << " connected=" << _connected;
+     if (_closed) {
+         bthread_mutex_unlock(&_connect_mutex);
+         return;
+@@ -447,12 +448,15 @@ int Stream::OnReceived(const StreamFrameMeta& fm, butil::IOBuf *buf, Socket* soc
+             return -1;
+         }
+     }
++    RPC_VLOG << "stream=" << id() << " fm.frame_type=" << fm.frame_type();
+     switch (fm.frame_type()) {
+     case FRAME_TYPE_FEEDBACK:
++        RPC_VLOG << "stream=" << id() << " received feedback frame";
+         SetRemoteConsumed(fm.feedback().consumed_size());
+         CHECK(buf->empty());
+         break;
+     case FRAME_TYPE_DATA:
++        RPC_VLOG << "stream=" << id() << " received data frame";
+         if (_pending_buf != NULL) {
+             _pending_buf->append(*buf);
+             buf->clear();
+@@ -480,7 +484,7 @@ int Stream::OnReceived(const StreamFrameMeta& fm, butil::IOBuf *buf, Socket* soc
+         Close();
+         break;
+     case FRAME_TYPE_UNKNOWN:
+-        RPC_VLOG << "Received unknown frame";
++        RPC_VLOG << "stream=" << id() << " received unknown frame";
+         return -1;
+     }
+     return 0;
+-- 
+2.39.3
+

@@ -281,6 +281,7 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     fi
 fi
 # build modified thirdparty (brpc)
+"${DORIS_THIRDPARTY}/download-thirdparty.sh"
 "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
 
 update_submodule() {
