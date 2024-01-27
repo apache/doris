@@ -40,7 +40,8 @@ suite("test_unique_model_schema_change","p0") {
           UNIQUE KEY(`user_id`, `username`)
           DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
           PROPERTIES (
-          "replication_allocation" = "tag.location.default: 1"
+          "replication_allocation" = "tag.location.default: 1",
+          "enable_unique_key_merge_on_write" = "true"
           );
          """
      sql """ insert into ${tbName} values(123456789, 'Alice', 'Beijing', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'),
