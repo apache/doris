@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
@@ -80,7 +81,7 @@ public class PushDownSumThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
-                            return pushSum(agg, agg.child(), ImmutableList.of());
+                            return PushDownCountThroughJoin.pushAgg(agg, agg.child(), ImmutableList.of());
                         })
                         .toRule(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
@@ -99,7 +100,7 @@ public class PushDownSumThroughJoin implements RewriteRuleFactory {
                                 return null;
                             }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = ctx.root;
-                            return pushSum(agg, agg.child().child(), agg.child().getProjects());
+                            return PushDownCountThroughJoin.pushAgg(agg, agg.child().child(), agg.child().getProjects());
                         })
                         .toRule(RuleType.PUSH_DOWN_SUM_THROUGH_JOIN)
         );
@@ -110,21 +111,19 @@ public class PushDownSumThroughJoin implements RewriteRuleFactory {
         List<Slot> leftOutput = join.left().getOutput();
         List<Slot> rightOutput = join.right().getOutput();
 
-        List<Sum> leftSums = new ArrayList<>();
-        List<Sum> rightSums = new ArrayList<>();
+        List<AggregateFunction> leftAggs = new ArrayList<>();
+        List<AggregateFunction> rightAggs = new ArrayList<>();
         for (AggregateFunction f : agg.getAggregateFunctions()) {
-            Sum sum = (Sum) f;
-            Slot slot = (Slot) sum.child();
+            Slot slot = (Slot) f.child(0);
             if (leftOutput.contains(slot)) {
-                leftSums.add(sum);
+                leftAggs.add(f);
             } else if (rightOutput.contains(slot)) {
-                rightSums.add(sum);
+                rightAggs.add(f);
             } else {
                 throw new IllegalStateException("Slot " + slot + " not found in join output");
             }
         }
-        if (leftSums.isEmpty() && rightSums.isEmpty()
-                || (!leftSums.isEmpty() && !rightSums.isEmpty())) {
+        if (leftAggs.isEmpty() && rightAggs.isEmpty()) {
             return null;
         }
 
@@ -150,45 +149,38 @@ public class PushDownSumThroughJoin implements RewriteRuleFactory {
             }
         }));
 
-        List<Sum> sums;
-        Set<Slot> sumGroupBy;
-        Set<Slot> cntGroupBy;
-        Plan sumChild;
-        Plan cntChild;
-        if (!leftSums.isEmpty()) {
-            sums = leftSums;
-            sumGroupBy = leftGroupBy;
-            cntGroupBy = rightGroupBy;
-            sumChild = join.left();
-            cntChild = join.right();
-        } else {
-            sums = rightSums;
-            sumGroupBy = rightGroupBy;
-            cntGroupBy = leftGroupBy;
-            sumChild = join.right();
-            cntChild = join.left();
-        }
-
-        // Sum agg
-        Map<Slot, NamedExpression> sumSlotToOutput = new HashMap<>();
-        Builder<NamedExpression> sumAggOutputBuilder = ImmutableList.<NamedExpression>builder().addAll(sumGroupBy);
-        sums.forEach(func -> {
+        Alias leftCnt = null;
+        Alias rightCnt = null;
+        // left agg
+        Map<Slot, NamedExpression> leftSlotToOutput = new HashMap<>();
+        Builder<NamedExpression> leftAggOutputBuilder = ImmutableList.<NamedExpression>builder().addAll(leftGroupBy);
+        leftAggs.forEach(func -> {
             Alias alias = func.alias(func.getName());
-            sumSlotToOutput.put((Slot) func.child(0), alias);
-            sumAggOutputBuilder.add(alias);
+            leftSlotToOutput.put((Slot) func.child(0), alias);
+            leftAggOutputBuilder.add(alias);
         });
-        LogicalAggregate<Plan> sumAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(sumGroupBy), sumAggOutputBuilder.build(), sumChild);
+        if (!rightAggs.isEmpty()) {
+            leftCnt = new Count().alias("leftCntStar");
+            leftAggOutputBuilder.add(leftCnt);
+        }
+        LogicalAggregate<Plan> leftAgg = new LogicalAggregate<>(
+                ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left());
+        // right agg
+        Map<Slot, NamedExpression> rightSlotToOutput = new HashMap<>();
+        Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder().addAll(rightGroupBy);
+        rightAggs.forEach(func -> {
+            Alias alias = func.alias(func.getName());
+            rightSlotToOutput.put((Slot) func.child(0), alias);
+            rightAggOutputBuilder.add(alias);
+        });
+        if (!leftAggs.isEmpty()) {
+            rightCnt = new Count().alias("rightCntStar");
+            rightAggOutputBuilder.add(rightCnt);
+        }
+        LogicalAggregate<Plan> rightAgg = new LogicalAggregate<>(
+                ImmutableList.copyOf(rightGroupBy), rightAggOutputBuilder.build(), join.right());
 
-        // Count agg
-        Alias cnt = new Count().alias("cnt");
-        List<NamedExpression> cntAggOutput = ImmutableList.<NamedExpression>builder()
-                .addAll(cntGroupBy).add(cnt)
-                .build();
-        LogicalAggregate<Plan> cntAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(cntGroupBy), cntAggOutput, cntChild);
-
-        Plan newJoin = !leftSums.isEmpty() ? join.withChildren(sumAgg, cntAgg) : join.withChildren(cntAgg, sumAgg);
+        Plan newJoin = join.withChildren(leftAgg, rightAgg);
 
         // top Sum agg
         // replace sum(x) -> sum(sum# * cnt)
@@ -197,8 +189,15 @@ public class PushDownSumThroughJoin implements RewriteRuleFactory {
             if (ne instanceof Alias && ((Alias) ne).child() instanceof AggregateFunction) {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
                 Slot slot = (Slot) func.child(0);
-                if (sumSlotToOutput.containsKey(slot)) {
-                    Expression expr = func.withChildren(new Multiply(sumSlotToOutput.get(slot).toSlot(), cnt.toSlot()));
+                if (leftSlotToOutput.containsKey(slot)) {
+                    Preconditions.checkState(rightCnt != null);
+                    Expression expr = func.withChildren(
+                            new Multiply(leftSlotToOutput.get(slot).toSlot(), rightCnt.toSlot()));
+                    newOutputExprs.add((NamedExpression) ne.withChildren(expr));
+                } else if (rightSlotToOutput.containsKey(slot)) {
+                    Preconditions.checkState(leftCnt != null);
+                    Expression expr = func.withChildren(
+                            new Multiply(rightSlotToOutput.get(slot).toSlot(), leftCnt.toSlot()));
                     newOutputExprs.add((NamedExpression) ne.withChildren(expr));
                 } else {
                     throw new IllegalStateException("Slot " + slot + " not found in join output");
