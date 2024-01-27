@@ -43,6 +43,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +89,8 @@ public class StatementContext {
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
 
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
+    // collect all hash join conditions to compute node connectivity in join graph
+    private final List<Expression> joinFilters = new ArrayList<>();
     private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
 
     private final List<Hint> hints = new ArrayList<>();
@@ -243,5 +246,13 @@ public class StatementContext {
 
     public List<Hint> getHints() {
         return ImmutableList.copyOf(hints);
+    }
+
+    public List<Expression> getJoinFilters() {
+        return joinFilters;
+    }
+
+    public void addJoinFilters(Collection<Expression> newJoinFilters) {
+        this.joinFilters.addAll(newJoinFilters);
     }
 }
