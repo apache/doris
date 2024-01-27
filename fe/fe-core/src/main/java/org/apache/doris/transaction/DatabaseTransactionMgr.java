@@ -83,7 +83,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -1270,8 +1269,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1311,7 +1311,8 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId,table.getNextVersion(),System.currentTimeMillis());
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);

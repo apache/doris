@@ -1383,12 +1383,19 @@ public class OlapTable extends Table {
         return false;
     }
 
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
     public void updateVisibleVersionAndTime(long tableVersion, long tableVersionTime) {
+        // To be compatible with previous versions
+        if (tableVersion <= TABLE_INIT_VERSION) {
+            return;
+        }
         this.visibleVersion = tableVersion;
         this.visibleVersionTime = tableVersionTime;
     }
 
-    // 并发问题，不能等待直到结束
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
     public long getNextVersion() {
         return visibleVersion + 1;
     }

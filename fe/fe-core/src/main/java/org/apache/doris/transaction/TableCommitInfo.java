@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Maps;
@@ -61,6 +63,8 @@ public class TableCommitInfo implements Writable {
                 partitionCommitInfo.write(out);
             }
         }
+        out.writeLong(version);
+        out.writeLong(versionTime);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -73,6 +77,10 @@ public class TableCommitInfo implements Writable {
                 PartitionCommitInfo partitionCommitInfo = PartitionCommitInfo.read(in);
                 idToPartitionCommitInfo.put(partitionCommitInfo.getPartitionId(), partitionCommitInfo);
             }
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
+            version = in.readLong();
+            versionTime = in.readLong();
         }
     }
 
