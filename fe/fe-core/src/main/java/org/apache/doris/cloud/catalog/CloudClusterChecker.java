@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
+import org.apache.doris.cloud.proto.Cloud.ClusterPB.Type;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -301,9 +302,12 @@ public class CloudClusterChecker extends MasterDaemon {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
                     + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
         } else {
-            // clusterId -> clusterPB
-            Map<String, ClusterPB> remoteClusterIdToPB = new HashMap<>();
             Set<String> localClusterIds = clusterIdToBackend.keySet();
+            // clusterId -> clusterPB
+            Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
+                    .filter(c -> c.getType() != Type.SQL)
+                    .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
+            LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
 
             try {
                 // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
