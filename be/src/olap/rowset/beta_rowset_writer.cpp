@@ -666,7 +666,7 @@ RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
     Status status;
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
-  
+
     status = _build_rowset_meta(rowset_meta_);
     if (!status.ok()) {
         LOG(WARNING) << "failed to build rowset meta, res=" << status;
@@ -674,8 +674,8 @@ RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
     }
 
     RowsetSharedPtr rowset;
-    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
-                                               tmp_rs_meta, &rowset);
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, tmp_rs_meta,
+                                          &rowset);
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
