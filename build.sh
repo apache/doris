@@ -30,10 +30,10 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}"
+unset DORIS_THIRDPARTY
 
 . "${DORIS_HOME}/env.sh"
 
-unset DORIS_THIRDPARTY
 # Check args
 usage() {
     echo "
@@ -284,7 +284,8 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
 fi
 # build modified thirdparty (brpc)
 rm -rf "${DORIS_THIRDPARTY}/src/brpc-1.4.0/"
-"${DORIS_THIRDPARTY}/download-thirdparty.sh"
+rm -rf "${DORIS_THIRDPARTY}/installed/lib64/libbrpc.*"
+rm -rf "${DORIS_THIRDPARTY}/installed/lib/libbrpc.*"
 "${DORIS_THIRDPARTY}/build-thirdparty.sh" brpc -j "${PARALLEL}"
 
 update_submodule() {
