@@ -33,6 +33,7 @@ export DORIS_HOME="${ROOT}"
 
 . "${DORIS_HOME}/env.sh"
 
+unset DORIS_THIRDPARTY
 # Check args
 usage() {
     echo "
