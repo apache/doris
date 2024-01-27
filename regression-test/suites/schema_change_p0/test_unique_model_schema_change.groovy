@@ -57,6 +57,8 @@ suite("test_unique_model_schema_change","p0") {
           String result = getJobState(tbName)
           if (result == "FINISHED") {
                sleep(3000)
+               sql """ insert into ${tbName} values(123456689, 'Alice', '四川省', 'Yaan', 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); """
+               qt_sql """ SELECT * FROM ${tbName}  """
                break
           } else {
                sleep(2000)
