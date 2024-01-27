@@ -34,10 +34,10 @@ Thanks to our community users and developers, about 333 improvements and bug fix
 
 ## Behavior change
 - More reasonable and accurate precision and scale inference for decimal data type
-  [[improvement](decimal) use new way for decimal arithmetic precision promotion(#27787) #28034](https://github.com/apache/doris/pull/28034)
+  - [https://github.com/apache/doris/pull/28034](https://github.com/apache/doris/pull/28034)
 
 - Support drop policy for user or role
-  [[fix](polixy)support drop policy for user or role #29488](https://github.com/apache/doris/pull/29488)
+  - [https://github.com/apache/doris/pull/29488](https://github.com/apache/doris/pull/29488)
 
 ## New features
 

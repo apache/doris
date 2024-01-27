@@ -30,8 +30,6 @@ under the License.
 
 SHOW WORKLOAD GROUPS
 
-<version since="dev"></version>
-
 ### Description
 
 该语句用于展示当前用户具有usage_priv权限的资源组。
@@ -39,7 +37,7 @@ SHOW WORKLOAD GROUPS
 语法：
 
 ```sql
-SHOW WORKLOAD GROUPS;
+SHOW WORKLOAD GROUPS [LIKE "pattern"];
 ```
 
 说明：
@@ -60,6 +58,19 @@ SHOW WORKLOAD GROUPS;
     | 10343386 | normal | enable_memory_overcommit | true    |
     | 10352416 | g1     | memory_limit             | 20%     |
     | 10352416 | g1     | cpu_share                | 10      |
+    +----------+--------+--------------------------+---------+
+    ```
+
+2. 使用 LIKE 模糊匹配：
+    
+    ```sql
+    mysql> show workload groups like "normal%"
+    +----------+--------+--------------------------+---------+
+    | Id       | Name   | Item                     | Value   |
+    +----------+--------+--------------------------+---------+
+    | 10343386 | normal | cpu_share                | 10      |
+    | 10343386 | normal | memory_limit             | 30%     |
+    | 10343386 | normal | enable_memory_overcommit | true    |
     +----------+--------+--------------------------+---------+
     ```
 

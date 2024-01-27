@@ -80,6 +80,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_exec_timer);
     _materialize_exprs_evaluate_timer =
             ADD_TIMER(_runtime_profile, "MaterializeExprsEvaluateTimer");
+
     // Prepare const expr lists.
     for (const VExprContextSPtrs& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(VExpr::prepare(exprs, state, _row_descriptor));
@@ -93,7 +94,7 @@ Status VUnionNode::prepare(RuntimeState* state) {
 }
 
 Status VUnionNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(alloc_resource(state));
+    RETURN_IF_ERROR(ExecNode::open(state)); // exactly same with this->alloc_resource()
     // Ensures that rows are available for clients to fetch after this open() has
     // succeeded.
     if (!_children.empty()) {

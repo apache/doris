@@ -149,6 +149,8 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<List<String>> getDbTransInfoByStatus(Long dbId, TransactionStatus status) throws AnalysisException;
 
+    public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String label) throws AnalysisException;
+
     public List<List<String>> getDbTransStateInfo(Long dbId) throws AnalysisException;
 
     public List<List<String>> getDbTransInfo(Long dbId, boolean running, int limit) throws AnalysisException;

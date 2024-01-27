@@ -101,6 +101,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
     public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
+    public static Histogram HISTO_JOURNAL_BATCH_SIZE;
+    public static Histogram HISTO_JOURNAL_BATCH_DATA_SIZE;
 
     public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
     public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
@@ -486,7 +488,11 @@ public final class MetricRepo {
         COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES.addLabel(new MetricLabel("type", "current_bytes"));
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_CURRENT_EDIT_LOG_SIZE_BYTES);
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(
-            MetricRegistry.name("editlog", "write", "latency", "ms"));
+                MetricRegistry.name("editlog", "write", "latency", "ms"));
+        HISTO_JOURNAL_BATCH_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_size"));
+        HISTO_JOURNAL_BATCH_DATA_SIZE = METRIC_REGISTER.histogram(
+                MetricRegistry.name("journal", "write", "batch_data_size"));
 
         // edit log clean
         COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS,

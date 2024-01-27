@@ -788,6 +788,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String label) throws AnalysisException {
+        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    }
+
+    @Override
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
         throw new AnalysisException(NOT_SUPPORTED_MSG);
     }

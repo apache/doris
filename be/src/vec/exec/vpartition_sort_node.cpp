@@ -33,10 +33,50 @@
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+Status PartitionBlocks::do_partition_topn_sort() {
+    if (_partition_topn_sorter == nullptr) {
+        _partition_topn_sorter = PartitionSorter::create_unique(
+                *_partition_sort_info->_vsort_exec_exprs, _partition_sort_info->_limit,
+                _partition_sort_info->_offset, _partition_sort_info->_pool,
+                _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
+                _partition_sort_info->_row_desc, _partition_sort_info->_runtime_state, nullptr,
+                _partition_sort_info->_has_global_limit,
+                _partition_sort_info->_partition_inner_limit,
+                _partition_sort_info->_top_n_algorithm, _partition_sort_info->_previous_row);
+    }
+
+    for (const auto& block : blocks) {
+        RETURN_IF_ERROR(_partition_topn_sorter->append_block(block.get()));
+    }
+    blocks.clear();
+    _partition_topn_sorter->init_profile(_partition_sort_info->_runtime_profile);
+    RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read());
+    bool current_eos = false;
+    size_t current_output_rows = 0;
+    while (!current_eos) {
+        // output_block maybe need better way
+        auto output_block = Block::create_unique(
+                VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc));
+        RETURN_IF_ERROR(_partition_topn_sorter->get_next(_partition_sort_info->_runtime_state,
+                                                         output_block.get(), &current_eos));
+        auto rows = output_block->rows();
+        if (rows > 0) {
+            current_output_rows += rows;
+            blocks.emplace_back(std::move(output_block));
+        }
+    }
+
+    _topn_filter_rows += (_current_input_rows - current_output_rows);
+    _partition_sort_info->_previous_row->reset();
+    _partition_topn_sorter.reset(nullptr);
+
+    return Status::OK();
+}
 
 VPartitionSortNode::VPartitionSortNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
@@ -79,6 +119,7 @@ Status VPartitionSortNode::prepare(RuntimeState* state) {
     _get_sorted_timer = ADD_TIMER(runtime_profile(), "GetSortedTime");
     _selector_block_timer = ADD_TIMER(runtime_profile(), "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(runtime_profile(), "EmplaceKeyTime");
+    runtime_profile()->add_info_string("CurrentTopNPhase", std::to_string(_topn_phase));
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_TIMER(_exec_timer);
@@ -86,6 +127,10 @@ Status VPartitionSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, child(0)->row_desc()));
     _init_hash_method();
 
+    _partition_sort_info = std::make_shared<PartitionSortInfo>(
+            &_vsort_exec_exprs, _limit, 0, _pool, _is_asc_order, _nulls_first, child(0)->row_desc(),
+            state, _runtime_profile.get(), _has_global_limit, _partition_inner_limit,
+            _top_n_algorithm, _previous_row.get(), _topn_phase);
     return Status::OK();
 }
 
@@ -116,13 +161,15 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
 
                 auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                     HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto* aggregate_data = _pool->add(new PartitionBlocks());
+                    auto* aggregate_data = _pool->add(
+                            new PartitionBlocks(_partition_sort_info, _value_places.empty()));
                     _value_places.push_back(aggregate_data);
                     ctor(key, aggregate_data);
                     _num_partition++;
                 };
                 auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = _pool->add(new PartitionBlocks());
+                    mapped = _pool->add(
+                            new PartitionBlocks(_partition_sort_info, _value_places.empty()));
                     _value_places.push_back(mapped);
                     _num_partition++;
                 };
@@ -135,7 +182,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                 }
 
                 SCOPED_TIMER(_selector_block_timer);
-                for (auto place : _value_places) {
+                for (auto* place : _value_places) {
                     place->append_block_by_selector(input_block, child(0)->row_desc(),
                                                     _has_global_limit, _partition_inner_limit,
                                                     batch_size);
@@ -151,7 +198,8 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
         child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
             if (UNLIKELY(_value_places.empty())) {
-                _value_places.push_back(_pool->add(new PartitionBlocks()));
+                _value_places.push_back(_pool->add(
+                        new PartitionBlocks(_partition_sort_info, _value_places.empty())));
             }
             //no partition key
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
@@ -195,9 +243,7 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             RETURN_IF_ERROR(sorter->prepare_for_read());
             _partition_sorts.push_back(std::move(sorter));
         }
-        if (state->enable_profile()) {
-            debug_profile();
-        }
+
         COUNTER_SET(_hash_table_size_counter, int64_t(_num_partition));
         //so all data from child have sink completed
         _can_read = true;
@@ -312,14 +358,15 @@ Status VPartitionSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    if (state->enable_profile()) {
-        debug_profile();
-    }
+
     return ExecNode::close(state);
 }
 
 void VPartitionSortNode::release_resource(RuntimeState* state) {
     _vsort_exec_exprs.close(state);
+    if (state->enable_profile()) {
+        debug_profile();
+    }
     ExecNode::release_resource(state);
 }
 
@@ -389,19 +436,25 @@ void VPartitionSortNode::_init_hash_method() {
 }
 
 void VPartitionSortNode::debug_profile() {
-    fmt::memory_buffer partition_rows_read, partition_blocks_read;
+    fmt::memory_buffer partition_rows_read, partition_blocks_read, partition_filter_rows;
     fmt::format_to(partition_rows_read, "[");
     fmt::format_to(partition_blocks_read, "[");
-    for (auto place : _value_places) {
+    fmt::format_to(partition_filter_rows, "[");
+
+    for (auto* place : _value_places) {
         fmt::format_to(partition_rows_read, "{}, ", place->get_total_rows());
+        fmt::format_to(partition_filter_rows, "{}, ", place->get_topn_filter_rows());
         fmt::format_to(partition_blocks_read, "{}, ", place->blocks.size());
     }
     fmt::format_to(partition_rows_read, "]");
     fmt::format_to(partition_blocks_read, "]");
+    fmt::format_to(partition_filter_rows, "]");
 
     runtime_profile()->add_info_string("PerPartitionBlocksRead",
                                        fmt::to_string(partition_blocks_read));
     runtime_profile()->add_info_string("PerPartitionRowsRead", fmt::to_string(partition_rows_read));
+    runtime_profile()->add_info_string("PerPartitionFilterRows",
+                                       fmt::to_string(partition_filter_rows));
     fmt::memory_buffer partition_output_rows;
     fmt::format_to(partition_output_rows, "[");
     for (auto row : partition_profile_output_rows) {

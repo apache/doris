@@ -569,15 +569,13 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 
-template <typename RowRefListType>
-using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef, RowRefListType>>;
+using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef>>;
 
-template <class T, typename RowRefListType>
-using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, JoinHashMap<T, RowRefListType, HashCRC32<T>>>;
+template <class T>
+using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
 
-template <class Key, bool has_null, typename Value>
-using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, Value, HashCRC32<Key>>, has_null>;
+template <class Key, bool has_null>
+using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>, has_null>;
 
 template <class Key, bool has_null>
 using SetFixedKeyHashTableContext =
