@@ -17,32 +17,33 @@
 
 #pragma once
 
-#include <brpc/stream.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/types.pb.h>
-
-#include <vector>
+#include "olap/rowset_builder.h"
 
 namespace doris {
 
-class TupleDescriptor;
-class SlotDescriptor;
-class OlapTableSchemaParam;
+class CloudTablet;
+class CloudStorageEngine;
 
-struct WriteRequest {
-    int64_t tablet_id = 0;
-    int32_t schema_hash = 0;
-    int64_t txn_id = 0;
-    int64_t txn_expiration = 0; // For cloud mode
-    int64_t index_id = 0;
-    int64_t partition_id = 0;
-    PUniqueId load_id;
-    TupleDescriptor* tuple_desc = nullptr;
-    // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
-    bool is_high_priority = false;
-    bool write_file_cache = false;
+class CloudRowsetBuilder final : public BaseRowsetBuilder {
+public:
+    CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
+                       RuntimeProfile* profile);
+
+    ~CloudRowsetBuilder() override;
+
+    Status init() override;
+
+    void update_tablet_stats();
+
+    const RowsetMetaSharedPtr& rowset_meta();
+
+private:
+    // Convert `_tablet` from `BaseTablet` to `CloudTablet`
+    CloudTablet* cloud_tablet();
+
+    Status check_tablet_version_count();
+
+    CloudStorageEngine& _engine;
 };
 
 } // namespace doris
