@@ -17,32 +17,22 @@
 
 #pragma once
 
-#include <brpc/stream.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/types.pb.h>
-
-#include <vector>
+#include "olap/rowset/beta_rowset_writer.h"
 
 namespace doris {
 
-class TupleDescriptor;
-class SlotDescriptor;
-class OlapTableSchemaParam;
+class CloudRowsetWriter final : public BaseBetaRowsetWriter {
+public:
+    CloudRowsetWriter();
 
-struct WriteRequest {
-    int64_t tablet_id = 0;
-    int32_t schema_hash = 0;
-    int64_t txn_id = 0;
-    int64_t txn_expiration = 0; // For cloud mode
-    int64_t index_id = 0;
-    int64_t partition_id = 0;
-    PUniqueId load_id;
-    TupleDescriptor* tuple_desc = nullptr;
-    // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots = nullptr;
-    std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
-    bool is_high_priority = false;
-    bool write_file_cache = false;
+    ~CloudRowsetWriter() override;
+
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
+
+    Status build(RowsetSharedPtr& rowset) override;
+
+private:
+    Status _generate_delete_bitmap(int32_t segment_id) override;
 };
 
 } // namespace doris

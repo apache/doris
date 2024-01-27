@@ -270,8 +270,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
 
-    std::unique_ptr<RowsetWriter> rs_writer;
-    RETURN_IF_ERROR(RowsetFactory::create_rowset_writer(_engine, context, false, &rs_writer));
+    auto rs_writer = DORIS_TRY(RowsetFactory::create_rowset_writer(_engine, context, false));
 
     res = rs_writer->add_rowset(org_rowset);
     if (!res.ok()) {
@@ -531,7 +530,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 *allow_incremental_clone = false;
             } else {
-                version = ref_tablet->max_version_unlocked().second;
+                version = ref_tablet->max_version_unlocked();
                 *allow_incremental_clone = true;
             }
 

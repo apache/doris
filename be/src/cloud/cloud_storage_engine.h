@@ -51,11 +51,32 @@ public:
 
     CloudTabletMgr& tablet_mgr() { return *_tablet_mgr; }
 
+    io::FileSystemSPtr latest_fs() const {
+        std::lock_guard lock(_latest_fs_mtx);
+        return _latest_fs;
+    }
+
+    void set_latest_fs(const io::FileSystemSPtr& fs) {
+        std::lock_guard lock(_latest_fs_mtx);
+        _latest_fs = fs;
+    }
+
 private:
+    void _refresh_s3_info_thread_callback();
+    void _vacuum_stale_rowsets_thread_callback();
+    void _sync_tablets_thread_callback();
+
     std::atomic_bool _stopped {false};
+    CountDownLatch _stop_background_threads_latch {1};
 
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
+
+    // FileSystem with latest shared storage info, new data will be written to this fs.
+    mutable std::mutex _latest_fs_mtx;
+    io::FileSystemSPtr _latest_fs;
+
+    std::vector<scoped_refptr<Thread>> _bg_threads;
 };
 
 } // namespace doris

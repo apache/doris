@@ -19,6 +19,7 @@
 
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
