@@ -35,6 +35,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -299,7 +300,11 @@ public class IcebergUtils {
      */
     public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
         return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
-            Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
+            org.apache.iceberg.Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(catalog, dbName, name);
+            Schema schema = icebergTable.schema();
             List<Types.NestedField> columns = schema.columns();
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
             for (Types.NestedField field : columns) {

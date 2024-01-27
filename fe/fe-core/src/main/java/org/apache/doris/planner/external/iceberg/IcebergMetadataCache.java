@@ -19,7 +19,6 @@ package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -37,6 +36,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hive.HiveCatalog;
 
@@ -84,23 +84,31 @@ public class IcebergMetadataCache {
             return cacheTable;
         }
 
-        Table icebergTable;
+        Catalog icebergCatalog;
         if (catalog instanceof HMSExternalCatalog) {
             HMSExternalCatalog ctg = (HMSExternalCatalog) catalog;
-            icebergTable = createIcebergTable(
+            icebergCatalog = createIcebergHiveCatalog(
                     ctg.getHiveMetastoreUris(),
                     ctg.getCatalogProperty().getHadoopProperties(),
-                    dbName,
-                    tbName,
                     ctg.getProperties());
         } else if (catalog instanceof IcebergExternalCatalog) {
-            IcebergExternalCatalog extCatalog = (IcebergExternalCatalog) catalog;
-            icebergTable = getIcebergTable(extCatalog, dbName, tbName);
+            icebergCatalog = ((IcebergExternalCatalog) catalog).getCatalog();
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
+        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(catalog.getId(),
+                () -> icebergCatalog.loadTable(TableIdentifier.of(dbName, tbName)));
+        initIcebergTableFileIO(icebergTable, catalog.getProperties());
         tableCache.put(key, icebergTable);
         return icebergTable;
+    }
+
+    private Table getIcebergTable(Catalog catalog, long catalogId, String dbName, String tbName,
+            Map<String, String> props) {
+        Table table = HiveMetaStoreClientHelper.ugiDoAs(catalogId,
+                () -> catalog.loadTable(TableIdentifier.of(dbName, tbName)));
+        initIcebergTableFileIO(table, props);
+        return table;
     }
 
     public void invalidateCatalogCache(long catalogId) {
@@ -148,14 +156,12 @@ public class IcebergMetadataCache {
                 });
     }
 
-    private static Table createIcebergTable(String uri, Map<String, String> hdfsConf, String db, String tbl,
-            Map<String, String> props) {
+    private Catalog createIcebergHiveCatalog(String uri, Map<String, String> hdfsConf, Map<String, String> props) {
         // set hdfs configure
         Configuration conf = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : hdfsConf.entrySet()) {
             conf.set(entry.getKey(), entry.getValue());
         }
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
 
@@ -169,17 +175,7 @@ public class IcebergMetadataCache {
             catalogProperties.put("uri", uri);
             hiveCatalog.initialize("hive", catalogProperties);
         }
-        Table table = HiveMetaStoreClientHelper.ugiDoAs(conf, () -> hiveCatalog.loadTable(TableIdentifier.of(db, tbl)));
-        initIcebergTableFileIO(table, props);
-        return table;
-    }
-
-    private Table createIcebergTable(HMSExternalTable hmsTable) {
-        return createIcebergTable(hmsTable.getMetastoreUri(),
-            hmsTable.getHadoopProperties(),
-            hmsTable.getDbName(),
-            hmsTable.getName(),
-            hmsTable.getCatalogProperties());
+        return hiveCatalog;
     }
 
     private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
