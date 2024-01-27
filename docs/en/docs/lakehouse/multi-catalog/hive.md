@@ -402,7 +402,11 @@ Doris has implemented Broker query support for HMS Catalog Iceberg based on the 
 
 Apache Ranger is a security framework for monitoring, enabling services, and comprehensive data security access management on the Hadoop platform.
 
-Currently doris supports ranger library, table, and column permissions, but does not support encryption, row permissions, etc.
+Doris supports using Apache Ranger for authentication for a specified External Hive Catalog.
+
+Currently, authentication of database, table, and column is supported. Functions such as encryption, row policy, and data masks are not currently supported.
+
+To use Apache Ranger to authenticate the entire Doris cluster service, please refer to [Apache Ranger Authentication](../../admin-manual/privilege-ldap/ranger.md)
 
 ### Settings
 
@@ -410,23 +414,14 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 1. When creating a Catalog, add:
 
-```sql
-"access_controller.properties.ranger.service.name" = "hive",
-"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
-```
+	```sql
+	"access_controller.properties.ranger.service.name" = "hive",
+	"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory",
+	```
 
->Note:
->
->"access_controller.properties.ranger.service.name" It refers to the type of service, such as hive, hdfs, etc.
-> If the configuration of `ranger-hive-security.xml`is as follows, "access_controller.properties.ranger.service.name" should be set to `hive` instead of `testative`
->
-
-```sql
-<property>
-   <name>ranger.plugin.hive.service.name</name>
-   <value>testhive</value>
-</property>
-```
+	> Note:
+	>
+	> `access_controller.properties.ranger.service.name` refers to the type of service, such as `hive`, `hdfs`, etc. It is not the value of `ranger.plugin.hive.service.name` in the configuration file.
 
 2. Configure all FE environments:
 
@@ -501,6 +496,7 @@ To connect to the Hive Metastore with Ranger permission verification enabled, yo
 
 4. Create role1 with the same name in doris, and assign role1 to user1, user1 will have the query authority of db1.table1.col1 and col2 at the same time
 
+5. The permissions of Admin and Root users are not controlled by Apache Ranger.
 
 ## Integrate with Kerberos
 
