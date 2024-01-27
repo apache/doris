@@ -92,6 +92,9 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
     auto* parent_profile = _state->get_sink_local_state(_sink->operator_id())->profile();
+    query_ctx->register_query_statistics(
+            _state->get_sink_local_state(_sink->operator_id())->get_query_statistics_ptr());
+
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         auto& deps = get_upstream_dependency(op->operator_id());
@@ -105,7 +108,7 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
-                _state->get_local_state(op->operator_id())->query_statistics_ptr());
+                _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
 
     _block = doris::vectorized::Block::create_unique();
