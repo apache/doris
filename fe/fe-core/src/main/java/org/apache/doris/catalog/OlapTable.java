@@ -529,7 +529,7 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-            ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
+                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
@@ -546,7 +546,7 @@ public class OlapTable extends Table {
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-            boolean reserveReplica) {
+                                     boolean reserveReplica) {
         // table id
         id = env.getNextId();
 
@@ -1240,7 +1240,7 @@ public class OlapTable extends Table {
                 .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
         if (tableStats == null) {
             return table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                    .collect(Collectors.toMap(Column::getName, v -> allPartitions));
+                .collect(Collectors.toMap(Column::getName, v -> allPartitions));
         }
         Map<String, Set<String>> colToPart = new HashMap<>();
         for (Column col : table.getBaseSchema()) {
@@ -1252,7 +1252,7 @@ public class OlapTable extends Table {
                     .map(table::getPartition)
                     .filter(Partition::hasData)
                     .filter(partition ->
-                            partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
+                        partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
                     .collect(Collectors.toSet());
             colToPart.put(col.getName(), partitions);
         }
@@ -1985,7 +1985,7 @@ public class OlapTable extends Table {
             tableProperty = new TableProperty(new HashMap<>());
         }
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
-                Long.valueOf(ttlSeconds).toString());
+                                            Long.valueOf(ttlSeconds).toString());
         tableProperty.buildTTLSeconds();
     }
 
@@ -2140,7 +2140,7 @@ public class OlapTable extends Table {
     public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
-                Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
+                                                        Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
         tableProperty.buildTimeSeriesCompactionGoalSizeMbytes();
     }
 
@@ -2154,7 +2154,7 @@ public class OlapTable extends Table {
     public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
-                Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
+                                                    Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
         tableProperty.buildTimeSeriesCompactionFileCountThreshold();
     }
 
@@ -2168,8 +2168,8 @@ public class OlapTable extends Table {
     public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer
-                        .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
-                Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
+                                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                                                    Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
         tableProperty.buildTimeSeriesCompactionTimeThresholdSeconds();
     }
 
@@ -2183,7 +2183,7 @@ public class OlapTable extends Table {
     public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
-                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
         tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
     }
 
