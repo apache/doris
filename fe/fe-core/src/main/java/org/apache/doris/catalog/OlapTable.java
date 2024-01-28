@@ -2538,8 +2538,10 @@ public class OlapTable extends Table {
 
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
     // the write lock on the table should be held continuously
-    public void updateVisibleVersionAndTime(long tableVersion, long tableVersionTime) {
-        tableAttributes.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
+                visibleVersion, visibleVersionTime);
+        tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
