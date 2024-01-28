@@ -204,7 +204,7 @@ suite("test_schema_change_agg", "p0") {
     //distribution key
 
     test {
-        sql "alter table ${tableName3} modify column pv bigint sum default '0'"
+        sql "alter table ${tableName3} modify column pv bigint sum default '1'"
         exception "Can not modify distribution column[pv]. index[${tableName3}]"
     }
 
