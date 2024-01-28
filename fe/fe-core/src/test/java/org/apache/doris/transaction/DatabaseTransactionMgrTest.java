@@ -81,10 +81,10 @@ public class DatabaseTransactionMgrTest {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
-        masterTransMgr = masterEnv.getGlobalTransactionMgr();
+        masterTransMgr = (GlobalTransactionMgr) masterEnv.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterEnv.getEditLog());
 
-        slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
+        slaveTransMgr = (GlobalTransactionMgr) slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
 
         LabelToTxnId = addTransactionToTransactionMgr();
@@ -240,7 +240,17 @@ public class DatabaseTransactionMgrTest {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         long currentMillis = System.currentTimeMillis();
-        masterDbTransMgr.removeExpiredTxns(currentMillis);
+        masterDbTransMgr.removeUselessTxns(currentMillis);
+        Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
+        Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
+        Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));
+    }
+
+    @Test
+    public void testRemoveOverLimitTxns() throws AnalysisException {
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        Config.label_num_threshold = 0;
+        masterDbTransMgr.removeUselessTxns(System.currentTimeMillis());
         Assert.assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         Assert.assertEquals(3, masterDbTransMgr.getTransactionNum());
         Assert.assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLabel1));

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant", "variant_type"){
+suite("regression_test_variant", "nonConcurrent"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -112,7 +112,7 @@ suite("regression_test_variant", "variant_type"){
         create_table table_name
         sql """insert into ${table_name} values (1, '{"c" : "123"}');"""
         sql """insert into ${table_name} values (2, '{"c" : 123}');"""
-        sql """insert into ${table_name} values (3, '{"cc" : [123]}');"""
+        sql """insert into ${table_name} values (3, '{"cc" : [123.0]}');"""
         sql """insert into ${table_name} values (4, '{"cc" : [123.1]}');"""
         sql """insert into ${table_name} values (5, '{"ccc" : 123}');"""
         sql """insert into ${table_name} values (6, '{"ccc" : 123321}');"""
@@ -135,11 +135,11 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (2,  '{"A" : 1}');"""
         sql """insert into ${table_name} values (4,  '{"A" : 123456}');"""
         sql """insert into ${table_name} values (8,  '{"A" : 123456789101112}');"""
-        qt_sql_2 "select v:A from ${table_name} order by cast(v:A as int)"
+        qt_sql_2 "select v:A from ${table_name} order by cast(v:A as bigint)"
         sql """insert into ${table_name} values (12,  '{"AA" : [123456]}');"""
         sql """insert into ${table_name} values (14,  '{"AA" : [123456789101112]}');"""
         // qt_sql_3 "select v:AA from ${table_name} where size(v:AA) > 0 order by k"
-        qt_sql_4 "select v:A, v:AA, v from ${table_name} order by k"
+        qt_sql_4 "select cast(v:A as string), v:AA, v from ${table_name} order by k"
         qt_sql_5 "select v:A, v:AA, v, v from ${table_name} where cast(v:A as bigint) > 123 order by k"
 
         sql """insert into ${table_name} values (16,  '{"a" : 123.0, "A" : 191191, "c": 123}');"""
@@ -148,7 +148,7 @@ suite("regression_test_variant", "variant_type"){
         // sql """insert into ${table_name} values (12,  '{"a" : [123]}, "c": "123456"');"""
         sql """insert into ${table_name} values (22,  '{"a" : 1.1111, "A" : 17211, "c" : 111111}');"""
         sql "sync"
-        qt_sql_6 "select v:a, v:A from ${table_name} order by cast(v:A as bigint), k"
+        qt_sql_6 "select cast(v:a as string), v:A from ${table_name} order by cast(v:A as bigint), k"
         qt_sql_7 "select k, v:A from ${table_name} where cast(v:A as bigint) >= 1 order by cast(v:A as bigint), k"
 
         // FIXME: if not cast, then v:a could return "123" or 123 which is none determinately
@@ -289,7 +289,7 @@ suite("regression_test_variant", "variant_type"){
         create_table.call(table_name, "4")
         // sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_32_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
@@ -366,7 +366,7 @@ suite("regression_test_variant", "variant_type"){
         table_name = "all_sparse_columns"
         create_table.call(table_name, "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
-        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 

@@ -39,6 +39,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -51,7 +52,6 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
-#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
@@ -215,7 +215,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
-        if (config::enable_stream_load_record) {
+        if (config::enable_stream_load_record && !config::is_cloud_mode()) {
             str = ctx->prepare_stream_load_record(str);
             _save_stream_load_record(ctx, str);
         }
@@ -634,20 +634,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         return plan_status;
     }
     if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
-        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
-                content_length *= 3;
-            }
-            RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(
-                    ctx->id.to_thrift(), content_length));
+        size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+            ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+            ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+            ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            content_length *= 3;
         }
+        ctx->put_result.params.__set_content_length(content_length);
     }
 
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
@@ -678,7 +675,8 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 
 void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
-    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    auto stream_load_recorder =
+            ExecEnv::GetInstance()->storage_engine().to_local().get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =
                 std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;

@@ -36,9 +36,7 @@ public class WorkloadSchedPolicyPublisher implements TopicPublisher {
     @Override
     public void getTopicInfo(TPublishTopicRequest req) {
         List<TopicInfo> list = env.getWorkloadSchedPolicyMgr().getPublishTopicInfoList();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_SCHED_POLICY, list);
-        }
+        req.putToTopicMap(TTopicInfoType.WORKLOAD_SCHED_POLICY, list);
     }
 
 }

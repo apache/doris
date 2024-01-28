@@ -69,4 +69,11 @@ public class PauseMTMVInfo {
     public TableNameInfo getMvName() {
         return mvName;
     }
+
+    @Override
+    public String toString() {
+        return "PauseMTMVInfo{"
+                + "mvName=" + mvName
+                + '}';
+    }
 }

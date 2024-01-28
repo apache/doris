@@ -30,6 +30,7 @@
 #include <set>
 #include <shared_mutex>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
@@ -182,15 +183,12 @@ Status NewOlapScanner::init() {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             ReadSource read_source;
-            {
-                std::shared_lock rdlock(tablet->get_header_lock());
-                auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                     &read_source.rs_splits,
-                                                     _state->skip_missing_version());
-                if (!st.ok()) {
-                    LOG(WARNING) << "fail to init reader.res=" << st;
-                    return st;
-                }
+            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
+                                                 &read_source.rs_splits,
+                                                 _state->skip_missing_version());
+            if (!st.ok()) {
+                LOG(WARNING) << "fail to init reader.res=" << st;
+                return st;
             }
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
@@ -397,15 +395,19 @@ Status NewOlapScanner::_init_tablet_reader_params(
 
     // If this is a Two-Phase read query, and we need to delay the release of Rowset
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
-    if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
-        constexpr static int delayed_s = 60;
-        for (auto rs_reader : _tablet_reader_params.rs_splits) {
-            uint64_t delayed_expired_timestamp =
-                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                    delayed_s;
-            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
-                    delayed_expired_timestamp);
-            StorageEngine::instance()->add_quering_rowset(rs_reader.rs_reader->rowset());
+    // TODO(plat1ko): CloudStorageEngine
+    if (!config::is_cloud_mode()) {
+        if (tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+            constexpr static int delayed_s = 60;
+            for (auto rs_reader : _tablet_reader_params.rs_splits) {
+                uint64_t delayed_expired_timestamp =
+                        UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                        delayed_s;
+                rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                        delayed_expired_timestamp);
+                ExecEnv::GetInstance()->storage_engine().to_local().add_quering_rowset(
+                        rs_reader.rs_reader->rowset());
+            }
         }
     }
 
@@ -524,7 +526,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // so that it will core
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
-    LOG(INFO) << "close_tablet_id" << _tablet_reader_params.tablet->tablet_id();
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
 }

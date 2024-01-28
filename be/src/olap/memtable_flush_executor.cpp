@@ -81,7 +81,7 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
-            _flush_status = Status::IOError("dbug_be_memtable_submit_flush_error");
+            _flush_status = Status::IOError<false>("dbug_be_memtable_submit_flush_error");
         });
         if (!_flush_status.ok()) {
             return _flush_status;
@@ -179,17 +179,17 @@ void FlushToken::_flush_memtable(MemTable* mem_table, int32_t segment_id,
     _stats.flush_disk_size_bytes += flush_size;
 }
 
-void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
-    int32_t data_dir_num = data_dirs.size();
+void MemTableFlushExecutor::init(int num_disk) {
+    num_disk = std::max(1, num_disk);
     size_t min_threads = std::max(1, config::flush_thread_num_per_store);
-    size_t max_threads = data_dir_num * min_threads;
+    size_t max_threads = num_disk * min_threads;
     static_cast<void>(ThreadPoolBuilder("MemTableFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
 
     min_threads = std::max(1, config::high_priority_flush_thread_num_per_store);
-    max_threads = data_dir_num * min_threads;
+    max_threads = num_disk * min_threads;
     static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)

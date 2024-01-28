@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
+import org.apache.doris.nereids.rules.analysis.BindSlotWithPaths;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.HavingToFilter;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -133,6 +135,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new UserAuthentication()
             ),
             bottomUp(new BindExpression()),
+            bottomUp(new BindSlotWithPaths()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(
@@ -160,7 +163,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
+
             topDown(new NormalizeAggregate()),
+            topDown(new HavingToFilter()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),

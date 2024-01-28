@@ -106,6 +106,10 @@ execute_process(COMMAND bash "-c" "uname -m"
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
 message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "aarch64" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "arm64")
+    set (ARCH_ARM 1)
+endif()
+
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/..")
@@ -302,12 +306,18 @@ if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
 endif()
 
+# simd for architectures
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_compile_options(-msse4.2)
     if (USE_AVX2)
         add_compile_options(-mavx2)
     endif()
 endif()
+
+if (ARCH_ARM)
+    add_compile_options(-march=armv8-a+crc)
+endif()
+#
 
 if (WITH_MYSQL)
     add_compile_options(-DDORIS_WITH_MYSQL)
@@ -649,7 +659,8 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE")
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE)
+    add_link_options(-fprofile-instr-generate)
 endif ()
 
 if (MAKE_TEST)
@@ -756,4 +767,5 @@ get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTO
 foreach(dir ${dirs})
     message(STATUS "dir='${dir}'")
 endforeach()
+
 

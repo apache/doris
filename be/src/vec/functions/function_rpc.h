@@ -95,11 +95,7 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) override;
-
-    bool is_deterministic() const override { return false; }
-
-    bool is_deterministic_in_scope_of_query() const override { return false; }
+                   size_t result, size_t input_rows_count, bool dry_run = false) const override;
 
     bool is_use_default_implementation_for_constants() const override { return true; }
 

@@ -52,6 +52,9 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         );
     """
 
+    sql """drop catalog ${file_ctl_name}""";
+    sql """drop catalog ${hms_ctl_name}""";
+
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
             def all = """select * from all_table order by c1;"""
@@ -165,6 +168,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             def c99= """select c73[30] from complex_all;"""
 
             def c100= """select * from array_nested order by c1;"""
+
+            def c101="""select * from all_table where c1 is not null or c2 is not null order by c1"""
 
             String hdfs_port = context.config.otherConfigs.get("hdfs_port")
             String catalog_name = "paimon1"
@@ -284,6 +289,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
+            qt_c101 c101
 
             // test view from jion paimon
             sql """ switch internal """

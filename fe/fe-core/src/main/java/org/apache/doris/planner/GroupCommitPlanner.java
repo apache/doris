@@ -107,6 +107,7 @@ public class GroupCommitPlanner {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
+        // TODO support pipeline
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
@@ -116,6 +117,7 @@ public class GroupCommitPlanner {
                         TFileCompressType.PLAIN);
             }
         }
+        tRequest.query_options.setEnablePipelineEngine(false);
         List<TScanRangeParams> scanRangeParams = tRequest.params.per_node_scan_ranges.values().stream()
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
@@ -151,9 +153,6 @@ public class GroupCommitPlanner {
             }
         }
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
-                .setDbId(db.getId())
-                .setTableId(table.getId())
-                .setBaseSchemaVersion(table.getBaseSchemaVersion())
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
                         .setCompact(false).setVersion(InternalService.PFragmentRequestVersion.VERSION_2).build())

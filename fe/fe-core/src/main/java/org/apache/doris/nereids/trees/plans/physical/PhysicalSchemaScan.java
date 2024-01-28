@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -36,12 +36,12 @@ import java.util.Optional;
  */
 public class PhysicalSchemaScan extends PhysicalCatalogRelation {
 
-    public PhysicalSchemaScan(RelationId id, SchemaTable table, List<String> qualifier,
+    public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 
-    public PhysicalSchemaScan(RelationId id, SchemaTable table, List<String> qualifier,
+    public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression,
@@ -49,8 +49,8 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     }
 
     @Override
-    public SchemaTable getTable() {
-        return (SchemaTable) table;
+    public TableIf getTable() {
+        return table;
     }
 
     @Override

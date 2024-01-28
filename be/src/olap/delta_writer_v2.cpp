@@ -53,6 +53,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
@@ -63,17 +64,11 @@
 namespace doris {
 using namespace ErrorCode;
 
-std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
-        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
-    std::unique_ptr<DeltaWriterV2> writer(
-            new DeltaWriterV2(req, streams, StorageEngine::instance()));
-    return writer;
-}
-
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine)
-        : _req(*req),
+                             RuntimeState* state)
+        : _state(state),
+          _req(*req),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -102,10 +97,11 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
+    DBUG_EXECUTE_IF("DeltaWriterV2.init.stream_size", { _streams.clear(); });
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
+    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                  *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -124,7 +120,7 @@ Status DeltaWriterV2::init() {
     context.tablet_schema_hash = _req.schema_hash;
     context.enable_unique_key_merge_on_write = _streams[0]->enable_unique_mow(_req.index_id);
     context.rowset_type = RowsetTypePB::BETA_ROWSET;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    context.rowset_id = ExecEnv::GetInstance()->storage_engine().next_rowset_id();
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
 
@@ -156,8 +152,13 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     }
     {
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);
-        while (_memtable_writer->flush_running_count() >=
-               config::memtable_flush_running_count_limit) {
+        auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
+        DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
+                        { memtable_flush_running_count_limit = 0; });
+        while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
+            if (_state->is_cancelled()) {
+                return Status::Cancelled(_state->cancel_reason());
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }

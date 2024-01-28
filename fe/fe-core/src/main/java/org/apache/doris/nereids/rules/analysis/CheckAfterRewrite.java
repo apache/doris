@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -106,14 +107,18 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                 .collect(Collectors.toSet());
         notFromChildren = removeValidSlotsNotFromChildren(notFromChildren, childrenOutput);
         if (!notFromChildren.isEmpty()) {
-            throw new AnalysisException(String.format("Input slot(s) not in child's output: %s in plan: %s,"
-                            + " child output is: %s\n" + "plan tree:\n" + plan.treeString(),
-                    StringUtils.join(notFromChildren.stream()
-                            .map(ExpressionTrait::toString)
-                            .collect(Collectors.toSet()), ", "), plan,
-                    plan.children().stream()
-                            .flatMap(child -> child.getOutput().stream())
-                            .collect(Collectors.toSet())));
+            if (plan.child(0) instanceof LogicalAggregate) {
+                throw new AnalysisException(String.format("%s not in agg's output", notFromChildren
+                        .stream().map(slot -> slot.getName()).collect(Collectors.joining(", "))));
+            } else {
+                throw new AnalysisException(String.format(
+                        "Input slot(s) not in child's output: %s in plan: %s,"
+                                + " child output is: %s\n" + "plan tree:\n" + plan.treeString(),
+                        StringUtils.join(notFromChildren.stream().map(ExpressionTrait::toString)
+                                .collect(Collectors.toSet()), ", "),
+                        plan, plan.children().stream().flatMap(child -> child.getOutput().stream())
+                                .collect(Collectors.toSet())));
+            }
         }
     }
 
@@ -177,7 +182,9 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         if (plan.getExpressions().stream().anyMatch(
                 expression -> expression instanceof Match)) {
             if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
-                    || plan.child(0) instanceof LogicalDeferMaterializeOlapScan)) {
+                    || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
+                    || plan.child(0) instanceof LogicalProject
+                        && ((LogicalProject<?>) plan.child(0)).isPulledUpProjectFromScan())) {
                 return;
             } else {
                 throw new AnalysisException(String.format(

@@ -121,7 +121,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
     DataDistribution required_data_distribution() const override {
-        return {ExchangeType::PASSTHROUGH};
+        return DataSinkOperatorX<StreamingAggSinkLocalState>::required_data_distribution();
     }
 };
 

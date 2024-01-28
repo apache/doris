@@ -83,7 +83,8 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && checkWal(backend)) {
+            boolean hasWal = checkWal(backend);
+            if (Config.drop_backend_after_decommission && checkTablets(beId, backendTabletIds) && hasWal) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no available tablet on decommission backend {}, drop it", beId);
@@ -94,8 +95,9 @@ public class SystemHandler extends AlterHandler {
                 continue;
             }
 
-            LOG.info("backend {} lefts {} replicas to decommission: {}", beId, backendTabletIds.size(),
-                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())));
+            LOG.info("backend {} lefts {} replicas to decommission: {}{}", beId, backendTabletIds.size(),
+                    backendTabletIds.subList(0, Math.min(10, backendTabletIds.size())),
+                    hasWal ? "; and has unfinished WALs" : "");
         }
     }
 
@@ -150,7 +152,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AddObserverClause) {
             AddObserverClause clause = (AddObserverClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
-                    clause.getPort());
+                    clause.getPort(), "");
         } else if (alterClause instanceof DropObserverClause) {
             DropObserverClause clause = (DropObserverClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.OBSERVER, clause.getHost(),
@@ -158,7 +160,7 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AddFollowerClause) {
             AddFollowerClause clause = (AddFollowerClause) alterClause;
             Env.getCurrentEnv().addFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
-                    clause.getPort());
+                    clause.getPort(), "");
         } else if (alterClause instanceof DropFollowerClause) {
             DropFollowerClause clause = (DropFollowerClause) alterClause;
             Env.getCurrentEnv().dropFrontend(FrontendNodeType.FOLLOWER, clause.getHost(),
@@ -197,8 +199,7 @@ public class SystemHandler extends AlterHandler {
     }
 
     private boolean checkWal(Backend backend) {
-        return Env.getCurrentEnv().getGroupCommitManager()
-                .getAllWalQueueSize(backend) == 0;
+        return Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend) == 0;
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)

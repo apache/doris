@@ -17,7 +17,6 @@
 
 package org.apache.doris.httpv2.controller;
 
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -27,9 +26,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 
@@ -71,8 +68,7 @@ public class BaseController {
             UserIdentity currentUser = checkPassword(authInfo);
 
             if (checkAuth) {
-                checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                checkGlobalAuth(currentUser, PrivPredicate.ADMIN);
             }
 
             SessionValue value = new SessionValue();
@@ -129,8 +125,7 @@ public class BaseController {
         }
 
         if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                        Privilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+                PrivPredicate.ADMIN)) {
             // need to check auth and check auth failed
             return null;
         }

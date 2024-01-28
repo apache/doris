@@ -54,6 +54,11 @@ struct JdbcConnectorParam {
     std::string table_name;
     bool use_transaction;
     TOdbcTableType::type table_type;
+    int32_t min_pool_size;
+    int32_t max_pool_size;
+    int32_t max_idle_time;
+    int32_t max_wait_time;
+    bool keep_alive;
 
     const TupleDescriptor* tuple_desc = nullptr;
 };

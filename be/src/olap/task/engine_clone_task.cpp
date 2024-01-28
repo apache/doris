@@ -136,9 +136,11 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
         }                              \
     } while (false)
 
-EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& master_info,
-                                 int64_t signature, std::vector<TTabletInfo>* tablet_infos)
-        : _clone_req(clone_req),
+EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_req,
+                                 const TMasterInfo& master_info, int64_t signature,
+                                 std::vector<TTabletInfo>* tablet_infos)
+        : _engine(engine),
+          _clone_req(clone_req),
           _tablet_infos(tablet_infos),
           _signature(signature),
           _master_info(master_info) {
@@ -150,11 +152,11 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 Status EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
     SCOPED_ATTACH_TASK(_mem_tracker);
-    if (!StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
+    if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
         return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
     }
     Status st = _do_clone();
-    StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+    _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
     return st;
 }
 
@@ -167,21 +169,26 @@ Status EngineCloneTask::_do_clone() {
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(_clone_req.tablet_id);
 
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
-    // change failure. It should not provide normal read and write, so drop it here.
+    // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
+    // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
     if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
-        RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
-                tablet->tablet_id(), tablet->replica_id(), false));
+        // can not drop tablet when under clone. so unregister clone tablet firstly.
+        _engine.tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);
+        RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),
+                                                              tablet->replica_id(), false));
+        if (!_engine.tablet_manager()->register_clone_tablet(_clone_req.tablet_id)) {
+            return Status::InternalError("tablet {} is under clone", _clone_req.tablet_id);
+        }
         tablet.reset();
     }
     bool is_new_tablet = tablet == nullptr;
     // try to incremental clone
-    std::vector<Version> missed_versions;
+    Versions missed_versions;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
@@ -202,8 +209,7 @@ Status EngineCloneTask::_do_clone() {
 
         int64_t specified_version = _clone_req.version;
         if (tablet->enable_unique_key_merge_on_write()) {
-            int64_t min_pending_ver =
-                    StorageEngine::instance()->get_pending_publish_min_version(tablet->tablet_id());
+            int64_t min_pending_ver = _engine.get_pending_publish_min_version(tablet->tablet_id());
             if (min_pending_ver - 1 < specified_version) {
                 LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
                           << min_pending_ver << " visible_version: " << _clone_req.version;
@@ -211,7 +217,7 @@ Status EngineCloneTask::_do_clone() {
             }
         }
 
-        tablet->calc_missed_versions(specified_version, &missed_versions);
+        missed_versions = tablet->get_missed_versions(specified_version);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
@@ -245,9 +251,9 @@ Status EngineCloneTask::_do_clone() {
         // Get local disk from olap
         string local_shard_root_path;
         DataDir* store = nullptr;
-        RETURN_IF_ERROR(StorageEngine::instance()->obtain_shard_path(
-                _clone_req.storage_medium, _clone_req.dest_path_hash, &local_shard_root_path,
-                &store));
+        RETURN_IF_ERROR(_engine.obtain_shard_path(_clone_req.storage_medium,
+                                                  _clone_req.dest_path_hash, &local_shard_root_path,
+                                                  &store, _clone_req.partition_id));
         auto tablet_dir = fmt::format("{}/{}/{}", local_shard_root_path, _clone_req.tablet_id,
                                       _clone_req.schema_hash);
 
@@ -268,7 +274,7 @@ Status EngineCloneTask::_do_clone() {
 
         LOG(INFO) << "clone copy done. src_host: " << src_host.host
                   << " src_file_path: " << src_file_path;
-        auto tablet_manager = StorageEngine::instance()->tablet_manager();
+        auto tablet_manager = _engine.tablet_manager();
         RETURN_IF_ERROR_(status, tablet_manager->load_tablet_from_dir(store, _clone_req.tablet_id,
                                                                       _clone_req.schema_hash,
                                                                       tablet_dir, false));
@@ -293,7 +299,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     tablet_info.__set_tablet_id(_clone_req.tablet_id);
     tablet_info.__set_replica_id(_clone_req.replica_id);
     tablet_info.__set_schema_hash(_clone_req.schema_hash);
-    RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
+    RETURN_IF_ERROR(_engine.tablet_manager()->report_tablet_info(&tablet_info));
     if (_clone_req.__isset.version && tablet_info.version < _clone_req.version) {
         // if it is a new tablet and clone failed, then remove the tablet
         // if it is incremental clone, then must not drop the tablet
@@ -306,8 +312,8 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
                          << ", expected_version: " << _clone_req.version;
-            WARN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
-                                  _clone_req.tablet_id, _clone_req.replica_id, false),
+            WARN_IF_ERROR(_engine.tablet_manager()->drop_tablet(_clone_req.tablet_id,
+                                                                _clone_req.replica_id, false),
                           "drop stale cloned table failed");
         }
         return Status::InternalError("unexpected version. tablet version: {}, expected version: {}",
@@ -396,7 +402,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
             continue; // Try another BE
         }
         // No need to try again with another BE
-        _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+        _pending_rs_guards = DORIS_TRY(_engine.snapshot_mgr()->convert_rowset_ids(
                 local_data_path, _clone_req.tablet_id, _clone_req.replica_id,
                 _clone_req.partition_id, _clone_req.schema_hash));
         break;
@@ -733,8 +739,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
-    std::vector<Version> missed_versions;
-    tablet->calc_missed_versions_unlocked(version, &missed_versions);
+    Versions missed_versions = tablet->get_missed_versions_unlocked(version);
     VLOG_NOTICE << "get missed versions again when finish incremental clone. "
                 << "tablet=" << tablet->tablet_id() << ", clone version=" << version
                 << ", missed_versions_size=" << missed_versions.size();
@@ -809,7 +814,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     {
         std::shared_lock cooldown_conf_rlock(tablet->get_cooldown_conf_lock());
-        if (tablet->cooldown_conf_unlocked().first == tablet->replica_id()) {
+        if (tablet->cooldown_conf_unlocked().cooldown_replica_id == tablet->replica_id()) {
             // If this replica is cooldown replica, MUST generate a new `cooldown_meta_id` to avoid use `cooldown_meta_id`
             // generated in old cooldown term which may lead to such situation:
             // Replica A is cooldown replica, cooldown_meta_id=2,

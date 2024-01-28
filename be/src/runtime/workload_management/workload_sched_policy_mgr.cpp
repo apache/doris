@@ -78,7 +78,9 @@ void WorkloadSchedPolicyMgr::_schedule_workload() {
         std::vector<WorkloadQueryInfo> list;
         _exec_env->fragment_mgr()->get_runtime_query_info(&list);
         // todo: add timer
-        LOG(INFO) << "[workload_schedule] get query list size=" << list.size();
+        if (list.size() == 0) {
+            continue;
+        }
 
         for (int i = 0; i < list.size(); i++) {
             WorkloadQueryInfo* query_info_ptr = &(list[i]);

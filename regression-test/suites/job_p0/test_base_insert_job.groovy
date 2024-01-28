@@ -26,32 +26,32 @@ suite("test_base_insert_job") {
     def jobMixedName = "Insert_recovery_Test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-       DROP JOB where jobname =  'JOB'
+       DROP JOB IF EXISTS where jobname =  'JOB'
     """
     sql """
-       DROP JOB where jobname =  'DO'
+       DROP JOB IF EXISTS where jobname =  'DO'
     """
     sql """
-       DROP JOB where jobname =  'AT'
+       DROP JOB IF EXISTS where jobname =  'AT'
     """
     sql """
-       DROP JOB where jobname =  'SCHEDULE'
+       DROP JOB IF EXISTS where jobname =  'SCHEDULE'
     """
     sql """
-       DROP JOB where jobname =  'STARTS'
+       DROP JOB IF EXISTS where jobname =  'STARTS'
     """
     sql """
-       DROP JOB where jobname =  'ENDS'
+       DROP JOB IF EXISTS where jobname =  'ENDS'
     """
     sql """
-        DROP JOB where jobname =  '${jobMixedName}'
+        DROP JOB IF EXISTS where jobname =  '${jobMixedName}'
     """
 
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
     sql """
@@ -71,9 +71,18 @@ suite("test_base_insert_job") {
        CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
     Thread.sleep(2500)
-    def jobs = sql """select * from ${tableName}"""
-    println jobs
-    assert 3 >= jobs.size() >= (2 as Boolean) //at least 2 records, some times 3 records
+    sql """
+        PAUSE JOB where jobname =  '${jobName}'
+    """
+    def tblDatas = sql """select * from ${tableName}"""
+    println tblDatas
+    assert 3 >= tblDatas.size() >= (2 as Boolean) //at least 2 records, some times 3 records
+    def pauseJobId = sql """select id from jobs("type"="insert") where Name='${jobName}'"""
+    def taskStatus = sql """select status from tasks("type"="insert") where jobid= '${pauseJobId.get(0).get(0)}'"""
+    println taskStatus
+    for (int i = 0; i < taskStatus.size(); i++) {
+        assert taskStatus.get(i).get(0) != "FAILED"||taskStatus.get(i).get(0) != "STOPPED"||taskStatus.get(i).get(0) != "STOPPED"
+    }
     sql """
        CREATE JOB ${jobMixedName}  ON SCHEDULE every 1 second  DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
@@ -82,10 +91,10 @@ suite("test_base_insert_job") {
     assert mixedNameJobs.size() == 1 && mixedNameJobs.get(0).get(0) == jobMixedName
     assert mixedNameJobs.get(0).get(1) == ''
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
     sql """
-        DROP JOB where jobname =  '${jobMixedName}'
+        DROP JOB IF EXISTS where jobname =  '${jobMixedName}'
     """
 
     sql """drop table if exists `${tableName}` force """
@@ -132,9 +141,8 @@ suite("test_base_insert_job") {
     sql """cancel  task where jobName='${jobName}' and taskId= ${taskId}"""
     def cancelTask = sql """ select status from tasks("type"="insert") where jobid= ${onceJobId}"""
     println cancelTask
-    //check task status
-    assert cancelTask.size() == 1
-    assert cancelTask.get(0).get(0) == "CANCELED"
+    //check task size is 0, cancel task where be deleted
+    assert cancelTask.size() == 0
     // check table data
     def dataCount1 = sql """select count(1) from ${tableName}"""
     assert dataCount1.get(0).get(0) == 0
@@ -145,7 +153,7 @@ suite("test_base_insert_job") {
     //assert comment
     assert oncejob.get(0).get(1) == "test for test&68686781jbjbhj//ncsa"
     sql """
-        DROP JOB where jobname =  '${jobName}'
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
     sql """
@@ -161,14 +169,14 @@ suite("test_base_insert_job") {
     assert job.size() == 1
     def jobId = job.get(0).get(0);
     def tasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
-    assert tasks.size() == 1
+    assert tasks.size() == 0
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     Thread.sleep(2500)
     def resumeTasks = sql """ select status from tasks("type"="insert") where jobid= ${jobId}  """
     println resumeTasks
-    assert resumeTasks.size() == 2
+    assert resumeTasks.size() == 1
     // assert same job name
     try {
         sql """

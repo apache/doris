@@ -39,7 +39,7 @@ public:
     OlapTableSinkV2Operator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkV2OperatorX;
@@ -104,6 +104,7 @@ public:
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

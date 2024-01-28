@@ -356,13 +356,17 @@ class DownCommand(Command):
             cluster, args.fe_id, args.be_id, ignore_not_exists=True)
 
         if for_all:
-            utils.exec_docker_compose_command(cluster.get_compose_file(),
-                                              "down",
-                                              ["-v", "--remove-orphans"])
+            if os.path.exists(cluster.get_compose_file()):
+                try:
+                    utils.exec_docker_compose_command(
+                        cluster.get_compose_file(), "down",
+                        ["-v", "--remove-orphans"])
+                except Exception as e:
+                    LOG.warn("down cluster has exception: " + str(e))
             try:
                 utils.remove_docker_network(cluster.name)
             except Exception as e:
-                LOG.warn("prune network has exception: " + str(e))
+                LOG.warn("remove network has exception: " + str(e))
             if args.clean:
                 utils.enable_dir_with_rw_perm(cluster.get_path())
                 shutil.rmtree(cluster.get_path())

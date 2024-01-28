@@ -338,15 +338,17 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter() {
+    void change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
-        // BloomFilter may be not init
-        static_cast<void>(bf->init_with_fixed_length());
-        insert_to_bloom_filter(bf);
+        if (need_init_bf) {
+            // BloomFilter may be not init
+            static_cast<void>(bf->init_with_fixed_length());
+            insert_to_bloom_filter(bf);
+        }
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
@@ -453,9 +455,11 @@ public:
                           std::vector<vectorized::VExprSPtr>& push_exprs, const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
-                                         (wrapper->_filter_type != RuntimeFilterType::IN_FILTER &&
-                                          wrapper->_filter_type != RuntimeFilterType::BLOOM_FILTER);
+        bool can_not_merge_in_or_bloom =
+                _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                (wrapper->_filter_type != RuntimeFilterType::IN_FILTER &&
+                 wrapper->_filter_type != RuntimeFilterType::BLOOM_FILTER &&
+                 wrapper->_filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
         bool can_not_merge_other = _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER &&
                                    _filter_type != wrapper->_filter_type;
@@ -513,8 +517,15 @@ public:
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             auto real_filter_type = _is_bloomfilter ? RuntimeFilterType::BLOOM_FILTER
                                                     : RuntimeFilterType::IN_FILTER;
+
+            auto other_filter_type = wrapper->_filter_type;
+            if (other_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+                other_filter_type = wrapper->_is_bloomfilter ? RuntimeFilterType::BLOOM_FILTER
+                                                             : RuntimeFilterType::IN_FILTER;
+            }
+
             if (real_filter_type == RuntimeFilterType::IN_FILTER) {
-                if (wrapper->_filter_type == RuntimeFilterType::IN_FILTER) { // in merge in
+                if (other_filter_type == RuntimeFilterType::IN_FILTER) { // in merge in
                     CHECK(!wrapper->_is_ignored_in_filter)
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
@@ -524,19 +535,17 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter();
+                        change_to_bloom_filter(true);
                     }
-                    // in merge bloom filter
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                << ") because: already exist a bloom filter";
-                    change_to_bloom_filter();
+                    change_to_bloom_filter(true);
                     RETURN_IF_ERROR(_context.bloom_filter_func->merge(
                             wrapper->_context.bloom_filter_func.get()));
                 }
             } else {
-                if (wrapper->_filter_type ==
-                    RuntimeFilterType::IN_FILTER) { // bloom filter merge in
+                if (other_filter_type == RuntimeFilterType::IN_FILTER) { // bloom filter merge in
                     CHECK(!wrapper->_is_ignored_in_filter)
                             << " can not ignore merge runtime filter(in filter id "
                             << wrapper->_filter_id << ") when used IN_OR_BLOOM_FILTER, ignore msg: "
@@ -985,9 +994,9 @@ Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int*
     return Status::OK();
 }
 
-Status IRuntimeFilter::publish() {
+Status IRuntimeFilter::publish(bool publish_local) {
     DCHECK(is_producer());
-    if (_is_global) {
+    if (_is_global && _has_local_target) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
                 _filter_id, filters));
@@ -1010,13 +1019,17 @@ Status IRuntimeFilter::publish() {
             filter->update_runtime_filter_type_to_profile();
             filter->signal();
         }
-        return Status::OK();
-    } else {
+    } else if (!publish_local) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
         return push_to_remote(_state, &addr, _opt_remote_rf);
+    } else {
+        // remote broadcast join only push onetime in build shared hash table
+        // publish_local only set true on copy shared hash table
+        DCHECK(_is_broadcast_join);
     }
+    return Status::OK();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
@@ -1153,6 +1166,14 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
+void IRuntimeFilter::set_ignored(const std::string& msg) {
+    _is_ignored = true;
+    if (_wrapper->_filter_type == RuntimeFilterType::IN_FILTER) {
+        _wrapper->_is_ignored_in_filter = true;
+        _wrapper->_ignored_in_filter_msg = _pool->add(new std::string(msg));
+    }
+}
+
 BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
     return _wrapper->get_bloomfilter();
 }
@@ -1177,9 +1198,12 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.max_in_num = options->runtime_filter_max_in_num;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
-    // 2. Do not have remote target (e.g. do not need to merge)
+    // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
     // 3. Bloom filter
-    params.build_bf_exactly = build_bf_exactly && !_has_remote_target &&
+    // 4. FE do not use ndv stat to predict the bf size, only the row count. BE have more
+    // exactly row count stat
+    params.build_bf_exactly = build_bf_exactly && !desc->bloom_filter_size_calculated_by_ndv &&
+                              (!_has_remote_target || _is_broadcast_join) &&
                               (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                                _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {
@@ -1340,14 +1364,14 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     if (!_is_ignored && wrapper->is_ignored_in_filter()) {
-        set_ignored();
-        set_ignored_msg(*(wrapper->get_ignored_in_filter_msg()));
+        std::string* msg = wrapper->get_ignored_in_filter_msg();
+        set_ignored(msg ? *msg : "");
     }
     auto origin_type = _wrapper->get_real_type();
     Status status = _wrapper->merge(wrapper);
     if (!_is_ignored && _wrapper->is_ignored_in_filter()) {
-        set_ignored();
-        set_ignored_msg(*(_wrapper->get_ignored_in_filter_msg()));
+        std::string* msg = _wrapper->get_ignored_in_filter_msg();
+        set_ignored(msg ? *msg : "");
     }
     if (origin_type != _wrapper->get_real_type()) {
         update_runtime_filter_type_to_profile();
@@ -1652,10 +1676,8 @@ bool IRuntimeFilter::is_bloomfilter() {
 
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
-        set_ignored();
         const PInFilter in_filter = param->request->in_filter();
-        auto msg = param->pool->add(new std::string(in_filter.ignored_msg()));
-        set_ignored_msg(*msg);
+        set_ignored(in_filter.ignored_msg());
     }
     std::unique_ptr<RuntimePredicateWrapper> wrapper;
     RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, &wrapper));
@@ -1673,10 +1695,8 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
 Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
                                      int64_t start_apply) {
     if (param->request->has_in_filter() && param->request->in_filter().has_ignored_msg()) {
-        set_ignored();
         const PInFilter in_filter = param->request->in_filter();
-        auto msg = param->pool->add(new std::string(in_filter.ignored_msg()));
-        set_ignored_msg(*msg);
+        set_ignored(in_filter.ignored_msg());
     }
 
     std::unique_ptr<RuntimePredicateWrapper> tmp_wrapper;

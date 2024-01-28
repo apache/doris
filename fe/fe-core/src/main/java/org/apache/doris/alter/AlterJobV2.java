@@ -217,7 +217,7 @@ public abstract class AlterJobV2 implements Writable {
                 default:
                     break;
             }
-        } catch (AlterCancelException e) {
+        } catch (Exception e) {
             cancelImpl(e.getMessage());
         }
     }
@@ -260,7 +260,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    protected abstract void runPendingJob() throws AlterCancelException;
+    protected abstract void runPendingJob() throws Exception;
 
     protected abstract void runWaitingTxnJob() throws AlterCancelException;
 

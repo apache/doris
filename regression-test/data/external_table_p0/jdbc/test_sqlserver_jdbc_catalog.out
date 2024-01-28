@@ -120,5 +120,6 @@ db_owner
 db_securityadmin
 dbo
 guest
+information_schema
 sys
 

@@ -94,6 +94,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -200,6 +201,8 @@ public class OlapScanNode extends ScanNode {
 
     private boolean shouldColoScan = false;
 
+    protected List<Expr> rewrittenProjectList;
+
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
@@ -253,6 +256,10 @@ public class OlapScanNode extends ScanNode {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
         }
+    }
+
+    public void setRewrittenProjectList(List<Expr> rewrittenProjectList) {
+        this.rewrittenProjectList = rewrittenProjectList;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -555,7 +562,6 @@ public class OlapScanNode extends ScanNode {
             computePartitionInfo();
         }
         computeTupleState(analyzer);
-        computeSampleTabletIds();
 
         /**
          * Compute InAccurate cardinality before mv selector and tablet pruning.
@@ -723,9 +729,37 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    // Update the visible version of the scan range locations.
+    public void updateScanRangeVersions(Map<Long, Long> visibleVersionMap) {
+        Map<Long, TScanRangeLocations> locationsMap = scanRangeLocations.stream()
+                .collect(Collectors.toMap(loc -> loc.getScanRange().getPaloScanRange().getTabletId(), loc -> loc));
+        for (Long partitionId : selectedPartitionIds) {
+            final Partition partition = olapTable.getPartition(partitionId);
+            final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
+            final List<Tablet> tablets = selectedTable.getTablets();
+            Long visibleVersion = visibleVersionMap.get(partitionId);
+            assert visibleVersion != null : "the acquried version is not exists in the visible version map";
+            String visibleVersionStr = String.valueOf(visibleVersion);
+            for (Tablet tablet : tablets) {
+                TScanRangeLocations locations = locationsMap.get(tablet.getId());
+                if (locations == null) {
+                    continue;
+                }
+                TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+                scanRange.setVersion(visibleVersionStr);
+            }
+        }
+    }
+
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets) throws UserException {
-        long visibleVersion = partition.getVisibleVersion();
+        long visibleVersion = Partition.PARTITION_INIT_VERSION;
+
+        // For cloud mode, set scan range visible version in Coordinator.exec so that we could
+        // assign a snapshot version of all partitions.
+        if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
+            visibleVersion = partition.getVisibleVersion();
+        }
         String visibleVersionStr = String.valueOf(visibleVersion);
 
         Set<Tag> allowedTags = Sets.newHashSet();
@@ -764,8 +798,14 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
+            //
+            // ATTN: visibleVersion is not used in cloud mode, see CloudReplica.checkVersionCatchup
+            // for details.
             List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, skipMissingVersion);
             if (replicas.isEmpty()) {
+                if (ConnectContext.get().getSessionVariable().skipBadTablet) {
+                    continue;
+                }
                 LOG.warn("no queryable replica found in tablet {}. visible version {}", tabletId, visibleVersion);
                 StringBuilder sb = new StringBuilder(
                         "Failed to get scan range, no queryable replica found in tablet: " + tabletId);
@@ -778,7 +818,7 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
-            if (useFixReplica == -1) {
+            if (useFixReplica <= -1) {
                 if (skipMissingVersion) {
                     // sort by replica's last success version, higher success version in the front.
                     replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
@@ -786,7 +826,7 @@ public class OlapScanNode extends ScanNode {
                     Collections.shuffle(replicas);
                 }
             } else {
-                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
@@ -949,6 +989,7 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(selectedIndexId != -1);
         // compute tablet info by selected index id and selected partition ids
         long start = System.currentTimeMillis();
+        computeSampleTabletIds();
         computeTabletInfo();
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
@@ -971,9 +1012,7 @@ public class OlapScanNode extends ScanNode {
         long selectedRows = 0;
         long totalSampleRows = 0;
         List<Long> selectedPartitionList = new ArrayList<>();
-        if (FeConstants.runningUnitTest && selectedIndexId == -1) {
-            selectedIndexId = olapTable.getBaseIndexId();
-        }
+        Preconditions.checkState(selectedIndexId != -1);
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedIndex = partition.getIndex(selectedIndexId);
@@ -1001,6 +1040,7 @@ public class OlapScanNode extends ScanNode {
 
         // 3. Sampling partition. If Seek is specified, the partition will be the same for each sampling.
         long hitRows = 0; // The number of rows hit by the tablet
+        Set<Long> hitTabletIds = Sets.newHashSet();
         long partitionSeek = tableSample.getSeek() != -1
                 ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * selectedPartitionList.size());
         for (int i = 0; i < selectedPartitionList.size(); i++) {
@@ -1026,16 +1066,24 @@ public class OlapScanNode extends ScanNode {
                     ? tableSample.getSeek() : (long) (new SecureRandom().nextDouble() * tablets.size());
             for (int j = 0; j < tablets.size(); j++) {
                 int seekTid = (int) ((j + tabletSeek) % tablets.size());
+                Tablet tablet = tablets.get(seekTid);
+                if (sampleTabletIds.size() != 0 && !sampleTabletIds.contains(tablet.getId())) {
+                    // After PruneOlapScanTablet, sampleTabletIds.size() != 0,
+                    // continue sampling only in sampleTabletIds.
+                    // If it is percentage sample, the number of sampled rows is a percentage of the
+                    // total number of rows, and It is not related to sampleTabletI after PruneOlapScanTablet.
+                    continue;
+                }
                 long tabletRowCount;
                 if (!FeConstants.runningUnitTest) {
-                    tabletRowCount = tablets.get(seekTid).getRowCount(true);
+                    tabletRowCount = tablet.getRowCount(true);
                 } else {
                     tabletRowCount = selectedTable.getRowCount() / tablets.size();
                 }
                 if (tabletRowCount == 0) {
                     continue;
                 }
-                sampleTabletIds.add(tablets.get(seekTid).getId());
+                hitTabletIds.add(tablet.getId());
                 sampleRows -= tabletRowCount;
                 hitRows += tabletRowCount;
                 if (sampleRows <= 0) {
@@ -1046,7 +1094,15 @@ public class OlapScanNode extends ScanNode {
                 break;
             }
         }
-        LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}", hitRows, selectedRows);
+        if (sampleTabletIds.size() != 0) {
+            sampleTabletIds.retainAll(hitTabletIds);
+            LOG.debug("after computeSampleTabletIds, hitRows {}, totalRows {}, selectedTablets {}, sampleRows {}",
+                    hitRows, selectedRows, sampleTabletIds.size(), totalSampleRows);
+        } else {
+            sampleTabletIds = hitTabletIds;
+            LOG.debug("after computeSampleTabletIds, hitRows {}, selectedRows {}, sampleRows {}", hitRows, selectedRows,
+                    totalSampleRows);
+        }
     }
 
     public boolean isFromPrepareStmt() {
@@ -1283,6 +1339,11 @@ public class OlapScanNode extends ScanNode {
         }
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT");
+        }
+
+        if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
+            output.append(prefix).append("rewrittenProjectList: ").append(
+                    getExplainString(rewrittenProjectList)).append("\n");
         }
 
         return output.toString();
@@ -1720,6 +1781,11 @@ public class OlapScanNode extends ScanNode {
         }
 
         return true;
+    }
+
+    @Override
+    public int getScanRangeNum() {
+        return getScanTabletIds().size();
     }
 }
 

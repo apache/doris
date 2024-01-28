@@ -48,6 +48,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.CaseWhenToIf;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
@@ -56,6 +57,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.FunctionAlias;
 import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.MatchPredicateRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
@@ -151,9 +153,11 @@ public class Analyzer {
     // map from tuple id to the current output column index
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
     // used for Information Schema Table Scan
-    private String schemaDb;
+    // This 3 fields is used for optimize the data fetching from FE,
+    // for stmt such as `show columns like`, `show databases like`, `show tables like`
+    // if can pre-filter the data in FrontendServiceImpl to reduce the data fetching from FE.
     private String schemaCatalog;
-    private String schemaWild;
+    private String schemaDb;
     private String schemaTable; // table used in DESCRIBE Table
 
     // Current depth of nested analyze() calls. Used for enforcing a
@@ -456,6 +460,8 @@ public class Analyzer {
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             rules.add(ElementAtToSlotRefRule.INSTANCE);
+            rules.add(FunctionAlias.INSTANCE);
+            rules.add(CaseWhenToIf.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -2354,19 +2360,14 @@ public class Analyzer {
         return globalState.context;
     }
 
-    public String getSchemaWild() {
-        return schemaWild;
-    }
-
     public TQueryGlobals getQueryGlobals() {
         return new TQueryGlobals();
     }
 
     // for Schema Table Schema like SHOW TABLES LIKE "abc%"
-    public void setSchemaInfo(String db, String table, String wild, String catalog) {
+    public void setSchemaInfo(String db, String table, String catalog) {
         schemaDb = db;
         schemaTable = table;
-        schemaWild = wild;
         schemaCatalog = catalog;
     }
 

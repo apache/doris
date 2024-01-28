@@ -75,9 +75,8 @@
     }
 namespace doris::segment_v2 {
 
-const char* WRITE_LOCK_FILE = "write.lock";
-const char* COMPOUND_FILE_EXTENSION = ".idx";
-const int64_t MAX_HEADER_DATA_SIZE = 1024 * 128; // 128k
+const char* const DorisCompoundDirectory::WRITE_LOCK_FILE = "write.lock";
+const char* const DorisCompoundDirectory::COMPOUND_FILE_EXTENSION = ".idx";
 
 DorisCompoundFileWriter::DorisCompoundFileWriter(CL_NS(store)::Directory* dir) {
     if (dir == nullptr) {
@@ -107,12 +106,12 @@ void DorisCompoundFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
     });
 }
 
-void DorisCompoundFileWriter::writeCompoundFile() {
+size_t DorisCompoundFileWriter::writeCompoundFile() {
     // list files in current dir
     std::vector<std::string> files;
     directory->list(&files);
     // remove write.lock file
-    auto it = std::find(files.begin(), files.end(), WRITE_LOCK_FILE);
+    auto it = std::find(files.begin(), files.end(), DorisCompoundDirectory::WRITE_LOCK_FILE);
     if (it != files.end()) {
         files.erase(it);
     }
@@ -130,7 +129,8 @@ void DorisCompoundFileWriter::writeCompoundFile() {
 
     io::Path cfs_path(((DorisCompoundDirectory*)directory)->getCfsDirName());
     auto idx_path = cfs_path.parent_path();
-    std::string idx_name = std::string(cfs_path.stem().c_str()) + COMPOUND_FILE_EXTENSION;
+    std::string idx_name =
+            std::string(cfs_path.stem().c_str()) + DorisCompoundDirectory::COMPOUND_FILE_EXTENSION;
     // write file entries to ram directory to get header length
     lucene::store::RAMDirectory ram_dir;
     auto* out_idx = ram_dir.createOutput(idx_name.c_str());
@@ -152,7 +152,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
         ram_output->writeLong(0);               // data offset
         ram_output->writeLong(file.filesize);   // file length
         header_file_length += file.filesize;
-        if (header_file_length <= MAX_HEADER_DATA_SIZE) {
+        if (header_file_length <= DorisCompoundDirectory::MAX_HEADER_DATA_SIZE) {
             copyFile(file.filename.c_str(), ram_output.get(), ram_buffer, buffer_length);
             header_file_count++;
         }
@@ -171,6 +171,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
     std::unique_ptr<lucene::store::IndexOutput> output(out);
+    size_t start = output->getFilePointer();
     output->writeVInt(file_count);
     // write file entries
     int64_t data_offset = header_len;
@@ -203,7 +204,10 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     // NOTE: need to decrease ref count, but not to delete here,
     // because index cache may get the same directory from DIRECTORIES
     _CLDECDELETE(out_dir)
+    auto compound_file_size = output->getFilePointer() - start;
     output->close();
+    //LOG(INFO) << (idx_path / idx_name).c_str() << " size:" << compound_file_size;
+    return compound_file_size;
 }
 
 void DorisCompoundFileWriter::copyFile(const char* fileName, lucene::store::IndexOutput* output,
@@ -396,6 +400,13 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 void DorisCompoundDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fileSystem,
                                                  const char* path) {
     Status status = fileSystem->create_file(path, &_writer);
+    DBUG_EXECUTE_IF(
+            "DorisCompoundDirectory::FSIndexOutput._throw_clucene_error_in_fsindexoutput_"
+            "init",
+            {
+                status = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "debug point: test throw error in fsindexoutput init mock error");
+            })
     if (!status.ok()) {
         _writer.reset(nullptr);
         auto err = "Create compound file error: " + status.to_string();
@@ -634,7 +645,7 @@ void DorisCompoundDirectory::close() {
     if (useCompoundFileWriter) {
         auto* cfsWriter = _CLNEW DorisCompoundFileWriter(this);
         // write compound file
-        cfsWriter->writeCompoundFile();
+        compound_file_size = cfsWriter->writeCompoundFile();
         // delete index path, which contains separated inverted index files
         deleteDirectory();
         _CLDELETE(cfsWriter)
@@ -672,8 +683,7 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     if (exists) {
         LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu))
     }
-    LOG_AND_THROW_IF_ERROR(fs->rename_dir(old, nu),
-                           fmt::format("Rename {} to {} IO error", old, nu))
+    LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
 }
 
 lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* name) {
@@ -692,6 +702,8 @@ lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* nam
     try {
         ret->init(fs, fl);
     } catch (CLuceneError& err) {
+        ret->close();
+        _CLDELETE(ret)
         LOG(WARNING) << "FSIndexOutput init error: " << err.what();
         _CLTHROWA(CL_ERR_IO, "FSIndexOutput init error");
     }

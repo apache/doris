@@ -26,6 +26,7 @@
 #include <string>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -75,8 +76,11 @@ Status SchemaRowsetsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaRowsetsScanner::_get_all_rowsets() {
+    if (config::is_cloud_mode()) {
+        return Status::NotSupported("SchemaRowsetsScanner::_get_all_rowsets is not implemented");
+    }
     std::vector<TabletSharedPtr> tablets =
-            StorageEngine::instance()->tablet_manager()->get_all_tablet();
+            ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_all_tablet();
     for (const auto& tablet : tablets) {
         // all rowset
         std::vector<std::pair<Version, RowsetSharedPtr>> all_rowsets;

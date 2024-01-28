@@ -227,5 +227,5 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) 表函数查询指定表的 snapshot 信息。
+另外，可以使用 [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg-meta.md) 表函数查询指定表的 snapshot 信息。
 

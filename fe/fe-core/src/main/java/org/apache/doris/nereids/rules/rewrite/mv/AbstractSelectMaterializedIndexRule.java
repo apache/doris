@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -160,7 +161,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return true;
         }
         if (expression.children().isEmpty()) {
-            return false;
+            return expression instanceof VirtualSlotReference;
         }
         for (Expression child : expression.children()) {
             if (child instanceof Literal) {

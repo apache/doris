@@ -27,6 +27,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -339,7 +340,7 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("append_block_with_partial_content");
     }
@@ -468,21 +469,23 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
                                                   DeleteBitmap::TEMP_VERSION_COMMON},
                                                  segment_pos);
-            }
 
-            if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                std::string error_column;
-                for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
-                    const TabletColumn& col = _tablet_schema->column(cid);
-                    if (!col.has_default_value() && !col.is_nullable()) {
-                        error_column = col.name();
-                        break;
+            } else {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                    std::string error_column;
+                    for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
+                        const TabletColumn& col = _tablet_schema->column(cid);
+                        if (!col.has_default_value() && !col.is_nullable()) {
+                            error_column = col.name();
+                            break;
+                        }
                     }
+                    return Status::Error<INVALID_SCHEMA, false>(
+                            "the unmentioned column `{}` should have default value or be nullable "
+                            "for "
+                            "newly inserted rows in non-strict mode partial update",
+                            error_column);
                 }
-                return Status::Error<INVALID_SCHEMA, false>(
-                        "the unmentioned column `{}` should have default value or be nullable for "
-                        "newly inserted rows in non-strict mode partial update",
-                        error_column);
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
@@ -587,7 +590,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }

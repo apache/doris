@@ -172,30 +172,24 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 }
 
 void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
-    auto task_lock = ctx->get_task_execution_context().lock();
+    auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
-        // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
-        //             << " maybe finished";
+        LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
+                  << " maybe finished";
         return;
     }
     MonotonicStopWatch watch;
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
-    size_t size = 0;
-    Defer defer {[&]() {
-        ctx->incr_num_scanner_scheduling(size);
-        ctx->dec_num_scheduling_ctx();
-    }};
 
     if (ctx->done()) {
         return;
     }
 
-    std::list<VScannerSPtr> this_run;
+    std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
-    size = this_run.size();
-    if (!size) {
+    if (this_run.empty()) {
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
@@ -214,11 +208,18 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     if (ctx->thread_token != nullptr) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
-            auto s = ctx->thread_token->submit_func(
-                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
+            auto s = ctx->thread_token->submit_func([this, scanner_ref = *iter, ctx]() {
+                this->_scanner_scan(this, ctx, scanner_ref);
+            });
             if (s.ok()) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(s);
                 break;
@@ -226,34 +227,40 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         }
     } else {
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
-            TabletStorageType type = (*iter)->get_storage_type();
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                // Has to ++, or there is a dead loop
+                iter++;
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
+            TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
-                    auto work_func = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                    auto work_func = [this, scanner_ref = *iter, ctx]() {
+                        this->_scanner_scan(this, ctx, scanner_ref);
                     };
                     SimplifiedScanTask simple_scan_task = {work_func, ctx};
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
                 } else {
                     PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                    task.work_function = [this, scanner_ref = *iter, ctx]() {
+                        this->_scanner_scan(this, ctx, scanner_ref);
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
                 }
             } else {
                 PriorityThreadPool::Task task;
-                task.work_function = [this, scanner = *iter, ctx] {
-                    this->_scanner_scan(this, ctx, scanner);
+                task.work_function = [this, scanner_ref = *iter, ctx]() {
+                    this->_scanner_scan(this, ctx, scanner_ref);
                 };
                 task.priority = nice;
                 ret = _remote_scan_thread_pool->offer(task);
             }
             if (ret) {
-                this_run.erase(iter++);
+                iter++;
             } else {
                 ctx->set_status_on_error(
                         Status::InternalError("failed to submit scanner to scanner pool"));
@@ -265,11 +272,20 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 }
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
-                                     std::shared_ptr<ScannerContext> ctx, VScannerSPtr scanner) {
-    auto task_lock = ctx->get_task_execution_context().lock();
+                                     std::shared_ptr<ScannerContext> ctx,
+                                     std::weak_ptr<ScannerDelegate> scanner_ref) {
+    auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
         //             << " maybe finished";
+        return;
+    }
+    //LOG_EVERY_N(INFO, 100) << "start running scanner from ctx " << ctx->debug_string();
+    // will release scanner if it is the last one, task lock is hold here, to ensure
+    // that scanner could call scannode's method during deconstructor
+    std::shared_ptr<ScannerDelegate> scanner_delegate = scanner_ref.lock();
+    auto& scanner = scanner_delegate->_scanner;
+    if (scanner_delegate == nullptr) {
         return;
     }
     SCOPED_ATTACH_TASK(scanner->runtime_state());
@@ -316,8 +332,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     // judge if we need to yield. So we record all raw data read in this round
     // scan, if this exceeds row number or bytes threshold, we yield this thread.
     std::vector<vectorized::BlockUPtr> blocks;
-    int64_t raw_rows_read = scanner->get_rows_read();
-    int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     int num_rows_in_block = 0;
@@ -331,11 +345,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
     auto should_do_scan = [&, batch_size = state->batch_size(),
                            time = state->wait_full_block_schedule_times()]() {
-        if (raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold) {
+        if (raw_bytes_read < raw_bytes_threshold) {
             return true;
         } else if (num_rows_in_block < batch_size) {
-            return raw_bytes_read < raw_bytes_threshold * time &&
-                   raw_rows_read < raw_rows_threshold * time;
+            return raw_bytes_read < raw_bytes_threshold * time;
         }
         return false;
     };
@@ -384,7 +397,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                 blocks.push_back(std::move(block));
             }
         }
-        raw_rows_read = scanner->get_rows_read();
     } // end for while
 
     // if we failed, check status.
@@ -404,7 +416,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
-    ctx->push_back_scanner_and_reschedule(scanner);
+    ctx->push_back_scanner_and_reschedule(scanner_delegate);
 }
 
 void ScannerScheduler::_register_metrics() {

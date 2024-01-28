@@ -51,11 +51,7 @@ struct RuntimeFilterTimerQueue;
 namespace taskgroup {
 class TaskGroupManager;
 }
-namespace stream_load {
-class LoadStreamStubPool;
-} // namespace stream_load
 namespace io {
-class S3FileBufferPool;
 class FileCacheFactory;
 } // namespace io
 namespace segment_v2 {
@@ -75,12 +71,14 @@ class LoadPathMgr;
 class NewLoadStreamMgr;
 class MemTrackerLimiter;
 class MemTracker;
-class StorageEngine;
+class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
+class RuntimeQueryStatiticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
+class LoadStreamStubPool;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -102,6 +100,7 @@ class StoragePageCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
+class DummyLRUCache;
 class CacheManager;
 class WalManager;
 
@@ -113,15 +112,11 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
-#ifdef CLOUD_MODE
-    using Engine = CloudStorageEngine; // TODO(plat1ko)
-#else
-    using Engine = StorageEngine;
-#endif
-
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
+
+    BaseStorageEngine& storage_engine() { return *_storage_engine; }
 
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths,
@@ -155,6 +150,9 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
+    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+        return _runtime_query_statistics_mgr;
+    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -223,7 +221,7 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
-    void set_storage_engine(StorageEngine* se) { this->_storage_engine = se; }
+    void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
@@ -232,11 +230,12 @@ public:
         this->_routine_load_task_executor = r;
     }
     void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
+    void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
+        this->_dummy_lru_cache = dummy_lru_cache;
+    }
 
 #endif
-    stream_load::LoadStreamStubPool* load_stream_stub_pool() {
-        return _load_stream_stub_pool.get();
-    }
+    LoadStreamStubPool* load_stream_stub_pool() { return _load_stream_stub_pool.get(); }
 
     vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
@@ -247,8 +246,6 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
-    StorageEngine* get_storage_engine() { return _storage_engine; }
-    io::S3FileBufferPool* get_s3_file_buffer_pool() { return _s3_buffer_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -261,6 +258,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
         return _global_block_scheduler;
@@ -347,7 +345,7 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
-    std::unique_ptr<stream_load::LoadStreamStubPool> _load_stream_stub_pool;
+    std::unique_ptr<LoadStreamStubPool> _load_stream_stub_pool;
     std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::shared_ptr<WalManager> _wal_manager;
 
@@ -361,8 +359,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
-    io::S3FileBufferPool* _s3_buffer_pool = nullptr;
-    StorageEngine* _storage_engine = nullptr;
+    std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
@@ -371,6 +368,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
 
     // used for query with group cpu hard limit
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
@@ -382,6 +380,8 @@ private:
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
+
+    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
 };
 
 template <>

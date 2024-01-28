@@ -44,6 +44,8 @@ suite("regression_test_variant_schema_change", "variant_type"){
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
+
+    sql "set experimental_enable_nereids_planner = true"
     // add, drop columns
     sql """INSERT INTO ${table_name} SELECT *, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}' FROM numbers("number" = "4096")"""
     sql "alter table ${table_name} add column v2 variant default null"
@@ -54,7 +56,9 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql "alter table ${table_name} add column vs string default null"
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
     qt_sql """select v:k1 from ${table_name} order by k desc limit 10"""
+    qt_sql """select v:k1, cast(v:k2 as string) from ${table_name} order by k desc limit 10"""
 
+    // sql "set experimental_enable_nereids_planner = true"
     // add, drop index
     sql "alter table ${table_name} add index btm_idxk (k) using bitmap ;"
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name}"""
@@ -64,6 +68,9 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 1024"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
     qt_sql """select v:k1 from ${table_name} order by k desc limit 10"""
+    qt_sql """select v:k1, cast(v:k2 as string) from ${table_name} order by k desc limit 10"""
+
+    sql "set experimental_enable_nereids_planner = false"
 
     // add, drop materialized view
     createMV("""create materialized view var_order as select vs, k, v from ${table_name} order by vs""")    

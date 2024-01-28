@@ -17,17 +17,16 @@
 
 package org.apache.doris.nereids.exceptions;
 
-import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.Dialect;
 
 /**
  * UnsupportedDialectException when not match any in
- * {@link org.apache.doris.nereids.parser.ParseDialect}.
+ * {@link Dialect}.
  */
 public class UnsupportedDialectException extends UnsupportedOperationException {
 
-    public UnsupportedDialectException(ParseDialect dialect) {
-        super(String.format("Unsupported dialect name is %s, version is %s",
-                dialect.getDialect().getDialectName(), dialect.getVersion().getVersionName()));
+    public UnsupportedDialectException(Dialect dialect) {
+        super(String.format("Unsupported dialect name is %s", dialect.getDialectName()));
     }
 
     public UnsupportedDialectException(String type, String msg) {

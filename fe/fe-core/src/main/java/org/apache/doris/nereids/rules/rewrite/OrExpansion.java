@@ -74,6 +74,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin(any(), any()).when(JoinUtils::shouldNestedLoopJoin)
+                .whenNot(LogicalJoin::isMarkJoin)
                 .when(join -> supportJoinType.contains(join.getJoinType())
                         && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())
                 .thenApply(ctx -> {
@@ -176,7 +177,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
         Expression hashCond = disjunctions.get(0);
         hashCond = hashCond.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s);
         Plan newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                otherConditions, originJoin.getHint(),
+                otherConditions, originJoin.getDistributeHint(),
                 originJoin.getMarkJoinSlotReference(), left, right);
         if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
             Plan normalizedPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
@@ -193,7 +194,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
             newReplaced.putAll(newRight.getProducerToConsumerOutputMap());
             hashCond = hashCond.rewriteUp(s -> newReplaced.containsKey(s) ? newReplaced.get(s) : s);
             newPlan = new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, Lists.newArrayList(hashCond),
-                    new ArrayList<>(), originJoin.getHint(),
+                    new ArrayList<>(), originJoin.getDistributeHint(),
                     originJoin.getMarkJoinSlotReference(), newPlan, newRight);
             if (hashCond.children().stream().anyMatch(e -> !(e instanceof Slot))) {
                 newPlan = PushDownExpressionsInHashCondition.pushDownHashExpression(
@@ -253,7 +254,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     .collect(Collectors.toList());
 
             LogicalJoin<? extends Plan, ? extends Plan> newJoin = new LogicalJoin<>(
-                    JoinType.INNER_JOIN, hashCond, otherCond, join.getHint(),
+                    JoinType.INNER_JOIN, hashCond, otherCond, join.getDistributeHint(),
                     join.getMarkJoinSlotReference(), left, right);
             if (newJoin.getHashJoinConjuncts().stream()
                     .anyMatch(equalTo -> equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {

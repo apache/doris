@@ -122,6 +122,10 @@ function add_doris_be_to_fe() {
         fi
     done
     if [[ ${i} -ge 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
+
+    # wait 10s for doris totally started, otherwize may encounter the error below,
+    # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
+    sleep 10s
 }
 
 function stop_doris() {
@@ -129,7 +133,7 @@ function stop_doris() {
         "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
-        pgrep -fi doris | xargs kill -9
+        pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
     fi
 }
@@ -138,6 +142,17 @@ function restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
+    i=1
+    while [[ $((i++)) -lt 60 ]]; do
+        if be_ready_count=$(${cl} -e 'show backends\G' | grep -c 'Alive: true') &&
+            [[ ${be_ready_count} -eq 1 ]]; then
+            echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
+        else
+            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+        fi
+    done
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 2 mins wait..." && return 1; fi
+
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
@@ -244,10 +259,6 @@ function check_tpcds_result() {
     check_tpch_result "$1"
 }
 
-function check_clickbench_query_result() {
-    echo "TODO"
-}
-
 function check_clickbench_performance_result() {
     result_file="$1"
     if [[ -z "${result_file}" ]]; then return 1; fi
@@ -260,10 +271,10 @@ function check_clickbench_performance_result() {
     # 单位是秒
     cold_run_time_threshold=${cold_run_time_threshold:-200}
     hot_run_time_threshold=${hot_run_time_threshold:-55}
-    cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+    cold_run_time=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
     hot_run_time=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' "${result_file}")
     if [[ $(echo "${hot_run_time} > ${hot_run_time_threshold}" | bc) -eq 1 ]] ||
-        [[ $(echo "${cold_run_sum} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
+        [[ $(echo "${cold_run_time} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
         echo "ERROR:
     cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
     or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
@@ -273,10 +284,6 @@ function check_clickbench_performance_result() {
     cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
     hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
     fi
-}
-
-function check_load_performance() {
-    echo "TODO"
 }
 
 get_session_variable() {
@@ -349,6 +356,26 @@ set_session_variable() {
     fi
 }
 
+function reset_doris_session_variables() {
+    # reset all session variables to default
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    # Variable_name    Value    Default_Value    Changed
+    # "\x27" means single quote in awk
+    if ${cl} -e'show variables' | awk '{if ($4 == 1){print "set global " $1 "=\x27" $3 "\x27;"}}' >reset_session_variables; then
+        cat reset_session_variables
+        if ${cl} <reset_session_variables; then
+            echo "INFO: reset session variables to default, succeed"
+            rm -f reset_session_variables
+        else
+            echo "ERROR: reset session variables failed" && return 1
+        fi
+    else
+        echo "ERROR: reset session variables failed" && return 1
+    fi
+}
+
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     archive_name="$1"
@@ -368,18 +395,18 @@ archive_doris_logs() {
 
 print_doris_fe_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.out--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/fe/log/fe.log--------------------"
     tail -n 100 "${DORIS_HOME}"/fe/log/fe.log
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }
 
 print_doris_be_log() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.out
-    echo "WARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
+    echo -e "\n\n\n\nWARNING: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.INFO--------------------"
     tail -n 100 "${DORIS_HOME}"/be/log/be.INFO
-    echo "WARNING: ----------------------------------------"
+    echo -e "WARNING: ----------------------------------------\n\n\n\n"
 }
