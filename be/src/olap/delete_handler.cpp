@@ -22,8 +22,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -42,10 +42,10 @@ using std::vector;
 using std::string;
 using std::stringstream;
 
-using std::regex;
-using std::regex_error;
-using std::regex_match;
-using std::smatch;
+using boost::regex;
+using boost::regex_error;
+using boost::regex_match;
+using boost::smatch;
 
 namespace doris {
 using namespace ErrorCode;
