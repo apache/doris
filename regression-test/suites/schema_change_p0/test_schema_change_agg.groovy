@@ -197,7 +197,7 @@ suite("test_schema_change_agg", "p0") {
 
     //partition col
     test {
-        sql "alter table ${tableName3} modify column siteid varchar"
+        sql "alter table ${tableName3} modify column siteid varchar DEFAULT '10'"
         exception "Can not modify partition column[siteid]."
     }
 
