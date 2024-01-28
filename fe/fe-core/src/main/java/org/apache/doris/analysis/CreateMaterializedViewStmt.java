@@ -232,11 +232,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
         }
+    }
 
-        // check access
-        if (!isReplay && ConnectContext.get() != null && !Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName,
-                        baseIndexName, PrivPredicate.ALTER)) {
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
+                PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }

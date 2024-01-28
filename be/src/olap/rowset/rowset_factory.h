@@ -29,6 +29,7 @@ namespace doris {
 class RowsetWriter;
 struct RowsetWriterContext;
 class StorageEngine;
+class CloudStorageEngine;
 
 class RowsetFactory {
 public:
@@ -40,10 +41,12 @@ public:
                                 const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.
-    // return OK and set `*output` to inited rowset writer.
-    // return others if failed
-    static Status create_rowset_writer(StorageEngine& engine, const RowsetWriterContext& context,
-                                       bool is_vertical, std::unique_ptr<RowsetWriter>* output);
+    static Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(
+            StorageEngine& engine, const RowsetWriterContext& context, bool is_vertical);
+
+    // create and init cloud rowset writer.
+    static Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(
+            CloudStorageEngine& engine, const RowsetWriterContext& context, bool is_vertical);
 };
 
 } // namespace doris

@@ -68,7 +68,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_left_semi_anti(_join_op == TJoinOp::LEFT_ANTI_JOIN ||
                              _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN),
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _is_mark_join(tnode.__isset.nested_loop_join_node
                                 ? (tnode.nested_loop_join_node.__isset.is_mark
@@ -76,11 +77,13 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                                            : false)
                         : tnode.hash_join_node.__isset.is_mark ? tnode.hash_join_node.is_mark
                                                                : false),
-          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+          _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                                !_is_mark_join) {
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||
-               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)
+               _join_op == TJoinOp::CROSS_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+               _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN)
                 << "Mark join is only supported for null aware left semi/anti join and cross join "
                    "but this is "
                 << _join_op;
@@ -97,7 +100,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
     M(CROSS_JOIN)                    \
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
-    M(NULL_AWARE_LEFT_ANTI_JOIN)
+    M(NULL_AWARE_LEFT_ANTI_JOIN)     \
+    M(NULL_AWARE_LEFT_SEMI_JOIN)
 
 template <typename LocalStateType>
 void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {

@@ -95,7 +95,7 @@ public:
     int64_t get_cloud_base_compaction_score() const;
     int64_t get_cloud_cumu_compaction_score() const;
 
-    int64_t local_max_version() const { return _max_version; }
+    int64_t max_version_unlocked() const override { return _max_version; }
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
     int64_t cumulative_layer_point() const {

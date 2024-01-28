@@ -39,11 +39,15 @@ public class EliminateJoinCondition extends OneRewriteRuleFactory {
             List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts().stream()
                     .filter(expression -> !expression.equals(BooleanLiteral.TRUE))
                     .collect(Collectors.toList());
+            List<Expression> markJoinConjuncts = join.getMarkJoinConjuncts().stream()
+                    .filter(expression -> !expression.equals(BooleanLiteral.TRUE))
+                    .collect(Collectors.toList());
             if (hashJoinConjuncts.size() == join.getHashJoinConjuncts().size()
-                    && otherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()) {
+                    && otherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()
+                    && markJoinConjuncts.size() == join.getMarkJoinConjuncts().size()) {
                 return null;
             }
-            return join.withJoinConjuncts(hashJoinConjuncts, otherJoinConjuncts);
+            return join.withJoinConjuncts(hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts);
         }).toRule(RuleType.ELIMINATE_JOIN_CONDITION);
     }
 }

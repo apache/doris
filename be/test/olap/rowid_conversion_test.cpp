@@ -186,10 +186,9 @@ protected:
         }
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
                                                            {version, version});
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        Status s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, false,
-                                                       &rowset_writer);
-        EXPECT_TRUE(s.ok());
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
@@ -207,7 +206,7 @@ protected:
                 }
                 num_rows++;
             }
-            s = rowset_writer->add_block(&block);
+            auto s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
             EXPECT_TRUE(s.ok());
@@ -327,16 +326,11 @@ protected:
         // create output rowset writer
         auto writer_context = create_rowset_writer_context(
                 tablet_schema, NONOVERLAPPING, 3456, {0, input_rowsets.back()->end_version()});
-        std::unique_ptr<RowsetWriter> output_rs_writer;
-        Status s;
-        if (is_vertical_merger) {
-            s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true,
-                                                    &output_rs_writer);
-        } else {
-            s = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, false,
-                                                    &output_rs_writer);
-        }
-        ASSERT_TRUE(s.ok()) << s;
+
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, writer_context,
+                                                       is_vertical_merger);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto output_rs_writer = std::move(res).value();
 
         // merge input rowset
         TabletSharedPtr tablet = create_tablet(*tablet_schema, enable_unique_key_merge_on_write);
@@ -352,6 +346,7 @@ protected:
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
+        Status s;
         if (is_vertical_merger) {
             s = Merger::vertical_merge_rowsets(tablet, ReaderType::READER_BASE_COMPACTION,
                                                tablet_schema, input_rs_readers,
