@@ -118,7 +118,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     protected String comment = "";
 
     @SerializedName(value = "ta")
-    private TableAttributes tableAttributes = new TableAttributes();
+    protected TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;

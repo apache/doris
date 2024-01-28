@@ -103,8 +103,6 @@ import java.util.stream.Collectors;
 public class OlapTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
-    public static final long TABLE_INIT_VERSION = 1L;
-
     public enum OlapTableState {
         NORMAL,
         ROLLUP,
@@ -177,11 +175,6 @@ public class OlapTable extends Table {
 
     private AutoIncrementGenerator autoIncrementGenerator;
 
-    @SerializedName(value = "visibleVersion")
-    private long visibleVersion;
-    @SerializedName(value = "visibleVersionTime")
-    private long visibleVersionTime;
-
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -222,10 +215,6 @@ public class OlapTable extends Table {
         this.indexes = indexes;
 
         this.tableProperty = null;
-
-        this.visibleVersion = TABLE_INIT_VERSION;
-
-        this.visibleVersionTime = System.currentTimeMillis();
     }
 
     private TableProperty getOrCreatTableProperty() {
@@ -1383,31 +1372,6 @@ public class OlapTable extends Table {
         return false;
     }
 
-    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
-    // the write lock on the table should be held continuously
-    public void updateVisibleVersionAndTime(long tableVersion, long tableVersionTime) {
-        // To be compatible with previous versions
-        if (tableVersion <= TABLE_INIT_VERSION) {
-            return;
-        }
-        this.visibleVersion = tableVersion;
-        this.visibleVersionTime = tableVersionTime;
-    }
-
-    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
-    // the write lock on the table should be held continuously
-    public long getNextVersion() {
-        return visibleVersion + 1;
-    }
-
-    public long getVisibleVersion() {
-        return visibleVersion;
-    }
-
-    public long getVisibleVersionTime() {
-        return visibleVersionTime;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
@@ -1486,9 +1450,6 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
-
-        out.writeLong(visibleVersion);
-        out.writeLong(visibleVersionTime);
     }
 
     @Override
@@ -1598,15 +1559,6 @@ public class OlapTable extends Table {
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_129) {
-            visibleVersion = in.readLong();
-            visibleVersionTime = in.readLong();
-        } else {
-            // For historical tables, start recording versions from now on
-            visibleVersion = TABLE_INIT_VERSION;
-            visibleVersionTime = System.currentTimeMillis();
-        }
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
@@ -2582,5 +2534,25 @@ public class OlapTable extends Table {
             tablets.addAll(partition.getBaseIndex().getTablets());
         }
         return tablets;
+    }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public void updateVisibleVersionAndTime(long tableVersion, long tableVersionTime) {
+        tableAttributes.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
+    }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public long getNextVersion() {
+        return tableAttributes.getNextVersion();
+    }
+
+    public long getVisibleVersion() {
+        return tableAttributes.getVisibleVersion();
+    }
+
+    public long getVisibleVersionTime() {
+        return tableAttributes.getVisibleVersionTime();
     }
 }
