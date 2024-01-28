@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -32,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
@@ -68,6 +66,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
 
     protected static final Multimap<Function, Expression>
             AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = ArrayListMultimap.create();
+    protected static final AggregateExpressionRewriter AGGREGATE_EXPRESSION_REWRITER =
+            new AggregateExpressionRewriter();
 
     static {
         // support count distinct roll up
@@ -159,7 +159,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 = topPlanSplitToGroupAndFunction(queryTopPlanAndAggPair);
         Set<? extends Expression> queryTopPlanFunctionSet = queryGroupAndFunctionPair.value();
         // try to rewrite, contains both roll up aggregate functions and aggregate group expression
-        List<NamedExpression> finalAggregateExpressions = new ArrayList<>();
+        List<NamedExpression> finalOutputExpressions = new ArrayList<>();
         List<Expression> finalGroupExpressions = new ArrayList<>();
         List<? extends Expression> queryExpressions = queryTopPlan.getExpressions();
         // permute the mv expr mapping to query based
@@ -172,95 +172,29 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                         topExpression,
                         queryTopPlan);
-                Pair<Map<Expression, Expression>, Boolean> rollupContext = Pair.of(mvExprToMvScanExprQueryBased, true);
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(
+                        false, mvExprToMvScanExprQueryBased, queryTopPlan);
                 // queryFunctionShuttled maybe sum(column) + count(*), so need to use expression rewriter
-                Expression rollupedExpression = queryFunctionShuttled.accept(
-                        new DefaultExpressionRewriter<Pair<Map<Expression, Expression>, Boolean>>() {
-                            @Override
-                            public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
-                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
-                                if (!rollupContext.second) {
-                                    return null;
-                                }
-                                Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
-                                        aggregateFunction,
-                                        queryTopPlan);
-                                Function rollupAggregateFunction = rollup(aggregateFunction, queryFunctionShuttled,
-                                        mvExprToMvScanExprQueryBased);
-                                if (rollupAggregateFunction == null) {
-                                    rollupContext.second = false;
-                                    return null;
-                                }
-                                return rollupAggregateFunction;
-                            }
-
-                            @Override
-                            public Expression visitSlot(Slot slot, Pair<Map<Expression, Expression>, Boolean> context) {
-                                // roll up aggregate function, which should not contains the slotReference
-                                rollupContext.second = false;
-                                return null;
-                            }
-
-                            @Override
-                            public Expression visit(Expression expr,
-                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
-                                if (!rollupContext.second) {
-                                    return null;
-                                }
-                                return super.visit(expr, rollupContext);
-                            }
-                        }, rollupContext);
-                if (!rollupContext.second) {
+                Expression rollupedExpression = queryFunctionShuttled.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("Query function roll up fail",
                                     String.format("queryFunctionShuttled = %s,\n mvExprToMvScanExprQueryBased = %s",
                                             queryFunctionShuttled, mvExprToMvScanExprQueryBased)));
                     return null;
                 }
-                finalAggregateExpressions.add(new Alias(rollupedExpression));
+                finalOutputExpressions.add(new Alias(rollupedExpression));
             } else {
                 // if group by expression, try to rewrite group by expression
                 Expression queryGroupShuttledExpr =
                         ExpressionUtils.shuttleExpressionWithLineage(topExpression, queryTopPlan);
-                Pair<Map<Expression, Expression>, Boolean> rewriteContext = Pair.of(mvExprToMvScanExprQueryBased, true);
+                AggregateExpressionRewriteContext context = new AggregateExpressionRewriteContext(
+                        true, mvExprToMvScanExprQueryBased, queryTopPlan);
                 // group by expression maybe group by a + b, so we need expression rewriter
-                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(
-                        new DefaultExpressionRewriter<Pair<Map<Expression, Expression>, Boolean>>() {
-                            @Override
-                            public Expression visitSlotReference(SlotReference slotReference,
-                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
-                                if (!rollupContext.second) {
-                                    return null;
-                                }
-                                if (rollupContext.first.containsKey(slotReference)) {
-                                    return rollupContext.first.get(slotReference);
-                                } else {
-                                    rollupContext.second = false;
-                                }
-                                return null;
-                            }
-
-                            @Override
-                            public Expression visitAggregateExpression(AggregateExpression aggregateExpression,
-                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
-                                // roll up group by expression, which should not contains the aggregate function
-                                rollupContext.second = false;
-                                return null;
-                            }
-
-                            @Override
-                            public Expression visit(Expression expr,
-                                    Pair<Map<Expression, Expression>, Boolean> rollupContext) {
-                                if (!rollupContext.second) {
-                                    return null;
-                                }
-                                if (rollupContext.first.containsKey(expr)) {
-                                    return rollupContext.first.get(expr);
-                                }
-                                return super.visit(expr, rollupContext);
-                            }
-                        }, rewriteContext);
-                if (!rewriteContext.second) {
+                Expression rewrittenGroupByExpression = queryGroupShuttledExpr.accept(AGGREGATE_EXPRESSION_REWRITER,
+                        context);
+                if (!context.isValid()) {
                     // group expr can not rewrite by view
                     materializationContext.recordFailReason(queryStructInfo.getOriginalPlanId(),
                             Pair.of("View dimensions doesn't not cover the query dimensions",
@@ -270,7 +204,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
                 NamedExpression groupByExpression = rewrittenGroupByExpression instanceof NamedExpression
                         ? (NamedExpression) rewrittenGroupByExpression : new Alias(rewrittenGroupByExpression);
-                finalAggregateExpressions.add(groupByExpression);
+                finalOutputExpressions.add(groupByExpression);
                 finalGroupExpressions.add(groupByExpression);
             }
         }
@@ -296,7 +230,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     return (NamedExpression) expr;
                 })
                 .collect(Collectors.toList());
-        finalAggregateExpressions = finalAggregateExpressions.stream()
+        finalOutputExpressions = finalOutputExpressions.stream()
                 .map(expr -> {
                     ExprId exprId = expr.getExprId();
                     if (projectOutPutExprIdMap.containsKey(exprId)) {
@@ -305,7 +239,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     return expr;
                 })
                 .collect(Collectors.toList());
-        return new LogicalAggregate(finalGroupExpressions, finalAggregateExpressions, mvProject);
+        return new LogicalAggregate(finalGroupExpressions, finalOutputExpressions, mvProject);
     }
 
     private boolean isGroupByEquals(Pair<Plan, LogicalAggregate<Plan>> queryTopPlanAndAggPair,
@@ -340,7 +274,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      *         the queryAggregateFunction is max(a), queryAggregateFunctionShuttled is max(a) + 1
      *         mvExprToMvScanExprQueryBased is { max(a) : MTMVScan(output#0) }
      */
-    private Function rollup(AggregateFunction queryAggregateFunction,
+    private static Function rollup(AggregateFunction queryAggregateFunction,
             Expression queryAggregateFunctionShuttled,
             Map<Expression, Expression> mvExprToMvScanExprQueryBased) {
         if (!(queryAggregateFunction instanceof CouldRollUp)) {
@@ -377,7 +311,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     // Check the aggregate function can roll up or not, return true if could roll up
     // if view aggregate function is distinct or is in the un supported rollup functions, it doesn't support
     // roll up.
-    private boolean canRollup(Expression rollupExpression) {
+    private static boolean canRollup(Expression rollupExpression) {
         if (rollupExpression == null) {
             return false;
         }
@@ -469,7 +403,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * This will check the count(distinct a) in query is equivalent to  bitmap_union(to_bitmap(a)) in mv,
      * and then check their arguments is equivalent.
      */
-    private boolean isAggregateFunctionEquivalent(Function queryFunction, Function viewFunction) {
+    private static boolean isAggregateFunctionEquivalent(Function queryFunction, Function viewFunction) {
         if (queryFunction.equals(viewFunction)) {
             return true;
         }
@@ -505,9 +439,110 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      * actualFunction is bitmap_union(to_bitmap(case when a = 5 then 1 else 2 end))
      * after extracting, the return argument is: case when a = 5 then 1 else 2 end
      */
-    private List<Expression> extractArguments(Expression functionWithAny, Function actualFunction) {
+    private static List<Expression> extractArguments(Expression functionWithAny, Function actualFunction) {
         Set<Object> exprSetToRemove = functionWithAny.collectToSet(expr -> !(expr instanceof Any));
         return actualFunction.collectFirst(expr ->
                 exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)));
+    }
+
+    /**
+     * Aggregate expression rewriter which is responsible for rewriting group by and
+     * aggregate function expression
+     */
+    protected static class AggregateExpressionRewriter
+            extends DefaultExpressionRewriter<AggregateExpressionRewriteContext> {
+
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
+                AggregateExpressionRewriteContext rewriteContext) {
+            if (!rewriteContext.isValid()) {
+                return null;
+            }
+            Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
+                    aggregateFunction,
+                    rewriteContext.getQueryTopPlan());
+            Function rollupAggregateFunction = rollup(aggregateFunction, queryFunctionShuttled,
+                    rewriteContext.getMvExprToMvScanExprQueryBased());
+            if (rollupAggregateFunction == null) {
+                rewriteContext.setValid(false);
+                return null;
+            }
+            return rollupAggregateFunction;
+        }
+
+        @Override
+        public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
+            if (!rewriteContext.isValid()) {
+                return null;
+            }
+            if (rewriteContext.getMvExprToMvScanExprQueryBased().containsKey(slot)) {
+                return rewriteContext.getMvExprToMvScanExprQueryBased().get(slot);
+            }
+            rewriteContext.setValid(false);
+            return null;
+        }
+
+        @Override
+        public Expression visit(Expression expr, AggregateExpressionRewriteContext rewriteContext) {
+            if (!rewriteContext.isValid()) {
+                return null;
+            }
+            // for group by expression try to get corresponding expression directly
+            if (rewriteContext.isGroupByExpression()
+                    && rewriteContext.getMvExprToMvScanExprQueryBased().containsKey(expr)) {
+                return rewriteContext.getMvExprToMvScanExprQueryBased().get(expr);
+            }
+            List<Expression> newChildren = new ArrayList<>(expr.arity());
+            boolean hasNewChildren = false;
+            for (Expression child : expr.children()) {
+                Expression newChild = child.accept(this, rewriteContext);
+                if (newChild == null) {
+                    rewriteContext.setValid(false);
+                    return null;
+                }
+                if (newChild != child) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            return hasNewChildren ? expr.withChildren(newChildren) : expr;
+        }
+    }
+
+    /**
+     * AggregateExpressionRewriteContext
+     */
+    protected static class AggregateExpressionRewriteContext {
+        private boolean valid = true;
+        private final boolean groupByExpression;
+        private final Map<Expression, Expression> mvExprToMvScanExprQueryBased;
+        private final Plan queryTopPlan;
+
+        public AggregateExpressionRewriteContext(boolean groupByExpression,
+                Map<Expression, Expression> mvExprToMvScanExprQueryBased, Plan queryTopPlan) {
+            this.groupByExpression = groupByExpression;
+            this.mvExprToMvScanExprQueryBased = mvExprToMvScanExprQueryBased;
+            this.queryTopPlan = queryTopPlan;
+        }
+
+        public boolean isValid() {
+            return valid;
+        }
+
+        public void setValid(boolean valid) {
+            this.valid = valid;
+        }
+
+        public boolean isGroupByExpression() {
+            return groupByExpression;
+        }
+
+        public Map<Expression, Expression> getMvExprToMvScanExprQueryBased() {
+            return mvExprToMvScanExprQueryBased;
+        }
+
+        public Plan getQueryTopPlan() {
+            return queryTopPlan;
+        }
     }
 }

@@ -927,6 +927,34 @@ suite("aggregate_with_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_3"""
 
 
+    def mv25_4 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total,
+            sum(o_totalprice) + l_suppkey
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+
+    def query25_4 = """
+            select t1.l_partkey, t1.l_suppkey, o_orderdate, sum(o_totalprice), sum(o_totalprice) + t1.l_suppkey
+            from (select * from lineitem where l_partkey = 2 ) t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+
+    order_qt_query25_4_before "${query25_4}"
+    check_rewrite(mv25_4, query25_4, "mv25_4")
+    order_qt_query25_4_after "${query25_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_4"""
+
+
     // single table
     // filter + use roll up dimension
     def mv1_1 = """

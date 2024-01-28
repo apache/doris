@@ -842,6 +842,43 @@ suite("aggregate_without_roll_up") {
     order_qt_query19_2_after "${query19_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_2"""
 
+
+    // aggregate function and group by expression is complex
+    def mv19_3 = """
+            select o_orderdate, l_partkey, l_suppkey + sum(o_totalprice),
+            sum(o_totalprice),
+            max(o_totalprice) as max_total,
+            min(o_totalprice) as min_total,
+            min(o_totalprice) + sum(o_totalprice),
+            count(*) as count_all
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+
+    def query19_3 = """
+            select l_partkey, l_suppkey + sum(o_totalprice), o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            min(o_totalprice) + sum(o_totalprice),
+            count(*)
+            from lineitem
+            left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+    """
+    order_qt_query19_3_before "${query19_3}"
+    check_rewrite(mv19_3, query19_3, "mv19_3")
+    order_qt_query19_3_after "${query19_3}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
+
+
     // without group, scalar aggregate
     def mv20_0 = "select count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
