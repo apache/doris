@@ -19,6 +19,7 @@
 
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
@@ -111,8 +112,7 @@ S3ClientFactory& S3ClientFactory::instance() {
 
 bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>& prop) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
-        properties.find(S3_ENDPOINT) == properties.end() ||
+    if (properties.find(S3_ENDPOINT) == properties.end() ||
         properties.find(S3_REGION) == properties.end()) {
         DCHECK(false) << "aws properties is incorrect.";
         LOG(ERROR) << "aws properties is incorrect.";
@@ -122,7 +122,7 @@ bool S3ClientFactory::is_s3_conf_valid(const std::map<std::string, std::string>&
 }
 
 bool S3ClientFactory::is_s3_conf_valid(const S3Conf& s3_conf) {
-    return !s3_conf.ak.empty() && !s3_conf.sk.empty() && !s3_conf.endpoint.empty();
+    return !s3_conf.endpoint.empty();
 }
 
 std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf) {
@@ -137,12 +137,6 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
         if (it != _cache.end()) {
             return it->second;
         }
-    }
-
-    Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
-    DCHECK(!aws_cred.IsExpiredOrEmpty());
-    if (!s3_conf.token.empty()) {
-        aws_cred.SetSessionToken(s3_conf.token);
     }
 
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
@@ -167,11 +161,25 @@ std::shared_ptr<Aws::S3::S3Client> S3ClientFactory::create(const S3Conf& s3_conf
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }
-
-    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
-            std::move(aws_cred), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            s3_conf.use_virtual_addressing);
+    std::shared_ptr<Aws::S3::S3Client> new_client;
+    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
+        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+        DCHECK(!aws_cred.IsExpiredOrEmpty());
+        if (!s3_conf.token.empty()) {
+            aws_cred.SetSessionToken(s3_conf.token);
+        }
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                std::move(aws_cred), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                s3_conf.use_virtual_addressing);
+    } else {
+        std::shared_ptr<Aws::Auth::AWSCredentialsProvider> aws_provider_chain =
+                std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+        new_client = std::make_shared<Aws::S3::S3Client>(
+                std::move(aws_provider_chain), std::move(aws_config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                s3_conf.use_virtual_addressing);
+    }
 
     {
         std::lock_guard l(_lock);
@@ -186,8 +194,10 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         return Status::InvalidArgument("S3 properties are incorrect, please check properties.");
     }
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    s3_conf->ak = properties.find(S3_AK)->second;
-    s3_conf->sk = properties.find(S3_SK)->second;
+    if (properties.find(S3_AK) != properties.end() && properties.find(S3_SK) != properties.end()) {
+        s3_conf->ak = properties.find(S3_AK)->second;
+        s3_conf->sk = properties.find(S3_SK)->second;
+    }
     if (properties.find(S3_TOKEN) != properties.end()) {
         s3_conf->token = properties.find(S3_TOKEN)->second;
     }

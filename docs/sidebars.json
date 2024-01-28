@@ -219,6 +219,13 @@
                         "lakehouse/multi-catalog/faq-multi-catalog"
                     ]
                 },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
+                    ]
+                },
                 "lakehouse/file",
                 "lakehouse/filecache",
                 "lakehouse/compute-node",
