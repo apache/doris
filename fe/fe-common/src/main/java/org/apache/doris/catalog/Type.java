@@ -449,7 +449,7 @@ public abstract class Type {
         return false;
     }
 
-    public String hideVersionForVersionColumn() {
+    public String hideVersionForVersionColumn(Boolean isToSql) {
         if (isDatetimeV2()) {
             StringBuilder typeStr = new StringBuilder("DATETIME");
             if (((ScalarType) this).getScalarScale() > 0) {
@@ -470,23 +470,24 @@ public abstract class Type {
             }
             return typeStr.toString();
         } else if (isArrayType()) {
-            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn();
+            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
             return "ARRAY<" + nestedDesc + ">";
         } else if (isMapType()) {
-            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn();
-            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn();
+            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
+            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
             return "MAP<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
-                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn());
+                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
             }
             return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
-        } else {
-            return this.toString();
+        } else if (isToSql) {
+            return this.toSql();
         }
+        return this.toString();
     }
 
     public boolean isDecimalV3OrContainsDecimalV3() {

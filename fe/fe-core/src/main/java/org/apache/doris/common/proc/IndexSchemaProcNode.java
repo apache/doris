@@ -75,7 +75,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                                                          ? FeConstants.null_string : column.getDefaultValue(),
                                                  extraStr);
 
-            rowList.set(1, column.getOriginType().hideVersionForVersionColumn());
+            rowList.set(1, column.getOriginType().hideVersionForVersionColumn(false));
             result.addRow(rowList);
         }
         return result;

@@ -926,7 +926,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn());
+            sb.append(type.hideVersionForVersionColumn(true));
         } else {
             sb.append(typeStr);
         }

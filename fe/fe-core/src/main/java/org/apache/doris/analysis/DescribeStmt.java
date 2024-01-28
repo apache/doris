@@ -136,7 +136,7 @@ public class DescribeStmt extends ShowStmt {
                                 ? FeConstants.null_string : column.getDefaultValue(),
                         "NONE"
                 );
-                row.set(1, column.getOriginType().hideVersionForVersionColumn());
+                row.set(1, column.getOriginType().hideVersionForVersionColumn(false));
                 totalRows.add(row);
             }
             return;
