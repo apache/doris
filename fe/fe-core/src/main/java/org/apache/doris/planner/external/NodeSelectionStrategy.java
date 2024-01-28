@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 public enum NodeSelectionStrategy {
+    ROUND_ROBIN,
     RANDOM,
     CONSISTENT_HASHING
 }

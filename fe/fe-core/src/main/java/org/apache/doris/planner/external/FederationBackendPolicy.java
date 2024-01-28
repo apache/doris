@@ -86,9 +86,6 @@ public class FederationBackendPolicy {
     private boolean initialized = false;
 
     private NodeSelectionStrategy nodeSelectionStrategy;
-
-    private int minRandomCandidateNum = Config.min_random_candidate_num;
-
     private boolean enableSplitsRedistribution = true;
 
     // Create a ConsistentHash ring may be a time-consuming operation, so we cache it.
@@ -146,7 +143,7 @@ public class FederationBackendPolicy {
     }
 
     public FederationBackendPolicy() {
-        this(NodeSelectionStrategy.RANDOM);
+        this(NodeSelectionStrategy.ROUND_ROBIN);
     }
 
     public void init() throws UserException {
@@ -208,11 +205,6 @@ public class FederationBackendPolicy {
     }
 
     @VisibleForTesting
-    public void setMinRandomCandidateNum(int minRandomCandidateNum) {
-        this.minRandomCandidateNum = minRandomCandidateNum;
-    }
-
-    @VisibleForTesting
     public void setEnableSplitsRedistribution(boolean enableSplitsRedistribution) {
         this.enableSplitsRedistribution = enableSplitsRedistribution;
     }
@@ -236,11 +228,11 @@ public class FederationBackendPolicy {
 
         List<Split> remainingSplits = null;
 
-        List<Backend> filteredNodes = new ArrayList<>();
+        List<Backend> backends = new ArrayList<>();
         for (List<Backend> backendList : backendMap.values()) {
-            filteredNodes.addAll(backendList);
+            backends.addAll(backendList);
         }
-        ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(filteredNodes);
+        ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         boolean splitsToBeRedistributed = false;
 
@@ -277,13 +269,19 @@ public class FederationBackendPolicy {
                 candidateNodes = selectExactNodes(backendMap, split.getHosts());
             } else {
                 switch (nodeSelectionStrategy) {
+                    case ROUND_ROBIN: {
+                        Backend selectedBackend = backends.get(nextBe++);
+                        nextBe = nextBe % backends.size();
+                        candidateNodes = ImmutableList.of(selectedBackend);
+                        break;
+                    }
                     case RANDOM: {
                         randomCandidates.reset();
-                        candidateNodes = selectNodes(minRandomCandidateNum, randomCandidates);
+                        candidateNodes = selectNodes(Config.min_random_candidate_num, randomCandidates);
                         break;
                     }
                     case CONSISTENT_HASHING: {
-                        candidateNodes = consistentHash.getNode(split, 1);
+                        candidateNodes = consistentHash.getNode(split, Config.min_consistent_hash_candidate_num);
                         splitsToBeRedistributed = true;
                         break;
                     }
@@ -294,7 +292,7 @@ public class FederationBackendPolicy {
             }
             if (candidateNodes.isEmpty()) {
                 LOG.debug("No nodes available to schedule {}. Available nodes {}", split,
-                        filteredNodes);
+                        backends);
                 throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
             }
 
@@ -407,12 +405,13 @@ public class FederationBackendPolicy {
         if (splitToBeRedistributed == null) {
             splitIterator = assignment.get(fromNode).iterator();
             while (splitIterator.hasNext()) {
+                splitToBeRedistributed = splitIterator.next();
                 // if toNode has split replication, transfer this split firstly
                 if (splitToBeRedistributed.getHosts() != null && isSplitLocal(
                         splitToBeRedistributed.getHosts(), toNode.getHost())) {
                     break;
                 }
-                // if toNode has split replication, transfer this split firstly
+                // if toNode is split alternative host, transfer this split firstly
                 if (splitToBeRedistributed.getAlternativeHosts() != null && isSplitLocal(
                         splitToBeRedistributed.getAlternativeHosts(), toNode.getHost())) {
                     break;
@@ -425,7 +424,6 @@ public class FederationBackendPolicy {
     }
 
     private static boolean isSplitLocal(String[] splitHosts, String host) {
-
         for (String splitHost : splitHosts) {
             if (splitHost.equals(host)) {
                 return true;
@@ -435,7 +433,6 @@ public class FederationBackendPolicy {
     }
 
     private static boolean isSplitLocal(List<String> splitHosts, String host) {
-
         for (String splitHost : splitHosts) {
             if (splitHost.equals(host)) {
                 return true;

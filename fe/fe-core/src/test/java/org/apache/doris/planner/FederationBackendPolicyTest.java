@@ -620,7 +620,7 @@ public class FederationBackendPolicyTest {
             policy.init();
             // Set these options to ensure that the consistent hash algorithm is consistent.
             policy.setEnableSplitsRedistribution(false);
-            Config.min_random_candidate_num = 1;
+            Config.min_consistent_hash_candidate_num = 1;
             int backendNum = 3;
             Assertions.assertEquals(policy.numBackends(), backendNum);
             Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
