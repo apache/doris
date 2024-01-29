@@ -396,7 +396,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     }
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state");
+                "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
+                _segcompaction_status);
     } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
         SegCompactionCandidatesSharedPtr segments;
         status = _find_longest_consecutive_small_segment(segments);
@@ -425,7 +426,9 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     }
     if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state");
+                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state, error "
+                "code: {}",
+                _segcompaction_status.load());
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -501,7 +504,9 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
     if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>("BetaRowsetWriter meet invalid state.");
+        return Status::Error<SEGCOMPACTION_FAILED>(
+                "BetaRowsetWriter meet invalid state, error code: {}",
+                _segcompaction_status.load());
     }
     return Status::OK();
 }
