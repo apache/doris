@@ -56,9 +56,10 @@ suite("test_table_version") {
 
     sql """
         ALTER TABLE ${tableNameNum} ADD TEMPORARY PARTITION p201702_2000_1 VALUES [('2017-02-01'), ('2017-03-01'));
+    """
+    sql """
         ALTER TABLE ${tableNameNum} REPLACE PARTITION (p201702_2000) WITH TEMPORARY PARTITION (p201702_2000_1);
     """
-
     visibleVersion = getTableVersion(dbId,tableNameNum);
     assertEquals(4, visibleVersion);
 
