@@ -52,6 +52,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
+#include "util/doris_bvar_metrics.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
@@ -413,6 +414,9 @@ Status PlanFragmentExecutor::execute() {
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
+    if(config::enable_bvar_metrics) {
+        DorisBvarMetrics::instance()->fragment_requests_total->increment(1);
+    }
     return Status::OK();
 }
 
