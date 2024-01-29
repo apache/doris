@@ -188,6 +188,11 @@ public class FEFunctions {
         return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
     }
 
+    @FEFunction(name = "days_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateLiteral daysSubDateTimeV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
+        return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));
+    }
+
     @FEFunction(name = "days_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
     public static DateLiteral daysSubDateV2(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, new IntLiteral(-(int) day.getLongValue()));

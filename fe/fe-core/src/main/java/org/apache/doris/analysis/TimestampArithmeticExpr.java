@@ -148,9 +148,10 @@ public class TimestampArithmeticExpr extends Expr {
         }
         // could try cast to date first, then cast to datetime
         if (t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) {
-            if (((StringLiteral) getChild(0)).canConvertToDateType(Type.DATEV2)) {
+            Expr expr = getChild(0);
+            if ((expr instanceof StringLiteral) && ((StringLiteral) expr).canConvertToDateType(Type.DATEV2)) {
                 try {
-                    setChild(0, new DateLiteral(((StringLiteral) getChild(0)).getValue(), Type.DATEV2));
+                    setChild(0, new DateLiteral(((StringLiteral) expr).getValue(), Type.DATEV2));
                 } catch (AnalysisException e) {
                     return Type.INVALID;
                 }
