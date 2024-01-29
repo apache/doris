@@ -305,6 +305,7 @@ public class StmtExecutor {
         }
         builder.taskState(!isFinished && context.getState().getStateType().equals(MysqlStateType.OK) ? "RUNNING"
                 : context.getState().toString());
+        LOG.info("Query {} state {}", DebugUtil.printId(context.queryId()), context.getState().toString());
         builder.user(context.getQualifiedUser());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
@@ -452,6 +453,11 @@ public class StmtExecutor {
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
                     planner = null;
+                    // Attention: currently exception from nereids does not mean an Exception to user terminal
+                    // unless user does not allow fallback to lagency planner. But state of query
+                    // has already been set to Error in this case, it will have some side effect on profile result
+                    // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
+                    context.getState().reset();
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
                 }
