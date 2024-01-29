@@ -414,7 +414,7 @@ class Suite implements GroovyInterceptable {
        def result = sql_return_maparray """show proc '/dbs/${dbId}'"""
         for (def res : result) {
             if(res.TableName.equals(tableName)) {
-                return res.VisibleVersion
+                return res.VisibleVersion.toLong()
             }
         }
     }
