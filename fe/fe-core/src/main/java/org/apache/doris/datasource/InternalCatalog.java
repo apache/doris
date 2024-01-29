@@ -2022,7 +2022,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             throws DdlException {
     }
 
-    protected void checkAvailableCapacity(Database db) throws DdlException {
+    public void checkAvailableCapacity(Database db) throws DdlException {
         // check cluster capacity
         Env.getCurrentSystemInfo().checkAvailableCapacity();
         // check db quota
