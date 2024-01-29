@@ -671,11 +671,11 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
     status = _build_rowset_meta(tmp_rs_meta.get());
     if (!status.ok()) {
         LOG(WARNING) << "failed to build rowset meta, res=" << status;
-        return nullptr;
+        return status;
     }
 
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
-                                               tmp_rs_meta, &rowset_ptr);
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, tmp_rs_meta,
+                                          &rowset_ptr);
     DBUG_EXECUTE_IF("BaseBetaRowsetWriter::_build_tmp.create_rowset_failed",
                     { status = Status::InternalError("create rowset failed"); });
     if (!status.ok()) {
