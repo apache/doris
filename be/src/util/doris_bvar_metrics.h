@@ -28,6 +28,10 @@ namespace doris {
 
 class DorisBvarMetrics {
 public:
+    std::shared_ptr<BvarAdderMetric<int64_t>> fragment_requests_total;
+    std::shared_ptr<BvarAdderMetric<int64_t>> fragment_request_duration_us;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes;
+    std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_rows;
     static DorisBvarMetrics* instance() {
         static DorisBvarMetrics metrics;
         return &metrics;
@@ -44,7 +48,7 @@ public:
     std::string to_prometheus() const;
 
 private:
-    DorisBvarMetrics() = default;
+    DorisBvarMetrics();
 
 private:
     static const std::string s_registry_name_;
@@ -56,11 +60,9 @@ private:
 
 };
 
-extern BvarAdderMetric<int64_t> g_adder_fragment_requests_total;
-
 extern BvarAdderMetric<int64_t> g_adder_timeout_canceled_fragment_count;
 extern BvarAdderMetric<int64_t> g_adder_file_created_total;
-extern BvarAdderMetric<int64_t> g_adder_fragment_requests_total;
+
 extern BvarAdderMetric<int64_t> g_adder_fragment_request_duration_us;
 extern BvarAdderMetric<int64_t> g_adder_query_scan_bytes;
 extern BvarAdderMetric<int64_t> g_adder_segment_read_total;

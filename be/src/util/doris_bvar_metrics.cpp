@@ -20,7 +20,22 @@
 
 namespace doris {
 
+#define INIT_INT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
+    name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, labels, core);
+
+// #define INIT_DOUBLE_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
+//     name = std::make_shared<BvarAdderMetric<double>>(type, unit, #name, description, group_name, labels, core);
+
 const std::string DorisBvarMetrics::s_registry_name_ = "doris_be";
+
+DorisBvarMetrics::DorisBvarMetrics() {
+    INIT_INT64_BVAR_METRIC(fragment_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "Total fragment requests received.", "", Labels(), false)
+    auto fragment_requests_total_ptr =
+            std::make_shared<BvarMetricEntity>("fragment_requests_total", BvarMetricType::COUNTER);
+    entities_map_["fragment_requests_total"].push_back(fragment_requests_total_ptr);
+    fragment_requests_total_ptr->register_metric("fragment_requests_total", *fragment_requests_total);
+}
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
                               const std::vector<std::string>& network_interfaces) {
@@ -40,7 +55,7 @@ void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::
 
     auto test_ptr = std::make_shared<BvarMetricEntity>("test", BvarMetricType::COUNTER);
     entities_map_["test"].push_back(test_ptr);
-    test_ptr->register_metric("fragment_request_total", g_adder_fragment_requests_total);
+
     test_ptr->register_metric("fragment_request_duration", g_adder_fragment_request_duration_us);
     test_ptr->register_metric("query_scan_byte", g_adder_query_scan_bytes);
     test_ptr->register_metric("segment_read_total", g_adder_segment_read_total);
