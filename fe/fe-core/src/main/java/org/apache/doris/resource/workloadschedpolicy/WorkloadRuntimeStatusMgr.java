@@ -141,7 +141,6 @@ public class WorkloadRuntimeStatusMgr {
         } else {
             long currentTime = System.currentTimeMillis();
             for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
-                LOG.info("log2109 queryid={}, shuffle={}", entry.getKey(), entry.getValue().shuffle_send_bytes);
                 queryIdMap.put(entry.getKey(), entry.getValue());
                 queryLastReportTime.put(entry.getKey(), currentTime);
             }
