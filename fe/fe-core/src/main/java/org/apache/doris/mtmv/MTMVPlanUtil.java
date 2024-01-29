@@ -89,7 +89,8 @@ public class MTMVPlanUtil {
     private static Set<BaseTableInfo> getBaseTables(Plan plan) {
         TableCollectorContext collectorContext =
                 new TableCollector.TableCollectorContext(
-                        com.google.common.collect.Sets.newHashSet(TableType.MATERIALIZED_VIEW, TableType.OLAP));
+                        com.google.common.collect.Sets
+                                .newHashSet(TableType.values()));
         plan.accept(TableCollector.INSTANCE, collectorContext);
         List<TableIf> collectedTables = collectorContext.getCollectedTables();
         return transferTableIfToInfo(collectedTables);

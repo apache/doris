@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -28,6 +31,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -71,6 +76,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -78,7 +84,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
@@ -257,6 +263,7 @@ public class HMSExternalTable extends ExternalTable {
         return partitionColumns.stream().map(c -> c.getType()).collect(Collectors.toList());
     }
 
+    @Override
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
         getFullSchema();
@@ -777,6 +784,58 @@ public class HMSExternalTable extends ExternalTable {
     public Set<String> getDistributionColumnNames() {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
             .collect(Collectors.toSet());
+    }
+
+    @Override
+    public PartitionType getPartitionType() {
+        return getPartitionColumns().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+    }
+
+    @Override
+    public Set<String> getPartitionColumnNames() {
+        return getPartitionColumns().stream()
+                .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    @Override
+    public Map<Long, PartitionItem> getPartitionItems() {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+
+        return hivePartitionValues.getIdToPartitionItem().entrySet().stream()
+                .filter(entry -> !entry.getValue().isDefaultPartition())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    @Override
+    public long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException {
+        List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
+        partitionValuesList.add(
+                ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        List<HivePartition> resPartitions = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                partitionValuesList);
+        if (resPartitions.size() != 1) {
+            throw new AnalysisException("partition not normal, size: " + resPartitions.size());
+        }
+        return resPartitions.get(0).getLastModifiedTimeIgnoreInit();
+    }
+
+    @Override
+    public long getLastModifyTime() throws AnalysisException {
+
+        long result = 0L;
+        long visibleVersionTime;
+        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
+            visibleVersionTime = getPartitionLastModifyTime(entry.getKey(), entry.getValue());
+            if (visibleVersionTime > result) {
+                result = visibleVersionTime;
+            }
+        }
+        return result;
     }
 }
 
