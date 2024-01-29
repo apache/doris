@@ -221,7 +221,7 @@ private:
                     min_value.from_unixtime(min_date_value * 24 * 60 * 60, ctz);
                     max_value.from_unixtime(max_date_value * 24 * 60 * 60, ctz);
 
-                    // as DateTimeValue can not compare date and datetime, so need 
+                    // as DateTimeValue can not compare date and datetime, so need
                     // cast to date here
                     if constexpr (std::is_same_v<CppType, DateTimeValue>) {
                         min_value.cast_to_date();
