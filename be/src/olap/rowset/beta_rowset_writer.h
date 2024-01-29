@@ -138,7 +138,7 @@ protected:
     virtual int64_t _num_seg() const;
     virtual Status _check_segment_num();
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
-    RowsetSharedPtr _build_tmp();
+    Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id

@@ -200,7 +200,8 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitElementAt(ElementAt elementAt, ExpressionRewriteContext context) {
-        if (PushDownToProjectionFunction.validToPushDown(elementAt)) {
+        Expression boundFunction = visitBoundFunction(elementAt, context);
+        if (PushDownToProjectionFunction.validToPushDown(boundFunction)) {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
                     && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
@@ -214,7 +215,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
             // rewrite to slot and bound this slot
             return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
         }
-        return visitBoundFunction(elementAt, context);
+        return boundFunction;
     }
 
     /**

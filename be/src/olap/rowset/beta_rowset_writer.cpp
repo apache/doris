@@ -172,8 +172,9 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
         return Status::OK();
     }
-    auto rowset = _build_tmp();
-    auto* beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    RowsetSharedPtr rowset_ptr;
+    RETURN_IF_ERROR(_build_tmp(rowset_ptr));
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset_ptr.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
     std::vector<RowsetSharedPtr> specified_rowsets;
@@ -183,7 +184,7 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     }
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
-            _context.tablet, rowset, segments, specified_rowsets,
+            _context.tablet, rowset_ptr, segments, specified_rowsets,
             _context.mow_context->delete_bitmap, _context.mow_context->max_version, nullptr));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
@@ -662,7 +663,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta) {
     return Status::OK();
 }
 
-RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
+Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
     Status status;
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
@@ -673,14 +674,15 @@ RowsetSharedPtr BaseBetaRowsetWriter::_build_tmp() {
         return nullptr;
     }
 
-    RowsetSharedPtr rowset;
-    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, tmp_rs_meta,
-                                          &rowset);
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir,
+                                               tmp_rs_meta, &rowset_ptr);
+    DBUG_EXECUTE_IF("BaseBetaRowsetWriter::_build_tmp.create_rowset_failed",
+                    { status = Status::InternalError("create rowset failed"); });
     if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
-        return nullptr;
+        return status;
     }
-    return rowset;
+    return Status::OK();
 }
 
 Status BaseBetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr& file_writer) {
