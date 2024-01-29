@@ -183,6 +183,8 @@ struct ConvertParams {
                 second_mask = 1000000;
                 scale_to_nano_factor = 1000;
             }
+        } else if (ctz_ != nullptr) {
+            ctz = const_cast<cctz::time_zone*>(&utc0);
         }
 
         if (ctz) {

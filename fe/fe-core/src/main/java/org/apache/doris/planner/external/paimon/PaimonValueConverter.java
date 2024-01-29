@@ -64,10 +64,8 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
     }
 
     public BinaryString visit(CharType charType) {
-        if (expr instanceof StringLiteral) {
-            StringLiteral stringLiteral = (StringLiteral) expr;
-            return BinaryString.fromString(Strings.padEnd(stringLiteral.getStringValue(), charType.getLength(), ' '));
-        }
+        // Currently, Paimon does not support predicate push-down for char
+        // ref: org.apache.paimon.predicate.PredicateBuilder.convertJavaObject
         return null;
     }
 
