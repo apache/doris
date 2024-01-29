@@ -32,6 +32,18 @@ public:
     std::shared_ptr<BvarAdderMetric<int64_t>> fragment_request_duration_us;
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_bytes;
     std::shared_ptr<BvarAdderMetric<int64_t>> query_scan_rows;
+    
+    std::shared_ptr<BvarAdderMetric<int64_t>> push_requests_success_total;
+    std::shared_ptr<BvarAdderMetric<int64_t>> push_requests_fail_total;
+    std::shared_ptr<BvarAdderMetric<int64_t>> push_request_duration_us;
+    std::shared_ptr<BvarAdderMetric<int64_t>> push_request_write_bytes;
+    std::shared_ptr<BvarAdderMetric<int64_t>> push_request_write_rows;
+    // unfinish
+    std::shared_ptr<BvarAdderMetric<int64_t>> create_tablet_requests_total;
+    std::shared_ptr<BvarAdderMetric<int64_t>> create_tablet_requests_failed;
+    std::shared_ptr<BvarAdderMetric<int64_t>> drop_tablet_requests_total;
+
+
     static DorisBvarMetrics* instance() {
         static DorisBvarMetrics metrics;
         return &metrics;
