@@ -24,6 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -181,6 +182,11 @@ public class ColumnDefinition {
      * validate column definition and analyze
      */
     public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+        try {
+            FeNameFormat.checkColumnName(name);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
         validateDataType(type.toCatalogDataType());
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
