@@ -131,7 +131,7 @@ public class JdbcExecutor {
             if (conn != null && resultSet != null) {
                 abortReadConnection(conn, resultSet, tableType);
             }
-            if (config.getMinIdleSize() == 0) {
+            if (minIdleSize == 0) {
                 // it can be immediately closed if there is no need to maintain the cache of datasource
                 druidDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().clear();
