@@ -1208,8 +1208,9 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     constexpr int weekday_part = 1U << 3;
     constexpr int yearday_part = 1U << 4;
     constexpr int week_num_part = 1U << 5;
-    constexpr int date_part =
-            year_part | month_part | day_part | weekday_part | year_part | week_num_part;
+    constexpr int normal_date_part = year_part | month_part | day_part;
+    constexpr int special_date_part = weekday_part | yearday_part | week_num_part;
+    [[maybe_unused]] constexpr int date_part = normal_date_part | special_date_part;
     constexpr int hour_part = 1U << 6;
     constexpr int minute_part = 1U << 7;
     constexpr int second_part = 1U << 8;
@@ -1597,7 +1598,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
         return true;
     }
     // complete default month/day
-    if (!(part_used & ~date_part)) { // only date here
+    if (!(part_used & ~normal_date_part)) { // Ymd part only
         if (!(part_used & day_part)) {
             day = 1;
             if (!(part_used & month_part)) {
@@ -2194,8 +2195,9 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
     constexpr int weekday_part = 1U << 3;
     constexpr int yearday_part = 1U << 4;
     constexpr int week_num_part = 1U << 5;
-    constexpr int date_part =
-            year_part | month_part | day_part | weekday_part | year_part | week_num_part;
+    constexpr int normal_date_part = year_part | month_part | day_part;
+    constexpr int special_date_part = weekday_part | yearday_part | week_num_part;
+    [[maybe_unused]] constexpr int date_part = normal_date_part | special_date_part;
     constexpr int hour_part = 1U << 6;
     constexpr int minute_part = 1U << 7;
     constexpr int second_part = 1U << 8;
@@ -2615,7 +2617,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     // complete default month/day
-    if (!(part_used & ~date_part)) { // only date here
+    if (!(part_used & ~normal_date_part)) { // Ymd part only
         if (!(part_used & day_part)) {
             day = 1;
             if (!(part_used & month_part)) {

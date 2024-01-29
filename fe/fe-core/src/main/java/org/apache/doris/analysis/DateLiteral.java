@@ -1215,7 +1215,9 @@ public class DateLiteral extends LiteralExpr {
         final int weekdayPart = 1 << 3;
         final int yeardayPart = 1 << 4;
         final int weekNumPart = 1 << 5;
-        final int datePart = yearPart | monthPart | dayPart | weekdayPart | yearPart | weekNumPart;
+        final int normalDatePart = yearPart | monthPart | dayPart;
+        final int specialDatePart = weekdayPart | yeardayPart | weekNumPart;
+        final int datePart = normalDatePart | specialDatePart;
         final int hourPart = 1 << 6;
         final int minutePart = 1 << 7;
         final int secondPart = 1 << 8;
@@ -1556,7 +1558,7 @@ public class DateLiteral extends LiteralExpr {
         }
 
         // complete default month/day
-        if ((partUsed & ~datePart) == 0) { // only date here
+        if ((partUsed & ~normalDatePart) == 0) { // only date here
             if ((partUsed & dayPart) == 0) {
                 day = 1;
                 if ((partUsed & monthPart) == 0) {
@@ -1566,7 +1568,7 @@ public class DateLiteral extends LiteralExpr {
         }
 
         // Compute timestamp type
-        if ((partUsed & datePart) != 0) {
+        if ((partUsed & datePart) != 0) { // Ymd part only
             if ((partUsed & fracPart) != 0) {
                 this.type = Type.DATETIMEV2_WITH_MAX_SCALAR;
             } else if ((partUsed & timePart) != 0) {
