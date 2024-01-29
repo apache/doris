@@ -279,6 +279,7 @@ under the License.
         <zookeeper.version>3.4.14</zookeeper.version>
         <ojdbc8.version>12.2.0.1</ojdbc8.version>
         <doris.shade.version>1.0.2-SNAPSHOT</doris.shade.version>
+        <doris.shade.hive-shade.version>1.0.3</doris.shade.hive-shade.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -966,7 +967,7 @@ under the License.
             <dependency>
                 <groupId>org.apache.doris</groupId>
                 <artifactId>hive-shade-3</artifactId>
-                <version>${doris.shade.version}</version>
+                <version>${doris.shade.hive-shade.version}</version>
             </dependency>
 
             <dependency>
