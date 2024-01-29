@@ -41,6 +41,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.QueryStmt;
@@ -64,6 +65,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
@@ -2606,7 +2608,27 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     "Only support dynamic partition properties on range partition table");
                         }
                     }
-
+                    // check the interval same between dynamic & auto range partition
+                    DynamicPartitionProperty dynamicProperty = olapTable.getTableProperty()
+                            .getDynamicPartitionProperty();
+                    if (dynamicProperty.isExist() && dynamicProperty.getEnable()
+                            && partitionDesc.isAutoCreatePartitions()) {
+                        String dynamicUnit = dynamicProperty.getTimeUnit();
+                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
+                        for (Expr autoExpr : autoExprs) {
+                            Expr func = (FunctionCallExpr) autoExpr;
+                            for (Expr child : func.getChildren()) {
+                                if (child instanceof LiteralExpr) {
+                                    String autoUnit = ((LiteralExpr) child).getStringValue();
+                                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
+                                        throw new AnalysisException(
+                                                "If support auto partition and dynamic partition at same time, "
+                                                        + "they must have the same interval unit.");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
