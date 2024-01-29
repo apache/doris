@@ -1121,7 +1121,7 @@ public class Column implements Writable, GsonPostProcessable {
         return this.uniqueId;
     }
 
-    public long getAutoIncInitValue(){
+    public long getAutoIncInitValue() {
         return this.autoIncInitValue;
     }
 

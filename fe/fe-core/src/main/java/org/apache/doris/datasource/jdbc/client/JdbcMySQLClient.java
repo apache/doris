@@ -163,8 +163,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 field.setAllowNull(rs.getInt("NULLABLE") != 0);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
-                String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
-                field.setAutoincrement("YES".equalsIgnoreCase(isAutoincrement));
+                field.setAutoIncInitValue(rs.getLong("AUTO_INCREMENT_INIT_VALUE"));
                 field.setDefaultValue(rs.getString("COLUMN_DEF"));
                 tableSchema.add(field);
             }
@@ -197,7 +196,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
-                    field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
+                    field.isAllowNull(), field.getAutoIncInitValue(), field.getDefaultValue(), field.getRemarks(),
                     true, defaultValueExprDef, -1, null));
         }
         return dorisTableSchema;

@@ -189,8 +189,8 @@ public class ColumnDef {
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, int isAutoInc, DefaultValue defaultValue, String comment) {
-        this(name, typeDef, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment, true);
+            boolean isAllowNull, long autoIncInitValue, DefaultValue defaultValue, String comment) {
+        this(name, typeDef, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, true);
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isAllowNull) {

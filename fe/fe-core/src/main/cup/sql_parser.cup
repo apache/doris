@@ -972,7 +972,7 @@ nonterminal StorageBackend storage_backend;
 
 nonterminal ArrayList<LockTable> opt_lock_tables_list;
 nonterminal LockTable lock_table;
-nonterminal Integer opt_auto_inc_init_value;
+nonterminal Long opt_auto_inc_init_value;
 
 // workload policy/group
 nonterminal String policy_condition_op, policy_condition_value;
@@ -3775,17 +3775,18 @@ opt_is_allow_null ::=
 
 opt_auto_inc_init_value ::=
     {:
-        RESULT = -1;
+        RESULT = Long.valueOf(-1);
     :}
     | KW_AUTO_INCREMENT
     {:
-        RESULT = 0;
+        RESULT = Long.valueOf(0);
     :}
     | KW_AUTO_INCREMENT LPAREN INTEGER_LITERAL:auto_inc_initial_value RPAREN
     {:
-        RESULT = auto_inc_initial_value;
+        RESULT = auto_inc_initial_value.longValue();
     :}
     ;
+
 opt_comment ::=
     /* empty */
     {:
