@@ -115,8 +115,7 @@ public class InternalSchemaInitializer extends Thread {
                             Map<String, String> props = new HashMap<>();
                             props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
                                     + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-
-                                Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) tbl, props);
+                            Env.getCurrentEnv().modifyTableReplicaAllocation(database, tbl, props);
                         } else {
                             TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     StatisticConstants.DB_NAME, tbl.getName());

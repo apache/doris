@@ -33,8 +33,6 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-
 public class InternalSchemaAlterTest extends TestWithFeService {
 
     @Override
@@ -66,10 +64,10 @@ public class InternalSchemaAlterTest extends TestWithFeService {
     private void checkReplicationNum(Database db, String tblName) throws AnalysisException {
         OlapTable olapTable = db.getOlapTableOrAnalysisException(tblName);
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Assertions.assertEquals((short)3, olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum(),
+        Assertions.assertEquals((short) 3, olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum(),
                 tblName);
         for (Partition partition : olapTable.getPartitions()) {
-            Assertions.assertEquals((short)3,
+            Assertions.assertEquals((short) 3,
                     partitionInfo.getReplicaAllocation(partition.getId()).getTotalReplicaNum());
         }
     }
