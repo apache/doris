@@ -785,9 +785,17 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
+            static const cctz::time_zone utc0 = cctz::utc_time_zone();
+            cctz::time_zone* tz;
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "paimon") {
+                tz = const_cast<cctz::time_zone*>(&utc0);
+            } else {
+                tz = const_cast<cctz::time_zone*>(&_state->timezone_obj());
+            }
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                    _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
+                    _profile, *_params, range, _state->query_options().batch_size, tz,
+                    _io_ctx.get(), _state,
                     config::max_external_file_meta_cache_num <= 0
                             ? nullptr
                             : ExecEnv::GetInstance()->file_meta_cache(),
