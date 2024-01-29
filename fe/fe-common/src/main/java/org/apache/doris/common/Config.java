@@ -2499,6 +2499,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String cloud_sql_server_cluster_id = "RESERVED_CLUSTER_ID_FOR_SQL_SERVER";
+
+    @ConfField(mutable = true)
+    public static boolean enable_variant_access_in_original_planner = false;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================

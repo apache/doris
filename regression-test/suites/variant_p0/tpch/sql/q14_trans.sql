@@ -1,4 +1,5 @@
-SELECT 100.00 * SUM(CASE
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
+100.00 * SUM(CASE
                     WHEN CAST(P.var["P_TYPE"] AS TEXT) LIKE 'PROMO%'
                       THEN CAST(L.var["L_EXTENDEDPRICE"] AS DOUBLE) * (1 - CAST(L.var["L_DISCOUNT"] AS DOUBLE))
                     ELSE 0
