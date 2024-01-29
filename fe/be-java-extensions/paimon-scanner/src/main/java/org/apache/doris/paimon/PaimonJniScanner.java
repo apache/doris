@@ -60,8 +60,10 @@ public class PaimonJniScanner extends JniScanner {
     private long tblId;
     private long lastUpdateTime;
     private RecordReader.RecordIterator<InternalRow> recordIterator = null;
+    private final ClassLoader classLoader;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
+        this.classLoader = this.getClass().getClassLoader();
         LOG.debug("params:{}", params);
         this.params = params;
         String[] requiredFields = params.get("required_fields").split(",");
@@ -87,9 +89,18 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
-        initTable();
-        initReader();
-        resetDatetimeV2Precision();
+        try {
+            Thread.currentThread().setContextClassLoader(classLoader);
+            initTable();
+            initReader();
+            resetDatetimeV2Precision();
+        } catch (Exception e) {
+            LOG.warn("Failed to open paimon_scanner: " + e.getMessage());
+            for (StackTraceElement element : e.getStackTrace()) {
+                LOG.warn(element.getClassName() + ":" + element.getMethodName() + ":" + element.getLineNumber());
+            }
+            throw e;
+        }
     }
 
     private void initReader() throws IOException {
@@ -182,7 +193,7 @@ public class PaimonJniScanner extends JniScanner {
         PaimonTableCacheKey key = new PaimonTableCacheKey(ctlId, dbId, tblId, paimonOptionParams, dbName, tblName);
         TableExt tableExt = PaimonTableCache.getTable(key);
         if (tableExt.getCreateTime() < lastUpdateTime) {
-            LOG.warn("invalidate cacha table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
+            LOG.warn("invalidate cache table:{}, localTime:{}, remoteTime:{}", key, tableExt.getCreateTime(),
                     lastUpdateTime);
             PaimonTableCache.invalidateTableCache(key);
             tableExt = PaimonTableCache.getTable(key);
