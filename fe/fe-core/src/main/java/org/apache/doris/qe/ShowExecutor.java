@@ -1080,10 +1080,10 @@ public class ShowExecutor {
             try {
                 List<Index> indexes = table.getIndexes();
                 for (Index index : indexes) {
-                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(),
-                            String.valueOf(index.getIndexId()), "", index.getIndexName(),
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
                             "", String.join(",", index.getColumns()), "", "", "", "",
-                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
+                            "", index.getIndexType().name(), index.getComment(), index.getPropertiesString(),
+                            String.valueOf(index.getIndexId())));
                 }
             } finally {
                 table.readUnlock();
