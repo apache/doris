@@ -92,10 +92,10 @@ def test_list_partition_tinyint():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 15),
                             util.gen_tuple_num_str(15, 16)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 def test_list_partition_smallint():
@@ -109,9 +109,9 @@ def test_list_partition_smallint():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('-32767', '32767'), ('255'), ('1985', '1986', '1989', '1991', '1992')]
-    partition_info = palo_client.PartitionInfo('k2', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k2', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -126,9 +126,9 @@ def test_list_partition_int():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('-2147483647', '2147483647'), ('1001', '3021'), ('1002', '25699', '103', '5014', '1992')]
-    partition_info = palo_client.PartitionInfo('k3', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k3', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -143,11 +143,11 @@ def test_list_partition_bigint():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('11011905', '11011903'), ('-11011903', '11011920', '-11011907'), 
                             ('9223372036854775807', '-9223372036854775807', 
                              '11011902', '7210457', '123456')]
-    partition_info = palo_client.PartitionInfo('k4', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k4', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -162,10 +162,10 @@ def test_list_partition_date():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('1901-12-31', '1988-03-21'), ('1989-03-21', '1991-08-11', '2012-03-14'),
                             ('2014-11-11', '2015-01-01', '2015-04-02', '3124-10-10', '9999-12-12')]
-    partition_info = palo_client.PartitionInfo('k10', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k10', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -180,11 +180,11 @@ def test_list_partition_datetime():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('1901-01-01 00:00:00', '1989-03-21 13:00:00', '1989-03-21 13:11:00'),
                             ('2000-01-01 00:00:00', '2013-04-02 15:16:52', '2015-03-13 10:30:00'),
                             ('2015-03-13 12:36:38', '2015-04-02 00:00:00', '9999-11-11 12:12:00')]
-    partition_info = palo_client.PartitionInfo('k11', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k11', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -199,9 +199,9 @@ def test_list_partition_char():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('true'), ('false'), ('')]
-    partition_info = palo_client.PartitionInfo('k6', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k6', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -216,10 +216,10 @@ def test_list_partition_varchar():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('', ' '), ('du3lnvl', 'jiw3n4', 'lifsno', 'wangjuoo4', 'wangjuoo5'),
                             ('wangynnsf', 'wenlsfnl', 'yanavnd', 'yanvjldjlll', 'yunlj8@nk')]
-    partition_info = palo_client.PartitionInfo('k7', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k7', partition_name, partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 
 
@@ -234,11 +234,11 @@ def test_list_partition_largeint():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('11011905', '11011903'), ('-11011903', '11011920', '-11011907'),
                             ('9223372036854775807', '-9223372036854775807',
                              '11011902', '7210457', '123456')]
-    partition_info = palo_client.PartitionInfo('k4', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k4', partition_name, partition_value_list, partition_type='LIST')
     agg_table = table_name + '_agg'
     dup_table = table_name + '_dup'
     uniq_table = table_name + '_uniq'
@@ -279,9 +279,9 @@ def test_list_partition_bool():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2']
+    partition_name = ['p1', 'p2']
     partition_value_list = [('true', 'false')]
-    partition_info = palo_client.PartitionInfo('k6', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k6', partition_name, partition_value_list, partition_type='LIST')
     agg_table = table_name + '_agg'
     dup_table = table_name + '_dup'
     uniq_table = table_name + '_uniq'
@@ -327,9 +327,9 @@ def test_list_partition_decimal():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('-654.654'), ('0'), ('243243.325')]
-    partition_info = palo_client.PartitionInfo('k5', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k5', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     util.assert_return(False, 'type[DECIMAL32] cannot be a list partition key.',
                        client.create_table, table_name, DATA.baseall_column_list, partition_info=partition_info)
@@ -347,7 +347,7 @@ def test_list_partition_mul_col():
     database_name, table_name, index_name = util.gen_num_format_name_list()
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [(('-32767', '1988-03-21', 'jiw3n4'), ('-32767', '2015-04-02', 'wenlsfnl'),
                              ('255', '1989-03-21', 'wangjuoo5'), ('255', '2015-04-02', ''),
                              ('1985', '2015-01-01', 'du3lnvl')),
@@ -357,7 +357,7 @@ def test_list_partition_mul_col():
                             (('1991', '2015-04-02', 'wangynnsf'), ('1991', '3124-10-10', 'yanvjldjlll'),
                              ('1992', '9999-12-12', ' '), ('32767', '1991-08-11', 'lifsno'),
                              ('32767', '2014-11-11', 'yanavnd'))]
-    partition_info = palo_client.PartitionInfo(['k2', 'k10', 'k7'], partiton_name, 
+    partition_info = palo_client.PartitionInfo(['k2', 'k10', 'k7'], partition_name, 
                                                partition_value_list, partition_type='LIST')
     check_partition_type(partition_info, database_name, table_name)
 

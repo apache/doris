@@ -1029,10 +1029,10 @@ def test_null_with_mv():
     client.clean(database_name)
 
 
-def test_add_partiton_with_mv():
+def test_add_partition_with_mv():
     """
        {
-       "title": "test_add_partiton_with_mv",
+       "title": "test_add_partition_with_mv",
        "describe": "验证创建物化视图后，增加分区，向分区导入数据，数据正确，查询结果正确",
        "tag": "system,p1"
        }
@@ -1082,7 +1082,7 @@ def test_add_partiton_with_mv():
 def test_drop_partition_with_mv():
     """
        {
-       "title": "test_drop_partiton_with_mv",
+       "title": "test_drop_partition_with_mv",
        "describe": "验证创建物化视图后，删除分区，向分区导入数据，数据正确，查询结果正确",
        "tag": "system,p1"
        }

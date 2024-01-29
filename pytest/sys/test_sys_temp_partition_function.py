@@ -315,7 +315,7 @@ def test_create_temp_partition_with_no_partition_tb():
     assert client.verify(DATA.expected_data_file_list_1, table_name)
 
     temp_partition_name = 'partition_g'
-    # after list partiton
+    # after list partition
     msg = "Only support adding partition to range and list partitioned table"
     util.assert_return(False, msg,
                        client.add_temp_partition, table_name, temp_partition_name, '20', database_name=database_name)
