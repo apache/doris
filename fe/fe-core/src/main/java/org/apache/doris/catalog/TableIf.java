@@ -237,29 +237,33 @@ public interface TableIf {
         }
     }
 
-    default void addUniqueConstraint(String name, ImmutableList<String> columns) {
+    default void addUniqueConstraint(String name, ImmutableList<String> columns, boolean replay) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             UniqueConstraint uniqueConstraint =  new UniqueConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistenceUnsafe(name, uniqueConstraint, constraintMap);
             constraintMap.put(name, uniqueConstraint);
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(uniqueConstraint, this));
+            if (!replay) {
+                Env.getCurrentEnv().getEditLog().logAddConstraint(
+                        new AlterConstraintLog(uniqueConstraint, this));
+            }
         } finally {
             writeUnlock();
         }
     }
 
-    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns) {
+    default void addPrimaryKeyConstraint(String name, ImmutableList<String> columns, boolean replay) {
         writeLock();
         try {
             Map<String, Constraint> constraintMap = getConstraintsMapUnsafe();
             PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
             checkConstraintNotExistenceUnsafe(name, primaryKeyConstraint, constraintMap);
             constraintMap.put(name, primaryKeyConstraint);
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(primaryKeyConstraint, this));
+            if (!replay) {
+                Env.getCurrentEnv().getEditLog().logAddConstraint(
+                        new AlterConstraintLog(primaryKeyConstraint, this));
+            }
         } finally {
             writeUnlock();
         }
@@ -279,7 +283,7 @@ public interface TableIf {
     }
 
     default void addForeignConstraint(String name, ImmutableList<String> columns,
-            TableIf referencedTable, ImmutableList<String> referencedColumns) {
+            TableIf referencedTable, ImmutableList<String> referencedColumns, boolean replay) {
         writeLock();
         referencedTable.writeLock();
         try {
@@ -293,8 +297,10 @@ public interface TableIf {
                     tryGetPrimaryKeyForForeignKeyUnsafe(requirePrimaryKeyName, referencedTable);
             primaryKeyConstraint.addForeignTable(this);
             constraintMap.put(name, foreignKeyConstraint);
-            Env.getCurrentEnv().getEditLog().logAddConstraint(
-                    new AlterConstraintLog(foreignKeyConstraint, this));
+            if (!replay) {
+                Env.getCurrentEnv().getEditLog().logAddConstraint(
+                        new AlterConstraintLog(foreignKeyConstraint, this));
+            }
         } finally {
             referencedTable.writeUnlock();
             writeUnlock();
@@ -305,17 +311,17 @@ public interface TableIf {
         if (constraint instanceof UniqueConstraint) {
             UniqueConstraint uniqueConstraint = (UniqueConstraint) constraint;
             this.addUniqueConstraint(constraint.getName(),
-                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()));
+                    ImmutableList.copyOf(uniqueConstraint.getUniqueColumnNames()), true);
         } else if (constraint instanceof PrimaryKeyConstraint) {
             PrimaryKeyConstraint primaryKeyConstraint = (PrimaryKeyConstraint) constraint;
             this.addPrimaryKeyConstraint(primaryKeyConstraint.getName(),
-                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()));
+                    ImmutableList.copyOf(primaryKeyConstraint.getPrimaryKeyNames()), true);
         } else if (constraint instanceof ForeignKeyConstraint) {
             ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
             this.addForeignConstraint(foreignKey.getName(),
                     ImmutableList.copyOf(foreignKey.getForeignKeyNames()),
                     foreignKey.getReferencedTable(),
-                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()));
+                    ImmutableList.copyOf(foreignKey.getReferencedColumnNames()), true);
         }
     }
 
