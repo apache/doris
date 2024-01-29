@@ -46,8 +46,8 @@ public class EnvFactory {
         return SingletonHolder.INSTANCE;
     }
 
-    public Env createEnv(boolean isCheckpointCatalog) {
-        return new Env(isCheckpointCatalog);
+    public Env createEnv(boolean isCheckpointCatalog, SystemInfoService systemInfo) {
+        return new Env(isCheckpointCatalog, systemInfo);
     }
 
     public InternalCatalog createInternalCatalog() {

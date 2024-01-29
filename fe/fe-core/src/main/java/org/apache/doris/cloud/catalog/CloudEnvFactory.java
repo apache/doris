@@ -48,8 +48,8 @@ public class CloudEnvFactory extends EnvFactory {
     }
 
     @Override
-    public Env createEnv(boolean isCheckpointCatalog) {
-        return new CloudEnv(isCheckpointCatalog);
+    public Env createEnv(boolean isCheckpointCatalog, SystemInfoService systemInfo) {
+        return new CloudEnv(isCheckpointCatalog, systemInfo);
     }
 
     @Override
