@@ -169,7 +169,13 @@ public abstract class JdbcClient {
     }
 
     public void closeClient() {
-        dataSource.close();
+        try {
+            if (dataSource != null) {
+                dataSource.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to close data source", e);
+        }
     }
 
     public Connection getConnection() throws JdbcClientException {
@@ -190,7 +196,7 @@ public abstract class JdbcClient {
                 try {
                     closeable.close();
                 } catch (Exception e) {
-                    throw new JdbcClientException("Can not close : ", e);
+                    LOG.warn("Failed to close jdbc resource: ", e);
                 }
             }
         }
