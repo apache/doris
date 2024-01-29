@@ -2498,8 +2498,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long autoIncInitValue = -1;
         if (ctx.AUTO_INCREMENT() != null) {
             if (ctx.autoIncInitValue != null) {
+                // AUTO_INCREMENT(Value) Value >= 0.
                 autoIncInitValue = Long.valueOf(ctx.autoIncInitValue.getText());
+                if (autoIncInitValue < 0) {
+                    throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
+                }
+            } else {
+                // AUTO_INCREMENT default 1.
+                autoIncInitValue = Long.valueOf(1);
             }
+        } else {
+            autoIncInitValue = Long.valueOf(-1);
         }
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, autoIncInitValue, defaultValue,
                 onUpdateDefaultValue, comment);

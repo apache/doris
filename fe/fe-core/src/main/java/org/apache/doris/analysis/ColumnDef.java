@@ -209,7 +209,7 @@ public class ColumnDef {
         this.isKey = isKey;
         this.aggregateType = aggregateType;
         this.isAllowNull = isAllowNull;
-        this.isAutoInc = autoIncInitValue != -1;
+        this.isAutoInc = autoIncInitValue != 0;
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.comment = comment;

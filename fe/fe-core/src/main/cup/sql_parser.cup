@@ -3779,10 +3779,13 @@ opt_auto_inc_init_value ::=
     :}
     | KW_AUTO_INCREMENT
     {:
-        RESULT = Long.valueOf(0);
+        RESULT = Long.valueOf(1);
     :}
     | KW_AUTO_INCREMENT LPAREN INTEGER_LITERAL:auto_inc_initial_value RPAREN
     {:
+        if (auto_inc_initial_value.longValue() < 0) {
+            throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
+        }
         RESULT = auto_inc_initial_value.longValue();
     :}
     ;
