@@ -294,8 +294,6 @@ public class CloudClusterChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         getCloudBackends();
         updateCloudMetrics();
-        LOG.info("daemon cluster get cluster info succ, current cloudClusterIdToBackendMap: {}",
-                Env.getCurrentSystemInfo().getCloudClusterIdToBackend());
         getCloudObserverFes();
     }
 
@@ -415,35 +413,38 @@ public class CloudClusterChecker extends MasterDaemon {
                 && response.getStatus().getCode() != MetaServiceCode.CLUSTER_NOT_FOUND)) {
             LOG.warn("failed to get cloud cluster due to incomplete response, "
                     + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
-        } else {
-            Set<String> localClusterIds = clusterIdToBackend.keySet();
-            // clusterId -> clusterPB
-            Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
-                    .filter(c -> c.getType() != Type.SQL)
-                    .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
-            LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
-
-            try {
-                // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
-                // remote - local > 0, add bes to local
-                checkToAddCluster(remoteClusterIdToPB, localClusterIds);
-
-                // local - remote > 0, drop bes from local
-                checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
-
-                if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
-                    LOG.warn("impossible cluster id size not match, check it local {}, remote {}",
-                            clusterIdToBackend, remoteClusterIdToPB);
-                }
-                // clusterID local == remote, diff nodes
-                checkDiffNode(remoteClusterIdToPB, clusterIdToBackend);
-
-                // check mem map
-                checkFeNodesMapValid();
-            } catch (Exception e) {
-                LOG.warn("diff cluster has exception, {}", e.getMessage(), e);
-            }
+            return;
         }
+        Set<String> localClusterIds = clusterIdToBackend.keySet();
+        // clusterId -> clusterPB
+        Map<String, ClusterPB> remoteClusterIdToPB = response.getClusterList().stream()
+                .filter(c -> c.getType() != Type.SQL)
+                .collect(Collectors.toMap(ClusterPB::getClusterId, clusterPB -> clusterPB));
+        LOG.info("get cluster info  clusterIds: {}", remoteClusterIdToPB);
+
+        try {
+            // cluster_ids diff remote <clusterId, nodes> and local <clusterId, nodes>
+            // remote - local > 0, add bes to local
+            checkToAddCluster(remoteClusterIdToPB, localClusterIds);
+
+            // local - remote > 0, drop bes from local
+            checkToDelCluster(remoteClusterIdToPB, localClusterIds, clusterIdToBackend);
+
+            if (remoteClusterIdToPB.keySet().size() != clusterIdToBackend.keySet().size()) {
+                LOG.warn("impossible cluster id size not match, check it local {}, remote {}",
+                        clusterIdToBackend, remoteClusterIdToPB);
+            }
+            // clusterID local == remote, diff nodes
+            checkDiffNode(remoteClusterIdToPB, clusterIdToBackend);
+
+            // check mem map
+            checkFeNodesMapValid();
+        } catch (Exception e) {
+            LOG.warn("diff cluster has exception, {}", e.getMessage(), e);
+
+        }
+        LOG.info("daemon cluster get cluster info succ, current cloudClusterIdToBackendMap: {}",
+                Env.getCurrentSystemInfo().getCloudClusterIdToBackend());
     }
 
     private void updateCloudMetrics() {
