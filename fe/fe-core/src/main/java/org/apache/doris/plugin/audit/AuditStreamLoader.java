@@ -43,12 +43,12 @@ public class AuditStreamLoader {
     private String feIdentity;
 
     public AuditStreamLoader() {
-        this.hostPort = "127.0.0.1_" + Config.http_port;
+        this.hostPort = "127.0.0.1:" + Config.http_port;
         this.db = FeConstants.INTERNAL_DB_NAME;
         this.auditLogTbl = AuditLoaderPlugin.AUDIT_LOG_TABLE;
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
-        this.feIdentity = hostPort.replaceAll("\\.", "_");
+        this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {

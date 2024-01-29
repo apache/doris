@@ -17,12 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
@@ -44,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -86,29 +90,45 @@ public class InternalSchemaInitializer extends Thread {
         modifyTblReplicaCount(database, AuditLoaderPlugin.AUDIT_LOG_TABLE);
     }
 
+    @VisibleForTesting
     public void modifyTblReplicaCount(Database database, String tblName) {
         if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
                 && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
             return;
         }
         while (true) {
-            if (Env.getCurrentSystemInfo().aliveBECount() >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+            if (Env.getCurrentSystemInfo().getBackendNumFromDiffHosts()
+                    >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                 try {
-                    Map<String, String> props = new HashMap<>();
-                    props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
-                            + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-                    TableIf colStatsTbl = StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    OlapTable tbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                             StatisticConstants.DB_NAME, tblName);
-                    OlapTable olapTable = (OlapTable) colStatsTbl;
-                    if (olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
+                    if (tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
                             >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                         return;
                     }
-                    colStatsTbl.writeLock();
-                    try {
-                        Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) colStatsTbl, props);
-                    } finally {
-                        colStatsTbl.writeUnlock();
+                    if (!tbl.isPartitionedTable()) {
+                        Map<String, String> props = new HashMap<>();
+                        props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
+                                + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                        tbl.writeLock();
+                        try {
+                            Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) tbl, props);
+                        } finally {
+                            tbl.writeUnlock();
+                        }
+                    } else {
+                        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                StatisticConstants.DB_NAME, tbl.getName());
+                        // 1. modify table's default replica num
+                        Map<String, String> props = new HashMap<>();
+                        props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                        Env.getCurrentEnv().modifyTableDefaultReplicaAllocation(database, tbl, props);
+                        // 2. modify each partition's replica num
+                        List<AlterClause> clauses = Lists.newArrayList();
+                        clauses.add(ModifyPartitionClause.createStarClause(props, false));
+                        AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
+                        Env.getCurrentEnv().alterTable(alter);
                     }
                     break;
                 } catch (Throwable t) {
