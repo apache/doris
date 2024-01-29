@@ -58,6 +58,10 @@ public class ForeignKeyConstraint extends Constraint {
         return foreignToReference.keySet();
     }
 
+    public Set<String> getPrimaryKeyNames() {
+        return ImmutableSet.copyOf(foreignToReference.values());
+    }
+
     public Set<String> getReferencedColumnNames() {
         return ImmutableSet.copyOf(foreignToReference.values());
     }
@@ -87,7 +91,7 @@ public class ForeignKeyConstraint extends Constraint {
     }
 
     public Boolean isReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
-        return constraint.getPrimaryKeyNames().equals(getForeignKeyNames())
+        return constraint.getPrimaryKeyNames().equals(getPrimaryKeyNames())
                 && getReferencedTable().equals(table);
     }
 
