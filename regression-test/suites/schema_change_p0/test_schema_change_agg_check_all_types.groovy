@@ -18,16 +18,6 @@
 suite("test_schema_change_agg_check_all_types", "p0") {
     def tableName3 = "test_schema_change_agg_check_all_types"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return jobStateResult[0][9]
-    }
-
-    def getCreateViewState = { tableName ->
-        def createViewStateResult = sql """ SHOW ALTER TABLE MATERIALIZED VIEW WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-        return createViewStateResult[0][8]
-    }
-
     sql """ DROP TABLE IF EXISTS ${tableName3} """
 
     sql """
@@ -55,21 +45,11 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     // tinyint to smallint
     sql """ alter table ${tableName3} modify column k2 smallint key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
+
 
     sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00') """
@@ -79,20 +59,9 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     // smallint to int
     sql """ alter table ${tableName3} modify column k2 int key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -102,20 +71,10 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     // int to bigint
     sql """ alter table ${tableName3} modify column k2 bigint key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ insert into ${tableName3} values (10003, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -124,22 +83,11 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     qt_int_to_bigint """ select * from ${tableName3} """
 
     // bigint to largeint
-
     sql """ alter table ${tableName3} modify column k2 largeint key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ insert into ${tableName3} values (10004, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -150,37 +98,15 @@ suite("test_schema_change_agg_check_all_types", "p0") {
     // largeint to float
     sql """ alter table ${tableName3} add column k14 largeint replace not null default "0" after k13"""
 
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ alter table ${tableName3} modify column k14 float replace not null default "0" after k13"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ insert into ${tableName3} values (10005, 2, 3, 4, 5, 6.6, 1.7, 8.8,
@@ -190,26 +116,52 @@ suite("test_schema_change_agg_check_all_types", "p0") {
 
     // float to double
     sql """ alter table ${tableName3} modify column k14 double replace not null default "0" after k13"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            sleep(100)
-            if (max_try_num < 1){
-                assertEquals(1,2)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
     }
 
     sql """ insert into ${tableName3} values (10006, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11) """
 
     qt_float_to_double """ select * from ${tableName3} """
+
+
+    // float to decimal & string
+    sql """ alter table ${tableName3} add column float1 float replace not null default "0" after k13"""
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+    sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,1.21) """
+
+    qt_add_float""" select * from ${tableName3} """
+
+    sql """ alter table ${tableName3} modify column float1 varchar replace not null default "0" after k13"""
+
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+    sql """ insert into ${tableName3} values (10007, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00',1.11,'1.21') """
+    qt_float_to_varchar""" select * from ${tableName3} """
+
+
+    sql """ alter table ${tableName3} modify column float1 float replace not null default "0" after k13"""
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 60
+    }
+
+    qt_varchar_to_float""" select * from ${tableName3} """
+
+
+    test {
+        sql """ alter table ${tableName3} modify column float1 decimal(9, 2) replace not null default "0" after k13"""
+        exception "Can not change FLOAT to DECIMAL32"
+    }
 
 }
 
