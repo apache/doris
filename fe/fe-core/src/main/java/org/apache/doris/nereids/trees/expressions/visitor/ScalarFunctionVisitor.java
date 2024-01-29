@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayProduct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushBack;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPushFront;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
@@ -565,6 +566,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayRange(ArrayRange arrayRange, C context) {
         return visitScalarFunction(arrayRange, context);
+    }
+
+    default R visitArrayRangeDayUnit(ArrayRangeDayUnit arrayRangeDayUnit, C context) {
+        return visitScalarFunction(arrayRangeDayUnit, context);
     }
 
     default R visitArrayRemove(ArrayRemove arrayRemove, C context) {

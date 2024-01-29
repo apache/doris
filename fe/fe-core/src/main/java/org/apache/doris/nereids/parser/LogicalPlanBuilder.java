@@ -49,6 +49,7 @@ import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.ArrayLiteralContext;
 import org.apache.doris.nereids.DorisParser.ArraySliceContext;
+import org.apache.doris.nereids.DorisParser.Array_rangeContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
@@ -259,6 +260,8 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDayUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
@@ -1661,6 +1664,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
             return new SecondsAdd(timeStamp, amount);
         }
+        throw new ParseException("Unsupported time unit: " + ctx.unit
+                + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
+    }
+
+    @Override
+    public Expression visitArray_range(Array_rangeContext ctx) {
+        Expression start = (Expression) visit(ctx.start);
+        Expression end = (Expression) visit(ctx.end);
+        Expression step = (Expression) visit(ctx.unitsAmount);
+
+        if (ctx.end == null) {
+            return new ArrayRange(start);
+        }
+        if (ctx.unit == null) {
+            return new ArrayRange(start, end);
+        }
+
+        if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+            return new ArrayRangeDayUnit(start, end, step);
+        }
+
+        // if ("Year".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeYearUnit(timeStamp, amount);
+        // } else if ("MONTH".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeMonthUnit(timeStamp, amount);
+        // } else if ("WEEK".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeWeekUnit(timeStamp, amount);
+        // } else if ("DAY".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeDayUnit(timeStamp, amount);
+        // } else if ("Hour".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeHourUnit(timeStamp, amount);
+        // } else if ("Minute".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeMinuteUnit(timeStamp, amount);
+        // } else if ("Second".equalsIgnoreCase(ctx.unit.getText())) {
+        //     return new ArrayRangeSecondUnit(timeStamp, amount);
+        // }
         throw new ParseException("Unsupported time unit: " + ctx.unit
                 + ", supported time unit: YEAR/MONTH/DAY/HOUR/MINUTE/SECOND", ctx);
     }

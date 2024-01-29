@@ -830,6 +830,8 @@ visible_functions = {
         [['array_range'], 'ARRAY_INT', ['INT'], 'ALWAYS_NULLABLE'],
         [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
         [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['array_range'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
+        [['array_range'], 'ARRAY_DATETIMEV2', ['DATETIMEV2', 'DATETIMEV2', 'INT'], 'ALWAYS_NULLABLE'],
 
         [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
