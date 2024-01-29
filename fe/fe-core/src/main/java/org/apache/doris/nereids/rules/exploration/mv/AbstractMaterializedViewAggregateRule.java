@@ -456,16 +456,16 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         public Expression visitAggregateFunction(AggregateFunction aggregateFunction,
                 AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
-                return null;
+                return aggregateFunction;
             }
             Expression queryFunctionShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                     aggregateFunction,
                     rewriteContext.getQueryTopPlan());
             Function rollupAggregateFunction = rollup(aggregateFunction, queryFunctionShuttled,
-                    rewriteContext.getMvExprToMvScanExprQueryBased());
+                    rewriteContext.getMvExprToMvScanExprQueryBasedMapping());
             if (rollupAggregateFunction == null) {
                 rewriteContext.setValid(false);
-                return null;
+                return aggregateFunction;
             }
             return rollupAggregateFunction;
         }
@@ -473,32 +473,31 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         @Override
         public Expression visitSlot(Slot slot, AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
-                return null;
+                return slot;
             }
-            if (rewriteContext.getMvExprToMvScanExprQueryBased().containsKey(slot)) {
-                return rewriteContext.getMvExprToMvScanExprQueryBased().get(slot);
+            if (rewriteContext.getMvExprToMvScanExprQueryBasedMapping().containsKey(slot)) {
+                return rewriteContext.getMvExprToMvScanExprQueryBasedMapping().get(slot);
             }
             rewriteContext.setValid(false);
-            return null;
+            return slot;
         }
 
         @Override
         public Expression visit(Expression expr, AggregateExpressionRewriteContext rewriteContext) {
             if (!rewriteContext.isValid()) {
-                return null;
+                return expr;
             }
             // for group by expression try to get corresponding expression directly
-            if (rewriteContext.isGroupByExpression()
-                    && rewriteContext.getMvExprToMvScanExprQueryBased().containsKey(expr)) {
-                return rewriteContext.getMvExprToMvScanExprQueryBased().get(expr);
+            if (rewriteContext.isOnlyContainGroupByExpression()
+                    && rewriteContext.getMvExprToMvScanExprQueryBasedMapping().containsKey(expr)) {
+                return rewriteContext.getMvExprToMvScanExprQueryBasedMapping().get(expr);
             }
             List<Expression> newChildren = new ArrayList<>(expr.arity());
             boolean hasNewChildren = false;
             for (Expression child : expr.children()) {
                 Expression newChild = child.accept(this, rewriteContext);
-                if (newChild == null) {
-                    rewriteContext.setValid(false);
-                    return null;
+                if (!rewriteContext.isValid()) {
+                    return expr;
                 }
                 if (newChild != child) {
                     hasNewChildren = true;
@@ -514,14 +513,14 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
      */
     protected static class AggregateExpressionRewriteContext {
         private boolean valid = true;
-        private final boolean groupByExpression;
-        private final Map<Expression, Expression> mvExprToMvScanExprQueryBased;
+        private final boolean onlyContainGroupByExpression;
+        private final Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping;
         private final Plan queryTopPlan;
 
-        public AggregateExpressionRewriteContext(boolean groupByExpression,
-                Map<Expression, Expression> mvExprToMvScanExprQueryBased, Plan queryTopPlan) {
-            this.groupByExpression = groupByExpression;
-            this.mvExprToMvScanExprQueryBased = mvExprToMvScanExprQueryBased;
+        public AggregateExpressionRewriteContext(boolean onlyContainGroupByExpression,
+                Map<Expression, Expression> mvExprToMvScanExprQueryBasedMapping, Plan queryTopPlan) {
+            this.onlyContainGroupByExpression = onlyContainGroupByExpression;
+            this.mvExprToMvScanExprQueryBasedMapping = mvExprToMvScanExprQueryBasedMapping;
             this.queryTopPlan = queryTopPlan;
         }
 
@@ -533,12 +532,12 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             this.valid = valid;
         }
 
-        public boolean isGroupByExpression() {
-            return groupByExpression;
+        public boolean isOnlyContainGroupByExpression() {
+            return onlyContainGroupByExpression;
         }
 
-        public Map<Expression, Expression> getMvExprToMvScanExprQueryBased() {
-            return mvExprToMvScanExprQueryBased;
+        public Map<Expression, Expression> getMvExprToMvScanExprQueryBasedMapping() {
+            return mvExprToMvScanExprQueryBasedMapping;
         }
 
         public Plan getQueryTopPlan() {
