@@ -296,7 +296,7 @@ public interface TableIf {
             Env.getCurrentEnv().getEditLog().logAddConstraint(
                     new AlterConstraintLog(foreignKeyConstraint, this));
         } finally {
-            referencedTable.writeLock();
+            referencedTable.writeUnlock();
             writeUnlock();
         }
     }
