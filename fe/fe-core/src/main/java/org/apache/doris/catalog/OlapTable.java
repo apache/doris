@@ -2502,6 +2502,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return tablets;
     }
 
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        LOG.info("updateVisibleVersionAndTime, tableName: {}, visibleVersion, {}, visibleVersionTime: {}", name,
+                visibleVersion, visibleVersionTime);
+        tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+    }
+
+    // During `getNextVersion` and `updateVisibleVersionAndTime` period,
+    // the write lock on the table should be held continuously
+    public long getNextVersion() {
+        return tableAttributes.getNextVersion();
+    }
+
+    public long getVisibleVersion() {
+        return tableAttributes.getVisibleVersion();
+    }
+
+    public long getVisibleVersionTime() {
+        return tableAttributes.getVisibleVersionTime();
+    }
+
     @Override
     public PartitionType getPartitionType() {
         return partitionInfo.getType();
