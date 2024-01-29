@@ -48,8 +48,7 @@ struct PartitionSortInfo {
                       const std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                       RuntimeState* runtime_state, RuntimeProfile* runtime_profile,
                       bool has_global_limit, int64_t partition_inner_limit,
-                      TopNAlgorithm::type top_n_algorithm, SortCursorCmp* previous_row,
-                      TPartTopNPhase::type topn_phase)
+                      TopNAlgorithm::type top_n_algorithm, TPartTopNPhase::type topn_phase)
             : _vsort_exec_exprs(vsort_exec_exprs),
               _limit(limit),
               _offset(offset),
@@ -62,13 +61,12 @@ struct PartitionSortInfo {
               _has_global_limit(has_global_limit),
               _partition_inner_limit(partition_inner_limit),
               _top_n_algorithm(top_n_algorithm),
-              _previous_row(previous_row),
               _topn_phase(topn_phase) {}
 
 public:
     VSortExecExprs* _vsort_exec_exprs = nullptr;
     int64_t _limit = -1;
-    int64_t _offset = -1;
+    int64_t _offset = 0;
     ObjectPool* _pool = nullptr;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
@@ -78,47 +76,22 @@ public:
     bool _has_global_limit = false;
     int64_t _partition_inner_limit = 0;
     TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
-    SortCursorCmp* _previous_row = nullptr;
     TPartTopNPhase::type _topn_phase = TPartTopNPhase::TWO_PHASE_GLOBAL;
 };
 
 struct PartitionBlocks {
 public:
-    PartitionBlocks() = default; //should fixed in pipelineX
     PartitionBlocks(std::shared_ptr<PartitionSortInfo> partition_sort_info, bool is_first_sorter)
             : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
     ~PartitionBlocks() = default;
 
     void add_row_idx(size_t row) { selector.push_back(row); }
 
-    void append_block_by_selector(const vectorized::Block* input_block,
-                                  const RowDescriptor& row_desc, bool is_limit,
-                                  int64_t partition_inner_limit, int batch_size) {
-        if (blocks.empty() || reach_limit()) {
-            _init_rows = batch_size;
-            blocks.push_back(Block::create_unique(VectorizedUtils::create_empty_block(row_desc)));
-        }
-        auto columns = input_block->get_columns();
-        auto mutable_columns = blocks.back()->mutate_columns();
-        DCHECK(columns.size() == mutable_columns.size());
-        for (int i = 0; i < mutable_columns.size(); ++i) {
-            columns[i]->append_data_by_selector(mutable_columns[i], selector);
-        }
-        blocks.back()->set_columns(std::move(mutable_columns));
-        auto selector_rows = selector.size();
-        _init_rows = _init_rows - selector_rows;
-        _total_rows = _total_rows + selector_rows;
-        _current_input_rows = _current_input_rows + selector_rows;
-        selector.clear();
-        // maybe better could change by user PARTITION_SORT_ROWS_THRESHOLD
-        if (_current_input_rows >= PARTITION_SORT_ROWS_THRESHOLD &&
-            _partition_sort_info->_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            static_cast<void>(do_partition_topn_sort()); // fixed : should return status
-            _current_input_rows = 0;                     // reset record
-        }
-    }
+    Status append_block_by_selector(const vectorized::Block* input_block, bool eos);
 
     Status do_partition_topn_sort();
+
+    void create_or_reset_sorter_state();
 
     void append_whole_block(vectorized::Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
@@ -132,15 +105,18 @@ public:
 
     size_t get_total_rows() const { return _total_rows; }
     size_t get_topn_filter_rows() const { return _topn_filter_rows; }
+    size_t get_do_topn_count() const { return _do_partition_topn_count; }
 
     IColumn::Selector selector;
     std::vector<std::unique_ptr<Block>> blocks;
     size_t _total_rows = 0;
     size_t _current_input_rows = 0;
     size_t _topn_filter_rows = 0;
+    size_t _do_partition_topn_count = 0;
     int _init_rows = 4096;
     bool _is_first_sorter = false;
 
+    std::unique_ptr<SortCursorCmp> _previous_row;
     std::unique_ptr<PartitionSorter> _partition_topn_sorter = nullptr;
     std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
 };
@@ -261,9 +237,9 @@ public:
 
 private:
     void _init_hash_method();
-    Status _split_block_by_partition(vectorized::Block* input_block, int batch_size);
-    void _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                  const vectorized::Block* input_block, int batch_size);
+    Status _split_block_by_partition(vectorized::Block* input_block, bool eos);
+    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
+                                    const vectorized::Block* input_block, bool eos);
     Status get_sorted_block(RuntimeState* state, Block* output_block, bool* eos);
 
     // hash table
@@ -286,7 +262,6 @@ private:
     int _num_partition = 0;
     int64_t _partition_inner_limit = 0;
     int _sort_idx = 0;
-    std::unique_ptr<SortCursorCmp> _previous_row;
     std::queue<Block> _blocks_buffer;
     int64_t child_input_rows = 0;
     std::mutex _buffer_mutex;

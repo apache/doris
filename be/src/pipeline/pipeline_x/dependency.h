@@ -479,7 +479,6 @@ public:
     std::queue<vectorized::Block> blocks_buffer;
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
-    std::unique_ptr<vectorized::SortCursorCmp> previous_row;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
 };
