@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.rules.rewrite.ForeignKeyContext;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,7 +44,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
@@ -55,10 +58,17 @@ import java.util.stream.Collectors;
  * Utils for join
  */
 public class JoinUtils {
+    /**
+     * couldShuffle
+     */
     public static boolean couldShuffle(Join join) {
         // Cross-join and Null-Aware-Left-Anti-Join only can be broadcast join.
-        // Because mark join would consider null value from both build and probe side, so must use broadcast join too.
-        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin() || join.isMarkJoin());
+        // standalone mark join would consider null value from both build and probe side, so must use broadcast join.
+        // mark join with hash conjuncts can shuffle by hash conjuncts
+        // TODO actually standalone mark join can use shuffle, but need do nullaware shuffle to broadcast null value
+        //  to all instances
+        return !(join.getJoinType().isCrossJoin() || join.getJoinType().isNullAwareLeftAntiJoin()
+                || (!join.getMarkJoinConjuncts().isEmpty() && join.getHashJoinConjuncts().isEmpty()));
     }
 
     public static boolean couldBroadcast(Join join) {
@@ -170,10 +180,14 @@ public class JoinUtils {
     }
 
     public static boolean shouldNestedLoopJoin(Join join) {
-        return join.getHashJoinConjuncts().isEmpty();
+        // currently, mark join conjuncts only has one conjunct, so we always get the first element here
+        return join.getHashJoinConjuncts().isEmpty() && (join.getMarkJoinConjuncts().isEmpty()
+                || !(join.getMarkJoinConjuncts().get(0) instanceof EqualPredicate));
     }
 
     public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
+        // this function is only called by hyper graph, which reject mark join
+        // so mark join is not processed here
         return hashConjuncts.isEmpty();
     }
 
@@ -279,11 +293,46 @@ public class JoinUtils {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    private static Map<Slot, Slot> mapPrimaryToForeign(ImmutableEqualSet<Slot> equivalenceSet,
+            Set<Slot> foreignKeys) {
+        ImmutableMap.Builder<Slot, Slot> builder = new ImmutableMap.Builder<>();
+        for (Slot foreignSlot : foreignKeys) {
+            Set<Slot> primarySlots = equivalenceSet.calEqualSet(foreignSlot);
+            if (primarySlots.size() != 1) {
+                return ImmutableMap.of();
+            }
+            builder.put(primarySlots.iterator().next(), foreignSlot);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Check whether the given join can be eliminated by pk-fk
+     */
+    public static boolean canEliminateByFk(LogicalJoin<?, ?> join, Plan primaryPlan, Plan foreignPlan) {
+        if (!join.getJoinType().isInnerJoin() || !join.getOtherJoinConjuncts().isEmpty() || join.isMarkJoin()) {
+            return false;
+        }
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        context.collectForeignKeyConstraint(primaryPlan);
+        context.collectForeignKeyConstraint(foreignPlan);
+
+        ImmutableEqualSet<Slot> equalSet = join.getEqualSlots();
+        Set<Slot> primaryKey = Sets.intersection(equalSet.getAllItemSet(), primaryPlan.getOutputSet());
+        Set<Slot> foreignKey = Sets.intersection(equalSet.getAllItemSet(), foreignPlan.getOutputSet());
+        if (!context.isForeignKey(foreignKey) || !context.isPrimaryKey(primaryKey)) {
+            return false;
+        }
+
+        Map<Slot, Slot> primaryToForeignKey = mapPrimaryToForeign(equalSet, foreignKey);
+        return context.satisfyConstraint(primaryToForeignKey);
+    }
+
     /**
      * can this join be eliminated by its left child
      */
-    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies leftFuncDeps,
-            FunctionalDependencies rightFuncDeps) {
+    public static boolean canEliminateByLeft(LogicalJoin<?, ?> join, FunctionalDependencies rightFuncDeps) {
         if (join.getJoinType().isLeftOuterJoin()) {
             Pair<Set<Slot>, Set<Slot>> njHashKeys = join.extractNullRejectHashKeys();
             if (!join.getOtherJoinConjuncts().isEmpty() || njHashKeys == null) {

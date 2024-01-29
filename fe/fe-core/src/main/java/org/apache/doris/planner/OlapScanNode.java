@@ -94,6 +94,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -200,6 +201,8 @@ public class OlapScanNode extends ScanNode {
 
     private boolean shouldColoScan = false;
 
+    protected List<Expr> rewrittenProjectList;
+
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
@@ -253,6 +256,10 @@ public class OlapScanNode extends ScanNode {
         if (sampleTablets != null) {
             this.sampleTabletIds.addAll(sampleTablets);
         }
+    }
+
+    public void setRewrittenProjectList(List<Expr> rewrittenProjectList) {
+        this.rewrittenProjectList = rewrittenProjectList;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -811,7 +818,7 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException(sb.toString());
             }
 
-            if (useFixReplica == -1) {
+            if (useFixReplica <= -1) {
                 if (skipMissingVersion) {
                     // sort by replica's last success version, higher success version in the front.
                     replicas.sort(Replica.LAST_SUCCESS_VERSION_COMPARATOR);
@@ -819,7 +826,7 @@ public class OlapScanNode extends ScanNode {
                     Collections.shuffle(replicas);
                 }
             } else {
-                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
@@ -1332,6 +1339,11 @@ public class OlapScanNode extends ScanNode {
         }
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT");
+        }
+
+        if (!CollectionUtils.isEmpty(rewrittenProjectList)) {
+            output.append(prefix).append("rewrittenProjectList: ").append(
+                    getExplainString(rewrittenProjectList)).append("\n");
         }
 
         return output.toString();

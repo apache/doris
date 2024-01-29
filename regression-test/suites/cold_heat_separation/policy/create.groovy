@@ -220,8 +220,8 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_ACCESS_KEY] in properties.
-        assertEquals(failed_create_2, null)
+        // can read AWS_ACCESS_KEY from environment variable
+        assertEquals(failed_create_2, [[0]])
     }
 
     if (has_created_2.size() == 0) {
@@ -240,7 +240,7 @@ suite("create_policy") {
             "s3_validity_check" = "false"
         );
         """
-        // errCode = 2, detailMessage = Missing [AWS_SECRET_KEY] in properties.
+        // can read AWS_SECRET_KEY from environment variables
         assertEquals(failed_create_2, null)
     }
 

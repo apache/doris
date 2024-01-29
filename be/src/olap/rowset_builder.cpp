@@ -74,6 +74,10 @@ void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
     _wait_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapWaitTime");
+}
+
+void RowsetBuilder::_init_profile(RuntimeProfile* profile) {
+    BaseRowsetBuilder::_init_profile(profile);
     _commit_txn_timer = ADD_TIMER(_profile, "CommitTxnTime");
 }
 
@@ -117,7 +121,7 @@ void RowsetBuilder::_garbage_collection() {
 
 Status RowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
-    int64_t cur_max_version = tablet()->max_version_unlocked().second;
+    int64_t cur_max_version = tablet()->max_version_unlocked();
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TABLET_NOTREADY) {
         // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
@@ -171,7 +175,7 @@ Status RowsetBuilder::prepare_txn() {
 }
 
 Status RowsetBuilder::init() {
-    _tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
+    _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(init_mow_context(mow_context));
@@ -195,7 +199,8 @@ Status RowsetBuilder::init() {
     context.tablet_schema = _tablet_schema;
     context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
-    context.tablet_id = _tablet->tablet_id();
+    context.tablet_id = _req.tablet_id;
+    context.index_id = _req.index_id;
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = mow_context;
@@ -221,17 +226,17 @@ Status BaseRowsetBuilder::build_rowset() {
     return Status::OK();
 }
 
-Status RowsetBuilder::submit_calc_delete_bitmap_task() {
+Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (tablet()->tablet_state() == TABLET_NOTREADY) {
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
                      "tablet_id: "
-                  << tablet()->tablet_id() << " txn_id: " << _req.txn_id;
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
         return Status::OK();
     }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
@@ -240,7 +245,7 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
         RETURN_IF_ERROR(
-                tablet()->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
+                _tablet->calc_delete_bitmap_between_segments(_rowset, segments, _delete_bitmap));
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -252,9 +257,9 @@ Status RowsetBuilder::submit_calc_delete_bitmap_task() {
 
     LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << tablet()->tablet_id()
               << ", txn_id: " << _req.txn_id;
-    return tablet()->commit_phase_update_delete_bitmap(_rowset, _rowset_ids, _delete_bitmap,
-                                                       segments, _req.txn_id,
-                                                       _calc_delete_bitmap_token.get(), nullptr);
+    return BaseTablet::commit_phase_update_delete_bitmap(_tablet, _rowset, _rowset_ids,
+                                                         _delete_bitmap, segments, _req.txn_id,
+                                                         _calc_delete_bitmap_token.get(), nullptr);
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {

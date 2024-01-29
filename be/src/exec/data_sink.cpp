@@ -30,6 +30,8 @@
 #include <string>
 
 #include "common/config.h"
+#include "runtime/query_context.h"
+#include "runtime/query_statistics.h"
 #include "vec/sink/async_writer_sink.h"
 #include "vec/sink/group_commit_block_sink.h"
 #include "vec/sink/multi_cast_data_stream_sink.h"
@@ -43,6 +45,14 @@
 namespace doris {
 class DescriptorTbl;
 class TExpr;
+
+DataSink::DataSink(const RowDescriptor& desc) : _row_desc(desc) {
+    _query_statistics = std::make_shared<QueryStatistics>();
+}
+
+std::shared_ptr<QueryStatistics> DataSink::get_query_statistics_ptr() {
+    return _query_statistics;
+}
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
@@ -175,6 +185,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();
@@ -318,6 +331,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     if (*sink != nullptr) {
         RETURN_IF_ERROR((*sink)->init(thrift_sink));
         RETURN_IF_ERROR((*sink)->prepare(state));
+        if (state->get_query_ctx()) {
+            state->get_query_ctx()->register_query_statistics((*sink)->get_query_statistics_ptr());
+        }
     }
 
     return Status::OK();

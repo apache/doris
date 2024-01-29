@@ -235,6 +235,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
+    public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -845,6 +847,12 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable local shuffle on pipelineX engine."})
     private boolean enableLocalShuffle = true;
 
+    @VariableMgr.VarAttr(
+                name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+                description = {"是否在pipelineX引擎上强制开启local shuffle优化",
+                        "Whether to force to local shuffle on pipelineX engine."})
+    private boolean forceToLocalShuffle = false;
+
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     public boolean enableAggState = false;
@@ -1393,7 +1401,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = false;
+    public boolean enableMemtableOnSinkNode = true;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 20;
@@ -1447,7 +1455,7 @@ public class SessionVariable implements Serializable, Writable {
                 "Maximum table width to enable auto analyze, "
                     + "table with more columns than this value will not be auto analyzed."},
             flag = VariableMgr.GLOBAL)
-    public int autoAnalyzeTableWidthThreshold = 70;
+    public int autoAnalyzeTableWidthThreshold = 100;
 
     @VariableMgr.VarAttr(name = AUTO_ANALYZE_START_TIME, needForward = true, checker = "checkAnalyzeTimeFormat",
             description = {"该参数定义自动ANALYZE例程的开始时间",
@@ -3320,5 +3328,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public boolean isForceToLocalShuffle() {
+        return getEnablePipelineXEngine() && enableLocalShuffle && enableNereidsPlanner && forceToLocalShuffle;
+    }
+
+    public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
+        this.forceToLocalShuffle = forceToLocalShuffle;
     }
 }

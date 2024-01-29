@@ -41,7 +41,7 @@ IPv6NumToString 的反向函数，它接受一个 IP 地址字符串并返回二
 
 ### notice
 
-`如果输入非法的IP地址，会抛出异常`
+`如果输入非法的IP地址或者NULL，会抛出异常`
 
 ### example
 ```
@@ -63,6 +63,9 @@ mysql> select hex(ipv6_string_to_num('192.168.0.1'));
 
 mysql> select hex(ipv6_string_to_num('notaaddress'));
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Invalid IPv6 value
+
+mysql> select addr_src, hex(ipv6_string_to_num(addr_src)) from ipv4_string_test where addr_src is null;
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Null Input, you may consider convert it to a valid default IPv6 value like '::' first
 ```
 
 ### keywords

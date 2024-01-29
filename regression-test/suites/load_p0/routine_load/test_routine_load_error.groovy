@@ -248,4 +248,47 @@ suite("test_routine_load_error","p0") {
             sql """ DROP TABLE IF EXISTS ${tableName} """
         }
     }
+
+    // test failed to fetch all current partition
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def jobName = "invalid_topic"
+        try {
+            sql """
+                CREATE ROUTINE LOAD ${jobName}
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "invalid_topic",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+            sql "sync"
+
+            def count = 0
+            while (true) {
+                sleep(1000)
+                def res = sql "show routine load for ${jobName}"
+                def state = res[0][8].toString()
+                if (state != "PAUSED") {
+                    count++
+                    if (count > 60) {
+                        assertEquals(1, 2)
+                    } 
+                    continue;
+                }
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                assertTrue(res[0][17].toString().contains("may be Kafka properties set in job is error or no partition in this topic that should check Kafka"))
+                break;
+            }
+        } finally {
+            sql "stop routine load for ${jobName}"
+        }
+    }
 }

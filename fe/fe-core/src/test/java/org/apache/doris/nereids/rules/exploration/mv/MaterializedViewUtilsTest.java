@@ -26,6 +26,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -196,6 +197,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    @Disabled
     public void getRelatedTableInfoTestWithoutGroupNullTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "

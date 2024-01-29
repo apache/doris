@@ -26,7 +26,9 @@
                     "label": "Deploy Doris on Kubernetes",
                     "items": [
                         "install/k8s-deploy/operator-deploy",
-                        "install/k8s-deploy/helm-chart-deploy"
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume"
                     ]
                 },
                 {
@@ -234,6 +236,13 @@
                         "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
                     ]
                 },
                 "lakehouse/file",
@@ -1249,7 +1258,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1373,6 +1383,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
