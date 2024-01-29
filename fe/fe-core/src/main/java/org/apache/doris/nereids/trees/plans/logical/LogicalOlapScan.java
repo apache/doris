@@ -334,7 +334,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             if (cacheSlotWithSlotName.containsKey(Pair.of(selectedIndexId, col.getName()))) {
                 return cacheSlotWithSlotName.get(Pair.of(selectedIndexId, col.getName()));
             }
-            Slot slot = SlotReference.fromColumn(col, qualified(), this);
+            Slot slot = SlotReference.fromColumn(table, col, qualified(), this);
             cacheSlotWithSlotName.put(Pair.of(selectedIndexId, col.getName()), slot);
             return slot;
         }).collect(ImmutableList.toImmutableList());
@@ -357,22 +357,24 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         // when we have a partitioned table without any partition, visible index is empty
         if (-1 == indexId || olapTable.getIndexMetaByIndexId(indexId) == null) {
             return olapTable.getIndexMetaByIndexId(indexId).getSchema().stream()
-                    .map(s -> generateUniqueSlot(s, indexId == ((OlapTable) table).getBaseIndexId(), indexId))
+                    .map(c -> generateUniqueSlot(olapTable, c,
+                            indexId == ((OlapTable) table).getBaseIndexId(), indexId))
                     .collect(Collectors.toList());
         }
         return olapTable.getIndexMetaByIndexId(indexId).getSchema().stream()
-                .map(s -> generateUniqueSlot(s, indexId == ((OlapTable) table).getBaseIndexId(), indexId))
+                .map(s -> generateUniqueSlot(olapTable, s,
+                        indexId == ((OlapTable) table).getBaseIndexId(), indexId))
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private Slot generateUniqueSlot(Column column, boolean isBaseIndex, long indexId) {
+    private Slot generateUniqueSlot(OlapTable table, Column column, boolean isBaseIndex, long indexId) {
         String name = isBaseIndex ? column.getName()
                 : AbstractSelectMaterializedIndexRule.parseMvColumnToMvName(column.getName(),
                         column.isAggregated() ? Optional.of(column.getAggregationType().toSql()) : Optional.empty());
         if (cacheSlotWithSlotName.containsKey(Pair.of(indexId, name))) {
             return cacheSlotWithSlotName.get(Pair.of(indexId, name));
         }
-        Slot slot = SlotReference.fromColumn(column, name, qualified());
+        Slot slot = SlotReference.fromColumn(table, column, name, qualified());
         cacheSlotWithSlotName.put(Pair.of(indexId, name), slot);
         return slot;
     }

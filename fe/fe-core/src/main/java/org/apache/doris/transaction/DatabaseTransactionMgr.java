@@ -297,6 +297,28 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
+    public List<List<String>> getTxnStateInfoList(String labelRegex) {
+        List<List<String>> infos = Lists.newArrayList();
+        List<TransactionState> transactionStateCollection = Lists.newArrayList();
+        readLock();
+        try {
+            transactionStateCollection.addAll(idToFinalStatusTransactionState.values());
+            transactionStateCollection.addAll(idToRunningTransactionState.values());
+            // get transaction order by txn id desc
+            transactionStateCollection.stream()
+                    .filter(transactionState -> (transactionState.getLabel().matches(labelRegex)))
+                    .sorted(TransactionState.TXN_ID_COMPARATOR)
+                    .forEach(t -> {
+                        List<String> info = Lists.newArrayList();
+                        getTxnStateInfo(t, info);
+                        infos.add(info);
+                    });
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
     private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());
@@ -1269,8 +1291,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1309,8 +1332,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1944,6 +1968,9 @@ public class DatabaseTransactionMgr {
                             transactionState, partition.getId(), version);
                 }
             }
+            long tableVersion = tableCommitInfo.getVersion();
+            long tableVersionTime = tableCommitInfo.getVersionTime();
+            table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();

@@ -441,7 +441,11 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(qs.scan_bytes));
             trow.addToColumnValue(new TCell().setLongVal(qs.max_peak_memory_bytes));
             trow.addToColumnValue(new TCell().setLongVal(qs.current_used_memory_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_bytes));
+            trow.addToColumnValue(new TCell().setLongVal(qs.shuffle_send_rows));
         } else {
+            trow.addToColumnValue(new TCell().setLongVal(0L));
+            trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));
             trow.addToColumnValue(new TCell().setLongVal(0L));

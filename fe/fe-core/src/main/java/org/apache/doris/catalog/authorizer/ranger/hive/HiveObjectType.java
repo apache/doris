@@ -15,13 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.ranger.plugin.service.RangerBasePlugin;
-
-public class RangerHivePlugin extends RangerBasePlugin {
-    public RangerHivePlugin(String serviceName) {
-        super(serviceName, null, null);
-        super.init();
-    }
+public enum HiveObjectType {
+    NONE, DATABASE, TABLE, VIEW, INDEX, COLUMN, FUNCTION;
 }

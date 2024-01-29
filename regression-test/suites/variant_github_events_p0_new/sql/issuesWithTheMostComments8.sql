@@ -1,4 +1,4 @@
--- SELECT
+-- SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
 --     concat('https://github.com/', cast(v["repo"]["name"] as string), '/commit/', cast(v["payload"]["commit_id"] as string)) URL,
 --     cast(v["payload"]["commit_id"] as string) AS commit_id,
 --     count() AS comments,

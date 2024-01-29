@@ -660,6 +660,7 @@ set(BUILD_SHARED_LIBS OFF)
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
     add_compile_options(-fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE)
+    add_link_options(-fprofile-instr-generate)
 endif ()
 
 if (MAKE_TEST)

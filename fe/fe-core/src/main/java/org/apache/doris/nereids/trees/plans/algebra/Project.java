@@ -71,8 +71,9 @@ public interface Project {
     /**
      * Check if it is a project that is pull up from scan in analyze rule
      * e.g. BindSlotWithPaths
+     * And check if contains PushDownToProjectionFunction that can pushed down to project
      */
-    default boolean isPulledUpProjectFromScan() {
+    default boolean hasPushedDownToProjectionFunctions() {
         return ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable() != null
                 && ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()

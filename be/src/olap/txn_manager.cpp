@@ -482,7 +482,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
-        RETURN_IF_ERROR(tablet->update_delete_bitmap(tablet_txn_info.get(), transaction_id));
+        RETURN_IF_ERROR(
+                Tablet::update_delete_bitmap(tablet, tablet_txn_info.get(), transaction_id));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(

@@ -15,30 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.mysql.privilege.AccessControllerFactory;
+import org.apache.doris.mysql.privilege.CatalogAccessController;
 
-import java.util.TimerTask;
+import java.util.Map;
 
-@Slf4j
-public class RangerHiveAuditLogFlusher extends TimerTask {
-    private RangerHiveAuditHandler auditHandler;
-
-    public RangerHiveAuditLogFlusher(RangerHiveAuditHandler auditHandler) {
-        this.auditHandler = auditHandler;
-    }
-
+public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
     @Override
-    public void run() {
-        while (true) {
-            this.auditHandler.flushAudit();
-
-            try {
-                Thread.sleep(20000);
-            } catch (InterruptedException e) {
-                log.info("error ", e);
-            }
-        }
+    public CatalogAccessController createAccessController(Map<String, String> prop) {
+        return new RangerHiveAccessController(prop);
     }
 }

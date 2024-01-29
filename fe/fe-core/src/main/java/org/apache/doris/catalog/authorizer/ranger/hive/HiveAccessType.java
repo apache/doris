@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+package org.apache.doris.catalog.authorizer.ranger.hive;
 
-public enum HiveObjectType {
-    NONE, DATABASE, TABLE, VIEW, INDEX, COLUMN, FUNCTION;
+public enum HiveAccessType {
+    NONE, CREATE, ALTER, DROP, INDEX, LOCK, SELECT, UPDATE, USE, READ, WRITE, ALL, SERVICEADMIN,
+    TEMPUDFADMIN;
 }

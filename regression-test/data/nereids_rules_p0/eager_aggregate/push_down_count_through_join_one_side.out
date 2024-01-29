@@ -148,8 +148,10 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------PhysicalOlapScan[count_t_one_side]
---------PhysicalOlapScan[count_t_one_side]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t_one_side]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[count_t_one_side]
 
 -- !groupby_pushdown_equal_conditions_non_aggregate_selection --
 PhysicalResultSink

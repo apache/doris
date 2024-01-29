@@ -15,9 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer;
+#pragma once
 
-public enum HiveAccessType {
-    NONE, CREATE, ALTER, DROP, INDEX, LOCK, SELECT, UPDATE, USE, READ, WRITE, ALL, SERVICEADMIN,
-    TEMPUDFADMIN;
-}
+#include "olap/rowset_builder.h"
+
+namespace doris {
+
+class CloudTablet;
+class CloudStorageEngine;
+
+class CloudRowsetBuilder final : public BaseRowsetBuilder {
+public:
+    CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
+                       RuntimeProfile* profile);
+
+    ~CloudRowsetBuilder() override;
+
+    Status init() override;
+
+    void update_tablet_stats();
+
+    const RowsetMetaSharedPtr& rowset_meta();
+
+private:
+    // Convert `_tablet` from `BaseTablet` to `CloudTablet`
+    CloudTablet* cloud_tablet();
+
+    Status check_tablet_version_count();
+
+    CloudStorageEngine& _engine;
+};
+
+} // namespace doris
