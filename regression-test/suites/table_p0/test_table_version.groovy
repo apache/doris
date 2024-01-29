@@ -47,5 +47,20 @@ suite("test_table_version") {
         """
     visibleVersion = getTableVersion(dbId,tableNameNum);
     assertEquals(2, visibleVersion);
+
+    sql """
+        alter table ${tableNameNum} drop partition p201703_all;
+        """
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(3, visibleVersion);
+
+    sql """
+        ALTER TABLE ${tableNameNum} ADD TEMPORARY PARTITION p201702_2000_1 VALUES [('2017-02-01'), ('2017-03-01'));
+        ALTER TABLE ${tableNameNum} REPLACE PARTITION (p201702_2000) WITH TEMPORARY PARTITION (p201702_2000_1);
+    """
+
+    visibleVersion = getTableVersion(dbId,tableNameNum);
+    assertEquals(4, visibleVersion);
+
     sql """drop table if exists `${tableNameNum}`"""
 }
