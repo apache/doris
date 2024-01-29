@@ -108,8 +108,8 @@ arr_decimal1_col	ARRAY<DECIMAL(10, 5)>	Yes	false	\N	NONE
 arr_decimal2_col	ARRAY<DECIMAL(30, 10)>	Yes	false	\N	NONE
 arr_date_col	ARRAY<DATE>	Yes	false	\N	NONE
 arr_datetime_col	ARRAY<DATETIME(3)>	Yes	false	\N	NONE
-arr_char_col	ARRAY<CHAR(10)>	Yes	false	\N	NONE
-arr_varchar_col	ARRAY<VARCHAR(10)>	Yes	false	\N	NONE
+arr_char_col	ARRAY<TEXT>	Yes	false	\N	NONE
+arr_varchar_col	ARRAY<TEXT>	Yes	false	\N	NONE
 arr_string_col	ARRAY<TEXT>	Yes	false	\N	NONE
 
 -- !query_ctas_base --
