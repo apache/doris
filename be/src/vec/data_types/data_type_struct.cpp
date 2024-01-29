@@ -229,7 +229,9 @@ std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) con
         if (idx != 0) {
             str += ", ";
         }
+        str += "\"";
         str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
+        str += "\""
     }
     str += "}";
     return str;
@@ -246,7 +248,9 @@ void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWrit
         if (idx != 0) {
             ostr.write(", ", 2);
         }
+        ostr.write("\"", 1);
         elems[idx]->to_string(struct_column.get_column(idx), row_num, ostr);
+        ostr.write("\"", 1);
     }
     ostr.write("}", 1);
 }
