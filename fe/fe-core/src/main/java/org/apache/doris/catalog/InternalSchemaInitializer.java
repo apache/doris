@@ -91,44 +91,51 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     @VisibleForTesting
-    public void modifyTblReplicaCount(Database database, String tblName) {
+    public static void modifyTblReplicaCount(Database database, String tblName) {
         if (!(Config.min_replication_num_per_tablet < StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM
                 && Config.max_replication_num_per_tablet >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM)) {
             return;
         }
         while (true) {
-            if (Env.getCurrentSystemInfo().getBackendNumFromDiffHosts()
-                    >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+            int backendNum = Env.getCurrentSystemInfo().getBackendNumFromDiffHosts(true);
+            if (FeConstants.runningUnitTest) {
+                backendNum = Env.getCurrentSystemInfo().getAllBackendIds().size();
+            }
+            if (backendNum >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                 try {
                     OlapTable tbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                             StatisticConstants.DB_NAME, tblName);
-                    if (tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
-                            >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
-                        return;
-                    }
-                    if (!tbl.isPartitionedTable()) {
-                        Map<String, String> props = new HashMap<>();
-                        props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
-                                + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-                        tbl.writeLock();
-                        try {
-                            Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) tbl, props);
-                        } finally {
-                            tbl.writeUnlock();
+                    tbl.writeLock();
+                    try {
+                        if (tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
+                                >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+                            return;
                         }
-                    } else {
-                        TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                StatisticConstants.DB_NAME, tbl.getName());
-                        // 1. modify table's default replica num
-                        Map<String, String> props = new HashMap<>();
-                        props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                                "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
-                        Env.getCurrentEnv().modifyTableDefaultReplicaAllocation(database, tbl, props);
-                        // 2. modify each partition's replica num
-                        List<AlterClause> clauses = Lists.newArrayList();
-                        clauses.add(ModifyPartitionClause.createStarClause(props, false));
-                        AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
-                        Env.getCurrentEnv().alterTable(alter);
+                        if (!tbl.isPartitionedTable()) {
+                            Map<String, String> props = new HashMap<>();
+                            props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.default: "
+                                    + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+
+                                Env.getCurrentEnv().modifyTableReplicaAllocation(database, (OlapTable) tbl, props);
+                        } else {
+                            TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    StatisticConstants.DB_NAME, tbl.getName());
+                            // 1. modify table's default replica num
+                            Map<String, String> props = new HashMap<>();
+                            props.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                    "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                            Env.getCurrentEnv().modifyTableDefaultReplicaAllocation(database, tbl, props);
+                            // 2. modify each partition's replica num
+                            List<AlterClause> clauses = Lists.newArrayList();
+                            props.clear();
+                            props.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                                    "" + StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM);
+                            clauses.add(ModifyPartitionClause.createStarClause(props, false));
+                            AlterTableStmt alter = new AlterTableStmt(tableName, clauses);
+                            Env.getCurrentEnv().alterTable(alter);
+                        }
+                    } finally {
+                        tbl.writeUnlock();
                     }
                     break;
                 } catch (Throwable t) {
@@ -143,7 +150,8 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
-    private void createTbl() throws UserException {
+    @VisibleForTesting
+    public static void createTbl() throws UserException {
         // statistics
         Env.getCurrentEnv().getInternalCatalog().createTable(buildStatisticsTblStmt());
         Env.getCurrentEnv().getInternalCatalog().createTable(buildHistogramTblStmt());
@@ -163,8 +171,7 @@ public class InternalSchemaInitializer extends Thread {
         }
     }
 
-    @VisibleForTesting
-    public CreateTableStmt buildStatisticsTblStmt() throws UserException {
+    private static CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
         String engineName = "olap";
@@ -180,14 +187,14 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.COL_STATS_SCHEMA, engineName, keysDesc, null, distributionDesc,
+                tableName, InternalSchema.getCopiedSchema(StatisticConstants.STATISTIC_TBL_NAME),
+                engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
     }
 
-    @VisibleForTesting
-    public CreateTableStmt buildHistogramTblStmt() throws UserException {
+    private static CreateTableStmt buildHistogramTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, StatisticConstants.HISTOGRAM_TBL_NAME);
         String engineName = "olap";
@@ -203,14 +210,14 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.HISTO_STATS_SCHEMA, engineName, keysDesc,
-                null, distributionDesc,
+                tableName, InternalSchema.getCopiedSchema(StatisticConstants.HISTOGRAM_TBL_NAME),
+                engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
     }
 
-    private CreateTableStmt buildAuditTblStmt() throws UserException {
+    private static CreateTableStmt buildAuditTblStmt() throws UserException {
         TableName tableName = new TableName("",
                 FeConstants.INTERNAL_DB_NAME, AuditLoaderPlugin.AUDIT_LOG_TABLE);
 
@@ -235,7 +242,8 @@ public class InternalSchemaInitializer extends Thread {
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
-                tableName, InternalSchema.AUDIT_SCHEMA, engineName, keysDesc, partitionDesc, distributionDesc,
+                tableName, InternalSchema.getCopiedSchema(AuditLoaderPlugin.AUDIT_LOG_TABLE),
+                engineName, keysDesc, partitionDesc, distributionDesc,
                 properties, null, "Doris internal audit table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;

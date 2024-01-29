@@ -19,13 +19,18 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.common.UserException;
+import org.apache.doris.plugin.audit.AuditLoaderPlugin;
 import org.apache.doris.statistics.StatisticConstants;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class InternalSchema {
 
+    // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> COL_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
@@ -84,5 +89,25 @@ public class InternalSchema {
         AUDIT_SCHEMA.add(new ColumnDef("peak_memory_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
         AUDIT_SCHEMA.add(new ColumnDef("workload_group", TypeDef.create(PrimitiveType.STRING), true));
         AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), true));
+    }
+
+    // Get copied schema for statistic table
+    // Do not use the original schema directly, because it may be modified by create table operation.
+    public static List<ColumnDef> getCopiedSchema(String tblName) throws UserException {
+        List<ColumnDef> schema;
+        if (tblName.equals(StatisticConstants.STATISTIC_TBL_NAME)) {
+            schema = COL_STATS_SCHEMA;
+        } else if (tblName.equals(StatisticConstants.HISTOGRAM_TBL_NAME)) {
+            schema = HISTO_STATS_SCHEMA;
+        } else if (tblName.equals(AuditLoaderPlugin.AUDIT_LOG_TABLE)) {
+            schema = AUDIT_SCHEMA;
+        } else {
+            throw new UserException("Unknown internal table name: " + tblName);
+        }
+        List<ColumnDef> copiedSchema = Lists.newArrayList();
+        for (ColumnDef columnDef : schema) {
+            copiedSchema.add(new ColumnDef(columnDef.getName(), columnDef.getTypeDef(), columnDef.isAllowNull()));
+        }
+        return copiedSchema;
     }
 }
