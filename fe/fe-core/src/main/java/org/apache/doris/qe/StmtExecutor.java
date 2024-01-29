@@ -350,6 +350,7 @@ public class StmtExecutor {
         }
         builder.taskState(!isFinished && context.getState().getStateType().equals(MysqlStateType.OK) ? "RUNNING"
                 : context.getState().toString());
+        LOG.info("Query {} state {}", DebugUtil.printId(context.queryId()), context.getState().toString());
         builder.user(context.getQualifiedUser());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
