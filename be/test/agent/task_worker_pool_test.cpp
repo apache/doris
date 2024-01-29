@@ -25,6 +25,7 @@
 #include <chrono>
 #include <thread>
 
+#include "olap/options.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -102,8 +103,7 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
 }
 
 TEST(TaskWorkerPoolTest, ReportWorkerPool) {
-    StorageEngine engine({});
-    ExecEnv::GetInstance()->set_storage_engine(&engine);
+    ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
     Defer defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
 
     TMasterInfo master_info;
@@ -121,7 +121,7 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     std::this_thread::sleep_for(1s);
     EXPECT_EQ(count.load(), 2);
 
-    engine.notify_listener("test");
+    ExecEnv::GetInstance()->storage_engine().notify_listener("test");
     std::this_thread::sleep_for(100ms);
     EXPECT_EQ(count.load(), 3);
 

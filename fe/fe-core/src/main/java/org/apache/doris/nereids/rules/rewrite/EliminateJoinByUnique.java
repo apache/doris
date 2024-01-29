@@ -19,13 +19,14 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 /**
  * Eliminate outer join.
  */
 public class EliminateJoinByUnique extends OneRewriteRuleFactory {
+    // TODO: support distinct -> LOJ
     @Override
     public Rule build() {
         return logicalProject(
@@ -35,11 +36,8 @@ public class EliminateJoinByUnique extends OneRewriteRuleFactory {
             if (!join.left().getOutputSet().containsAll(project.getInputSlots())) {
                 return project;
             }
-            if (join.getHashJoinConjuncts().stream().anyMatch(NullSafeEqual.class::isInstance)) {
-                // TODO: support null safe equals in fd and this
-                return project;
-            }
-            if (!project.getLogicalProperties().getFunctionalDependencies().isUnique(project.getOutputSet())) {
+            if (!JoinUtils.canEliminateByLeft(join,
+                    join.right().getLogicalProperties().getFunctionalDependencies())) {
                 return project;
             }
             return project.withChildren(join.left());

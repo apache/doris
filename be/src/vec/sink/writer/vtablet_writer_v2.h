@@ -186,6 +186,7 @@ private:
     int64_t _number_output_rows = 0;
 
     MonotonicStopWatch _row_distribution_watch;
+    MonotonicStopWatch _timeout_watch;
 
     RuntimeProfile::Counter* _input_rows_counter = nullptr;
     RuntimeProfile::Counter* _output_rows_counter = nullptr;

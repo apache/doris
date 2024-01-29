@@ -153,7 +153,9 @@ public:
 
     void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
 
-    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
+    taskgroup::TaskGroup* get_task_group() const {
+        return _task_group == nullptr ? nullptr : _task_group.get();
+    }
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -218,6 +220,12 @@ public:
 
     std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
 
+    void set_query_scheduler(uint64_t wg_id);
+
+    doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
+
+    ThreadPool* get_non_pipe_exec_thread_pool();
+
 public:
     DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
@@ -247,8 +255,6 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
-    std::atomic<bool> use_task_group_for_cpu_limit = false;
-
 private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
@@ -272,7 +278,7 @@ private:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
 
-    taskgroup::TaskGroupPtr _task_group;
+    taskgroup::TaskGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -281,8 +287,9 @@ private:
     // to report the real message if failed.
     Status _exec_status = Status::OK();
 
-    pipeline::TaskScheduler* _task_scheduler = nullptr;
+    doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    ThreadPool* _non_pipe_thread_pool = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;

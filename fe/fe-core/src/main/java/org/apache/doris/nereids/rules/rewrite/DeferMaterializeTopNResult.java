@@ -83,7 +83,8 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalFilter<? extends Plan>> logicalFilter,
             LogicalOlapScan logicalOlapScan) {
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
-        SlotReference columnId = SlotReference.fromColumn(rowId, logicalOlapScan.getQualifier());
+        SlotReference columnId = SlotReference.fromColumn(logicalOlapScan.getTable(), rowId,
+                        logicalOlapScan.getQualifier(), logicalOlapScan);
         Set<ExprId> deferredMaterializedExprIds = Sets.newHashSet(logicalOlapScan.getOutputExprIdSet());
         logicalFilter.ifPresent(filter -> filter.getConjuncts()
                 .forEach(e -> deferredMaterializedExprIds.removeAll(e.getInputSlotExprIds())));

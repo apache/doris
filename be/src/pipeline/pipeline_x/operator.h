@@ -34,6 +34,7 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
+    BasicSharedState* shared_state;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                             std::shared_ptr<LocalExchangeSinkDependency>>>
             le_state_map;
@@ -47,7 +48,7 @@ struct LocalSinkStateInfo {
     const int task_idx;
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
-    std::vector<DependencySPtr>& dependencys;
+    std::vector<DependencySPtr>& dependencies;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                             std::shared_ptr<LocalExchangeSinkDependency>>>
             le_state_map;
@@ -110,7 +111,7 @@ public:
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
-    std::shared_ptr<QueryStatistics> query_statistics_ptr() { return _query_statistics; }
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
 
 protected:
     friend class OperatorXBase;
@@ -187,7 +188,8 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
+    [[nodiscard]] virtual DependencySPtr get_dependency(
+            QueryContext* ctx, std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -340,7 +342,9 @@ public:
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
 
-    DependencySPtr get_dependency(QueryContext* ctx) override;
+    DependencySPtr get_dependency(
+            QueryContext* ctx,
+            std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) override;
 };
 
 template <typename DependencyArg = FakeDependency>
@@ -387,7 +391,6 @@ public:
     // idempotent (e.g. wait for runtime filters).
     virtual Status open(RuntimeState* state) = 0;
     virtual Status close(RuntimeState* state, Status exec_status) = 0;
-    virtual Status try_close(RuntimeState* state, Status exec_status) = 0;
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level) const = 0;
 
@@ -421,6 +424,8 @@ public:
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
 
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr() { return _query_statistics; }
+
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
     RuntimeState* _state = nullptr;
@@ -444,15 +449,14 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
 public:
     DataSinkOperatorXBase(const int operator_id, const int node_id)
-            : OperatorBase(nullptr),
-              _operator_id(operator_id),
-              _node_id(node_id),
-              _dests_id({operator_id}) {}
+            : OperatorBase(nullptr), _operator_id(operator_id), _node_id(node_id), _dests_id({1}) {}
 
     DataSinkOperatorXBase(const int operator_id, const int node_id, const int dest_id)
             : OperatorBase(nullptr),
@@ -499,7 +503,9 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
+    virtual void get_dependency(std::vector<DependencySPtr>& dependency,
+                                std::map<int, std::shared_ptr<BasicSharedState>>& shared_states,
+                                QueryContext* ctx) = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -509,10 +515,6 @@ public:
     [[nodiscard]] virtual bool is_shuffled_hash_join() const { return false; }
 
     Status close(RuntimeState* state) override {
-        return Status::InternalError("Should not reach here!");
-    }
-
-    Status try_close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
     }
 
@@ -542,12 +544,12 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    virtual Status close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(operator_id())->close(state, exec_status);
-    }
-
-    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
-        return state->get_sink_local_state(operator_id())->try_close(state, exec_status);
+    Status close(RuntimeState* state, Status exec_status) {
+        auto result = state->get_sink_local_state_result(operator_id());
+        if (!result) {
+            return result.error();
+        }
+        return result.value()->close(state, exec_status);
     }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
@@ -600,7 +602,9 @@ public:
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-    void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) override;
+    void get_dependency(std::vector<DependencySPtr>& dependency,
+                        std::map<int, std::shared_ptr<BasicSharedState>>& shared_states,
+                        QueryContext* ctx) override;
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
@@ -619,8 +623,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status open(RuntimeState* state) override { return Status::OK(); }
-
-    Status try_close(RuntimeState* state, Status exec_status) override { return Status::OK(); }
 
     Status close(RuntimeState* state, Status exec_status) override;
 
@@ -703,8 +705,6 @@ public:
 
     Dependency* dependency() override { return _async_writer_dependency.get(); }
     Status close(RuntimeState* state, Status exec_status) override;
-
-    Status try_close(RuntimeState* state, Status exec_status) override;
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 

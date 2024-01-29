@@ -29,6 +29,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "io/cache/block/block_file_cache_factory.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
@@ -53,7 +54,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     if (!st.ok()) {
         rlock.unlock(); // avoid logging in lock range
         // Check no missed versions or req version is merged
-        auto missed_versions = calc_missed_versions(spec_version.second);
+        auto missed_versions = get_missed_versions(spec_version.second);
         if (missed_versions.empty()) {
             st.set_code(VERSION_ALREADY_MERGED); // Reset error code
         }
@@ -65,50 +66,6 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     }
     VLOG_DEBUG << "capture consitent versions: " << version_path;
     return capture_rs_readers_unlocked(version_path, rs_splits);
-}
-
-// for example:
-//     [0-4][5-5][8-8][9-9][13-13]
-// if spec_version = 12, it will return [6-7],[10-12]
-Versions CloudTablet::calc_missed_versions(int64_t spec_version) {
-    DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
-
-    Versions missed_versions;
-    Versions existing_versions;
-    {
-        std::shared_lock rdlock(_meta_lock);
-        for (const auto& rs : _tablet_meta->all_rs_metas()) {
-            existing_versions.emplace_back(rs->version());
-        }
-    }
-
-    // sort the existing versions in ascending order
-    std::sort(existing_versions.begin(), existing_versions.end(),
-              [](const Version& a, const Version& b) {
-                  // simple because 2 versions are certainly not overlapping
-                  return a.first < b.first;
-              });
-
-    auto min_version = existing_versions.front().first;
-    if (min_version > 0) {
-        missed_versions.emplace_back(0, std::min(spec_version, min_version - 1));
-    }
-    for (auto it = existing_versions.begin(); it != existing_versions.end() - 1; ++it) {
-        auto prev_v = it->second;
-        if (prev_v >= spec_version) {
-            return missed_versions;
-        }
-        auto next_v = (it + 1)->first;
-        if (next_v > prev_v + 1) {
-            // there is a hole between versions
-            missed_versions.emplace_back(prev_v + 1, std::min(spec_version, next_v - 1));
-        }
-    }
-    auto max_version = existing_versions.back().second;
-    if (max_version < spec_version) {
-        missed_versions.emplace_back(max_version + 1, spec_version);
-    }
-    return missed_versions;
 }
 
 Status CloudTablet::sync_meta() {
@@ -363,8 +320,14 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
 
 Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
         RowsetWriterContext& context, bool vertical) {
-    return ResultError(
-            Status::NotSupported("CloudTablet::create_rowset_writer is not implemented"));
+    context.rowset_id = _engine.next_rowset_id();
+    // FIXME(plat1ko): Seems `tablet_id` and `index_id` has been set repeatedly
+    context.tablet_id = tablet_id();
+    context.index_id = index_id();
+    context.partition_id = partition_id();
+    context.rowset_dir = remote_tablet_path(tablet_id());
+    context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
 int64_t CloudTablet::get_cloud_base_compaction_score() const {
@@ -449,6 +412,14 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
     root.Accept(writer);
     *json_result = std::string(strbuf.GetString());
+}
+
+void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
+    // cumulative point should only be reset to -1, or be increased
+    CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
+            << "Unexpected cumulative point: " << new_point
+            << ", origin: " << _cumulative_point.load();
+    _cumulative_point = new_point;
 }
 
 } // namespace doris

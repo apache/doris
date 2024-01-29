@@ -29,7 +29,14 @@ namespace doris {
 
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 
-WalReader::~WalReader() {}
+WalReader::~WalReader() = default;
+
+static Status _deserialize(PBlock& block, const std::string& buf) {
+    if (UNLIKELY(!block.ParseFromString(buf))) {
+        return Status::InternalError("failed to deserialize row");
+    }
+    return Status::OK();
+}
 
 Status WalReader::init() {
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_file_name, &file_reader));
@@ -94,13 +101,6 @@ Status WalReader::read_header(std::string& col_ids) {
     if (len != bytes_read) {
         return Status::InternalError("failed to read header expected= " + std::to_string(len) +
                                      ",actually=" + std::to_string(bytes_read));
-    }
-    return Status::OK();
-}
-
-Status WalReader::_deserialize(PBlock& block, std::string& buf) {
-    if (UNLIKELY(!block.ParseFromString(buf))) {
-        return Status::InternalError("failed to deserialize row");
     }
     return Status::OK();
 }

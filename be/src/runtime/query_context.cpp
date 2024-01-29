@@ -20,6 +20,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
+#include "runtime/task_group/task_group_manager.h"
 
 namespace doris {
 
@@ -63,8 +64,10 @@ QueryContext::~QueryContext() {
     }
     if (_task_group) {
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
+        _exec_env->task_group_manager()->remove_query_from_group(_task_group->id(), _query_id);
     }
 
+    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
     // Not release the the thread token in query context's dector method, because the query
     // conext may be dectored in the thread token it self. It is very dangerous and may core.
@@ -74,7 +77,6 @@ QueryContext::~QueryContext() {
         static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
-    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
@@ -149,6 +151,31 @@ void QueryContext::register_cpu_statistics() {
         _cpu_statistics = std::make_shared<QueryStatistics>();
         _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
                 print_id(_query_id), _cpu_statistics, coord_addr);
+    }
+}
+
+void QueryContext::set_query_scheduler(uint64_t tg_id) {
+    auto* tg_mgr = _exec_env->task_group_manager();
+    tg_mgr->get_query_scheduler(tg_id, &_task_scheduler, &_scan_task_scheduler,
+                                &_non_pipe_thread_pool);
+}
+
+doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
+    if (_task_group) {
+        if (!config::enable_cgroup_cpu_soft_limit) {
+            return _exec_env->pipeline_task_group_scheduler();
+        } else if (_task_scheduler) {
+            return _task_scheduler;
+        }
+    }
+    return _exec_env->pipeline_task_scheduler();
+}
+
+ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {
+    if (_task_group) {
+        return _non_pipe_thread_pool;
+    } else {
+        return nullptr;
     }
 }
 

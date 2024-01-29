@@ -42,9 +42,10 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-TabletsDistributionAction::TabletsDistributionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+TabletsDistributionAction::TabletsDistributionAction(ExecEnv* exec_env, StorageEngine& engine,
+                                                     TPrivilegeHier::type hier,
                                                      TPrivilegeType::type type)
-        : HttpHandlerWithAuth(exec_env, hier, type) {
+        : HttpHandlerWithAuth(exec_env, hier, type), _engine(engine) {
     _host = BackendOptions::get_localhost();
 }
 
@@ -55,7 +56,7 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
     if (req_group_method == "partition") {
         std::string req_partition_id = req->param("partition_id");
         uint64_t partition_id = 0;
-        if (req_partition_id != "") {
+        if (!req_partition_id.empty()) {
             try {
                 partition_id = std::stoull(req_partition_id);
             } catch (const std::exception& e) {
@@ -81,7 +82,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
         uint64_t partition_id) {
     std::map<int64_t, std::map<DataDir*, int64_t>> tablets_num_on_disk;
     std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> tablets_info_on_disk;
-    TabletManager* tablet_manager = StorageEngine::instance()->tablet_manager();
+    TabletManager* tablet_manager = _engine.tablet_manager();
     tablet_manager->get_tablets_distribution_on_different_disks(tablets_num_on_disk,
                                                                 tablets_info_on_disk);
 
@@ -92,33 +93,24 @@ EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
     data["host"] = _host;
     EasyJson tablets_distribution = data.Set("tablets_distribution", EasyJson::kArray);
     int64_t tablet_total_number = 0;
-    std::map<int64_t, std::map<DataDir*, int64_t>>::iterator partition_iter =
-            tablets_num_on_disk.begin();
-    for (; partition_iter != tablets_num_on_disk.end(); ++partition_iter) {
-        if (partition_id != 0 && partition_id != partition_iter->first) {
+    for (auto& [part_id, disk_tablets_num] : tablets_num_on_disk) {
+        if (partition_id != 0 && partition_id != part_id) {
             continue;
         }
         EasyJson partition = tablets_distribution.PushBack(EasyJson::kObject);
-        partition["partition_id"] = partition_iter->first;
+        partition["partition_id"] = part_id;
         EasyJson disks = partition.Set("disks", EasyJson::kArray);
-        std::map<DataDir*, int64_t>::iterator disk_iter = (partition_iter->second).begin();
-        for (; disk_iter != (partition_iter->second).end(); ++disk_iter) {
+        for (auto& [data_dir, tablets_num] : disk_tablets_num) {
             EasyJson disk = disks.PushBack(EasyJson::kObject);
-            disk["disk_path"] = disk_iter->first->path();
-            disk["tablets_num"] = disk_iter->second;
-            tablet_total_number += disk_iter->second;
+            disk["disk_path"] = data_dir->path();
+            disk["tablets_num"] = tablets_num;
+            tablet_total_number += tablets_num;
             if (partition_id != 0) {
                 EasyJson tablets = disk.Set("tablets", EasyJson::kArray);
-                for (int64_t i = 0;
-                     i < tablets_info_on_disk[partition_iter->first][disk_iter->first].size();
-                     i++) {
+                for (auto& i : tablets_info_on_disk[part_id][data_dir]) {
                     EasyJson tablet = tablets.PushBack(EasyJson::kObject);
-                    tablet["tablet_id"] =
-                            tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
-                                    .tablet_id;
-                    tablet["tablet_size"] =
-                            tablets_info_on_disk[partition_iter->first][disk_iter->first][i]
-                                    .tablet_size;
+                    tablet["tablet_id"] = i.tablet_id;
+                    tablet["tablet_size"] = i.tablet_size;
                 }
             }
         }

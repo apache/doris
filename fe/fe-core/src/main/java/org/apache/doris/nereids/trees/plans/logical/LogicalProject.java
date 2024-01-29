@@ -61,6 +61,10 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this(projects, ImmutableList.of(), false, true, ImmutableList.of(child));
     }
 
+    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, boolean canEliminate) {
+        this(projects, ImmutableList.of(), false, canEliminate, ImmutableList.of(child));
+    }
+
     public LogicalProject(List<NamedExpression> projects, List<NamedExpression> excepts,
             boolean isDistinct, List<Plan> child) {
         this(projects, excepts, isDistinct, true, Optional.empty(), Optional.empty(), child);

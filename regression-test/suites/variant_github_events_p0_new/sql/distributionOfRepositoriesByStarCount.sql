@@ -1,4 +1,4 @@
-SELECT
+SELECT /*+SET_VAR(enable_fallback_to_original_planner=false) */
     pow(10, floor(log10(c))) AS stars,
     count(distinct repo)
 FROM

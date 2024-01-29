@@ -48,6 +48,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.CaseWhenToIf;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
@@ -460,6 +461,7 @@ public class Analyzer {
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             rules.add(ElementAtToSlotRefRule.INSTANCE);
             rules.add(FunctionAlias.INSTANCE);
+            rules.add(CaseWhenToIf.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -1027,6 +1029,11 @@ public class Analyzer {
 
         LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
+            if (!Config.enable_variant_access_in_original_planner
+                    && (subColNames != null && !subColNames.isEmpty())) {
+                ErrorReport.reportAnalysisException("Variant sub-column access is disabled in original planner,"
+                        + "set enable_variant_access_in_original_planner = true in session variable");
+            }
             if (!col.getType().isVariantType()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
                         Joiner.on(".").join(tblName.getTbl(), colName));

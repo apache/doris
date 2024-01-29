@@ -26,7 +26,9 @@
                     "label": "Deploy Doris on Kubernetes",
                     "items": [
                         "install/k8s-deploy/operator-deploy",
-                        "install/k8s-deploy/helm-chart-deploy"
+                        "install/k8s-deploy/helm-chart-deploy",
+                        "install/k8s-deploy/network",
+                        "install/k8s-deploy/persistent-volume"
                     ]
                 },
                 {
@@ -234,6 +236,13 @@
                         "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "Cloud Service Authentication",
+                    "items": [
+                        "lakehouse/cloud-auth/cloud-auth"
                     ]
                 },
                 "lakehouse/file",
@@ -459,7 +468,6 @@
                                 "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
                                 "sql-manual/sql-functions/string-functions/concat-ws",
-                                "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
                                 "sql-manual/sql-functions/string-functions/sub-replace",
                                 "sql-manual/sql-functions/string-functions/append-trailing-char-if-absent",
@@ -478,8 +486,6 @@
                                 "sql-manual/sql-functions/string-functions/field",
                                 "sql-manual/sql-functions/string-functions/find-in-set",
                                 "sql-manual/sql-functions/string-functions/replace",
-                                "sql-manual/sql-functions/string-functions/left",
-                                "sql-manual/sql-functions/string-functions/right",
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
                                 "sql-manual/sql-functions/string-functions/split-part",
@@ -811,11 +817,23 @@
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
                                 "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
                                 "sql-manual/sql-functions/ip-functions/inet6-ntoa",
-                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num",
                                 "sql-manual/sql-functions/ip-functions/inet6-aton",
                                 "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-default",
-                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null"
-
+                                "sql-manual/sql-functions/ip-functions/ipv6-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-compat",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-mapped",
+                                "sql-manual/sql-functions/ip-functions/ipv4-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/ipv6-cidr-to-range",
+                                "sql-manual/sql-functions/ip-functions/is-ip-address-in-range",
+                                "sql-manual/sql-functions/ip-functions/is-ipv4-string",
+                                "sql-manual/sql-functions/ip-functions/is-ipv6-string",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv4-or-null",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-default",
+                                "sql-manual/sql-functions/ip-functions/to-ipv6-or-null"
                             ]
                         },
                         {
@@ -925,7 +943,9 @@
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
                                 "sql-manual/sql-reference/Data-Types/AGG_STATE",
-                                "sql-manual/sql-reference/Data-Types/VARIANT"
+                                "sql-manual/sql-reference/Data-Types/VARIANT",
+                                "sql-manual/sql-reference/Data-Types/IPV4",
+                                "sql-manual/sql-reference/Data-Types/IPV6"
                             ]
                         },
                         {
@@ -1238,7 +1258,8 @@
                     "label": "User Privilege and Ldap",
                     "items": [
                         "admin-manual/privilege-ldap/user-privilege",
-                        "admin-manual/privilege-ldap/ldap"
+                        "admin-manual/privilege-ldap/ldap",
+                        "admin-manual/privilege-ldap/ranger"
                     ]
                 },
                 {
@@ -1362,6 +1383,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.4",
                 "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",

@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -160,7 +161,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             return true;
         }
         if (expression.children().isEmpty()) {
-            return false;
+            return expression instanceof VirtualSlotReference;
         }
         for (Expression child : expression.children()) {
             if (child instanceof Literal) {
@@ -357,9 +358,9 @@ public abstract class AbstractSelectMaterializedIndexRule {
             Set<String> nonEqualColNames) {
         int matchCount = 0;
         for (Column column : table.getSchemaByIndexId(index.getId())) {
-            if (equalColNames.contains(column.getName())) {
+            if (equalColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 matchCount++;
-            } else if (nonEqualColNames.contains(column.getName())) {
+            } else if (nonEqualColNames.contains(normalizeName(column.getNameWithoutMvPrefix()))) {
                 // un-equivalence predicate's columns can match only first column in index.
                 matchCount++;
                 break;

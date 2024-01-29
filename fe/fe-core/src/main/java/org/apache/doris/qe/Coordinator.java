@@ -22,6 +22,8 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -147,6 +149,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 public class Coordinator implements CoordInterface {
@@ -2036,15 +2039,18 @@ public class Coordinator implements CoordInterface {
 
                         /**
                          * Ignore storage data distribution iff:
-                         * 1. Current fragment is not forced to use data distribution.
-                         * 2. `parallelExecInstanceNum` is larger than scan ranges.
-                         * 3. Use Nereids planner.
+                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+                         * 2. Use Nereids planner.
                          */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = scanNodes.stream()
-                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context)) && useNereids;
+                        boolean forceToLocalShuffle = context != null
+                                && context.getSessionVariable().isForceToLocalShuffle();
+                        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+                                .allMatch(scanNode -> scanNode.ignoreStorageDataDistribution(context,
+                                        fragmentExecParamsMap.get(scanNode.getFragment().getFragmentId())
+                                                .scanRangeAssignment.size())) && useNereids);
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
                                 || ignoreStorageDataDistribution)) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
@@ -2223,6 +2229,10 @@ public class Coordinator implements CoordInterface {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
+        if (Config.isCloudMode() && Config.enable_cloud_snapshot_version) {
+            setVisibleVersionForOlapScanNode();
+        }
+
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable();
         Collections.shuffle(scanNodes);
@@ -2436,6 +2446,59 @@ public class Coordinator implements CoordInterface {
             scanRangeNum = scanRangeNum + 1;
         }
         // TODO: more ranges?
+    }
+
+    // In cloud mode, meta read lock is not enough to keep a snapshot of the partition versions.
+    // After all scan node are collected, it is possible to gain a snapshot of the partition version.
+    private void setVisibleVersionForOlapScanNode() throws RpcException, UserException {
+        List<CloudPartition> partitions = new ArrayList<>();
+        Set<Long> partitionSet = new HashSet<>();
+        for (ScanNode node : scanNodes) {
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            OlapTable table = scanNode.getOlapTable();
+            for (Long id : scanNode.getSelectedPartitionIds()) {
+                if (!partitionSet.contains(id)) {
+                    partitionSet.add(id);
+                    partitions.add((CloudPartition) table.getPartition(id));
+                }
+            }
+        }
+
+        if (partitions.isEmpty()) {
+            return;
+        }
+
+        List<Long> versions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        assert versions.size() == partitions.size() : "the got num versions is not equals to acquired num versions";
+        if (versions.stream().anyMatch(x -> x <= 0)) {
+            int size = versions.size();
+            for (int i = 0; i < size; ++i) {
+                if (versions.get(i) <= 0) {
+                    LOG.warn("partition {} getVisibleVersion error, the visibleVersion is {}",
+                            partitions.get(i).getId(), versions.get(i));
+                    throw new UserException("partition " + partitions.get(i).getId()
+                            + " getVisibleVersion error, the visibleVersion is " + versions.get(i));
+                }
+            }
+        }
+
+        // ATTN: the table ids are ignored here because the both id are allocated from a same id generator.
+        Map<Long, Long> visibleVersionMap = IntStream.range(0, versions.size())
+                .boxed()
+                .collect(Collectors.toMap(i -> partitions.get(i).getId(), versions::get));
+
+        for (ScanNode node : scanNodes) {
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            scanNode.updateScanRangeVersions(visibleVersionMap);
+        }
     }
 
     // update job progress from BE
@@ -2913,15 +2976,18 @@ public class Coordinator implements CoordInterface {
 
         /**
          * Ignore storage data distribution iff:
-         * 1. Current fragment is not forced to use data distribution.
-         * 2. `parallelExecInstanceNum` is larger than scan ranges.
-         * 3. Use Nereids planner.
+         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+         * 2. Use Nereids planner.
          */
-        boolean ignoreStorageDataDistribution = scanNodes.stream()
-                .allMatch(node -> node.ignoreStorageDataDistribution(context))
+        boolean forceToLocalShuffle = context != null
+                && context.getSessionVariable().isForceToLocalShuffle();
+        boolean ignoreStorageDataDistribution = forceToLocalShuffle || (scanNodes.stream()
+                .allMatch(node -> node.ignoreStorageDataDistribution(context,
+                        fragmentExecParamsMap.get(node.getFragment().getFragmentId())
+                                .scanRangeAssignment.size()))
                 && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
                     return addressScanRange.getValue().size() < parallelExecInstanceNum;
-                }) && useNereids;
+                }) && useNereids);
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange
@@ -3639,6 +3705,9 @@ public class Coordinator implements CoordInterface {
                 params.params.setPerNodeScanRanges(scanRanges);
                 params.params.setPerExchNumSenders(perExchNumSenders);
 
+                if (tWorkloadGroups != null) {
+                    params.setWorkloadGroups(tWorkloadGroups);
+                }
                 params.params.setDestinations(destinations);
                 params.params.setSenderId(i);
                 params.params.setNumSenders(instanceExecParams.size());
@@ -3982,7 +4051,9 @@ public class Coordinator implements CoordInterface {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
                 if (enablePipelineXEngine) {
-                    ctx.attachPipelineProfileToFragmentProfile();
+                    synchronized (this) {
+                        ctx.attachPipelineProfileToFragmentProfile();
+                    }
                 } else {
                     ctx.profileStream()
                             .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));

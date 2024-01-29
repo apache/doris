@@ -2239,7 +2239,7 @@ bit_value	BOOLEAN	Yes	false	\N	NONE
 bitn_value	TEXT	Yes	false	\N	NONE
 bitnv_value	TEXT	Yes	false	\N	NONE
 box_value	TEXT	Yes	false	\N	NONE
-char_value	VARCHAR(65533)	Yes	true	\N	
+char_value	TEXT	Yes	false	\N	NONE
 cidr_value	TEXT	Yes	false	\N	NONE
 circle_value	TEXT	Yes	false	\N	NONE
 date_value	DATE	Yes	false	\N	NONE

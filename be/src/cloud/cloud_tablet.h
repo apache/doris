@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <atomic>
-
 #include "olap/base_tablet.h"
-#include "olap/version_graph.h"
 
 namespace doris {
 
@@ -64,7 +61,7 @@ public:
     // If tablet state is not `TABLET_RUNNING`, sync tablet meta and all visible rowsets.
     // If `query_version` > 0 and local max_version of the tablet >= `query_version`, do nothing.
     // If 'need_download_data_async' is true, it means that we need to download the new version
-    // rowsets datas async.
+    // rowsets datum async.
     Status sync_rowsets(int64_t query_version = -1, bool warmup_delta_data = false);
 
     // Synchronize the tablet meta from meta service.
@@ -74,7 +71,7 @@ public:
     // If 'warmup_delta_data' is true, download the new version rowset data in background.
     // MUST hold EXCLUSIVE `_meta_lock`.
     // If 'need_download_data_async' is true, it means that we need to download the new version
-    // rowsets datas async.
+    // rowsets datum async.
     void add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_overlap,
                      std::unique_lock<std::shared_mutex>& meta_lock,
                      bool warmup_delta_data = false);
@@ -98,6 +95,17 @@ public:
     int64_t get_cloud_base_compaction_score() const;
     int64_t get_cloud_cumu_compaction_score() const;
 
+    int64_t max_version_unlocked() const override { return _max_version; }
+    int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
+    int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    int64_t cumulative_layer_point() const {
+        return _cumulative_point.load(std::memory_order_relaxed);
+    }
+
+    void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
+    void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_cumulative_layer_point(int64_t new_point);
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -105,8 +113,6 @@ public:
     int64_t last_cumu_no_suitable_version_ms = 0;
 
 private:
-    Versions calc_missed_versions(int64_t spec_version);
-
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
@@ -126,8 +132,8 @@ private:
     // Number of sorted arrays (e.g. for rowset with N segments, if rowset is overlapping, delta is N, otherwise 1) after cumu point
     std::atomic<int64_t> _approximate_cumu_num_deltas {-1};
 
-    [[maybe_unused]] int64_t _base_compaction_cnt = 0;
-    [[maybe_unused]] int64_t _cumulative_compaction_cnt = 0;
+    int64_t _base_compaction_cnt = 0;
+    int64_t _cumulative_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
 };

@@ -1,1 +1,1 @@
--- SELECT count(cast(payload:issue as string)) FROM github_events;
+-- SELECT count(cast(payload["issue"] as string)) FROM github_events;

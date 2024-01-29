@@ -85,6 +85,9 @@ public abstract class StatementBase implements ParseNode {
         }
     }
 
+    public void checkPriv() throws AnalysisException {
+    }
+
     public Analyzer getAnalyzer() {
         return analyzer;
     }
