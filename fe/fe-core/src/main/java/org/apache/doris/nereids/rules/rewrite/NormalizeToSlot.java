@@ -182,9 +182,6 @@ public interface NormalizeToSlot {
                 }
                 newChildren.add(newChild);
             }
-            if (windowExpression.getWindowFrame().isPresent()) {
-                newChildren.add(windowExpression.getWindowFrame().get());
-            }
             return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
         }
     }
