@@ -401,6 +401,6 @@ suite("test_nereids_set_operation") {
     """
 
     qt_intersect_case """
-        SELECT subq1.`pk` AS pk1 FROM ( (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_3_undef_partitions2_keys3_properties4_distributed_by54 AS alias1 ON t1 . `pk` = alias1 . `pk`   ) INTERSECT (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_2_undef_partitions2_keys3_properties4_distributed_by55 AS alias2 ON t1 . `pk` = alias2 . `pk`   ) ) subq1 GROUP BY subq1.`pk` LIMIT 66666666 ; 
+        SELECT subq1.`pk` AS pk1 FROM ( (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_3_undef_partitions2_keys3_properties4_distributed_by54 AS alias1 ON t1 . `pk` = alias1 . `pk`   ) INTERSECT (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_2_undef_partitions2_keys3_properties4_distributed_by55 AS alias2 ON t1 . `pk` = alias2 . `pk`   ) ) subq1 GROUP BY subq1.`pk` order by 1 LIMIT 66666666 ; 
     """
 }
