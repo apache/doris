@@ -321,7 +321,8 @@ public class ExpressionUtils {
                         Collectors.toMap(
                                 NamedExpression::toSlot,
                                 // Avoid cast to alias, retrieving the first child expression.
-                                alias -> alias.child(0)
+                                alias -> alias.child(0),
+                                (e1, e2) -> e1
                         )
                 );
     }
