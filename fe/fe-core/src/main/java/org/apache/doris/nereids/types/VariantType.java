@@ -47,7 +47,7 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public String simpleString() {
-        return "map";
+        return "variant";
     }
 
     @Override

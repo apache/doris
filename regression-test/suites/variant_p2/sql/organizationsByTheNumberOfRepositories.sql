@@ -3,10 +3,10 @@ SELECT
     count(distinct repo_name) AS repos
 FROM
 (
-    SELECT cast(repo:name as string) as repo_name
+    SELECT cast(repo["name"] as string) as repo_name
     FROM github_events
     WHERE type = 'WatchEvent'
-    GROUP BY cast(repo:name as string)
+    GROUP BY cast(repo["name"] as string)
     HAVING count() >= 10
 ) t
 GROUP BY org
