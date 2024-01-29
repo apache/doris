@@ -59,7 +59,8 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
-    _vpartition = new doris::VOlapTablePartitionParam(_schema, table_sink.partition);
+    _vpartition = _state->obj_pool()->add(
+            new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
     RETURN_IF_ERROR(_vpartition->init());
     return Status::OK();
 }
