@@ -184,7 +184,7 @@ INT_VALUE1	INT	Yes	false	\N	NONE
 INT_VALUE2	BIGINT	Yes	false	\N	NONE
 N1	TEXT	Yes	false	\N	NONE
 N2	LARGEINT	Yes	false	\N	NONE
-N3	DECIMAL	Yes	false	\N	NONE
+N3	DECIMAL(9, 2)	Yes	false	\N	NONE
 N4	LARGEINT	Yes	false	\N	NONE
 N5	LARGEINT	Yes	false	\N	NONE
 N6	DECIMAL(5, 2)	Yes	false	\N	NONE
