@@ -926,26 +926,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            if (type.isDatetimeV2()) {
-                sb.append("DATETIME");
-                if (((ScalarType) type).getScalarScale() > 0) {
-                    sb.append("(").append(((ScalarType) type).getScalarScale()).append(")");
-                }
-            } else if (type.isDateV2()) {
-                sb.append("DATE");
-            } else if (type.isDecimalV3()) {
-                sb.append("DECIMAL");
-                ScalarType sType = (ScalarType) type;
-                int scale = sType.getScalarScale();
-                int precision = sType.getScalarPrecision();
-                // not default
-                if (!sType.isDefaultDecimal()) {
-                    sb.append("(").append(precision).append(", ").append(scale)
-                            .append(")");
-                }
-            } else {
-                sb.append(typeStr);
-            }
+            sb.append(type.hideVersionForVersionColumn(true));
         } else {
             sb.append(typeStr);
         }
