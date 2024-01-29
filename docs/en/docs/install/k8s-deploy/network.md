@@ -253,12 +253,12 @@ doriscluster-sample-be-service    NodePort    10.152.183.24    <none>        906
 
 ## Doris data exchange
 ### Stream load
-[Stream load](https://doris.apache.org/docs/data-operate/import/import-way/stream-load-manual) is a synchronous import method. Users send requests to import local files or data streams into Doris by sending HTTP protocol.
+[Stream load](https://doris.apache.org/docs/dev/data-operate/import/import-way/stream-load-manual) is a synchronous import method. Users send requests to import local files or data streams into Doris by sending HTTP protocol.
 In a regular deployment, users submit import commands via the HTTP protocol. Generally, users will submit the request to FE, and FE will forward the request to a certain BE through the HTTP redirect command. However, in a Kubernetes-based deployment scenario, it is recommended that users **directly submit the import command to BE's Srevice**, and then the Service will be load balanced to a certain BE pod based on Kubernetes rules.
 The actual effects of these two operations are the same. When Flink or Spark uses the official connector to submit, the write request can also be submitted to the BE Service.
 
 ### ErrorURL
-When import methods such as [Stream load](https://doris.apache.org/docs/data-operate/import/import-way/stream-load-manual) and [Routine load](https://doris.apache.org/docs/data-operate/import/import-way/routine-load-manual)
+When import methods such as [Stream load](https://doris.apache.org/docs/dev/data-operate/import/import-way/stream-load-manual) and [Routine load](https://doris.apache.org/docs/dev/data-operate/import/import-way/routine-load-manual)
 These import methods will print `errorURL` or `tracking_url` in the return structure or log when encountering errors such as incorrect data format. You can locate the cause of the import error by visiting this link.
 However, this URL is only accessible within the internal environment of a specific BE node container in a Kubernetes deployed cluster.
 

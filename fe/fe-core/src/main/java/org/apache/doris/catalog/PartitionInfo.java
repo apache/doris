@@ -366,7 +366,7 @@ public class PartitionInfo implements Writable {
         throw new RuntimeException("Should implement it in derived classes.");
     }
 
-    static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
+    public static List<PartitionValue> toPartitionValue(PartitionKey partitionKey) {
         return partitionKey.getKeys().stream().map(expr -> {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;

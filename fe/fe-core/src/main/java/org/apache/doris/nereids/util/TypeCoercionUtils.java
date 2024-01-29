@@ -97,6 +97,7 @@ import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -177,6 +178,9 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(new StructType(newFields));
+        } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
+            // variant could implicit cast to numric types and string like types
+            return Optional.of(expected);
         } else {
             return implicitCastPrimitive(input, expected);
         }
@@ -328,7 +332,10 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
     }
 
-    private static DataType replaceSpecifiedType(DataType dataType,
+    /**
+     * replace specifiedType in dataType to newType.
+     */
+    public static DataType replaceSpecifiedType(DataType dataType,
             Class<? extends DataType> specifiedType, DataType newType) {
         if (dataType instanceof ArrayType) {
             return ArrayType.of(replaceSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType, newType));
@@ -1271,6 +1278,13 @@ public class TypeCoercionUtils {
             return Optional.of(IPv6Type.INSTANCE);
         }
 
+        // variant type
+        if ((leftType.isVariantType() && (rightType.isStringLikeType() || rightType.isNumericType()))) {
+            return Optional.of(rightType);
+        }
+        if ((rightType.isVariantType() && (leftType.isStringLikeType() || leftType.isNumericType()))) {
+            return Optional.of(leftType);
+        }
         return Optional.of(DoubleType.INSTANCE);
     }
 

@@ -44,7 +44,7 @@ DECLARE_mInt32(meta_service_brpc_timeout_ms);
 // CloudTabletMgr config
 DECLARE_Int64(tablet_cache_capacity);
 DECLARE_Int64(tablet_cache_shards);
-DECLARE_mInt64(tablet_sync_interval_seconds);
+DECLARE_mInt32(tablet_sync_interval_s);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
@@ -52,5 +52,10 @@ DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(cu_compaction_freeze_interval_s);
 DECLARE_mInt64(cumu_compaction_interval_s);
+
+// CloudStorageEngine config
+DECLARE_mInt32(refresh_s3_info_interval_s);
+DECLARE_mInt32(vacuum_stale_rowsets_interval_s);
+DECLARE_mInt32(schedule_sync_tablets_interval_s);
 
 } // namespace doris::config

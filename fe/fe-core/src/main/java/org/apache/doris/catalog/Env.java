@@ -1502,6 +1502,10 @@ public class Env {
                 VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
                 LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
                         + "to new default value: {}", newBcFactorVal);
+
+                // similar reason as above, need to upgrade enable_nereids_planner to true
+                VariableMgr.enableNereidsPlanner();
+                LOG.info("upgrade FE from 1.x to 2.x, set enable_nereids_planner to new default value: true");
             }
         }
 
@@ -5458,11 +5462,13 @@ public class Env {
             }
         }
         olapTable.replaceTempPartitions(partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
-
+        long version = olapTable.getNextVersion();
+        long versionTime = System.currentTimeMillis();
+        olapTable.updateVisibleVersionAndTime(version, versionTime);
         // write log
         ReplacePartitionOperationLog info =
                 new ReplacePartitionOperationLog(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName);
+                        partitionNames, tempPartitionNames, isStrictRange, useTempPartitionName, version, versionTime);
         editLog.logReplaceTempPartition(info);
         LOG.info("finished to replace partitions {} with temp partitions {} from table: {}", clause.getPartitionNames(),
                 clause.getTempPartitionNames(), olapTable.getName());
@@ -5480,6 +5486,8 @@ public class Env {
             olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName());
+            olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
+                    replaceTempPartitionLog.getVersionTime());
         } catch (DdlException e) {
             throw new MetaNotFoundException(e);
         } finally {

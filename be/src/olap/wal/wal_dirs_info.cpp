@@ -112,7 +112,7 @@ Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
 #ifdef BE_TEST
             return Status::OK();
 #endif
-            return Status::InternalError("wal dir {} exists!", wal_dir);
+            return Status::InternalError<false>("wal dir {} exists!", wal_dir);
         }
     }
     std::unique_lock wlock(_lock);
@@ -162,7 +162,8 @@ Status WalDirsInfo::update_wal_dir_limit(const std::string& wal_dir, size_t limi
             return wal_dir_info->update_wal_dir_limit(limit);
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir limit",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::update_all_wal_dir_limit() {
@@ -178,7 +179,8 @@ Status WalDirsInfo::update_wal_dir_used(const std::string& wal_dir, size_t used)
             return wal_dir_info->update_wal_dir_used(used);
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir used",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::update_all_wal_dir_used() {
@@ -198,7 +200,8 @@ Status WalDirsInfo::update_wal_dir_pre_allocated(const std::string& wal_dir,
             return Status::OK();
         }
     }
-    return Status::InternalError("Can not find wal dir in wal disks info.");
+    return Status::InternalError<false>("Can not find wal dir {} when update wal dir pre allocated",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
@@ -210,7 +213,8 @@ Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
             return Status::OK();
         }
     }
-    return Status::InternalError("can not find wal dir!");
+    return Status::InternalError<false>("Can not find wal dir {} when get wal dir available size",
+                                        wal_dir);
 }
 
 Status WalDirsInfo::get_wal_dir_info(const std::string& wal_dir,
@@ -222,7 +226,7 @@ Status WalDirsInfo::get_wal_dir_info(const std::string& wal_dir,
         wal_dir_info = *it;
     } else {
         wal_dir_info = nullptr;
-        return Status::InternalError("can not find wal dir info!");
+        return Status::InternalError<false>("Can not find wal dir {}", wal_dir);
     }
     return Status::OK();
 }

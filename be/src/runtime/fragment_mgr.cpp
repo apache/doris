@@ -778,7 +778,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     // TODO need check the status, but when I add return_if_error the P0 will not pass
     static_cast<void>(_runtimefilter_controller.add_entity(
-            params, &handler,
+            params.params, params.params.query_id, params.query_options, &handler,
             RuntimeFilterParamsContext::create(fragment_executor->runtime_state())));
     fragment_executor->set_merge_controller_handler(handler);
     {
@@ -866,7 +866,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         for (size_t i = 0; i < params.local_params.size(); i++) {
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
-                    params, params.local_params[i], &handler,
+                    params.local_params[i], params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
             context->set_merge_controller_handler(handler);
             const TUniqueId& fragment_instance_id = params.local_params[i].fragment_instance_id;
@@ -946,7 +946,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
             std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
             static_cast<void>(_runtimefilter_controller.add_entity(
-                    params, local_params, &handler,
+                    local_params, params.query_id, params.query_options, &handler,
                     RuntimeFilterParamsContext::create(context->get_runtime_state(UniqueId()))));
             context->set_merge_controller_handler(handler);
 
@@ -1482,8 +1482,9 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
         // when filter_controller->merge is still in progress
         fragment_executor = iter->second;
     }
-    RETURN_IF_ERROR(filter_controller->merge(request, attach_data, opt_remote_rf));
-    return Status::OK();
+    auto merge_status = filter_controller->merge(request, attach_data, opt_remote_rf);
+    DCHECK(merge_status.ok());
+    return merge_status;
 }
 
 void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,

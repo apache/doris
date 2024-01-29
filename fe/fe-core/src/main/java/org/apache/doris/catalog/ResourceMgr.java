@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
@@ -173,7 +174,8 @@ public class ResourceMgr implements Writable {
                 .collect(Collectors.toList());
     }
 
-    public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {
+    public List<List<Comparable>> getResourcesInfo(PatternMatcher matcher,
+            String name, boolean accurateMatch, Set<String> typeSets) {
         List<List<String>> targetRows = procNode.fetchResult().getRows();
         List<List<Comparable>> returnRows = Lists.newArrayList();
 
@@ -184,6 +186,10 @@ public class ResourceMgr implements Writable {
 
             String resourceName = row.get(0);
             String resourceType = row.get(1);
+
+            if (matcher != null && !matcher.match(resourceName)) {
+                continue;
+            }
 
             if (name != null) {
                 if (accurateMatch && !resourceName.equals(name)) {

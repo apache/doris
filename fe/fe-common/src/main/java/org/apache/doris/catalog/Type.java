@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -446,6 +447,47 @@ public abstract class Type {
             return PrimitiveType.typeWithPrecision.contains(((ArrayType) this).getItemType().getPrimitiveType());
         }
         return false;
+    }
+
+    public String hideVersionForVersionColumn(Boolean isToSql) {
+        if (isDatetimeV2()) {
+            StringBuilder typeStr = new StringBuilder("DATETIME");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
+            }
+            return typeStr.toString();
+        } else if (isDateV2()) {
+            return "DATE";
+        } else if (isDecimalV3()) {
+            StringBuilder typeStr = new StringBuilder("DECIMAL");
+            ScalarType sType = (ScalarType) this;
+            int scale = sType.getScalarScale();
+            int precision = sType.getScalarPrecision();
+            // not default
+            if (!sType.isDefaultDecimal()) {
+                typeStr.append("(").append(precision).append(", ").append(scale)
+                        .append(")");
+            }
+            return typeStr.toString();
+        } else if (isArrayType()) {
+            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
+            return "ARRAY<" + nestedDesc + ">";
+        } else if (isMapType()) {
+            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
+            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
+            return "MAP<" + keyDesc + "," + valueDesc + ">";
+        } else if (isStructType()) {
+            List<String> fieldDesc = new ArrayList<>();
+            StructType structType = (StructType) this;
+            for (int i = 0; i < structType.getFields().size(); i++) {
+                StructField field = structType.getFields().get(i);
+                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
+            }
+            return "STRUCT<" + StringUtils.join(fieldDesc, ",") + ">";
+        } else if (isToSql) {
+            return this.toSql();
+        }
+        return this.toString();
     }
 
     public boolean isDecimalV3OrContainsDecimalV3() {

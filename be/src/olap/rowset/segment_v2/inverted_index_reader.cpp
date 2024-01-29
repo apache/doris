@@ -285,12 +285,6 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             }
         }
 
-        // check index file existence
-        if (!indexExists(index_file_path)) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index path: {} not exist.", index_file_path.string());
-        }
-
         std::unique_ptr<lucene::search::Query> query;
         std::wstring field_ws = std::wstring(column_name.begin(), column_name.end());
 
@@ -573,12 +567,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         return Status::OK();
     } else {
         stats->inverted_index_query_cache_miss++;
-    }
-
-    // check index file existence
-    if (!indexExists(index_file_path)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "inverted index path: {} not exist.", index_file_path.string());
     }
 
     switch (query_type) {

@@ -186,7 +186,7 @@ Status EnginePublishVersionTask::execute() {
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version_unlocked().second;
+                    max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
                 if (version.first != max_version + 1) {
