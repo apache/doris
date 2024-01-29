@@ -89,7 +89,7 @@ public:
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
     virtual Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block,
-                                        bool* eos, int id, bool wait = true);
+                                        bool* eos, int id);
 
     [[nodiscard]] Status validate_block_schema(Block* block);
 
@@ -134,7 +134,8 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     inline bool should_be_scheduled() const {
-        return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+               (_serving_blocks_num < allowed_blocks_num());
     }
 
     int get_available_thread_slot_num() {
