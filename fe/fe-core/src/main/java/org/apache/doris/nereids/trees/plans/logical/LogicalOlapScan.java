@@ -368,7 +368,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     }
 
     private Slot generateUniqueSlot(OlapTable table, Column column, boolean isBaseIndex, long indexId) {
-        String name = isBaseIndex ? column.getName()
+        String name = isBaseIndex || directMvScan ? column.getName()
                 : AbstractSelectMaterializedIndexRule.parseMvColumnToMvName(column.getName(),
                         column.isAggregated() ? Optional.of(column.getAggregationType().toSql()) : Optional.empty());
         if (cacheSlotWithSlotName.containsKey(Pair.of(indexId, name))) {
