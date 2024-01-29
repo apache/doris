@@ -103,6 +103,7 @@ public class ExportStmt extends StatementBase {
 
     private String maxFileSize;
     private String deleteExistingFiles;
+    private String withBom;
     private SessionVariable sessionVariables;
 
     private String qualifiedUser;
@@ -228,6 +229,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setParallelism(this.parallelism);
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
+        exportJob.setWithBom(this.withBom);
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -354,6 +356,9 @@ public class ExportStmt extends StatementBase {
             // generate a random label
             this.label = "export_" + UUID.randomUUID();
         }
+
+        // with bom
+        this.withBom = properties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false");
     }
 
     private void checkColumns() throws DdlException {

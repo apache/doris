@@ -88,6 +88,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
             .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
+            .add(OutFileClause.PROP_WITH_BOM)
             .build();
 
     private final List<String> nameParts;
@@ -266,6 +267,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // set format
         exportJob.setFormat(fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
+
+        // set withBom
+        exportJob.setWithBom(fileProperties.getOrDefault(OutFileClause.PROP_WITH_BOM, "false"));
 
         // set parallelism
         int parallelism;

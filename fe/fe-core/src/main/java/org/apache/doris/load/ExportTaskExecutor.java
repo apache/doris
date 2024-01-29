@@ -40,7 +40,6 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
@@ -56,7 +55,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     ExportJob exportJob;
 
-    @Setter
     Long taskId;
 
     private StmtExecutor stmtExecutor;
@@ -204,5 +202,9 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
             }
         }
         return Optional.empty();
+    }
+
+    public void setTaskId(Long taskId) {
+        this.taskId = taskId;
     }
 }
