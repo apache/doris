@@ -165,6 +165,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
+        if (jdbcClient != null) {
+            jdbcClient.closeClient();
+        }
         JdbcClientConfig jdbcClientConfig = new JdbcClientConfig()
                 .setCatalog(this.name)
                 .setUser(getJdbcUser())
