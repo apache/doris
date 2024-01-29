@@ -416,6 +416,7 @@ Status PlanFragmentExecutor::execute() {
     DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
     if(config::enable_bvar_metrics) {
         DorisBvarMetrics::instance()->fragment_requests_total->increment(1);
+        DorisBvarMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
     }
     return Status::OK();
 }

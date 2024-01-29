@@ -23,6 +23,11 @@ namespace doris {
 #define INIT_INT64_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
     name = std::make_shared<BvarAdderMetric<int64_t>>(type, unit, #name, description, group_name, labels, core);
 
+#define ENTITY_REGISTER_METRICS(name, type)                        \
+auto name##_ptr = std::make_shared<BvarMetricEntity>(#name, type); \
+entities_map_[#name].push_back(name##_ptr);                        \
+name##_ptr->register_metric(#name, *name);                         \
+
 // #define INIT_DOUBLE_BVAR_METRIC(name, type, unit, description, group_name, labels, core) \
 //     name = std::make_shared<BvarAdderMetric<double>>(type, unit, #name, description, group_name, labels, core);
 
@@ -31,10 +36,33 @@ const std::string DorisBvarMetrics::s_registry_name_ = "doris_be";
 DorisBvarMetrics::DorisBvarMetrics() {
     INIT_INT64_BVAR_METRIC(fragment_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
                            "Total fragment requests received.", "", Labels(), false)
-    auto fragment_requests_total_ptr =
-            std::make_shared<BvarMetricEntity>("fragment_requests_total", BvarMetricType::COUNTER);
-    entities_map_["fragment_requests_total"].push_back(fragment_requests_total_ptr);
-    fragment_requests_total_ptr->register_metric("fragment_requests_total", *fragment_requests_total);
+    INIT_INT64_BVAR_METRIC(fragment_request_duration_us, BvarMetricType::COUNTER, BvarMetricUnit::MICROSECONDS,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(query_scan_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                           "", "", Labels(), false)   
+    INIT_INT64_BVAR_METRIC(query_scan_rows, BvarMetricType::COUNTER, BvarMetricUnit::ROWS,
+                           "", "", Labels(), false) 
+    INIT_INT64_BVAR_METRIC(push_requests_success_total, BvarMetricType::COUNTER, BvaMetricUnit::REQUESTS,
+                           "", "push_requests_total", Lables({{"status", "SUCCESS"}}), false); 
+    INIT_INT64_BVAR_METRIC(push_requests_fail_total, BvarMetricType::COUNTER, BvaMetricUnit::REQUESTS,
+                           "", "push_requests_total", Lables({{"status", "FAIL"}}), false); 
+    INIT_INT64_BVAR_METRIC(push_request_duration_us, BvarMetricType::COUNTER, BvarMetricUnit::MICROSECONDS,
+                           "", "", Labels(), false) 
+    INIT_INT64_BVAR_METRIC(push_request_write_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                           "", "", Labels(), false)
+    INIT_INT64_BVAR_METRIC(push_request_write_rows, BvarMetricType::COUNTER, BvarMetricUnit::ROWS,
+                           "", "", Labels(), false)
+
+    ENTITY_REGISTER_METRICS(fragment_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(fragment_request_duration_us, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(query_scan_bytes, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(query_scan_rows, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(push_requests_success_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(push_requests_fail_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(push_request_duration_us, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(push_request_write_bytes, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(push_request_write_rows, BvarMetricType::COUNTER)
+
 }
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
