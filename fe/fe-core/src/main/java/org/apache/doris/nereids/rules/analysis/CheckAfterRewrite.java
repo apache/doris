@@ -184,7 +184,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             if (plan instanceof LogicalFilter && (plan.child(0) instanceof LogicalOlapScan
                     || plan.child(0) instanceof LogicalDeferMaterializeOlapScan
                     || plan.child(0) instanceof LogicalProject
-                        && ((LogicalProject<?>) plan.child(0)).isPulledUpProjectFromScan())) {
+                        && ((LogicalProject<?>) plan.child(0)).hasPushedDownToProjectionFunctions())) {
                 return;
             } else {
                 throw new AnalysisException(String.format(

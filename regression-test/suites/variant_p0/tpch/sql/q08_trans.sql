@@ -1,6 +1,6 @@
 -- TABLES: part,SUPPLIER,lineitem,orders,customer,NATION,REGION
 -- ERROR: not stable
-SELECT
+SELECT  /*+SET_VAR(enable_fallback_to_original_planner=false) */
   O_YEAR,
   SUM(CASE
       WHEN NATION = 'BRAZIL'

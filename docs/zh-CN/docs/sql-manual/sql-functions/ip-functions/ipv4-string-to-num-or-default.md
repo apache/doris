@@ -40,7 +40,7 @@ IPV4_STRING_TO_NUM_OR_DEFAULT
 
 ### notice
 
-`如果输入字符串不是有效的 IPv4 地址，将返回0`
+`如果输入字符串不是有效的 IPv4 地址或者NULL，将返回0`
 
 ### example
 ```
@@ -62,6 +62,14 @@ mysql> select str, ipv4_string_to_num_or_default(str) from ipv4_str;
 | invalid         | 0                                  | 
 +-----------------+------------------------------------+ 
 4 rows in set (0.01 sec)
+
+mysql> select addr_src, ipv4_string_to_num_or_default(addr_src) from ipv4_string_test where addr_src is null;
++----------+-----------------------------------------+
+| addr_src | ipv4_string_to_num_or_default(addr_src) |
++----------+-----------------------------------------+
+| NULL     |                                       0 |
++----------+-----------------------------------------+
+1 row in set (0.09 sec)
 ```
 
 ### keywords

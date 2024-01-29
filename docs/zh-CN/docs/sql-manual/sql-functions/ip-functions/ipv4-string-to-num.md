@@ -40,7 +40,7 @@ IPV4_STRING_TO_NUM
 
 ### notice
 
-`如果输入字符串不是有效的 IPv4 地址，将返回错误`
+`如果输入字符串不是有效的 IPv4 地址或者NULL，将返回错误`
 
 ### example
 ```
@@ -54,6 +54,9 @@ mysql> select ipv4_string_to_num('192.168.0.1');
 
 mysql> SELECT ipv4_string_to_num('192.168');
 ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][INVALID_ARGUMENT][E33] Invalid IPv4 value
+
+mysql> select addr_src, ipv4_string_to_num(addr_src) from ipv4_string_test where addr_src is null;
+ERROR 1105 (HY000): errCode = 2, detailMessage = (172.17.0.2)[CANCELLED][E33] Null Input, you may consider convert it to a valid default IPv4 value like '0.0.0.0' first
 ```
 
 ### keywords
