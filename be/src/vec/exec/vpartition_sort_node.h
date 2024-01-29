@@ -85,7 +85,7 @@ public:
             : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
     ~PartitionBlocks() = default;
 
-    void add_row_idx(size_t row) { selector.push_back(row); }
+    void add_row_idx(size_t row) { _selector.push_back(row); }
 
     Status append_block_by_selector(const vectorized::Block* input_block, bool eos);
 
@@ -96,19 +96,19 @@ public:
     void append_whole_block(vectorized::Block* input_block, const RowDescriptor& row_desc) {
         auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
         empty_block->swap(*input_block);
-        blocks.emplace_back(std::move(empty_block));
+        _blocks.emplace_back(std::move(empty_block));
     }
 
     bool reach_limit() {
-        return _init_rows <= 0 || blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
+        return _init_rows <= 0 || _blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
     size_t get_total_rows() const { return _total_rows; }
     size_t get_topn_filter_rows() const { return _topn_filter_rows; }
     size_t get_do_topn_count() const { return _do_partition_topn_count; }
 
-    IColumn::Selector selector;
-    std::vector<std::unique_ptr<Block>> blocks;
+    IColumn::Selector _selector;
+    std::vector<std::unique_ptr<Block>> _blocks;
     size_t _total_rows = 0;
     size_t _current_input_rows = 0;
     size_t _topn_filter_rows = 0;

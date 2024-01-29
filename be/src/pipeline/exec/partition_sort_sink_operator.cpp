@@ -139,12 +139,12 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             auto sorter = std::move(local_state._value_places[i]->_partition_topn_sorter);
 
             DCHECK(_child_x->row_desc().num_materialized_slots() ==
-                   local_state._value_places[i]->blocks.back()->columns());
+                   local_state._value_places[i]->_blocks.back()->columns());
             //get blocks from every partition, and sorter get those data.
-            for (const auto& block : local_state._value_places[i]->blocks) {
+            for (const auto& block : local_state._value_places[i]->_blocks) {
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
-            local_state._value_places[i]->blocks.clear();
+            local_state._value_places[i]->_blocks.clear();
             RETURN_IF_ERROR(sorter->prepare_for_read());
             local_state._shared_state->partition_sorts.push_back(std::move(sorter));
         }

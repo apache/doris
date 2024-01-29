@@ -40,23 +40,23 @@
 
 namespace doris::vectorized {
 Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_block, bool eos) {
-    if (blocks.empty() || reach_limit()) {
+    if (_blocks.empty() || reach_limit()) {
         _init_rows = _partition_sort_info->_runtime_state->batch_size();
-        blocks.push_back(Block::create_unique(
+        _blocks.push_back(Block::create_unique(
                 VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
     }
     auto columns = input_block->get_columns();
-    auto mutable_columns = blocks.back()->mutate_columns();
+    auto mutable_columns = _blocks.back()->mutate_columns();
     DCHECK(columns.size() == mutable_columns.size());
     for (int i = 0; i < mutable_columns.size(); ++i) {
-        columns[i]->append_data_by_selector(mutable_columns[i], selector);
+        columns[i]->append_data_by_selector(mutable_columns[i], _selector);
     }
-    blocks.back()->set_columns(std::move(mutable_columns));
-    auto selector_rows = selector.size();
+    _blocks.back()->set_columns(std::move(mutable_columns));
+    auto selector_rows = _selector.size();
     _init_rows = _init_rows - selector_rows;
     _total_rows = _total_rows + selector_rows;
     _current_input_rows = _current_input_rows + selector_rows;
-    selector.clear();
+    _selector.clear();
     // maybe better could change by user PARTITION_SORT_ROWS_THRESHOLD
     if (!eos && _partition_sort_info->_partition_inner_limit != -1 &&
         _current_input_rows >= PARTITION_SORT_ROWS_THRESHOLD &&
@@ -88,10 +88,10 @@ void PartitionBlocks::create_or_reset_sorter_state() {
 }
 
 Status PartitionBlocks::do_partition_topn_sort() {
-    for (const auto& block : blocks) {
+    for (const auto& block : _blocks) {
         RETURN_IF_ERROR(_partition_topn_sorter->append_block(block.get()));
     }
-    blocks.clear();
+    _blocks.clear();
     RETURN_IF_ERROR(_partition_topn_sorter->prepare_for_read());
     bool current_eos = false;
     size_t current_output_rows = 0;
@@ -104,7 +104,7 @@ Status PartitionBlocks::do_partition_topn_sort() {
         auto rows = output_block->rows();
         if (rows > 0) {
             current_output_rows += rows;
-            blocks.emplace_back(std::move(output_block));
+            _blocks.emplace_back(std::move(output_block));
         }
     }
 
@@ -259,17 +259,17 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
         SCOPED_TIMER(_partition_sort_timer);
         for (int i = 0; i < _value_places.size(); ++i) {
             _value_places[i]->create_or_reset_sorter_state();
-            auto sorter = std::move(_value_places[i]->_partition_topn_sorter);
+            auto sorter = std::ref(_value_places[i]->_partition_topn_sorter);
 
             DCHECK(child(0)->row_desc().num_materialized_slots() ==
-                   _value_places[i]->blocks.back()->columns());
+                   _value_places[i]->_blocks.back()->columns());
             //get blocks from every partition, and sorter get those data.
-            for (const auto& block : _value_places[i]->blocks) {
-                RETURN_IF_ERROR(sorter->append_block(block.get()));
+            for (const auto& block : _value_places[i]->_blocks) {
+                RETURN_IF_ERROR(sorter.get()->append_block(block.get()));
             }
-            _value_places[i]->blocks.clear();
-            RETURN_IF_ERROR(sorter->prepare_for_read());
-            _partition_sorts.push_back(std::move(sorter));
+            _value_places[i]->_blocks.clear();
+            RETURN_IF_ERROR(sorter.get()->prepare_for_read());
+            _partition_sorts.push_back(std::move(sorter.get()));
         }
 
         COUNTER_SET(_hash_table_size_counter, int64_t(_num_partition));
