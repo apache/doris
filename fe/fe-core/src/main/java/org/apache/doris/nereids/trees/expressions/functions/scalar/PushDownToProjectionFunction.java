@@ -19,13 +19,22 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import java.util.stream.Collectors;
+
 /**
  * Function that could be rewritten and pushed down to projection
  */
 public interface PushDownToProjectionFunction {
-    // check if specified function could be pushed down to project
+    /**
+     * check if specified function could be pushed down to project
+     * @param pushDownExpr expr to check
+     * @return if it is valid to push down input expr
+     */
     static boolean validToPushDown(Expression pushDownExpr) {
-        // Currently only Variant type could be pushed down
-        return pushDownExpr instanceof PushDownToProjectionFunction && pushDownExpr.getDataType().isVariantType();
+        // Currently only element at for variant type could be pushed down
+        return !pushDownExpr.collectToList(
+                    PushDownToProjectionFunction.class::isInstance).stream().filter(
+                            x -> ((Expression) x).getDataType().isVariantType()).collect(
+                    Collectors.toList()).isEmpty();
     }
 }
