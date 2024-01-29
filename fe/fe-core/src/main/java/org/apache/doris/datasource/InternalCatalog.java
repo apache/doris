@@ -1807,10 +1807,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(partition.getId());
             }
         }
-
+        long version = olapTable.getNextVersion();
+        long versionTime = System.currentTimeMillis();
+        olapTable.updateVisibleVersionAndTime(version, versionTime);
         // log
         DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition,
-                clause.isForceDrop(), recycleTime);
+                clause.isForceDrop(), recycleTime, version, versionTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
         LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
@@ -1831,6 +1833,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
                 }
             }
+            olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
         } finally {
             olapTable.writeUnlock();
         }
