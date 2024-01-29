@@ -315,7 +315,7 @@ binary	TEXT	Yes	false	\N	NONE
 bit	TEXT	Yes	false	\N	NONE
 blob	TEXT	Yes	false	\N	NONE
 boolean	TINYINT	Yes	false	\N	NONE
-char	VARCHAR(65533)	Yes	false	\N	NONE
+char	TEXT	Yes	false	\N	NONE
 date	DATE	Yes	false	\N	NONE
 datetime	DATETIME	Yes	false	\N	NONE
 decimal	DECIMAL(12, 4)	Yes	false	\N	NONE
@@ -339,7 +339,7 @@ timestamp	DATETIME(4)	Yes	false	\N	NONE
 tinyint	TINYINT	Yes	false	\N	NONE
 tinyint_u	SMALLINT	Yes	true	\N	
 varbinary	TEXT	Yes	false	\N	NONE
-varchar	VARCHAR(10)	Yes	false	\N	NONE
+varchar	TEXT	Yes	false	\N	NONE
 year	SMALLINT	Yes	false	\N	NONE
 
 -- !mysql_view --
