@@ -65,11 +65,11 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
             columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
+                    referencedColumnsAndTable.second, referencedColumnsAndTable.first, false);
         } else if (constraint.isPrimaryKey()) {
-            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first, false);
         } else if (constraint.isUnique()) {
-            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first);
+            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first, false);
         }
     }
 

@@ -992,7 +992,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
-                    log.getTableIf().dropConstraint(log.getConstraint().getName());
+                    log.getTableIf().dropConstraint(log.getConstraint().getName(), true);
                     break;
                 }
                 case OperationType.OP_ALTER_USER: {
