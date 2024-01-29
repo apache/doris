@@ -135,7 +135,6 @@ protected:
 
     RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
 
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;

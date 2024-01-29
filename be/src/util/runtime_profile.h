@@ -132,7 +132,8 @@ public:
     /// as value()) and the current value.
     class HighWaterMarkCounter : public Counter {
     public:
-        HighWaterMarkCounter(TUnit::type unit) : Counter(unit), current_value_(0) {}
+        HighWaterMarkCounter(TUnit::type unit, int64_t level = 2)
+                : Counter(unit, 0, level), current_value_(0) {}
 
         virtual void add(int64_t delta) {
             current_value_.fetch_add(delta, std::memory_order_relaxed);
@@ -413,7 +414,8 @@ public:
     /// Adds a high water mark counter to the runtime profile. Otherwise, same behavior
     /// as AddCounter().
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name, TUnit::type unit,
-                                                  const std::string& parent_counter_name = "");
+                                                  const std::string& parent_counter_name = "",
+                                                  int64_t level = 2);
 
     // Only for create MemTracker(using profile's counter to calc consumption)
     std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
