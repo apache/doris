@@ -100,7 +100,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
         }
         if (expression instanceof UnboundSlot) {
             String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, SlotReference.fromColumn(
+            mem.putIfAbsent(name, SlotReference.fromColumn(null,
                     new Column(name, getType(name.charAt(0)).toCatalogDataType()),
                     Lists.newArrayList("table"), null));
             return mem.get(name);
