@@ -77,6 +77,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
+import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -253,7 +254,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("Set operation optimization",
                     // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
                     topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
                     topDown(new BuildAggForUnion())
