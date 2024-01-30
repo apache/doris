@@ -553,6 +553,11 @@ Status VTabletWriterV2::close(Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             auto remain_ms = _state->execution_timeout() * 1000 -
                              _timeout_watch.elapsed_time() / 1000 / 1000;
+            if (remain_ms <= 0) {
+                LOG(WARNING) << "load timed out before close waiting, load_id="
+                             << print_id(_load_id);
+                return Status::TimedOut("load timed out before close waiting");
+            }
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
                     RETURN_IF_ERROR(stream->close_wait(remain_ms));
