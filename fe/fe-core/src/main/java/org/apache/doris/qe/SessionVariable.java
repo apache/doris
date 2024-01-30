@@ -114,7 +114,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
-    public static final String ENABLE_COLOCATE_SCAN = "enable_colocate_scan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
@@ -706,9 +705,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_COLOCATE_SCAN)
-    public boolean enableColocateScan = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
@@ -2041,10 +2037,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableColocatePlan() {
         return disableColocatePlan;
-    }
-
-    public boolean enableColocateScan() {
-        return enableColocateScan;
     }
 
     public boolean isEnableBucketShuffleJoin() {
