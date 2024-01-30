@@ -169,11 +169,8 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     @Test
     void externalTableTest() throws Exception {
         ExternalTable externalTable =  new ExternalTable();
-        try {
-            externalTable.addPrimaryKeyConstraint("pk", ImmutableList.of("col"), false);
-        } catch (Exception ignore) {
-            // ignore
-        }
+        externalTable.addPrimaryKeyConstraint("pk", ImmutableList.of("col"));
+
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
         externalTable.write(output);
