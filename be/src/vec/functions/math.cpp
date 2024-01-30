@@ -224,6 +224,11 @@ struct TanName {
 };
 using FunctionTan = FunctionMathUnary<UnaryFunctionPlain<TanName, std::tan>>;
 
+struct TanhName {
+    static constexpr auto name = "tanh";
+};
+using FunctionTanh = FunctionMathUnary<UnaryFunctionPlain<TanhName, std::tanh>>;
+
 template <typename A>
 struct RadiansImpl {
     using ResultType = A;
@@ -407,6 +412,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("sqrt", "dsqrt");
     factory.register_function<FunctionCbrt>();
     factory.register_function<FunctionTan>();
+    factory.register_function<FunctionTanh>();
     factory.register_alias("floor", "dfloor");
     factory.register_function<FunctionPow>();
     factory.register_alias("pow", "power");

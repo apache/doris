@@ -1396,6 +1396,7 @@ visible_functions = {
         [['sqrt', 'dsqrt'], 'DOUBLE', ['DOUBLE'], ''],
         
         [['tan'], 'DOUBLE', ['DOUBLE'], ''],
+        [['tanh'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
         [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
         [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],
