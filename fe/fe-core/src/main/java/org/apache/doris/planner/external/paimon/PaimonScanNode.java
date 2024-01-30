@@ -31,6 +31,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -43,6 +44,8 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Preconditions;
 import org.apache.hadoop.fs.Path;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
@@ -53,6 +56,7 @@ import org.apache.paimon.utils.InstantiationUtil;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,6 +64,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
+    private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
     private PaimonSource source = null;
     private List<Predicate> predicates;
 
@@ -110,6 +115,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
         org.apache.paimon.table.source.Split split = paimonSplit.getSplit();
         if (split != null) {
+            // use jni reader
             fileDesc.setPaimonSplit(encodeObjectToString(split));
         }
         fileDesc.setFileFormat(source.getFileFormat());
@@ -129,6 +135,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
+        boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
@@ -139,7 +146,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .newScan().plan().splits();
         boolean supportNative = supportNativeReader();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
-            if (supportNative && split instanceof DataSplit) {
+            if (!forceJniScanner && supportNative && split instanceof DataSplit) {
                 DataSplit dataSplit = (DataSplit) split;
                 Optional<List<RawFile>> optRowFiles = dataSplit.convertToRawFiles();
                 if (optRowFiles.isPresent()) {
@@ -234,7 +241,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        return source.getCatalog().getCatalogProperty().getHadoopProperties();
+        HashMap<String, String> map = new HashMap<>(source.getCatalog().getProperties());
+        source.getCatalog().getCatalogProperty().getHadoopProperties().forEach((k, v) -> {
+            if (!map.containsKey(k)) {
+                map.put(k, v);
+            }
+        });
+        return map;
     }
 
 }

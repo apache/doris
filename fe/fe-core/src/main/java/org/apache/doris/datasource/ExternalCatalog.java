@@ -521,13 +521,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    /**
-     * External catalog has no cluster semantics.
-     */
-    protected static String getRealTableName(String tableName) {
-        return ClusterNamespace.getNameFromFullName(tableName);
-    }
-
     public static ExternalCatalog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
@@ -546,9 +539,6 @@ public abstract class ExternalCatalog
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
-        if (this instanceof HMSExternalCatalog) {
-            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
-        }
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -569,11 +559,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabaseForReplay(String dbName) {
+    public void dropDatabase(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabaseForReplay(long dbId, String dbName) {
+    public void createDatabase(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 

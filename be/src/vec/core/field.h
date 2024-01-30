@@ -553,8 +553,7 @@ public:
 
     std::strong_ordering operator<=>(const Field& rhs) const {
         if (which == Types::Null || rhs == Types::Null) {
-            return which == rhs.which ? std::strong_ordering::equal
-                                      : std::strong_ordering::equivalent;
+            return which <=> rhs.which;
         }
         if (which != rhs.which) {
             LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)

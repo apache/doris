@@ -127,7 +127,7 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
     std::string tablet_num_to_return;
-    WebPageHandler::ArgumentMap::const_iterator it = args.find("limit");
+    auto it = args.find("limit");
     if (it != args.end()) {
         tablet_num_to_return = it->second;
     } else {
@@ -397,7 +397,10 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
     web_page_handler->register_page("/memz", "Memory", mem_usage_handler, true /* is_on_nav_bar */);
     web_page_handler->register_page(
             "/mem_tracker", "MemTracker",
-            std::bind<void>(&mem_tracker_handler, std::placeholders::_1, std::placeholders::_2),
+            [](auto&& PH1, auto&& PH2) {
+                return mem_tracker_handler(std::forward<decltype(PH1)>(PH1),
+                                           std::forward<decltype(PH2)>(PH2));
+            },
             true /* is_on_nav_bar */);
     web_page_handler->register_page("/heap", "Heap Profile", heap_handler,
                                     true /* is_on_nav_bar */);
@@ -405,8 +408,10 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
     register_thread_display_page(web_page_handler);
     web_page_handler->register_template_page(
             "/tablets_page", "Tablets",
-            std::bind<void>(&display_tablets_callback, std::placeholders::_1,
-                            std::placeholders::_2),
+            [](auto&& PH1, auto&& PH2) {
+                return display_tablets_callback(std::forward<decltype(PH1)>(PH1),
+                                                std::forward<decltype(PH2)>(PH2));
+            },
             true /* is_on_nav_bar */);
 }
 

@@ -28,10 +28,9 @@ PhysicalResultSink
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF8 d_week_seq->[d_week_seq]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8 RF9
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8 RF9
+------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------------------PhysicalProject
@@ -59,10 +58,9 @@ PhysicalResultSink
 ------------------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq]
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
---------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4 RF5
-------------------------------------------PhysicalDistribute[DistributionSpecHash]
+------------------------------------------PhysicalProject
+--------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4 RF5
+------------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------------------PhysicalProject
@@ -90,10 +88,9 @@ PhysicalResultSink
 --------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->[d_week_seq]
---------------------------------------PhysicalDistribute[DistributionSpecHash]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0 RF1
---------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0 RF1
+--------------------------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute[DistributionSpecGather]
 --------------------------------------------PhysicalProject

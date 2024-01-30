@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gtest/gtest_pred_impl.h"
+#include "http/ev_http_server.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema_cache.h"
@@ -62,7 +63,8 @@ int main(int argc, char** argv) {
     doris::BackendOptions::init();
 
     auto service = std::make_unique<doris::HttpService>(doris::ExecEnv::GetInstance(), 0, 1);
-    static_cast<void>(service->start());
+    service->register_debug_point_handler();
+    service->_ev_http_server->start();
     doris::global_test_http_host = "http://127.0.0.1:" + std::to_string(service->get_real_port());
 
     int res = RUN_ALL_TESTS();

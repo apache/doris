@@ -138,7 +138,7 @@ public:
 
     // publish rowset to make it visible to read
     void make_visible(Version version);
-    const TabletSchemaSPtr& tablet_schema() { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
@@ -301,6 +301,8 @@ public:
 
     // set skip index compaction next time
     void set_skip_index_compaction(int32_t column_id) { skip_index_compaction.insert(column_id); }
+
+    std::string get_rowset_info_str();
 
 protected:
     friend class RowsetFactory;

@@ -36,16 +36,11 @@ OPTS="$(getopt \
 eval set -- "${OPTS}"
 
 RUN_DAEMON=0
-RUN_IN_AWS=0
 RUN_CONSOLE=0
 while true; do
     case "$1" in
     --daemon)
         RUN_DAEMON=1
-        shift
-        ;;
-    --aws)
-        RUN_IN_AWS=1
         shift
         ;;
     --console)
@@ -88,6 +83,22 @@ if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
     exit 1
 fi
 
+# add java libs
+# Must add hadoop libs, because we should load specified jars
+# instead of jars in hadoop libs, such as avro
+preload_jars=("preload-extensions")
+preload_jars+=("java-udf")
+
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
+    done
+done
+
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
@@ -103,20 +114,6 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
-
-# add java libs
-preload_jars=("preload-extensions")
-preload_jars+=("java-udf")
-
-for preload_jar_dir in "${preload_jars[@]}"; do
-    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
-        if [[ -z "${DORIS_CLASSPATH}" ]]; then
-            export DORIS_CLASSPATH="${f}"
-        else
-            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-        fi
-    done
-done
 
 # add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
@@ -240,10 +237,7 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
-## If you are not running in aws cloud, disable this env since https://github.com/aws/aws-sdk-cpp/issues/1410.
-if [[ "${RUN_IN_AWS}" -eq 0 ]]; then
-    export AWS_EC2_METADATA_DISABLED=true
-fi
+export AWS_MAX_ATTEMPTS=2
 
 ## set asan and ubsan env to generate core file
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
@@ -345,9 +339,6 @@ else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
-
-export AWS_EC2_METADATA_DISABLED=true
-export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &

@@ -41,7 +41,7 @@ public class DropPartitionInfoTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0);
+        DropPartitionInfo info1 = new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0, 0L, 0L);
         info1.write(dos);
 
         dos.flush();
@@ -60,12 +60,12 @@ public class DropPartitionInfoTest {
 
         Assert.assertEquals(rInfo1, info1);
         Assert.assertNotEquals(rInfo1, this);
-        Assert.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, "test_partition", false, true, 0));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, "test_partition", false, true, 0));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition1", false, true, 0));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", true, true, 0));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, false, 0));
-        Assert.assertEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, "test_partition", false, true, 0, 0L, 0L));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, "test_partition", false, true, 0, 0L, 0L));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition1", false, true, 0, 0L, 0L));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", true, true, 0, 0L, 0L));
+        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, false, 0, 0L, 0L));
+        Assert.assertEquals(info1, new DropPartitionInfo(1L, 2L, "test_partition", false, true, 0, 0L, 0L));
 
         // 3. delete files
         dis.close();

@@ -40,6 +40,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -244,6 +245,18 @@ public final class QeProcessorImpl implements QeProcessor {
             return info.sql;
         }
         return "";
+    }
+
+    public Map<String, QueryInfo> getQueryInfoMap() {
+        Map<String, QueryInfo> retQueryInfoMap = Maps.newHashMap();
+        Set<TUniqueId> queryIdSet = coordinatorMap.keySet();
+        for (TUniqueId qid : queryIdSet) {
+            QueryInfo queryInfo = coordinatorMap.get(qid);
+            if (queryInfo != null) {
+                retQueryInfoMap.put(DebugUtil.printId(qid), queryInfo);
+            }
+        }
+        return retQueryInfoMap;
     }
 
     public static final class QueryInfo {

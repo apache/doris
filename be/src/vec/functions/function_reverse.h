@@ -31,8 +31,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool get_is_injective(const Block&) override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_string_or_fixed_string(arguments[0]) || is_array(arguments[0]))
                 << fmt::format("Illegal type {} used for argument of function {}",

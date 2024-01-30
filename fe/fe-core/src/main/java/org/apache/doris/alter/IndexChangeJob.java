@@ -117,7 +117,7 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.WAITING_TXN;
     }
 
-    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName) {
+    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName) throws Exception {
         this.jobId = jobId;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -125,8 +125,7 @@ public class IndexChangeJob implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.WAITING_TXN;
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                        .getTransactionIDGenerator().getNextTransactionId();
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
     }
 
     public long getJobId() {

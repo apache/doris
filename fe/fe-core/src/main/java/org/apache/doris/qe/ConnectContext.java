@@ -35,6 +35,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -77,7 +78,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
+
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -1034,14 +1037,68 @@ public class ConnectContext {
         return cluster;
     }
 
-    // Set cloud cluster by `use @clusterName`
     public void setCloudCluster(String cluster) {
         this.cloudCluster = cluster;
     }
 
-    // The returned cluster is set by `use @clusterName`
+    /**
+     * @return Returns an available cluster in the following order
+     *         1 Use an explicitly specified cluster
+     *         2 If no cluster is specified, the user's default cluster is used
+     *         3 If the user does not have a default cluster, select a cluster with permissions for the user
+     *         Returns null when there is no available cluster
+     */
     public String getCloudCluster() {
-        return cloudCluster;
+        String cluster = null;
+        if (!Strings.isNullOrEmpty(this.cloudCluster)) {
+            cluster = this.cloudCluster;
+        }
+
+        String defaultCluster = getDefaultCloudCluster();
+        if (!Strings.isNullOrEmpty(defaultCluster)) {
+            cluster = defaultCluster;
+        }
+
+        String authorizedCluster = getAuthorizedCloudCluster();
+        if (!Strings.isNullOrEmpty(authorizedCluster)) {
+            cluster = authorizedCluster;
+        }
+
+        if (Strings.isNullOrEmpty(cluster)) {
+            LOG.warn("cant get a valid cluster for user {} to use", getCurrentUserIdentity());
+            getState().setError(ErrorCode.ERR_NO_CLUSTER_ERROR,
+                    "Cant get a Valid cluster for you to use, plz connect admin");
+        } else {
+            this.cloudCluster = cluster;
+            LOG.info("finally set context cluster name {}", cloudCluster);
+        }
+
+        return cluster;
+    }
+
+    // TODO implement this function
+    public String getDefaultCloudCluster() {
+        return null;
+    }
+
+    public String getAuthorizedCloudCluster() {
+        List<String> cloudClusterNames = Env.getCurrentSystemInfo().getCloudClusterNames();
+        // get all available cluster of the user
+        for (String cloudClusterName : cloudClusterNames) {
+            // find a cluster has more than one alive be
+            List<Backend> bes = Env.getCurrentSystemInfo().getBackendsByClusterName(cloudClusterName);
+            AtomicBoolean hasAliveBe = new AtomicBoolean(false);
+            bes.stream().filter(Backend::isAlive).findAny().ifPresent(backend -> {
+                LOG.debug("get a clusterName {}, it's has more than one alive be {}", clusterName, backend);
+                hasAliveBe.set(true);
+            });
+            if (hasAliveBe.get()) {
+                LOG.debug("set context cluster name {}", cloudClusterName);
+                return cloudClusterName;
+            }
+        }
+
+        return null;
     }
 
     public StatsErrorEstimator getStatsErrorEstimator() {

@@ -125,6 +125,7 @@ exit_flag=0
     echo "#### 3. run tpcds-sf${SF} query"
     set_session_variable runtime_filter_mode global
     bash "${teamcity_build_checkoutDir}"/tools/tpcds-tools/bin/run-tpcds-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpcds-queries.log
+    echo
     cold_run_time_threshold=${cold_run_time_threshold_master:-315000} # ms
     hot_run_time_threshold=${hot_run_time_threshold_master:-190000}   # ms
     if [[ "${target_branch}" == "branch-2.0" ]]; then

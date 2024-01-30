@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <functional>
+#include <cstdint>
 #include <iosfwd>
 #include <memory>
 #include <unordered_map>
@@ -33,9 +30,8 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
-#include "vec/common/hash_table/hash_map.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/types.h"
 #include "vec/exec/join/process_hash_table_probe.h"
 #include "vec/exec/join/vhash_join_node.h"
 
@@ -50,18 +46,14 @@ class VExprContext;
 struct RowRefListWithFlags;
 
 using SetHashTableVariants = std::variant<
-        std::monostate, SerializedHashTableContext<RowRefListWithFlags>,
-        I8HashTableContext<RowRefListWithFlags>, I16HashTableContext<RowRefListWithFlags>,
-        I32HashTableContext<RowRefListWithFlags>, I64HashTableContext<RowRefListWithFlags>,
-        I128HashTableContext<RowRefListWithFlags>, I256HashTableContext<RowRefListWithFlags>,
-        I64FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I64FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I128FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I128FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I256FixedKeyHashTableContext<false, RowRefListWithFlags>,
-        I136FixedKeyHashTableContext<true, RowRefListWithFlags>,
-        I136FixedKeyHashTableContext<false, RowRefListWithFlags>>;
+        std::monostate, MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
+        SetPrimaryTypeHashTableContext<UInt8>, SetPrimaryTypeHashTableContext<UInt16>,
+        SetPrimaryTypeHashTableContext<UInt32>, SetPrimaryTypeHashTableContext<UInt64>,
+        SetPrimaryTypeHashTableContext<UInt128>, SetPrimaryTypeHashTableContext<UInt256>,
+        SetFixedKeyHashTableContext<UInt64, true>, SetFixedKeyHashTableContext<UInt64, false>,
+        SetFixedKeyHashTableContext<UInt128, true>, SetFixedKeyHashTableContext<UInt128, false>,
+        SetFixedKeyHashTableContext<UInt256, true>, SetFixedKeyHashTableContext<UInt256, false>,
+        SetFixedKeyHashTableContext<UInt136, true>, SetFixedKeyHashTableContext<UInt136, false>>;
 
 template <bool is_intersect>
 class VSetOperationNode final : public ExecNode {

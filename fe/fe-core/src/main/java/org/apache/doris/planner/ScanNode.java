@@ -720,13 +720,17 @@ public abstract class ScanNode extends PlanNode {
                 || getShouldColoScan();
     }
 
-    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+    public boolean ignoreStorageDataDistribution(ConnectContext context, int numBackends) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.isHasNullAwareLeftAntiJoin()
-                && ((this instanceof OlapScanNode) && ((OlapScanNode) this).getScanTabletIds().size()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+                && getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numBackends;
+    }
+
+    public int getScanRangeNum() {
+        return Integer.MAX_VALUE;
     }
 
     public boolean haveLimitAndConjunts() {

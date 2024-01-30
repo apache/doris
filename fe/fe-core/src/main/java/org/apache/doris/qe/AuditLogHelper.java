@@ -89,18 +89,6 @@ public class AuditLogHelper {
                 }
             }
             auditEventBuilder.setIsQuery(true);
-            if (ctx.getQueryDetail() != null) {
-                ctx.getQueryDetail().setEventTime(endTime);
-                ctx.getQueryDetail().setEndTime(endTime);
-                ctx.getQueryDetail().setLatency(elapseMs);
-                if (ctx.isKilled()) {
-                    ctx.getQueryDetail().setState(QueryDetail.QueryMemState.CANCELLED);
-                } else {
-                    ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
-                }
-                QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
-                ctx.setQueryDetail(null);
-            }
         } else {
             auditEventBuilder.setIsQuery(false);
         }

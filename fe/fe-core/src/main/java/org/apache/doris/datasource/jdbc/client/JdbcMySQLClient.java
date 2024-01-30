@@ -312,7 +312,6 @@ public class JdbcMySQLClient extends JdbcClient {
                     return ScalarType.createStringType();
                 }
             case "JSON":
-                return ScalarType.createJsonbType();
             case "TIME":
             case "TINYTEXT":
             case "TEXT":
@@ -430,9 +429,8 @@ public class JdbcMySQLClient extends JdbcClient {
             }
             case "STRING":
             case "TEXT":
-                return ScalarType.createStringType();
             case "JSON":
-                return ScalarType.createJsonbType();
+                return ScalarType.createStringType();
             case "HLL":
                 return ScalarType.createHllType();
             case "BITMAP":

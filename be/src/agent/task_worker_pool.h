@@ -148,7 +148,7 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
-void push_callback(const TAgentTaskRequest& req);
+void push_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 

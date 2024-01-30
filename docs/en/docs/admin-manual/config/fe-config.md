@@ -2140,7 +2140,7 @@ MasterOnly：true
 
 ##### `storage_flood_stage_left_capacity_bytes`
 
-Default：1 * 1024 * 1024 * 1024 (1GB)
+Default：`1 * 1024 * 1024 * 1024` (1GB)
 
 IsMutable：true
 
@@ -2338,7 +2338,7 @@ multi catalog concurrent file scanning threads
 
 #### `file_scan_node_split_size`
 
-Default：256 * 1024 * 1024
+Default：`256 * 1024 * 1024`
 
 IsMutable：true
 

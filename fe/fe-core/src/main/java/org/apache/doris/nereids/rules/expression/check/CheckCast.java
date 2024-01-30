@@ -52,6 +52,10 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     }
 
     private boolean check(DataType originalType, DataType targetType) {
+        if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
+            // variant could cast to primitive types and array
+            return true;
+        }
         if (originalType.isNullType()) {
             return true;
         }

@@ -52,9 +52,12 @@ using namespace ErrorCode;
 const static std::string HEADER_JSON = "application/json";
 
 CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
-                                   TPrivilegeHier::type hier, TPrivilegeType::type ptype)
-        : HttpHandlerWithAuth(exec_env, hier, ptype), _type(ctype) {}
-Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
+                                   StorageEngine& engine, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type ptype)
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
+
+/// check param and fetch tablet_id from req
+static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
     // req tablet id and table id, we have to set only one of them.
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_table_id = req->param(TABLE_ID_KEY);
@@ -92,7 +95,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
@@ -117,18 +120,15 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     }
 
     if (tablet_id == 0 && table_id != 0) {
-        std::vector<TabletSharedPtr> tablet_vec =
-                StorageEngine::instance()->tablet_manager()->get_all_tablet(
-                        [table_id](Tablet* tablet) -> bool {
-                            return tablet->get_table_id() == table_id;
-                        });
+        std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
+                [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
-            RETURN_IF_ERROR(StorageEngine::instance()->submit_compaction_task(
-                    tablet, CompactionType::FULL_COMPACTION, false));
+            RETURN_IF_ERROR(
+                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
         }
     } else {
         // 2. fetch the tablet by tablet_id
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
         }
@@ -170,11 +170,11 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
 
     if (tablet_id == 0) {
         // overall compaction status
-        RETURN_IF_ERROR(StorageEngine::instance()->get_compaction_status_json(json_result));
+        RETURN_IF_ERROR(_engine.get_compaction_status_json(json_result));
         return Status::OK();
     } else {
         // fetch the tablet by tablet_id
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
             return Status::InternalError("fail to get {}", tablet_id);

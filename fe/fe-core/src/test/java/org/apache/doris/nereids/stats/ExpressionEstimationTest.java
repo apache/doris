@@ -20,14 +20,18 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -40,7 +44,9 @@ import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class ExpressionEstimationTest {
@@ -320,5 +326,62 @@ class ExpressionEstimationTest {
         Assertions.assertTrue(Double.isInfinite(est.maxValue));
         Assertions.assertNull(est.minExpr);
         Assertions.assertNull(est.maxExpr);
+    }
+
+    @Test
+    public void testCaseWhen() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(b, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+
+        WhenClause when1 = new WhenClause(BooleanLiteral.TRUE, a);
+        WhenClause when2 = new WhenClause(BooleanLiteral.FALSE, b);
+        List<WhenClause> whens = new ArrayList<>();
+        whens.add(when1);
+        whens.add(when2);
+        CaseWhen caseWhen = new CaseWhen(whens);
+        ColumnStatistic est = ExpressionEstimation.estimate(caseWhen, stats);
+        Assertions.assertEquals(est.ndv, 100);
+    }
+
+    @Test
+    public void testIf() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        builder = new ColumnStatisticBuilder()
+                .setNdv(10)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(b, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+
+        If ifClause = new If(BooleanLiteral.TRUE, a, b);
+        ColumnStatistic est = ExpressionEstimation.estimate(ifClause, stats);
+        Assertions.assertEquals(est.ndv, 100);
     }
 }

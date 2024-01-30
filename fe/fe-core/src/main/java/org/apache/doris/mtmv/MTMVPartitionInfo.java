@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.common.AnalysisException;
+
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -59,8 +61,12 @@ public class MTMVPartitionInfo {
         this.partitionType = partitionType;
     }
 
-    public BaseTableInfo getRelatedTable() {
+    public BaseTableInfo getRelatedTableInfo() {
         return relatedTable;
+    }
+
+    public MTMVRelatedTableIf getRelatedTable() throws AnalysisException {
+        return (MTMVRelatedTableIf) MTMVUtil.getTable(relatedTable);
     }
 
     public void setRelatedTable(BaseTableInfo relatedTable) {

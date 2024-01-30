@@ -112,6 +112,11 @@ public:
                 SourceState source_state) override;
 
     DataDistribution required_data_distribution() const override {
+        if (_needs_finalize) {
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        }
         return DataSinkOperatorX<DistinctStreamingAggSinkLocalState>::required_data_distribution();
     }
 };

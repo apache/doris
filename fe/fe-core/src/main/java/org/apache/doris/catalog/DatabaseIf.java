@@ -273,5 +273,5 @@ public interface DatabaseIf<T extends TableIf> {
         return -1L;
     }
 
-    public Map<Long, TableIf> getIdToTable();
+    Map<Long, TableIf> getIdToTable();
 }

@@ -333,7 +333,7 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
     for (auto src_it = src_object.MemberBegin(); src_it != src_object.MemberEnd(); ++src_it) {
         auto dst_it = dst_object.FindMember(src_it->name);
         if (dst_it != dst_object.MemberEnd()) {
-            if (src_it->value.IsObject()) {
+            if (src_it->value.IsObject() && dst_it->value.IsObject()) {
                 merge_objects(dst_it->value, src_it->value, allocator);
             } else {
                 if (dst_it->value.IsNull()) {

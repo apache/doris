@@ -133,7 +133,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -309,7 +308,13 @@ Status PlanFragmentExecutor::open() {
 Status PlanFragmentExecutor::open_vectorized_internal() {
     SCOPED_TIMER(profile()->total_time_counter());
     {
-        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        ThreadCpuStopWatch cpu_time_stop_watch;
+        cpu_time_stop_watch.start();
+        Defer defer {[&]() {
+            int64_t cpu_time = cpu_time_stop_watch.elapsed_time();
+            _fragment_cpu_timer->update(cpu_time);
+        }};
+
         RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
         RETURN_IF_CANCELLED(_runtime_state);
         if (_sink == nullptr) {
@@ -322,12 +327,17 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
         auto st = Status::OK();
 
+        int64_t old_cpu_time = cpu_time_stop_watch.elapsed_time();
         while (!eos) {
+            Defer defer {[&]() {
+                int64_t current_cpu_time = cpu_time_stop_watch.elapsed_time();
+                int64_t delta_time = current_cpu_time - old_cpu_time;
+                _query_statistics->add_cpu_nanos(delta_time);
+                old_cpu_time = current_cpu_time;
+            }};
             RETURN_IF_CANCELLED(_runtime_state);
             st = get_vectorized_internal(block.get(), &eos);
             RETURN_IF_ERROR(st);
-
-            _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
