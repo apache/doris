@@ -821,6 +821,8 @@ DECLARE_Bool(share_delta_writers);
 DECLARE_Int64(open_load_stream_timeout_ms);
 // timeout for load stream close wait in ms
 DECLARE_Int64(close_load_stream_timeout_ms);
+// enable write background when using brpc stream
+DECLARE_mBool(enable_brpc_stream_write_background);
 
 // brpc streaming max_buf_size in bytes
 DECLARE_Int64(load_stream_max_buf_size);
