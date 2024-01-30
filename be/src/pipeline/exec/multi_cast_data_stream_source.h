@@ -117,7 +117,6 @@ public:
         RETURN_IF_ERROR(_acquire_runtime_filter());
         return Status::OK();
     }
-    Status close(RuntimeState* state) override;
     friend class MultiCastDataStreamerSourceOperatorX;
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }

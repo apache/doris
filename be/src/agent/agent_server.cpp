@@ -87,7 +87,7 @@ AgentServer::~AgentServer() = default;
 
 void AgentServer::start_workers(ExecEnv* exec_env) {
     // TODO(plat1ko): CloudStorageEngine
-    auto& engine = *StorageEngine::instance();
+    auto& engine = ExecEnv::GetInstance()->storage_engine().to_local();
     // clang-format off
     _alter_inverted_index_workers = std::make_unique<TaskWorkerPool>(
             "ALTER_INVERTED_INDEX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_inverted_index_callback(engine, task); });
@@ -131,11 +131,11 @@ void AgentServer::start_workers(ExecEnv* exec_env) {
             "CLEAR_TRANSACTION_TASK", config::clear_transaction_task_worker_count, [&engine](auto&& task) { return clear_transaction_task_callback(engine, task); });
 
     _push_delete_workers = std::make_unique<TaskWorkerPool>(
-            "DELETE", config::delete_worker_count, push_callback);
+            "DELETE", config::delete_worker_count, [&engine](auto&& task) { push_callback(engine, task); });
 
     // Both PUSH and REALTIME_PUSH type use push_callback
     _push_load_workers = std::make_unique<PriorTaskWorkerPool>(
-            "PUSH", config::push_worker_count_normal_priority, config::push_worker_count_high_priority, push_callback);
+            "PUSH", config::push_worker_count_normal_priority, config::push_worker_count_high_priority, [&engine](auto&& task) { push_callback(engine, task); });
 
     _update_tablet_meta_info_workers = std::make_unique<TaskWorkerPool>(
             "UPDATE_TABLET_META_INFO", 1, [&engine](auto&& task) { return update_tablet_meta_callback(engine, task); });
@@ -292,12 +292,12 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
     ret_st.to_thrift(&agent_result.status);
 }
 
-void AgentServer::make_snapshot(TAgentResult& t_agent_result,
+void AgentServer::make_snapshot(StorageEngine& engine, TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
     string snapshot_path;
     bool allow_incremental_clone = false;
-    Status status = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
-                                                               &allow_incremental_clone);
+    Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
+                                                         &allow_incremental_clone);
     if (!status) {
         LOG_WARNING("failed to make snapshot")
                 .tag("tablet_id", snapshot_request.tablet_id)
@@ -316,8 +316,9 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
     t_agent_result.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
 }
 
-void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {
-    Status status = SnapshotManager::instance()->release_snapshot(snapshot_path);
+void AgentServer::release_snapshot(StorageEngine& engine, TAgentResult& t_agent_result,
+                                   const std::string& snapshot_path) {
+    Status status = engine.snapshot_mgr()->release_snapshot(snapshot_path);
     if (!status) {
         LOG_WARNING("failed to release snapshot").tag("snapshot_path", snapshot_path).error(status);
     } else {

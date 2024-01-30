@@ -266,7 +266,7 @@ public:
     std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
-    std::vector<uint32_t> cluster_key_idxes() const { return _cluster_key_idxes; }
+    const std::vector<uint32_t>& cluster_key_idxes() const { return _cluster_key_idxes; }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
@@ -304,6 +304,8 @@ public:
     std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
     bool has_inverted_index(const TabletColumn& col) const;
     bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index_with_index_id(int32_t index_id,
+                                                        const std::string& suffix_name) const;
     const TabletIndex* get_inverted_index(const TabletColumn& col) const;
     const TabletIndex* get_inverted_index(int32_t col_unique_id,
                                           const std::string& suffix_path) const;

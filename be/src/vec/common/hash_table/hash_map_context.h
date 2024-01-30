@@ -31,6 +31,7 @@
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/exec/join/join_op.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -41,15 +42,13 @@ template <typename Base>
 struct DataWithNullKey;
 
 template <typename HashMap>
-struct MethodBase {
+struct MethodBaseInner {
     using Key = typename HashMap::key_type;
     using Mapped = typename HashMap::mapped_type;
     using Value = typename HashMap::value_type;
-    using Iterator = typename HashMap::iterator;
     using HashMapType = HashMap;
 
     std::shared_ptr<HashMap> hash_table;
-    Iterator iterator;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
@@ -58,19 +57,12 @@ struct MethodBase {
     // use in join case
     std::vector<uint32_t> bucket_nums;
 
-    MethodBase() { hash_table.reset(new HashMap()); }
-    virtual ~MethodBase() = default;
+    MethodBaseInner() { hash_table.reset(new HashMap()); }
+    virtual ~MethodBaseInner() = default;
 
     virtual void reset() {
         arena.clear();
         inited_iterator = false;
-    }
-
-    void init_iterator() {
-        if (!inited_iterator) {
-            inited_iterator = true;
-            iterator = hash_table->begin();
-        }
     }
 
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
@@ -168,6 +160,29 @@ struct MethodBase {
 
     virtual void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                           size_t num_rows) = 0;
+};
+
+template <typename T>
+concept IteratoredMap = requires(T* map) { typename T::iterator; };
+
+template <typename HashMap>
+struct MethodBase : public MethodBaseInner<HashMap> {
+    using Iterator = void*;
+    Iterator iterator;
+    void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
+};
+
+template <IteratoredMap HashMap>
+struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
+    using Iterator = typename HashMap::iterator;
+    using Base = MethodBaseInner<HashMap>;
+    Iterator iterator;
+    void init_iterator() {
+        if (!Base::inited_iterator) {
+            Base::inited_iterator = true;
+            iterator = Base::hash_table->begin();
+        }
+    }
 };
 
 template <typename TData>
@@ -554,15 +569,22 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 
-template <typename RowRefListType>
-using SerializedHashTableContext = MethodSerialized<JoinFixedHashMap<StringRef, RowRefListType>>;
+using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef>>;
 
-template <class T, typename RowRefListType>
-using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, JoinFixedHashMap<T, RowRefListType, HashCRC32<T>>>;
+template <class T>
+using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
 
-template <class Key, bool has_null, typename Value>
-using FixedKeyHashTableContext =
-        MethodKeysFixed<JoinFixedHashMap<Key, Value, HashCRC32<Key>>, has_null>;
+template <class Key, bool has_null>
+using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>, has_null>;
+
+template <class Key, bool has_null>
+using SetFixedKeyHashTableContext =
+        MethodKeysFixed<HashMap<Key, RowRefListWithFlags, HashCRC32<Key>>, has_null>;
+
+template <class T>
+using SetPrimaryTypeHashTableContext =
+        MethodOneNumber<T, HashMap<T, RowRefListWithFlags, HashCRC32<T>>>;
+
+using SetSerializedHashTableContext = MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>;
 
 } // namespace doris::vectorized

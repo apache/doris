@@ -216,7 +216,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            this.fullQualifiedName = newName;
+            // ClusterNamespace.getNameFromFullName should be removed in 3.0
+            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
             for (Table table : idToTable.values()) {
                 table.setQualifiedDbName(fullQualifiedName);
             }

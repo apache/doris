@@ -18,9 +18,11 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -29,7 +31,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class RecoverInfo implements Writable {
+public class RecoverInfo implements Writable, GsonPostProcessable {
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "newDbName")
@@ -101,5 +103,10 @@ public class RecoverInfo implements Writable {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        newDbName = ClusterNamespace.getNameFromFullName(newDbName);
     }
 }

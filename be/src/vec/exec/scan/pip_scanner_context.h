@@ -40,7 +40,7 @@ public:
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
-                                int id, bool wait = false) override {
+                                int id) override {
         {
             std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
@@ -95,6 +95,11 @@ public:
                 return_free_block(std::move(merge_block));
             }
             (*block)->set_columns(std::move(m.mutable_columns()));
+        }
+
+        // after return free blocks, should try to reschedule the scanner
+        if (should_be_scheduled()) {
+            this->reschedule_scanner_ctx();
         }
 
         return Status::OK();
@@ -284,7 +289,7 @@ public:
                                          limit_, max_bytes_in_blocks_queue, 1, local_state,
                                          dependency) {}
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
-                                int id, bool wait = false) override {
+                                int id) override {
         if (_blocks_queue_buffered.empty()) {
             std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
@@ -348,6 +353,11 @@ public:
             (*block)->set_columns(std::move(m.mutable_columns()));
         }
         return_free_blocks();
+
+        // after return free blocks, should try to reschedule the scanner
+        if (should_be_scheduled()) {
+            this->reschedule_scanner_ctx();
+        }
 
         return Status::OK();
     }

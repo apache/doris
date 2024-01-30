@@ -656,9 +656,8 @@ void AggSinkLocalState<DependencyType, Derived>::_init_hash_method(
                 is_nullable);
     } else {
         if (!try_get_hash_map_context_fixed<PHNormalHashMap, HashCRC32,
-                                            vectorized::AggregateDataPtr,
-                                            vectorized::AggregatedMethodVariants>(
-                    _agg_data->method_variant, probe_exprs)) {
+                                            vectorized::AggregateDataPtr>(_agg_data->method_variant,
+                                                                          probe_exprs)) {
             _agg_data->init(Type::serialized);
         }
     }

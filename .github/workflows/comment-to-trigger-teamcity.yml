@@ -167,7 +167,7 @@ jobs:
           "${{ steps.changes.outputs.changed_cloud_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "beut" \
+          "cloudut" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip compile"

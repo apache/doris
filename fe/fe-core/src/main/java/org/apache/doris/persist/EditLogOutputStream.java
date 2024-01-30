@@ -51,6 +51,8 @@ public abstract class EditLogOutputStream extends OutputStream {
      */
     public abstract void write(short op, Writable writable) throws IOException;
 
+    public abstract void write(short op, byte[] data) throws IOException;
+
     abstract void create() throws IOException;
 
     public abstract void close() throws IOException;

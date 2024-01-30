@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -196,18 +196,61 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
 
-    // Use forceProperties to rewrite olap's property.
-    // For a key-value pair in forceProperties,
-    // if the value is null, then delete this property from properties and skip check this property,
-    // otherwise rewrite this property into properties and check property using the force value.
-    //
-    // In most cases, specified a none-null force value is better then specified a null force value.
-    protected ImmutableMap<String, String> forceProperties;
+    public enum RewriteType {
+        PUT,      // always put property
+        REPLACE,  // replace if exists property
+        DELETE,   // delete property
+    }
+
+    public static class RewriteProperty {
+        RewriteType rewriteType;
+        String key;
+        String value;
+
+        private RewriteProperty(RewriteType rewriteType, String key, String value) {
+            this.rewriteType = rewriteType;
+            this.key = key;
+            this.value = value;
+        }
+
+        public static RewriteProperty put(String key, String value) {
+            return new RewriteProperty(RewriteType.PUT, key, value);
+        }
+
+        public static RewriteProperty replace(String key, String value) {
+            return new RewriteProperty(RewriteType.REPLACE, key, value);
+        }
+
+        public static RewriteProperty  delete(String key) {
+            return new RewriteProperty(RewriteType.DELETE, key, null);
+        }
+
+        public void rewrite(Map<String, String> properties) {
+            switch (rewriteType) {
+                case PUT:
+                    properties.put(key, value);
+                    break;
+                case REPLACE:
+                    if (properties.containsKey(key)) {
+                        properties.put(key, value);
+                    }
+                    break;
+                case DELETE:
+                    properties.remove(key);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+    }
+
+    protected ImmutableList<RewriteProperty> forceProperties;
 
     public PropertyAnalyzer() {
-        forceProperties = ImmutableMap.<String, String>builder()
-                .put(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
-                .build();
+        forceProperties = ImmutableList.of(
+                RewriteProperty.replace(PROPERTIES_FILE_CACHE_TTL_SECONDS, "0")
+                );
     }
 
     private static class SingletonHolder {
@@ -1319,13 +1362,7 @@ public class PropertyAnalyzer {
     }
 
     private void rewriteForceProperties(Map<String, String> properties) {
-        forceProperties.forEach((property, value) -> {
-            if (value == null) {
-                properties.remove(property);
-            } else {
-                properties.put(property, value);
-            }
-        });
+        forceProperties.forEach(property -> property.rewrite(properties));
     }
 
     private static Map<String, String> rewriteReplicaAllocationProperties(

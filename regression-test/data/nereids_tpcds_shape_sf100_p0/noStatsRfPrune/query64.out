@@ -5,7 +5,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----PhysicalProject
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF19 i_item_sk->[ss_item_sk,sr_item_sk,cs_item_sk]
+----------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF19 i_item_sk->[ss_item_sk,sr_item_sk,cs_item_sk,cr_item_sk]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((hd2.hd_income_band_sk = ib2.ib_income_band_sk)) otherCondition=()
@@ -51,7 +51,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF19
 ------------------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns]
+--------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
 --------------------------------------------------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------PhysicalOlapScan[customer]

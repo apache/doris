@@ -60,9 +60,10 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency, state->get_query_ctx());
+    _sink->get_dependency(_downstream_dependency, _shared_states, state->get_query_ctx());
     for (auto& op : _operators) {
-        _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
+        _source_dependency.insert(
+                {op->operator_id(), op->get_dependency(state->get_query_ctx(), _shared_states)});
     }
     pipeline->incr_created_tasks();
 }
@@ -91,15 +92,23 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
     auto* parent_profile = _state->get_sink_local_state(_sink->operator_id())->profile();
+    query_ctx->register_query_statistics(
+            _state->get_sink_local_state(_sink->operator_id())->get_query_statistics_ptr());
+
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         auto& deps = get_upstream_dependency(op->operator_id());
-        LocalStateInfo info {parent_profile, scan_ranges, deps,
-                             _le_state_map,  _task_idx,   _source_dependency[op->operator_id()]};
+        LocalStateInfo info {parent_profile,
+                             scan_ranges,
+                             deps,
+                             get_shared_state(op->operator_id()),
+                             _le_state_map,
+                             _task_idx,
+                             _source_dependency[op->operator_id()]};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
-                _state->get_local_state(op->operator_id())->query_statistics_ptr());
+                _state->get_local_state(op->operator_id())->get_query_statistics_ptr());
     }
 
     _block = doris::vectorized::Block::create_unique();
@@ -297,9 +306,9 @@ void PipelineXTask::finalize() {
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-    DependencyMap {}.swap(_upstream_dependency);
-    std::map<int, DependencySPtr> {}.swap(_source_dependency);
-
+    _upstream_dependency.clear();
+    _source_dependency.clear();
+    _shared_states.clear();
     _le_state_map.clear();
 }
 

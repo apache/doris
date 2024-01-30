@@ -34,6 +34,8 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -258,7 +260,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     options.store_paths = store_paths;
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
-    _storage_engine = new StorageEngine(options);
+    if (config::is_cloud_mode()) {
+        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+    } else {
+        _storage_engine = std::make_unique<StorageEngine>(options);
+    }
     auto st = _storage_engine->open();
     if (!st.ok()) {
         LOG(ERROR) << "Fail to open StorageEngine, res=" << st;
@@ -576,7 +582,7 @@ void ExecEnv::destroy() {
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
     // StorageEngine must be destoried before _cache_manager destory
-    SAFE_DELETE(_storage_engine);
+    _storage_engine.reset();
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...

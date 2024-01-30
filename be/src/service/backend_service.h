@@ -80,15 +80,6 @@ public:
         _agent_server->submit_tasks(return_value, tasks);
     }
 
-    void make_snapshot(TAgentResult& return_value,
-                       const TSnapshotRequest& snapshot_request) override {
-        _agent_server->make_snapshot(return_value, snapshot_request);
-    }
-
-    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override {
-        _agent_server->release_snapshot(return_value, snapshot_path);
-    }
-
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
         _agent_server->publish_cluster_state(result, request);
     }
@@ -174,6 +165,11 @@ public:
     void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
 
     void clean_trash() override;
+
+    void make_snapshot(TAgentResult& return_value,
+                       const TSnapshotRequest& snapshot_request) override;
+
+    void release_snapshot(TAgentResult& return_value, const std::string& snapshot_path) override;
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
 

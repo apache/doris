@@ -153,7 +153,9 @@ public:
 
     void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
 
-    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
+    taskgroup::TaskGroup* get_task_group() const {
+        return _task_group == nullptr ? nullptr : _task_group.get();
+    }
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout

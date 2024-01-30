@@ -533,7 +533,6 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         if (local_params.__isset.runtime_filter_params) {
             runtime_filter_mgr->set_runtime_filter_params(local_params.runtime_filter_params);
         }
-        RETURN_IF_ERROR(runtime_filter_mgr->init());
         filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
 
         _runtime_filter_states.push_back(std::move(filterparams));
@@ -618,10 +617,16 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                     for (auto& dep : deps) {
                         if (pipeline_id_to_task.contains(dep)) {
                             task->add_upstream_dependency(
-                                    pipeline_id_to_task[dep]->get_downstream_dependency());
+                                    pipeline_id_to_task[dep]->get_downstream_dependency(),
+                                    pipeline_id_to_task[dep]->get_shared_states());
                         }
                     }
                 }
+            }
+        }
+        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+            if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
+                auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
                 RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
             }
         }
@@ -773,8 +778,8 @@ Status PipelineXFragmentContext::_add_local_exchange_impl(
     }
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
-    sink_dep->set_shared_state(shared_state);
-    shared_state->sink_dependency = sink_dep.get();
+    sink_dep->set_shared_state(shared_state.get());
+    shared_state->sink_dependency = sink_dep;
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to

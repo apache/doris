@@ -64,8 +64,10 @@ QueryContext::~QueryContext() {
     }
     if (_task_group) {
         _task_group->remove_mem_tracker_limiter(query_mem_tracker);
+        _exec_env->task_group_manager()->remove_query_from_group(_task_group->id(), _query_id);
     }
 
+    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
     // Not release the the thread token in query context's dector method, because the query
     // conext may be dectored in the thread token it self. It is very dangerous and may core.
@@ -75,7 +77,6 @@ QueryContext::~QueryContext() {
         static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
                 std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
     }
-    _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
@@ -160,13 +161,14 @@ void QueryContext::set_query_scheduler(uint64_t tg_id) {
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (!config::enable_cgroup_cpu_soft_limit) {
-        return _exec_env->pipeline_task_group_scheduler();
-    } else if (_task_scheduler) {
-        return _task_scheduler;
-    } else {
-        return _exec_env->pipeline_task_scheduler();
+    if (_task_group) {
+        if (!config::enable_cgroup_cpu_soft_limit) {
+            return _exec_env->pipeline_task_group_scheduler();
+        } else if (_task_scheduler) {
+            return _task_scheduler;
+        }
     }
+    return _exec_env->pipeline_task_scheduler();
 }
 
 ThreadPool* QueryContext::get_non_pipe_exec_thread_pool() {

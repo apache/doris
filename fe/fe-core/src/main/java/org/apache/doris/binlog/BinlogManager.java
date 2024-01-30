@@ -213,7 +213,8 @@ public class BinlogManager {
         tableIds.add(alterJob.getTableId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.ALTER_JOB;
-        String data = alterJob.toJson();
+        AlterJobRecord alterJobRecord = new AlterJobRecord(alterJob);
+        String data = alterJobRecord.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
@@ -303,7 +304,8 @@ public class BinlogManager {
         tableIds.add(info.getTblId());
         long timestamp = -1;
         TBinlogType type = TBinlogType.TRUNCATE_TABLE;
-        String data = info.toJson();
+        TruncateTableRecord record = new TruncateTableRecord(info);
+        String data = record.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
@@ -457,10 +459,22 @@ public class BinlogManager {
         int length = dis.readInt();
         byte[] data = new byte[length];
         dis.readFully(data);
-        TMemoryInputTransport transport = new TMemoryInputTransport(data);
+        Boolean isLargeBinlog = length > 8 * 1024 * 1024;
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {}", length);
+        }
+
+        TMemoryInputTransport transport = new TMemoryInputTransport();
+        transport.getConfiguration().setMaxMessageSize(Config.max_binlog_messsage_size);
+        transport.reset(data);
+
         TBinaryProtocol protocol = new TBinaryProtocol(transport);
         TBinlog binlog = new TBinlog();
         binlog.read(protocol);
+
+        if (isLargeBinlog) {
+            LOG.info("a large binlog length {} type {}", length, binlog.type);
+        }
         return binlog;
     }
 

@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalTopN[LOCAL_SORT]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------NestedLoopJoin[LEFT_OUTER_JOIN](t1.id = t1.id)
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[LOCAL]

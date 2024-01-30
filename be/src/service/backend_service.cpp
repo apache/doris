@@ -40,6 +40,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -327,8 +328,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             }
         }
 
-        static_cast<void>(local_tablet->commit_phase_update_delete_bitmap(
-                rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
+        static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
+                local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
         static_cast<void>(calc_delete_bitmap_token->wait());
     }
@@ -373,12 +374,12 @@ BackendService::BackendService(StorageEngine& engine, ExecEnv* exec_env)
 
 Status BaseBackendService::create_service(ExecEnv* exec_env, int port,
                                           std::unique_ptr<ThriftServer>* server) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+    if (config::is_cloud_mode()) {
         // TODO(plat1ko): cloud mode
         return Status::NotSupported("Currently only support local storage engine");
     }
-    auto service = std::make_shared<BackendService>(*ExecEnv::GetInstance()->get_storage_engine(),
-                                                    exec_env);
+    auto service =
+            std::make_shared<BackendService>(exec_env->storage_engine().to_local(), exec_env);
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
@@ -690,6 +691,16 @@ void BackendService::clean_trash() {
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
     _engine.tablet_manager()->get_all_tablets_storage_format(&result);
+}
+
+void BackendService::make_snapshot(TAgentResult& return_value,
+                                   const TSnapshotRequest& snapshot_request) {
+    _agent_server->make_snapshot(_engine, return_value, snapshot_request);
+}
+
+void BackendService::release_snapshot(TAgentResult& return_value,
+                                      const std::string& snapshot_path) {
+    _agent_server->release_snapshot(_engine, return_value, snapshot_path);
 }
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,

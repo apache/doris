@@ -18,6 +18,9 @@
 
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <bthread/bthread.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -51,6 +54,65 @@ using namespace ErrorCode;
 static bvar::LatencyRecorder g_get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
 
 static constexpr int BRPC_RETRY_TIMES = 3;
+
+Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
+    Status status; // Guard by mtx
+    int count = 0; // Guard by mtx
+    bthread::Mutex mtx;
+    bthread::ConditionVariable condv;
+    if (tasks.empty()) {
+        return status;
+    }
+
+    auto* run_bthread_work = +[](void* arg) -> void* {
+        auto* f = reinterpret_cast<std::function<void()>*>(arg);
+        (*f)();
+        delete f;
+        return nullptr;
+    };
+
+    for (auto it = tasks.begin(); it != tasks.end() - 1; ++it) {
+        {
+            std::unique_lock lock(mtx);
+            while (status.ok() && count >= concurrency) {
+                condv.wait(lock);
+            }
+            if (!status.ok()) {
+                break;
+            }
+
+            ++count;
+        }
+        auto* fn = new std::function<void()>([&, &task = *it] {
+            auto st = task();
+            {
+                std::lock_guard lock(mtx);
+                --count;
+                if (!st.ok()) {
+                    std::swap(st, status);
+                }
+                condv.notify_one();
+            }
+        });
+        bthread_t bid;
+        if (bthread_start_background(&bid, nullptr, run_bthread_work, fn) != 0) {
+            run_bthread_work(fn);
+        }
+    }
+    if (status.ok()) {
+        auto st = tasks.back()(); // Do last task inplace
+        if (!st.ok()) {
+            std::unique_lock lock(mtx);
+            std::swap(st, status);
+        }
+    }
+
+    std::unique_lock lock(mtx);
+    while (count > 0) { // Wait until all running tasks have done
+        condv.wait(lock);
+    }
+    return status;
+}
 
 class MetaServiceProxy {
 public:
@@ -299,7 +361,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         idx->set_partition_id(tablet->partition_id());
         {
             std::shared_lock rlock(tablet->get_header_lock());
-            req.set_start_version(tablet->local_max_version() + 1);
+            req.set_start_version(tablet->max_version_unlocked() + 1);
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
@@ -434,7 +496,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 //   BE has [0-1][2-11][12-12], [12-12] is delete predicate, cp is 2;
                 //   after doing EMPTY_CUMULATIVE compaction, MS cp is 13, get_rowset will return [2-11][12-12].
                 bool version_overlap =
-                        tablet->local_max_version() >= rowsets.front()->start_version();
+                        tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();

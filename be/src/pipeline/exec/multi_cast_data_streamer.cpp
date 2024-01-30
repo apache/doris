@@ -104,37 +104,15 @@ void MultiCastDataStreamer::_set_ready_for_read(int sender_idx) {
     if (_dependencies.empty()) {
         return;
     }
-    if (_dependencies_release_flag[sender_idx]) {
-        return;
-    }
-    {
-        std::unique_lock<std::mutex> lc(_release_lock);
-        if (_dependencies_release_flag[sender_idx]) {
-            return;
-        }
-        auto* dep = _dependencies[sender_idx];
-        DCHECK(dep);
-        dep->set_ready();
-    }
+    auto* dep = _dependencies[sender_idx];
+    DCHECK(dep);
+    dep->set_ready();
 }
 
 void MultiCastDataStreamer::_set_ready_for_read() {
-    size_t i = 0;
     for (auto* dep : _dependencies) {
-        if (_dependencies_release_flag[i]) {
-            i++;
-            continue;
-        }
-        {
-            std::unique_lock<std::mutex> lc(_release_lock);
-            if (_dependencies_release_flag[i]) {
-                i++;
-                continue;
-            }
-            DCHECK(dep);
-            dep->set_ready();
-            i++;
-        }
+        DCHECK(dep);
+        dep->set_ready();
     }
 }
 

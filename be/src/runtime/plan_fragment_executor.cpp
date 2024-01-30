@@ -133,7 +133,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    static_cast<void>(_runtime_state->runtime_filter_mgr()->init());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);

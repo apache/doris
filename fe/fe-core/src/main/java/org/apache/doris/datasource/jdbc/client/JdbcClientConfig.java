@@ -31,12 +31,12 @@ public class JdbcClientConfig implements Cloneable {
     private String driverClass;
     private String onlySpecifiedDatabase;
     private String isLowerCaseTableNames;
-    private int minPoolSize;
-    private int maxPoolSize;
-    private int minIdleSize;
-    private int maxIdleTime;
-    private int maxWaitTime;
-    private boolean keepAlive;
+    private int minPoolSize = 1;
+    private int maxPoolSize = 100;
+    private int minIdleSize = 1;
+    private int maxIdleTime = 300000;
+    private int maxWaitTime = 5000;
+    private boolean keepAlive = false;
 
     private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
     private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();

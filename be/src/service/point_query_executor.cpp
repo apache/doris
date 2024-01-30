@@ -191,7 +191,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
     }
-    _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
+    // TODO(plat1ko): CloudStorageEngine
+    _tablet = ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_tablet(
+            request->tablet_id());
     if (_tablet == nullptr) {
         LOG(WARNING) << "failed to do tablet_fetch_data. tablet [" << request->tablet_id()
                      << "] is not exist";

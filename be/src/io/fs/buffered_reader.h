@@ -356,6 +356,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     size_t merge_small_ranges(size_t off, int range_index) const;
 };
 
+constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
+
 /**
  * A buffered reader that prefetch data in the daemon thread pool.
  *
@@ -420,7 +422,6 @@ private:
     PrefetchRange _file_range;
     const std::vector<PrefetchRange>* _random_access_ranges = nullptr;
     const IOContext* _io_ctx = nullptr;
-    int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
     bool _initialized = false;

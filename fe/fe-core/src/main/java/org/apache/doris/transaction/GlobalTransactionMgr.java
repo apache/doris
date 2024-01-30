@@ -636,6 +636,12 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String label) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        return dbTransactionMgr.getTxnStateInfoList(label);
+    }
+
+    @Override
     public long getTxnNumByStatus(TransactionStatus status) {
         long counter = 0;
         for (DatabaseTransactionMgr dbMgr : dbIdToDatabaseTransactionMgrs.values()) {

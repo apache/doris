@@ -338,15 +338,17 @@ public:
         return Status::OK();
     }
 
-    void change_to_bloom_filter() {
+    void change_to_bloom_filter(bool need_init_bf = false) {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
                 << IRuntimeFilter::to_string(_filter_type);
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
-        // BloomFilter may be not init
-        static_cast<void>(bf->init_with_fixed_length());
-        insert_to_bloom_filter(bf);
+        if (need_init_bf) {
+            // BloomFilter may be not init
+            static_cast<void>(bf->init_with_fixed_length());
+            insert_to_bloom_filter(bf);
+        }
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
@@ -533,7 +535,7 @@ public:
                         VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
                                    << ") because: in_num(" << _context.hybrid_set->size()
                                    << ") >= max_in_num(" << _max_in_num << ")";
-                        change_to_bloom_filter();
+                        change_to_bloom_filter(true);
                     }
                 } else {
                     VLOG_DEBUG << " change runtime filter to bloom filter(id=" << _filter_id
@@ -1198,7 +1200,10 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
     // 3. Bloom filter
-    params.build_bf_exactly = build_bf_exactly && (!_has_remote_target || _is_broadcast_join) &&
+    // 4. FE do not use ndv stat to predict the bf size, only the row count. BE have more
+    // exactly row count stat
+    params.build_bf_exactly = build_bf_exactly && !desc->bloom_filter_size_calculated_by_ndv &&
+                              (!_has_remote_target || _is_broadcast_join) &&
                               (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                                _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
     if (desc->__isset.bloom_filter_size_bytes) {
@@ -1314,7 +1319,6 @@ Status IRuntimeFilter::_create_wrapper(RuntimeFilterParamsContext* state, const 
     }
     wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
-
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());

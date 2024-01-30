@@ -23,8 +23,11 @@
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
 #include <streamvbyte.h>
-#include <string.h>
+#include <sys/types.h>
 
+#include <cstring>
+
+#include "agent/be_exec_version_manager.h"
 #include "runtime/decimalv2_value.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -77,8 +80,7 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
         auto str = value.to_string(scale);
         ostr.write(str.data(), str.size());
     } else {
-        DecimalV2Value value =
-                (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+        auto value = (DecimalV2Value)assert_cast<const ColumnType&>(*ptr).get_element(row_num);
         auto str = value.to_string(scale);
         ostr.write(str.data(), str.size());
     }
@@ -104,7 +106,7 @@ Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
 template <typename T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                               int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         auto size = sizeof(T) * column.size();
         if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return sizeof(uint32_t) + size;
@@ -119,7 +121,7 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
 
 template <typename T>
 char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         // row num
         const auto mem_size = column.size() * sizeof(T);
         *reinterpret_cast<uint32_t*>(buf) = mem_size;
@@ -156,7 +158,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
 template <typename T>
 const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column,
                                             int be_exec_version) const {
-    if (be_exec_version >= 4) {
+    if (be_exec_version >= USE_NEW_SERDE) {
         // row num
         uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);

@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PushDownToProjectionFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -1182,9 +1183,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+        List<Expr> markConjuncts = ImmutableList.of();
+        boolean isHashJoinConjunctsEmpty = hashJoin.getHashJoinConjuncts().isEmpty();
+        boolean isMarkJoinConjunctsEmpty = hashJoin.getMarkJoinConjuncts().isEmpty();
+        if (isHashJoinConjunctsEmpty) {
+            // if hash join conjuncts is empty, means mark join conjuncts must be EqualPredicate
+            // BE should use mark join conjuncts to build hash table
+            Preconditions.checkState(!isMarkJoinConjunctsEmpty, "mark join conjuncts should not be empty.");
+            markConjuncts = hashJoin.getMarkJoinConjuncts().stream()
+                    .map(EqualPredicate.class::cast)
+                    .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+        }
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftPlanRoot,
-                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, Lists.newArrayList(),
+                rightPlanRoot, JoinType.toJoinOperator(joinType), execEqConjuncts, Lists.newArrayList(), markConjuncts,
                 null, null, null, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         hashJoinNode.setDistributeExprLists(distributeExprLists);
@@ -1245,6 +1259,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .flatMap(e -> e.getInputSlots().stream())
                 .map(SlotReference.class::cast)
                 .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
+        if (!isHashJoinConjunctsEmpty && !isMarkJoinConjunctsEmpty) {
+            // if hash join conjuncts is NOT empty, mark join conjuncts would be processed like other conjuncts
+            // BE should deal with mark join conjuncts differently, its result is 3 value bool(true, false, null)
+            hashJoin.getMarkJoinConjuncts()
+                    .stream()
+                    .flatMap(e -> e.getInputSlots().stream())
+                    .map(SlotReference.class::cast)
+                    .forEach(s -> hashOutputSlotReferenceMap.put(s.getExprId(), s));
+        }
         hashJoin.getFilterConjuncts().stream()
                 .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                 .flatMap(e -> e.getInputSlots().stream())
@@ -1270,7 +1293,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotDescriptor> rightIntermediateSlotDescriptor = Lists.newArrayList();
         TupleDescriptor intermediateDescriptor = context.generateTupleDesc();
 
-        if (hashJoin.getOtherJoinConjuncts().isEmpty()
+        if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty != isMarkJoinConjunctsEmpty)
                 && (joinType == JoinType.LEFT_ANTI_JOIN
                 || joinType == JoinType.LEFT_SEMI_JOIN
                 || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
@@ -1293,7 +1316,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
                 leftIntermediateSlotDescriptor.add(sd);
             }
-        } else if (hashJoin.getOtherJoinConjuncts().isEmpty()
+        } else if (hashJoin.getOtherJoinConjuncts().isEmpty() && (isHashJoinConjunctsEmpty != isMarkJoinConjunctsEmpty)
                 && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
             for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                 if (!rightSlotDescriptor.isMaterialized()) {
@@ -1389,6 +1412,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(hashJoinNode::addConjunct);
 
         hashJoinNode.setOtherJoinConjuncts(otherJoinConjuncts);
+
+        if (!isHashJoinConjunctsEmpty && !isMarkJoinConjunctsEmpty) {
+            // add mark join conjuncts to hash join node
+            List<Expr> markJoinConjuncts = hashJoin.getMarkJoinConjuncts()
+                    .stream()
+                    .map(e -> ExpressionTranslator.translate(e, context))
+                    .collect(Collectors.toList());
+            hashJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
+        }
 
         hashJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
@@ -1563,6 +1595,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
             nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
+            if (!nestedLoopJoin.getOtherJoinConjuncts().isEmpty()) {
+                List<Expr> markJoinConjuncts = nestedLoopJoin.getMarkJoinConjuncts().stream()
+                        .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+                nestedLoopJoinNode.setMarkJoinConjuncts(markJoinConjuncts);
+            }
+
             nestedLoopJoin.getFilterConjuncts().stream()
                     .filter(e -> !(e.equals(BooleanLiteral.TRUE)))
                     .map(e -> ExpressionTranslator.translate(e, context))
@@ -1619,6 +1657,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    // Get top most PushDownToProjectionFunction from expression
+    private Expression getOriginalFunctionForRewritten(NamedExpression expression) {
+        List<Expression> targetExpr = expression.collectFirst(PushDownToProjectionFunction.class::isInstance);
+        if (!targetExpr.isEmpty()) {
+            return targetExpr.get(0);
+        }
+        return null;
+    }
+
+    // register rewritten slots from original PushDownToProjectionFunction
+    private void registerRewrittenSlot(PhysicalProject<? extends Plan> project, OlapScanNode olapScanNode) {
+        // register slots that are rewritten from element_at/etc..
+        for (NamedExpression expr : project.getProjects()) {
+            if (context != null
+                    && context.getConnectContext() != null
+                    && context.getConnectContext().getStatementContext() != null) {
+                Slot rewrittenSlot = context.getConnectContext()
+                        .getStatementContext().getRewrittenSlotRefByOriginalExpr(getOriginalFunctionForRewritten(expr));
+                if (rewrittenSlot != null) {
+                    TupleDescriptor tupleDescriptor = context.getTupleDesc(olapScanNode.getTupleId());
+                    context.createSlotDesc(tupleDescriptor, (SlotReference) rewrittenSlot);
+                }
+            }
+        }
+    }
+
     // TODO: generate expression mapping when be project could do in ExecNode.
     @Override
     public PlanFragment visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanTranslatorContext context) {
@@ -1632,6 +1696,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanFragment inputFragment = project.child(0).accept(this, context);
+
+        if (inputFragment.getPlanRoot() instanceof OlapScanNode) {
+            // function already pushed down in projection
+            // e.g. select count(distinct cast(element_at(v, 'a') as int)) from tbl;
+            registerRewrittenSlot(project, (OlapScanNode) inputFragment.getPlanRoot());
+        }
 
         List<Expr> projectionExprs = project.getProjects()
                 .stream()
@@ -1680,6 +1750,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 for (Expr expr : otherConjuncts) {
                     Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
                 }
+                if (!((HashJoinNode) joinNode).getEqJoinConjuncts().isEmpty()
+                        && !((HashJoinNode) joinNode).getMarkJoinConjuncts().isEmpty()) {
+                    List<Expr> markConjuncts = ((HashJoinNode) joinNode).getMarkJoinConjuncts();
+                    for (Expr expr : markConjuncts) {
+                        Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
+                    }
+                }
                 requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
                 requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
                 for (ExprId exprId : requiredExprIds) {
@@ -1706,7 +1783,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     || new HashSet<>(projectionExprs).size() != projectionExprs.size()
                     || projectionExprs.stream().anyMatch(expr -> !(expr instanceof SlotRef))) {
                 projectionTuple = generateTupleDesc(slots,
-                                  ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
+                        ((ScanNode) inputPlanNode).getTupleDesc().getTable(), context);
                 inputPlanNode.setProjectList(projectionExprs);
                 inputPlanNode.setOutputTupleDesc(projectionTuple);
             } else {

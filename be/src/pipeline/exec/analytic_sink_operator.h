@@ -63,10 +63,6 @@ public:
             : PipelineXSinkLocalState<AnalyticSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state, Status exec_status) override {
-        _shared_state->release_sink_dep();
-        return PipelineXSinkLocalState<AnalyticSinkDependency>::close(state, exec_status);
-    }
 
 private:
     friend class AnalyticSinkOperatorX;

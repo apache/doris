@@ -38,14 +38,10 @@ public:
                           bool with_dependencies = false)
             : _row_desc(row_desc),
               _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
-              _cast_sender_count(cast_sender_count),
-              _dependencies_release_flag(cast_sender_count) {
+              _cast_sender_count(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
         if (with_dependencies) {
             _dependencies.resize(cast_sender_count, nullptr);
-            for (size_t i = 0; i < cast_sender_count; i++) {
-                _dependencies_release_flag[i] = false;
-            }
         }
 
         _peak_mem_usage = ADD_COUNTER(profile(), "PeakMemUsage", TUnit::BYTES);
@@ -83,11 +79,6 @@ public:
         _block_reading(sender_idx);
     }
 
-    void released_dependency(int sender_idx) {
-        std::unique_lock<std::mutex> lc(_release_lock);
-        _dependencies_release_flag[sender_idx] = true;
-    }
-
 private:
     void _set_ready_for_read(int sender_idx);
     void _set_ready_for_read();
@@ -106,8 +97,6 @@ private:
     RuntimeProfile::Counter* _process_rows = nullptr;
     RuntimeProfile::Counter* _peak_mem_usage = nullptr;
 
-    std::mutex _release_lock;
-    std::vector<std::atomic<bool>> _dependencies_release_flag;
     std::vector<MultiCastSourceDependency*> _dependencies;
 };
 } // namespace doris::pipeline

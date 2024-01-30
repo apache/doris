@@ -84,11 +84,11 @@ static void set_up() {
     options.store_paths = paths;
     k_engine = std::make_unique<StorageEngine>(options);
     Status s = k_engine->open();
-    EXPECT_TRUE(s.ok()) << s.to_string();
-    ExecEnv::GetInstance()->set_storage_engine(k_engine.get());
+    ASSERT_TRUE(s.ok()) << s;
 }
 
 static void tear_down() {
+    k_engine.reset();
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
@@ -96,8 +96,6 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    k_engine.reset();
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -307,7 +305,7 @@ protected:
         res = k_engine->create_tablet(_create_dup_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
-        EXPECT_TRUE(dup_tablet.get() != NULL);
+        EXPECT_TRUE(dup_tablet);
         _dup_tablet_path = tablet->tablet_path();
     }
 
@@ -315,7 +313,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         dup_tablet.reset();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());
@@ -913,7 +911,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         _delete_handler.finalize();
-        static_cast<void>(StorageEngine::instance()->tablet_manager()->drop_tablet(
+        static_cast<void>(k_engine->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.replica_id, false));
         EXPECT_TRUE(
                 io::global_local_filesystem()->delete_directory(config::storage_root_path).ok());

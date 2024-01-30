@@ -71,8 +71,6 @@ public:
 
     ~RuntimeFilterMgr() = default;
 
-    Status init();
-
     Status get_consume_filter(const int filter_id, const int node_id,
                               IRuntimeFilter** consumer_filter);
 
@@ -114,7 +112,7 @@ private:
 
     TNetworkAddress _merge_addr;
 
-    bool _has_merge_addr;
+    bool _has_merge_addr = false;
     std::mutex _lock;
 };
 
@@ -174,7 +172,6 @@ private:
             std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
     std::map<int, CntlValwithLock> _filter_map;
     RuntimeFilterParamsContext* _state = nullptr;
-    bool _opt_remote_rf = true;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity
@@ -187,13 +184,37 @@ public:
     // add a query-id -> entity
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
-    Status add_entity(const TExecPlanFragmentParams& params,
+    Status add_entity(const auto& params, UniqueId query_id, const TQueryOptions& query_options,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeFilterParamsContext* state);
-    Status add_entity(const TPipelineFragmentParams& params,
-                      const TPipelineInstanceParams& local_params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeFilterParamsContext* state);
+                      RuntimeFilterParamsContext* state) {
+        if (!params.__isset.runtime_filter_params ||
+            params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
+            return Status::OK();
+        }
+
+        // TODO: why we need string, direct use UniqueId
+        std::string query_id_str = query_id.to_string();
+        UniqueId fragment_instance_id = UniqueId(params.fragment_instance_id);
+        uint32_t shard = _get_controller_shard_idx(query_id);
+        std::lock_guard<std::mutex> guard(_controller_mutex[shard]);
+        auto iter = _filter_controller_map[shard].find(query_id_str);
+        if (iter == _filter_controller_map[shard].end()) {
+            *handle = std::shared_ptr<RuntimeFilterMergeControllerEntity>(
+                    new RuntimeFilterMergeControllerEntity(state),
+                    [this](RuntimeFilterMergeControllerEntity* entity) {
+                        static_cast<void>(remove_entity(entity->query_id()));
+                        delete entity;
+                    });
+            _filter_controller_map[shard][query_id_str] = *handle;
+            const TRuntimeFilterParams& filter_params = params.runtime_filter_params;
+            RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
+                                                query_options));
+        } else {
+            *handle = _filter_controller_map[shard][query_id_str].lock();
+        }
+        return Status::OK();
+    }
+
     // thread safe
     // increase a reference count
     // if a query-id is not exist
@@ -220,11 +241,6 @@ private:
     // str(query-id) -> entity
     FilterControllerMap _filter_controller_map[kShardNum];
 };
-
-using runtime_filter_merge_entity_closer = std::function<void(RuntimeFilterMergeControllerEntity*)>;
-
-void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
-                                       RuntimeFilterMergeControllerEntity* entity);
 
 //There are two types of runtime filters:
 // one is global, originating from QueryContext,

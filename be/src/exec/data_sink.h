@@ -40,6 +40,7 @@ class TDataSink;
 class TExpr;
 class TPipelineFragmentParams;
 class TOlapTableSink;
+class QueryStatistics;
 
 namespace vectorized {
 class Block;
@@ -48,7 +49,7 @@ class Block;
 // Superclass of all data sinks.
 class DataSink {
 public:
-    DataSink(const RowDescriptor& desc) : _row_desc(desc) {}
+    DataSink(const RowDescriptor& desc);
     virtual ~DataSink() {}
 
     virtual Status init(const TDataSink& thrift_sink);
@@ -103,6 +104,8 @@ public:
 
     virtual bool can_write() { return true; }
 
+    std::shared_ptr<QueryStatistics> get_query_statistics_ptr();
+
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
@@ -124,6 +127,8 @@ protected:
         _output_rows_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
         _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     }
+
+    std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 };
 
 } // namespace doris
