@@ -46,6 +46,7 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "olap/rowset/segment_v2/inverted_index_searcher.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
@@ -56,43 +57,19 @@ namespace lucene {
 namespace search {
 class IndexSearcher;
 } // namespace search
-namespace util {
-namespace bkd {
+
+namespace util::bkd {
 class bkd_reader;
 }
-} // namespace util
+
 } // namespace lucene
 
 namespace doris {
 struct OlapReaderStatistics;
 
 namespace segment_v2 {
-using FulltextIndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
-using BKDIndexSearcherPtr = std::shared_ptr<lucene::util::bkd::bkd_reader>;
-using IndexSearcherPtr = std::variant<FulltextIndexSearcherPtr, BKDIndexSearcherPtr>;
-using OptionalIndexSearcherPtr = std::optional<IndexSearcherPtr>;
-
 class InvertedIndexCacheHandle;
 class DorisCompoundReader;
-
-class IndexSearcherBuilder {
-public:
-    virtual Status build(DorisCompoundReader* directory,
-                         OptionalIndexSearcherPtr& output_searcher) = 0;
-    virtual ~IndexSearcherBuilder() = default;
-};
-
-class FulltextIndexSearcherBuilder : public IndexSearcherBuilder {
-public:
-    Status build(DorisCompoundReader* directory,
-                 OptionalIndexSearcherPtr& output_searcher) override;
-};
-
-class BKDIndexSearcherBuilder : public IndexSearcherBuilder {
-public:
-    Status build(DorisCompoundReader* directory,
-                 OptionalIndexSearcherPtr& output_searcher) override;
-};
 
 class InvertedIndexSearcherCache {
 public:
@@ -121,14 +98,13 @@ public:
 
     InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards);
 
-    Status get_index_searcher(const io::FileSystemSPtr& fs, const std::string& index_dir,
-                              const std::string& file_name, InvertedIndexCacheHandle* cache_handle,
-                              OlapReaderStatistics* stats, InvertedIndexReaderType reader_type,
-                              bool& has_null, bool use_cache = true);
+    InvertedIndexCacheHandle insert(const InvertedIndexSearcherCache::CacheKey& cache_key,
+                                    CacheValue* cache_value);
 
-    // function `insert` called after inverted index writer close
-    Status insert(const io::FileSystemSPtr& fs, const std::string& index_dir,
-                  const std::string& file_name, InvertedIndexReaderType reader_type);
+    // Lookup the given index_searcher in the cache.
+    // If the index_searcher is found, the cache entry will be written into handle.
+    // Return true if entry is found, otherwise return false.
+    bool lookup(const InvertedIndexSearcherCache::CacheKey& key, InvertedIndexCacheHandle* handle);
 
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
@@ -138,7 +114,7 @@ public:
     int64_t mem_consumption();
 
 private:
-    InvertedIndexSearcherCache();
+    InvertedIndexSearcherCache() = default;
 
     class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
     public:
@@ -158,12 +134,6 @@ private:
                                  element_count_capacity, cache_value_time_extractor,
                                  cache_value_check_timestamp, true) {}
     };
-
-    // Lookup the given index_searcher in the cache.
-    // If the index_searcher is found, the cache entry will be written into handle.
-    // Return true if entry is found, otherwise return false.
-    bool _lookup(const InvertedIndexSearcherCache::CacheKey& key, InvertedIndexCacheHandle* handle);
-
     // Insert a cache entry by key.
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
@@ -181,14 +151,13 @@ using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValu
 // So the caller need to make sure the handle is valid in lifecycle.
 class InvertedIndexCacheHandle {
 public:
-    InvertedIndexCacheHandle() {}
+    InvertedIndexCacheHandle() = default;
     InvertedIndexCacheHandle(Cache* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexCacheHandle() {
         if (_handle != nullptr) {
             CHECK(_cache != nullptr);
-            CHECK(!owned);
             // only after get_index_searcher call this destructor will
             // add `config::index_cache_entry_stay_time_after_lookup_s` on last_visit_time,
             // this is to extend the retention time of the entries hit by lookup.
@@ -201,33 +170,17 @@ public:
     InvertedIndexCacheHandle(InvertedIndexCacheHandle&& other) noexcept {
         std::swap(_cache, other._cache);
         std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->index_searcher = std::move(other.index_searcher);
     }
 
     InvertedIndexCacheHandle& operator=(InvertedIndexCacheHandle&& other) noexcept {
         std::swap(_cache, other._cache);
         std::swap(_handle, other._handle);
-        this->owned = other.owned;
-        this->index_searcher = std::move(other.index_searcher);
         return *this;
     }
 
     IndexSearcherPtr get_index_searcher() {
-        if (owned) {
-            return index_searcher;
-        } else {
-            return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))
-                    ->index_searcher;
-        }
+        return ((InvertedIndexSearcherCache::CacheValue*)_cache->value(_handle))->index_searcher;
     }
-
-public:
-    // If set to true, the loaded index_searcher will be saved in index_searcher, not in lru cache;
-    bool owned = false;
-    // If index searcher include non-null bitmap.
-    bool has_null = true;
-    IndexSearcherPtr index_searcher;
 
 private:
     Cache* _cache = nullptr;
@@ -298,7 +251,7 @@ public:
 
 class InvertedIndexQueryCacheHandle {
 public:
-    InvertedIndexQueryCacheHandle() {}
+    InvertedIndexQueryCacheHandle() = default;
 
     InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
             : _cache(cache), _handle(handle) {}

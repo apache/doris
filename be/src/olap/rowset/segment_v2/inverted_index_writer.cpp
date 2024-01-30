@@ -46,6 +46,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -108,14 +109,27 @@ public:
             _index_writer->close();
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
+                auto mem_tracker =
+                        std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
+                io::Path index_dir(_directory);
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
                         _segment_file_name, _index_meta->index_id(),
                         _index_meta->get_index_suffix());
-                auto st = InvertedIndexSearcherCache::instance()->insert(
-                        _fs, _directory, index_file_name, InvertedIndexReaderType::FULLTEXT);
-                if (!st.ok()) {
-                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
+                auto searcher_variant = InvertedIndexReader::create_index_searcher(
+                        _fs, index_dir, index_file_name, mem_tracker.get(),
+                        InvertedIndexReaderType::FULLTEXT);
+                if (UNLIKELY(!searcher_variant.has_value())) {
+                    auto err = searcher_variant.error();
+                    LOG(ERROR) << "insert inverted index searcher cache error:" << err;
+                    return;
                 }
+                auto* cache_value = new InvertedIndexSearcherCache::CacheValue();
+                cache_value->index_searcher = std::move(searcher_variant.value());
+                cache_value->size = mem_tracker->consumption();
+                InvertedIndexSearcherCache::CacheKey searcher_cache_key(
+                        (index_dir / index_file_name).native());
+                auto inverted_index_cache_handle = InvertedIndexSearcherCache::instance()->insert(
+                        searcher_cache_key, cache_value);
             }
         }
     }
