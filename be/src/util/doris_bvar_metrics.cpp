@@ -42,17 +42,74 @@ DorisBvarMetrics::DorisBvarMetrics() {
                            "", "", Labels(), false)   
     INIT_INT64_BVAR_METRIC(query_scan_rows, BvarMetricType::COUNTER, BvarMetricUnit::ROWS,
                            "", "", Labels(), false) 
-    INIT_INT64_BVAR_METRIC(push_requests_success_total, BvarMetricType::COUNTER, BvaMetricUnit::REQUESTS,
-                           "", "push_requests_total", Lables({{"status", "SUCCESS"}}), false); 
-    INIT_INT64_BVAR_METRIC(push_requests_fail_total, BvarMetricType::COUNTER, BvaMetricUnit::REQUESTS,
-                           "", "push_requests_total", Lables({{"status", "FAIL"}}), false); 
+    INIT_INT64_BVAR_METRIC(push_requests_success_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "push_requests_total", Labels({{"status", "SUCCESS"}}), false); 
+    INIT_INT64_BVAR_METRIC(push_requests_fail_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "push_requests_total", Labels({{"status", "FAIL"}}), false); 
     INIT_INT64_BVAR_METRIC(push_request_duration_us, BvarMetricType::COUNTER, BvarMetricUnit::MICROSECONDS,
                            "", "", Labels(), false) 
     INIT_INT64_BVAR_METRIC(push_request_write_bytes, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
                            "", "", Labels(), false)
     INIT_INT64_BVAR_METRIC(push_request_write_rows, BvarMetricType::COUNTER, BvarMetricUnit::ROWS,
                            "", "", Labels(), false)
-
+    INIT_INT64_BVAR_METRIC(create_tablet_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "create_tablet"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(create_tablet_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "create_tablet"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(drop_tablet_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "drop_tablet"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(report_all_tablets_requests_skip, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "report_all_tablets"}, {"status", "skip"}}), false);
+    INIT_INT64_BVAR_METRIC(schema_change_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "schema_change"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(schema_change_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "schema_change"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(create_rollup_requests_total,BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "create_rollup"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(create_rollup_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "create_rollup"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(storage_migrate_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "storage_migrate"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(storage_migrate_v2_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "storage_migrate_v2"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(storage_migrate_v2_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  "", "engine_requests_total", Labels({{"type", "storage_migrate_v2"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(delete_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "delete"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(delete_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "delete"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(clone_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "clone"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(clone_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "clone"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(alter_inverted_index_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "alter_inverted_index"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(alter_inverted_index_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "alter_inverted_index"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(finish_task_requests_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "finish_task"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(finish_task_requests_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "finish_task"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(base_compaction_request_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "base_compaction"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(base_compaction_request_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "base_compaction"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(cumulative_compaction_request_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS, 
+                           "", "engine_requests_total", Labels({{"type", "cumulative_compaction"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(cumulative_compaction_request_failed, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,  
+                           "", "engine_requests_total", Labels({{"type", "cumulative_compaction"}, {"status", "failed"}}), false);
+    INIT_INT64_BVAR_METRIC(base_compaction_deltas_total, BvarMetricType::COUNTER, BvarMetricUnit::ROWSETS,
+                           "", "compaction_deltas_total", Labels({{"type", "base"}}), false);
+    INIT_INT64_BVAR_METRIC(base_compaction_bytes_total, BvarMetricType::COUNTER, BvarMetricUnit::BYTES,
+                           "", "compaction_bytes_total", Labels({{"type", "base"}}), false);
+    INIT_INT64_BVAR_METRIC(cumulative_compaction_deltas_total, BvarMetricType::COUNTER, BvarMetricUnit::ROWSETS,
+                           "", "compaction_deltas_total", Labels({{"type", "cumulative"}}), false);
+    INIT_INT64_BVAR_METRIC(cumulative_compaction_bytes_total, BvarMetricType::COUNTER, BvarMetricUnit::BYTES, 
+                           "", "compaction_bytes_total", Labels({{"type", "cumulative"}}), false);
+    INIT_INT64_BVAR_METRIC(publish_task_request_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "publish"}, {"status", "total"}}), false);
+    INIT_INT64_BVAR_METRIC(publish_task_failed_total, BvarMetricType::COUNTER, BvarMetricUnit::REQUESTS,
+                           "", "engine_requests_total", Labels({{"type", "publish"}, {"status", "failed"}}), false);
+    
     ENTITY_REGISTER_METRICS(fragment_requests_total, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(fragment_request_duration_us, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(query_scan_bytes, BvarMetricType::COUNTER)
@@ -62,7 +119,36 @@ DorisBvarMetrics::DorisBvarMetrics() {
     ENTITY_REGISTER_METRICS(push_request_duration_us, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(push_request_write_bytes, BvarMetricType::COUNTER)
     ENTITY_REGISTER_METRICS(push_request_write_rows, BvarMetricType::COUNTER)
-
+    ENTITY_REGISTER_METRICS(create_tablet_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(create_tablet_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(drop_tablet_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(report_all_tablets_requests_skip, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(schema_change_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(schema_change_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(create_rollup_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(create_rollup_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(storage_migrate_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(storage_migrate_v2_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(storage_migrate_v2_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(delete_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(delete_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(clone_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(clone_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(alter_inverted_index_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(alter_inverted_index_requests_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(finish_task_requests_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(finish_task_requests_failed, BvarMetricType::COUNTER)    
+    ENTITY_REGISTER_METRICS(base_compaction_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(base_compaction_request_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(cumulative_compaction_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(cumulative_compaction_request_failed, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(base_compaction_deltas_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(base_compaction_bytes_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(cumulative_compaction_deltas_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(cumulative_compaction_bytes_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(publish_task_request_total, BvarMetricType::COUNTER)
+    ENTITY_REGISTER_METRICS(publish_task_failed_total, BvarMetricType::COUNTER)
+    
 }
 
 void DorisBvarMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
