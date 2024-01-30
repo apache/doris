@@ -446,11 +446,12 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
             return Status::OK();
         }
         bool output_as_raw_json = true;
+        // Not use path info in TabletColumn since the path info may not be set in schema change process
+        vectorized::PathInData path(tablet_column.name_lower_case());
         // Alter table operation should read the whole variant column, since it does not aware of
         // subcolumns of variant during processing rewriting rowsets.
         // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root,
-                                                       output_as_raw_json));
+        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, path, node, root, output_as_raw_json));
         return Status::OK();
     }
 

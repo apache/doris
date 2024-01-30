@@ -227,6 +227,8 @@ public:
 
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
+    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
+
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
     ~ColumnObject() override = default;

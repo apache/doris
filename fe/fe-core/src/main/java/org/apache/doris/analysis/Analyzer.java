@@ -1029,7 +1029,7 @@ public class Analyzer {
 
         LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
         if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
-            if (!Config.enable_variant_access_in_original_planner
+            if (getContext() != null && !getContext().getSessionVariable().enableVariantAccessInOriginalPlanner
                     && (subColNames != null && !subColNames.isEmpty())) {
                 ErrorReport.reportAnalysisException("Variant sub-column access is disabled in original planner,"
                         + "set enable_variant_access_in_original_planner = true in session variable");

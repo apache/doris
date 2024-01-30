@@ -205,15 +205,14 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
             if (ConnectContext.get() != null
                     && ConnectContext.get().getSessionVariable() != null
                     && !ConnectContext.get().getSessionVariable().isEnableRewriteElementAtToSlot()) {
-                throw new AnalysisException(
-                        "set enable_rewrite_element_at_to_slot=true when using element_at function for variant type");
+                return boundFunction;
             }
             Slot slot = elementAt.getInputSlots().stream().findFirst().get();
             if (slot.hasUnbound()) {
                 slot = (Slot) super.visit(slot, context);
             }
             // rewrite to slot and bound this slot
-            return ElementAtToSlot.rewriteToSlot(elementAt, (SlotReference) slot);
+            return PushDownToProjectionFunction.rewriteToSlot(elementAt, (SlotReference) slot);
         }
         return boundFunction;
     }

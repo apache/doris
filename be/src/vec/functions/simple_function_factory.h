@@ -90,6 +90,7 @@ void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
 void register_function_struct_element(SimpleFunctionFactory& factory);
+void register_function_variant_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -280,6 +281,7 @@ public:
             register_function_ip(instance);
             register_function_tokenize(instance);
             register_function_ignore(instance);
+            register_function_variant_element(instance);
         });
         return instance;
     }
