@@ -34,7 +34,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Preconditions;
@@ -56,8 +55,8 @@ public class CloudEnv extends Env {
 
     private CloudClusterChecker cloudClusterCheck;
 
-    public CloudEnv(boolean isCheckpointCatalog, SystemInfoService systemInfo) {
-        super(isCheckpointCatalog, systemInfo);
+    public CloudEnv(boolean isCheckpointCatalog) {
+        super(isCheckpointCatalog);
         this.cloudClusterCheck = new CloudClusterChecker((CloudSystemInfoService) systemInfo);
     }
 

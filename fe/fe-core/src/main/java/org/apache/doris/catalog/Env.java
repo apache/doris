@@ -622,16 +622,15 @@ public class Env {
     }
 
     private static class SingletonHolder {
-        private static final Env INSTANCE = EnvFactory.getInstance().createEnv(false,
-                EnvFactory.getInstance().createSystemInfoService());
+        private static final Env INSTANCE = EnvFactory.getInstance().createEnv(false);
     }
 
     private Env() {
-        this(false, EnvFactory.getInstance().createSystemInfoService());
+        this(false);
     }
 
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
-    public Env(boolean isCheckpointCatalog, SystemInfoService systemInfo) {
+    public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
@@ -673,7 +672,7 @@ public class Env {
         this.journalObservable = new JournalObservable();
         this.masterInfo = new MasterInfo();
 
-        this.systemInfo = systemInfo;
+        this.systemInfo = EnvFactory.getInstance().createSystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
@@ -773,8 +772,7 @@ public class Env {
             // only checkpoint thread it self will goes here.
             // so no need to care about the thread safe.
             if (CHECKPOINT == null) {
-                CHECKPOINT = EnvFactory.getInstance().createEnv(true,
-                    EnvFactory.getInstance().createSystemInfoService());
+                CHECKPOINT = EnvFactory.getInstance().createEnv(true);
             }
             return CHECKPOINT;
         } else {

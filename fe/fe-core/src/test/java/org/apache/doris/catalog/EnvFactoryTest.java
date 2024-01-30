@@ -41,8 +41,8 @@ public class EnvFactoryTest {
         Assert.assertFalse(Env.getCurrentEnv() instanceof CloudEnv);
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof InternalCatalog);
         Assert.assertFalse(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
-        Assert.assertTrue(envFactory.createEnv(false, envFactory.createSystemInfoService()) instanceof Env);
-        Assert.assertFalse(envFactory.createEnv(false, envFactory.createSystemInfoService()) instanceof CloudEnv);
+        Assert.assertTrue(envFactory.createEnv(false) instanceof Env);
+        Assert.assertFalse(envFactory.createEnv(false) instanceof CloudEnv);
         Assert.assertTrue(envFactory.createInternalCatalog() instanceof InternalCatalog);
         Assert.assertFalse(envFactory.createInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(envFactory.createPartition() instanceof Partition);
