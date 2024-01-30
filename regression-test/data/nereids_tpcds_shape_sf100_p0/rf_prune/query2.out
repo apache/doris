@@ -28,7 +28,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF2
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 1998))
@@ -38,7 +38,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
-------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+------------------------PhysicalCteConsumer ( cteId=CTEId#1 ) apply RFs: RF1
 --------------------PhysicalDistribute[DistributionSpecReplicated]
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 1999))
