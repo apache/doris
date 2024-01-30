@@ -74,9 +74,9 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     }
     result.writeKey(col_id);
     JsonbParser json_parser;
-    CHECK(variant.get_original_column() != nullptr);
+    CHECK(variant.get_rowstore_column() != nullptr);
     // use original document
-    const auto& data_ref = variant.get_original_column()->get_data_at(row_num);
+    const auto& data_ref = variant.get_rowstore_column()->get_data_at(row_num);
     // encode as jsonb
     bool succ = json_parser.parse(data_ref.data, data_ref.size);
     // maybe more graceful, it is ok to check here since data could be parsed

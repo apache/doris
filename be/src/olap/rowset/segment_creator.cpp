@@ -180,8 +180,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
 
         // // set for rowstore
         if (_context->original_tablet_schema->store_row_column()) {
-            static_cast<vectorized::ColumnObject*>(obj.get())->set_original_column(
-                    object_column.get_original_column());
+            static_cast<vectorized::ColumnObject*>(obj.get())->set_rowstore_column(
+                    object_column.get_rowstore_column());
         }
 
         vectorized::ColumnPtr result = obj->get_ptr();

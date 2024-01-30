@@ -435,13 +435,13 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                     var->serialize_one_row_to_string(i, &raw_str);
                     raw_column->insert_data(raw_str.c_str(), raw_str.size());
                 }
-                var->set_original_column(raw_column->get_ptr());
+                var->set_rowstore_column(raw_column->get_ptr());
             } else {
                 // use original input json column
                 auto original_var_root = vectorized::check_and_get_column<vectorized::ColumnObject>(
                                                  remove_nullable(column_ref).get())
                                                  ->get_root();
-                var->set_original_column(original_var_root);
+                var->set_rowstore_column(original_var_root);
             }
         });
 
