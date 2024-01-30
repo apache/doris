@@ -54,7 +54,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         try {
-            InternalSchemaInitializer.createDB();
+            InternalSchemaInitializer.createDb();
             createDatabase("analysis_job_test");
             connectContext.setDatabase("analysis_job_test");
             createTable("CREATE TABLE t1 (col1 int not null, col2 int not null, col3 int not null)\n"

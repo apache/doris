@@ -241,7 +241,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
                                            is_key, column_ids, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
-            return Status::Error<SEGCOMPACTION_INIT_READER>("failed to get segcompaction reader.");
+            return Status::Error<SEGCOMPACTION_INIT_READER>(
+                    "failed to get segcompaction reader. err: {}", s.to_string());
         }
 
         Merger::Statistics merger_stats;
