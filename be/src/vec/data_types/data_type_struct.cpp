@@ -231,7 +231,7 @@ std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) con
         }
         str += "\"";
         str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
-        str += "\""
+        str += "\"";
     }
     str += "}";
     return str;
