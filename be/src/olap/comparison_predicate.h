@@ -346,11 +346,9 @@ public:
         }
 
         if (_can_ignore() && !_has_calculate_filter) {
-            uint16_t new_size = 0;
             for (uint16_t i = 0; i < size; i++) {
-                new_size += flags[i];
+                _passed_rows += flags[i];
             }
-            _passed_rows += new_size;
             vectorized::VRuntimeFilterWrapper::calculate_filter(
                     get_ignore_threshold(), _evaluated_rows - _passed_rows, _evaluated_rows,
                     _has_calculate_filter, _always_true);
@@ -367,7 +365,7 @@ public:
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
-    double get_ignore_threshold() const override { return 0.9; }
+    double get_ignore_threshold() const override { return 0.1; }
 
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
