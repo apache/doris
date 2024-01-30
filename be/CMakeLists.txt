@@ -180,9 +180,10 @@ SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
-set(BUILD_STATIC_LIBRARIES ON)
-set(BUILD_SHARED_LIBRARIES OFF)
-set(BUILD_CONTRIBS_LIB ON)
+option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
+option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
+option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
+
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
@@ -291,7 +292,7 @@ if (COMPILER_CLANG)
     endif()
 endif ()
 
-add_compile_options(-D__STDC_FORMAT_MACROS
+add_definitions(-D__STDC_FORMAT_MACROS
                     -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG
                     -DBOOST_SYSTEM_NO_DEPRECATED
                     -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1
@@ -320,11 +321,11 @@ endif()
 #
 
 if (WITH_MYSQL)
-    add_compile_options(-DDORIS_WITH_MYSQL)
+    add_definitions(-DDORIS_WITH_MYSQL)
 endif()
 
 if (WITH_LZO)
-    add_compile_options(-DDORIS_WITH_LZO)
+    add_definitions(-DDORIS_WITH_LZO)
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
@@ -332,25 +333,25 @@ endif()
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
 # which will bring about a 2% performance improvement, which may be useful in performance POC.
 if (USE_MEM_TRACKER)
-    add_compile_options(-DUSE_MEM_TRACKER)
+    add_definitions(-DUSE_MEM_TRACKER)
 endif()
 
 # Compile with jemalloc.
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
-    add_compile_options(-DUSE_JEMALLOC)
+    add_definitions(-DUSE_JEMALLOC)
 endif()
 
 # Compile with libunwind
 if (USE_UNWIND)
-    add_compile_options(-DUSE_UNWIND)
+    add_definitions(-DUSE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
 endif()
 
 if (ENABLE_STACKTRACE)
-    add_compile_options(-DENABLE_STACKTRACE)
+    add_definitions(-DENABLE_STACKTRACE)
 endif()
 
 if (USE_DWARF)
