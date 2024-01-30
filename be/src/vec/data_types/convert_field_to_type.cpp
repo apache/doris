@@ -117,6 +117,7 @@ public:
     void operator()(const Int128& x, JsonbWriter* writer) const {
         writer->writeInt128(int128_t(x));
     }
+    void operator()(const IPv6& x, JsonbWriter* writer) const { writer->writeInt128(int128_t(x)); }
     void operator()(const Int64& x, JsonbWriter* writer) const { writer->writeInt64(x); }
     void operator()(const Float64& x, JsonbWriter* writer) const { writer->writeDouble(x); }
     void operator()(const String& x, JsonbWriter* writer) const {
