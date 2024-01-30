@@ -654,6 +654,13 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                                 read_params.version.second, enable_sub_pred_v2);
 }
 
+void TabletReader::ReaderParams::set_read_source(TabletReader::ReadSource read_source) {
+    LOG(WARNING) << "=====debugmoji4 " << tablet->tablet_id() << " "
+                 << read_source.rs_splits.size();
+    rs_splits = std::move(read_source.rs_splits);
+    delete_predicates = std::move(read_source.delete_predicates);
+}
+
 Status TabletReader::init_reader_params_and_create_block(
         TabletSharedPtr tablet, ReaderType reader_type,
         const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -664,6 +671,8 @@ Status TabletReader::init_reader_params_and_create_block(
             Version(input_rowsets.front()->start_version(), input_rowsets.back()->end_version());
 
     ReadSource read_source;
+    LOG(WARNING) << "=====debugmoji2 " << input_rowsets.front()->rowset_meta()->tablet_id() << " "
+                 << input_rowsets.size();
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));

@@ -234,6 +234,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_end = segments.size();
     }
 
+    LOG(WARNING) << "=====debugmoji1 " << _read_options.tablet_id << " " << segments.size() << " "
+                 << seg_start << " " << seg_end << " " << _segment_offsets.first << " "
+                 << _segment_offsets.second;
     for (int i = seg_start; i < seg_end; i++) {
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;

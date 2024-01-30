@@ -108,10 +108,7 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
-        void set_read_source(ReadSource read_source) {
-            rs_splits = std::move(read_source.rs_splits);
-            delete_predicates = std::move(read_source.delete_predicates);
-        }
+        void set_read_source(ReadSource read_source);
 
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
