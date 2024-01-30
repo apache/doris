@@ -1090,6 +1090,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+        } else {
+            checkToken(request.getToken());
         }
 
         // check label
@@ -1111,9 +1113,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, clientIp);
+        if (request.isSetToken()) {
+            txnCoord.isFromInternal = true;
+        }
         long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
+                txnCoord,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());

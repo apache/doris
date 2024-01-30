@@ -164,6 +164,9 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         @SerializedName(value = "ip")
         public String ip;
+        // True if this txn if created by system(such as writing data to audit table)
+        @SerializedName(value = "ii")
+        public boolean isFromInternal = false;
 
         public TxnCoordinator() {
         }
