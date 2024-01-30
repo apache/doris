@@ -167,7 +167,7 @@ public class Coordinator implements CoordInterface {
     // save of related backends of this query
     Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
 
-    private ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
+    protected ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
@@ -507,7 +507,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // Initialize
-    private void prepare() {
+    protected void prepare() {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }

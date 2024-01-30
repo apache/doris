@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -29,6 +30,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.UUID;
 
 /*
  * We support the following create user stmts:
@@ -53,11 +56,22 @@ public class CreateUserStmt extends DdlStmt {
     private String role;
     private PasswordOptions passwordOptions;
 
+    private String userId;
+
     public CreateUserStmt() {
     }
 
     public CreateUserStmt(UserDesc userDesc) {
         userIdent = userDesc.getUserIdent();
+        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
+        LOG.debug("create user stmt userIdent {}, userName {}, userId {}",
+                userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
+        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
+        if (Strings.isNullOrEmpty(uId)) {
+            userId = UUID.randomUUID().toString();
+        } else {
+            userId = uId;
+        }
         passVar = userDesc.getPassVar();
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
@@ -71,12 +85,25 @@ public class CreateUserStmt extends DdlStmt {
     public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
         this.ifNotExist = ifNotExist;
         userIdent = userDesc.getUserIdent();
+        String uId = Env.getCurrentEnv().getAuth().getUserId(ClusterNamespace.getNameFromFullName(userIdent.getUser()));
+        LOG.debug("create user stmt by role userIdent {}, userName {}, userId {}",
+                userIdent, ClusterNamespace.getNameFromFullName(userIdent.getUser()), uId);
+        // avoid this case "jack@'192.1'" and "jack@'192.2'", jack's uid different
+        if (Strings.isNullOrEmpty(uId)) {
+            userId = UUID.randomUUID().toString();
+        } else {
+            userId = uId;
+        }
         passVar = userDesc.getPassVar();
         this.role = role;
         this.passwordOptions = passwordOptions;
         if (this.passwordOptions == null) {
             this.passwordOptions = PasswordOptions.UNSET_OPTION;
         }
+    }
+
+    public String getUserId() {
+        return userId;
     }
 
     public boolean isIfNotExist() {
