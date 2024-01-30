@@ -164,6 +164,9 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         @SerializedName(value = "ip")
         public String ip;
+        // True if this txn if created by system(such as writing data to audit table)
+        @SerializedName(value = "ii")
+        public boolean isFromInternal = false;
 
         public TxnCoordinator() {
         }
@@ -733,8 +736,7 @@ public class TransactionState implements Writable {
         dbId = in.readLong();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
-            TableCommitInfo info = new TableCommitInfo();
-            info.readFields(in);
+            TableCommitInfo info = TableCommitInfo.read(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
         txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));

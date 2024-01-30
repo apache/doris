@@ -22,8 +22,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
+#include <boost/regex.hpp>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -44,10 +44,10 @@ using std::vector;
 using std::string;
 using std::stringstream;
 
-using std::regex;
-using std::regex_error;
-using std::regex_match;
-using std::smatch;
+using boost::regex;
+using boost::regex_error;
+using boost::regex_match;
+using boost::smatch;
 
 using ::google::protobuf::RepeatedPtrField;
 
@@ -293,7 +293,7 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
 
 Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
-    smatch what;
+    boost::smatch what;
 
     try {
         // Condition string format, the format is (column_name)(op)(value)

@@ -565,6 +565,19 @@ public class SystemInfoService {
         return idToBackendRef.values().stream().filter(backend -> backend.isComputeNode()).collect(Collectors.toList());
     }
 
+    // return num of backends that from different hosts
+    public int getBackendNumFromDiffHosts(boolean aliveOnly) {
+        Set<String> hosts = Sets.newHashSet();
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
+        for (Backend backend : idToBackend.values()) {
+            if (aliveOnly && !backend.isAlive()) {
+                continue;
+            }
+            hosts.add(backend.getHost());
+        }
+        return hosts.size();
+    }
+
     class BeIdComparator implements Comparator<Backend> {
         public int compare(Backend a, Backend b) {
             return (int) (a.getId() - b.getId());
