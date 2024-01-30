@@ -56,7 +56,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf table = extractTable(ctx, plan);
-        table.dropConstraint(name);
+        table.dropConstraint(name, false);
     }
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {
