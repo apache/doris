@@ -510,6 +510,7 @@ public:
 struct DirInfo {
     DataDir* data_dir;
 
+    double usage = 0;
     int available_level = 0;
 
     bool operator<(const DirInfo& other) const {
