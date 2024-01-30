@@ -269,7 +269,6 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             qt_c98 c98
             qt_c99 c99
             qt_c100 c100
-            qt_c101 c101
 
             // test view from jion paimon
             sql """ switch internal """

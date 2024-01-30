@@ -572,7 +572,7 @@ private:
     std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
     bool _is_dict_cols_converted;
     bool _has_complex_type = false;
-    std::vector<orc::TypeKind>* _cannot_predict_types;
+    std::vector<orc::TypeKind>* _unsupported_pushdown_types;
 };
 
 class ORCFileInputStream : public orc::InputStream {

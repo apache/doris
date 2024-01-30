@@ -149,7 +149,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
           _is_dict_cols_converted(false),
-          _cannot_predict_types(cannot_predict_type) {
+          _unsupported_pushdown_types(cannot_predict_type) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
@@ -526,12 +526,12 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 template <PrimitiveType primitive_type>
 std::vector<OrcPredicate> value_range_to_predicate(
         const ColumnValueRange<primitive_type>& col_val_range, const orc::Type* type,
-        std::vector<orc::TypeKind>* cannot_predict_types) {
+        std::vector<orc::TypeKind>* unsupported_pushdown_types) {
     std::vector<OrcPredicate> predicates;
 
-    if (cannot_predict_types != nullptr) {
-        for (vector<orc::TypeKind>::iterator it = cannot_predict_types->begin();
-             it != cannot_predict_types->end(); ++it) {
+    if (unsupported_pushdown_types != nullptr) {
+        for (vector<orc::TypeKind>::iterator it = unsupported_pushdown_types->begin();
+             it != unsupported_pushdown_types->end(); ++it) {
             if (*it == type->getKind()) {
                 // Unsupported type
                 return predicates;
@@ -680,8 +680,8 @@ bool OrcReader::_init_search_argument(
         }
         std::visit(
                 [&](auto& range) {
-                    std::vector<OrcPredicate> value_predicates =
-                            value_range_to_predicate(range, type_it->second, _cannot_predict_types);
+                    std::vector<OrcPredicate> value_predicates = value_range_to_predicate(
+                            range, type_it->second, _unsupported_pushdown_types);
                     for (auto& range_predicate : value_predicates) {
                         predicates.emplace_back(range_predicate);
                     }
