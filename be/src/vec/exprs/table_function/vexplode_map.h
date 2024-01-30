@@ -49,7 +49,6 @@ public:
     const ColumnArray::Offsets64* offsets_ptr = nullptr;
 };
 
-
 class VExplodeMapTableFunction : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeMapTableFunction);
 

@@ -66,11 +66,9 @@ Status VExplodeMapTableFunction::process_init(Block* block, RuntimeState* state)
     _collection_column =
             block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
 
-
     if (!extract_column_map_info(*_collection_column, _map_detail)) {
-            return Status::NotSupported(
-                    "column type {} not supported now, only support array or map",
-                    block->get_by_position(value_column_idx).column->get_name());
+        return Status::NotSupported("column type {} not supported now, only support array or map",
+                                    block->get_by_position(value_column_idx).column->get_name());
     }
 
     return Status::OK();
@@ -98,7 +96,7 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
     // if current is empty map row, also append a default value
     if (current_empty()) {
         column->insert_default();
-        return ;
+        return;
     }
     ColumnStruct* ret = nullptr;
     // this _is_nullable is whole output column's nullable
@@ -116,9 +114,9 @@ void VExplodeMapTableFunction::get_value(MutableColumnPtr& column) {
                         "only support map column explode to struct column");
     }
     if (!ret || ret->tuple_size() != 2) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "only support map column explode to two column, but given:  ",
-                        ret->tuple_size());
+        throw Exception(
+                ErrorCode::INTERNAL_ERROR,
+                "only support map column explode to two column, but given:  ", ret->tuple_size());
     }
     ret->get_column(0).insert_from(_map_detail.map_col->get_keys(), pos);
     ret->get_column(1).insert_from(_map_detail.map_col->get_values(), pos);

@@ -27,11 +27,10 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-
-#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function_helpers.h"
