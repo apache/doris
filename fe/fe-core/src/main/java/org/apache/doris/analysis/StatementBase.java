@@ -90,6 +90,9 @@ public abstract class StatementBase implements ParseNode {
         this.clusterName = analyzer.getClusterName();
     }
 
+    public void checkPriv() throws AnalysisException {
+    }
+
     public Analyzer getAnalyzer() {
         return analyzer;
     }
