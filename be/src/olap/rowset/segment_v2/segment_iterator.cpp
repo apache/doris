@@ -1977,17 +1977,17 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     bool ret_flags[original_size];
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
-    for (int i = 1; i < _pre_eval_block_predicate.size(); i++) {
+    for (int i = 0; i < _pre_eval_block_predicate.size(); i++) {
         if (_pre_eval_block_predicate[i]->always_true()) {
             continue;
         }
-        auto column_id2 = _pre_eval_block_predicate[i]->column_id();
-        auto& column2 = _current_return_columns[column_id2];
+        auto column_id = _pre_eval_block_predicate[i]->column_id();
+        auto& column = _current_return_columns[column_id];
         if (is_first) {
-            _pre_eval_block_predicate[i]->evaluate_vec(*column2, original_size, ret_flags);
+            _pre_eval_block_predicate[i]->evaluate_vec(*column, original_size, ret_flags);
             is_first = false;
         } else {
-            _pre_eval_block_predicate[i]->evaluate_and_vec(*column2, original_size, ret_flags);
+            _pre_eval_block_predicate[i]->evaluate_and_vec(*column, original_size, ret_flags);
         }
     }
 
