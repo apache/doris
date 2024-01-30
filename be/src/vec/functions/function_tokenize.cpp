@@ -20,7 +20,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <regex>
+#include <boost/regex.hpp>
 #include <utility>
 
 #include "CLucene/StdHeader.h"
@@ -36,16 +36,18 @@
 namespace doris::vectorized {
 
 Status parse(const std::string& str, std::map<std::string, std::string>& result) {
-    std::regex pattern(
+    boost::regex pattern(
             R"delimiter((?:'([^']*)'|"([^"]*)"|([^,]*))\s*=\s*(?:'([^']*)'|"([^"]*)"|([^,]*)))delimiter");
-    std::smatch matches;
+    boost::smatch matches;
 
     std::string::const_iterator searchStart(str.cbegin());
-    while (std::regex_search(searchStart, str.cend(), matches, pattern)) {
-        std::string key =
-                matches[1].length() ? matches[1] : (matches[2].length() ? matches[2] : matches[3]);
-        std::string value =
-                matches[4].length() ? matches[4] : (matches[5].length() ? matches[5] : matches[6]);
+    while (boost::regex_search(searchStart, str.cend(), matches, pattern)) {
+        std::string key = matches[1].length()
+                                  ? matches[1].str()
+                                  : (matches[2].length() ? matches[2].str() : matches[3].str());
+        std::string value = matches[4].length()
+                                    ? matches[4].str()
+                                    : (matches[5].length() ? matches[5].str() : matches[6].str());
 
         result[key] = value;
 

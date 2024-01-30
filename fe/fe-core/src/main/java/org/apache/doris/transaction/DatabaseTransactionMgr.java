@@ -343,7 +343,9 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
-        InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        if (!coordinator.isFromInternal) {
+            InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
+        }
         checkDatabaseDataQuota();
         Preconditions.checkNotNull(coordinator);
         Preconditions.checkNotNull(label);
@@ -1291,8 +1293,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 String partitionRange = "";
@@ -1331,8 +1334,9 @@ public class DatabaseTransactionMgr {
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
-            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId, table.getNextVersion(),
+                    System.currentTimeMillis());
             PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
@@ -1966,6 +1970,9 @@ public class DatabaseTransactionMgr {
                             transactionState, partition.getId(), version);
                 }
             }
+            long tableVersion = tableCommitInfo.getVersion();
+            long tableVersionTime = tableCommitInfo.getVersionTime();
+            table.updateVisibleVersionAndTime(tableVersion, tableVersionTime);
         }
         Map<Long, Long> tableIdToTotalNumDeltaRows = transactionState.getTableIdToTotalNumDeltaRows();
         Map<Long, Long> tableIdToNumDeltaRows = Maps.newHashMap();

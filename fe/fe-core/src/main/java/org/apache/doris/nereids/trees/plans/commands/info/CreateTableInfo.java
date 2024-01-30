@@ -198,7 +198,13 @@ public class CreateTableInfo {
         return tableName;
     }
 
+    /**
+     * full qualifier table name.
+     */
     public List<String> getTableNameParts() {
+        if (ctlName != null && dbName != null) {
+            return ImmutableList.of(ctlName, dbName, tableName);
+        }
         if (dbName != null) {
             return ImmutableList.of(dbName, tableName);
         }
@@ -859,7 +865,7 @@ public class CreateTableInfo {
         }
 
         return new CreateTableStmt(ifNotExists, isExternal,
-                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
+                new TableName(ctlName, dbName, tableName),
                 catalogColumns, catalogIndexes, engineName,
                 new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
