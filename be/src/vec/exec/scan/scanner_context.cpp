@@ -497,7 +497,6 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
         if (scanner->_scanner->need_to_close()) {
             --_num_unfinished_scanners;
             if (_num_unfinished_scanners == 0) {
-                _dispose_coloate_blocks_not_in_queue();
                 _is_finished = true;
                 _set_scanner_done();
                 _blocks_queue_added_cv.notify_one();
