@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -107,7 +106,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_stats) {
+        if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
                     + "in your FE conf file");
         }
@@ -127,19 +126,21 @@ public class AlterColumnStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
 
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
-        }
-
         // get statsTypeToValue
         properties.forEach((key, value) -> {
             StatsType statsType = StatsType.fromString(key);
             statsTypeToValue.put(statsType, value);
         });
+    }
+
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                tableName.getTbl(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    tableName.getDb() + ": " + tableName.getTbl());
+        }
     }
 
     private void checkPartitionAndColumn() throws AnalysisException {
@@ -191,10 +192,5 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 }

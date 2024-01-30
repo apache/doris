@@ -71,8 +71,6 @@ public class ProfileManager {
         }
 
         private final RuntimeProfile profile;
-        // cache the result of getProfileContent method
-        private volatile String profileContent;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
@@ -81,12 +79,8 @@ public class ProfileManager {
 
         // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
-            if (profileContent != null) {
-                return profileContent;
-            }
             // no need to lock because the possibility of concurrent read is very low
-            profileContent = profile.toString();
-            return profileContent;
+            return profile.toString();
         }
 
         public String getProfileBrief() {
@@ -103,7 +97,8 @@ public class ProfileManager {
         }
     }
 
-    // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
+    // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to
+    // protect
     private ReentrantReadWriteLock lock;
     private ReadLock readLock;
     private WriteLock writeLock;
@@ -165,7 +160,8 @@ public class ProfileManager {
         ProfileElement element = createElement(profile);
         // 'insert into' does have job_id, put all profiles key with query_id
         String key = element.infoStrings.get(SummaryProfile.PROFILE_ID);
-        // check when push in, which can ensure every element in the list has QUERY_ID column,
+        // check when push in, which can ensure every element in the list has QUERY_ID
+        // column,
         // so there is no need to check when remove element from list.
         if (Strings.isNullOrEmpty(key)) {
             LOG.warn("the key or value of Map is null, "

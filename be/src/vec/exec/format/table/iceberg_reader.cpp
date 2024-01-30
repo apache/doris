@@ -129,6 +129,7 @@ Status IcebergTableReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+    parquet_reader->iceberg_sanitize(_all_required_col_names);
     Status status = parquet_reader->init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
@@ -561,9 +562,19 @@ void IcebergTableReader::_gen_file_col_names() {
         auto name = _file_col_names[i];
         auto iter = _table_col_to_file_col.find(name);
         if (iter == _table_col_to_file_col.end()) {
-            _all_required_col_names.emplace_back(name);
+            // If the user creates the iceberg table, directly append the parquet file that already exists,
+            // there is no 'iceberg.schema' field in the footer of parquet, the '_table_col_to_file_col' may be empty.
+            // Because we are ignoring case, so, it is converted to lowercase here
+            auto name_low = to_lower(name);
+            _all_required_col_names.emplace_back(name_low);
             if (_has_iceberg_schema) {
                 _not_in_file_col_names.emplace_back(name);
+            } else {
+                _table_col_to_file_col.emplace(name, name_low);
+                _file_col_to_table_col.emplace(name_low, name);
+                if (name != name_low) {
+                    _has_schema_change = true;
+                }
             }
         } else {
             _all_required_col_names.emplace_back(iter->second);

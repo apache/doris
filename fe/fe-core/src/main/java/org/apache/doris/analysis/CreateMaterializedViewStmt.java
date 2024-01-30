@@ -29,9 +29,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 
@@ -39,6 +43,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +51,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -144,10 +150,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
-    public void setMVKeysType(KeysType type) {
-        mvKeysType = type;
-    }
-
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
@@ -207,11 +209,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
         selectStmt.analyze(analyzer);
 
+        analyzeSelectClause(analyzer);
+        analyzeFromClause();
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause(analyzer);
-        analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
                 throw new AnalysisException(
@@ -229,6 +231,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (selectStmt.getLimit() != -1) {
             throw new AnalysisException("The limit clause is not supported in add materialized view clause, expr:"
                     + " limit " + selectStmt.getLimit());
+        }
+    }
+
+    @Override
+    public void checkPriv() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, baseIndexName,
+                PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER");
         }
     }
 
@@ -298,6 +308,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (tableRefList.size() != 1) {
             throw new AnalysisException("The materialized view only support one table in from clause.");
         }
+        if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
+            throw new AnalysisException("The materialized view not support table with alias.");
+        }
+        if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
+            throw new AnalysisException("The materialized view only support olap table.");
+        }
+        OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
+        mvKeysType = olapTable.getKeysType();
+
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
             throw new AnalysisException("table in from clause is invalid, please check if it's single table "
@@ -339,19 +358,19 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
 
-        for (Expr groupExpr : groupingExprs) {
-            boolean match = false;
-            String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
-            for (Expr expr : selectExprs) {
-                String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
-                if (lhs.equalsIgnoreCase(rhs)) {
-                    match = true;
-                    break;
-                }
+        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Expr expr : selectExprs) {
+            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (selectExprNames.contains(selectExprName)) {
+                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
             }
+            selectExprNames.add(selectExprName);
+        }
 
-            if (!match) {
-                throw new AnalysisException("The grouping expr " + rhs + " not in select list.");
+        for (Expr expr : groupingExprs) {
+            String groupExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (!selectExprNames.contains(groupExprName)) {
+                throw new AnalysisException("The grouping expr " + groupExprName + " not in select list.");
             }
         }
     }
@@ -407,14 +426,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
          */
-        if (mvKeysType == KeysType.AGG_KEYS) {
-            for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (mvColumnItem.getAggregationType() != null) {
-                    break;
-                }
-                mvColumnItem.setIsKey(true);
-            }
-        } else if (mvKeysType == KeysType.DUP_KEYS) {
+        if (mvKeysType == KeysType.DUP_KEYS) {
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns
@@ -457,6 +469,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
                 mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
+        } else {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (mvColumnItem.getAggregationType() != null) {
+                    break;
+                }
+                mvColumnItem.setIsKey(true);
             }
         }
     }
@@ -515,6 +534,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             default:
                 mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
+                    throw new AnalysisException(
+                            "The Materialized-View's generic aggregation not support star or distinct");
+                }
                 defineExpr = Function.convertToStateCombinator(functionCallExpr);
                 type = defineExpr.type;
         }
@@ -621,7 +644,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
         return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
-                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
+                .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {

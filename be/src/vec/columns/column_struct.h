@@ -82,6 +82,7 @@ public:
     }
 
     std::string get_name() const override;
+    bool is_column_struct() const override { return true; }
     const char* get_family_name() const override { return "Struct"; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
@@ -155,11 +156,11 @@ public:
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
-    }
     void get_extremes(Field& min, Field& max) const override;
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+
+    MutableColumnPtr get_shrinked_column() override;
+
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;

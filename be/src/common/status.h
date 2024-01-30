@@ -38,6 +38,7 @@ TStatusError(MEM_ALLOC_FAILED);
 TStatusError(BUFFER_ALLOCATION_FAILED);
 TStatusError(INVALID_ARGUMENT);
 TStatusError(INVALID_DATA_FORMAT);
+TStatusError(INVALID_JSON_PATH);
 TStatusError(MINIMUM_RESERVATION_UNAVAILABLE);
 TStatusError(CORRUPTION);
 TStatusError(IO_ERROR);
@@ -81,6 +82,7 @@ E(EVAL_CONJUNCTS_ERROR, -120);
 E(COPY_FILE_ERROR, -121);
 E(FILE_ALREADY_EXIST, -122);
 E(BAD_CAST, -123);
+E(ARITHMETIC_OVERFLOW_ERRROR, -124);
 E(CALL_SEQUENCE_ERROR, -202);
 E(BUFFER_OVERFLOW, -204);
 E(CONFIG_ERROR, -205);
@@ -162,7 +164,6 @@ E(BE_NO_SUITABLE_VERSION, -808);
 E(BE_INVALID_NEED_MERGED_VERSIONS, -810);
 E(BE_ERROR_DELETE_ACTION, -811);
 E(BE_SEGMENTS_OVERLAPPING, -812);
-E(BE_CLONE_OCCURRED, -813);
 E(PUSH_INIT_ERROR, -900);
 E(PUSH_VERSION_INCORRECT, -902);
 E(PUSH_SCHEMA_MISMATCH, -903);
@@ -230,7 +231,6 @@ E(CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE, -2003);
 E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004);
 E(CUMULATIVE_ERROR_DELETE_ACTION, -2005);
 E(CUMULATIVE_MISS_VERSION, -2006);
-E(CUMULATIVE_CLONE_OCCURRED, -2007);
 E(FULL_NO_SUITABLE_VERSION, -2008);
 E(FULL_MISS_VERSION, -2009);
 E(META_INVALID_ARGUMENT, -3000);
@@ -272,9 +272,11 @@ E(INVERTED_INDEX_NO_TERMS, -6005);
 E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006);
 E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007);
 E(INVERTED_INDEX_BUILD_WAITTING, -6008);
-E(KEY_NOT_FOUND, -6009);
-E(KEY_ALREADY_EXISTS, -6010);
-E(ENTRY_NOT_FOUND, -6011);
+E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009);
+E(INVERTED_INDEX_COMPACTION_ERROR, -6010);
+E(KEY_NOT_FOUND, -7000);
+E(KEY_ALREADY_EXISTS, -7001);
+E(ENTRY_NOT_FOUND, -7002);
 #undef E
 } // namespace ErrorCode
 
@@ -300,6 +302,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
         && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::INVALID_ARGUMENT
         && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
@@ -308,6 +311,7 @@ constexpr bool capture_stacktrace(int code) {
         && code != ErrorCode::INVERTED_INDEX_NO_TERMS
         && code != ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED
         && code != ErrorCode::INVERTED_INDEX_BUILD_WAITTING
+        && code != ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED
         && code != ErrorCode::META_KEY_NOT_FOUND
         && code != ErrorCode::PUSH_VERSION_ALREADY_EXIST
         && code != ErrorCode::VERSION_NOT_EXIST
@@ -355,14 +359,18 @@ public:
         return *this;
     }
 
+    template <bool stacktrace = true>
     Status static create(const TStatus& status) {
-        return Error<true>(status.status_code,
-                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
+        return Error<stacktrace>(
+                status.status_code,
+                "TStatus: " + (status.error_msgs.empty() ? "" : status.error_msgs[0]));
     }
 
+    template <bool stacktrace = true>
     Status static create(const PStatus& pstatus) {
-        return Error<true>(pstatus.status_code(),
-                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
+        return Error<stacktrace>(
+                pstatus.status_code(),
+                "PStatus: " + (pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0)));
     }
 
     template <int code, bool stacktrace = true, typename... Args>
@@ -402,6 +410,7 @@ public:
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
     ERROR_CTOR(InvalidArgument, INVALID_ARGUMENT)
     ERROR_CTOR(InvalidDataFormat, INVALID_DATA_FORMAT)
+    ERROR_CTOR(InvalidJsonPath, INVALID_JSON_PATH)
     ERROR_CTOR(MinimumReservationUnavailable, MINIMUM_RESERVATION_UNAVAILABLE)
     ERROR_CTOR(Corruption, CORRUPTION)
     ERROR_CTOR(IOError, IO_ERROR)
@@ -465,6 +474,8 @@ public:
     std::string to_json() const;
 
     int code() const { return _code; }
+
+    std::string msg() const { return _err_msg != nullptr ? _err_msg->_msg : ""; }
 
     /// Clone this status and add the specified prefix to the message.
     ///
@@ -588,6 +599,8 @@ inline std::string Status::to_string() const {
 
 template <typename T>
 using Result = expected<T, Status>;
+
+using ResultError = unexpected<Status>;
 
 #define RETURN_IF_ERROR_RESULT(stmt)                \
     do {                                            \

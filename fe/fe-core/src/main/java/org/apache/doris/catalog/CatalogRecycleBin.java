@@ -194,6 +194,17 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToRecycleTime.put(id, recycleTime);
     }
 
+    public synchronized boolean isRecyclePartition(long dbId, long tableId, long partitionId) {
+        return idToDatabase.containsKey(dbId) || idToTable.containsKey(tableId)
+                || idToPartition.containsKey(partitionId);
+    }
+
+    public synchronized void getRecycleIds(Set<Long> dbIds, Set<Long> tableIds, Set<Long> partitionIds) {
+        dbIds.addAll(idToDatabase.keySet());
+        tableIds.addAll(idToTable.keySet());
+        partitionIds.addAll(idToPartition.keySet());
+    }
+
     private synchronized boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
         return latency > minEraseLatency && latency > Config.catalog_trash_expire_second * 1000L;
@@ -1004,8 +1015,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
     }
 
+    // Need to add "synchronized", because when calling /dump api to dump image,
+    // this class is not protected by any lock, will throw ConcurrentModificationException.
     @Override
-    public void write(DataOutput out) throws IOException {
+    public synchronized void write(DataOutput out) throws IOException {
         int count = idToDatabase.size();
         out.writeInt(count);
         for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {

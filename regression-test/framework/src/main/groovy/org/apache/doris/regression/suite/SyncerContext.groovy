@@ -23,7 +23,11 @@ import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.thrift.TTabletCommitInfo
 import org.apache.doris.thrift.TGetSnapshotResult
+import org.apache.doris.thrift.TNetworkAddress;
 import com.google.gson.annotations.SerializedName
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 
@@ -93,6 +97,9 @@ class ExtraInfo {
 }
 
 class SyncerContext {
+    final Logger logger = LoggerFactory.getLogger(this.class)
+
+    final Suite suite
     protected Connection targetConnection
     protected FrontendClientImpl sourceFrontendClient
     protected FrontendClientImpl targetFrontendClient
@@ -121,7 +128,8 @@ class SyncerContext {
     public long txnId
     public long seq
 
-    SyncerContext(String dbName, Config config) {
+    SyncerContext(Suite suite, String dbName, Config config) {
+        this.suite = suite
         this.sourceDbId = -1
         this.targetDbId = -1
         this.db = dbName
@@ -139,16 +147,39 @@ class SyncerContext {
         return info
     }
 
+    FrontendClientImpl getMasterFrontClient() {
+        def result = suite.sql_return_maparray "select Host, RpcPort, IsMaster from frontends();"
+        logger.info("get master fe: ${result}")
+
+        def masterHost = ""
+        def masterPort = 0
+        for (def row : result) {
+            if (row.IsMaster == "true") {
+                masterHost = row.Host
+                masterPort = row.RpcPort.toInteger()
+                break
+            }
+        }
+
+        if (masterHost == "" || masterPort == 0) {
+            throw new Exception("can not find master fe")
+        }
+
+        def masterNetworkAddr = new TNetworkAddress(masterHost, masterPort)
+        logger.info("master fe network addr: ${masterNetworkAddr}")
+        return new FrontendClientImpl(masterNetworkAddr)
+    }
+
     FrontendClientImpl getSourceFrontClient() {
         if (sourceFrontendClient == null) {
-            sourceFrontendClient = new FrontendClientImpl(config.feSourceThriftNetworkAddress)
+            sourceFrontendClient = getMasterFrontClient()
         }
         return sourceFrontendClient
     }
 
     FrontendClientImpl getTargetFrontClient() {
         if (targetFrontendClient == null) {
-            targetFrontendClient = new FrontendClientImpl(config.feTargetThriftNetworkAddress)
+            targetFrontendClient = getMasterFrontClient()
         }
         return targetFrontendClient
     }

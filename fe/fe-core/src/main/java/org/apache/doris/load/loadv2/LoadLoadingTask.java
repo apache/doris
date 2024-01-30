@@ -111,7 +111,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                this.useNewLoadScanNode, userInfo);
+                this.useNewLoadScanNode, userInfo, singleTabletLoadPerSink);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

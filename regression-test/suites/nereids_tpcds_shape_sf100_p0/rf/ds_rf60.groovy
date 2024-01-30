@@ -110,7 +110,7 @@ where i_category in ('Children'))
 
     '''
     String plan = sql "${stmt}"
-    log.info(plan)
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -124,9 +124,9 @@ where i_category in ('Children'))
         }
     }
     
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.60"
-    // File file = new File(outFile)
-    // file.write(getRuntimeFilters(plan))
+    //def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.60"
+    //File file = new File(outFile)
+    //file.write(getRuntimeFilters(plan))
     
-     assertEquals("RF3[ca_address_sk->[ss_addr_sk],RF2[i_item_sk->[ss_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_item_id->[i_item_id],RF7[ca_address_sk->[cs_bill_addr_sk],RF6[i_item_sk->[cs_item_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_item_id->[i_item_id],RF11[ca_address_sk->[ws_bill_addr_sk],RF10[i_item_sk->[ws_item_sk],RF9[d_date_sk->[ws_sold_date_sk],RF8[i_item_id->[i_item_id]", getRuntimeFilters(plan))
+    assertEquals("RF3[i_item_sk->[ss_item_sk],RF2[ca_address_sk->[ss_addr_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[i_item_id->[i_item_id],RF7[i_item_sk->[cs_item_sk],RF6[ca_address_sk->[cs_bill_addr_sk],RF5[d_date_sk->[cs_sold_date_sk],RF4[i_item_id->[i_item_id],RF11[i_item_sk->[ws_item_sk],RF10[ca_address_sk->[ws_bill_addr_sk],RF9[d_date_sk->[ws_sold_date_sk],RF8[i_item_id->[i_item_id]", getRuntimeFilters(plan))
 }

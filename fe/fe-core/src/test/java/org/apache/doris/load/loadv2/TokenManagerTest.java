@@ -34,6 +34,7 @@ public class TokenManagerTest {
     @Test
     public void testTokenCheck() throws UserException {
         TokenManager tokenManager = new TokenManager();
+        tokenManager.start();
         String token = tokenManager.acquireToken();
         Assert.assertTrue(tokenManager.checkAuthToken(token));
     }
@@ -41,6 +42,7 @@ public class TokenManagerTest {
     @Test
     public void testSameToken() throws UserException {
         TokenManager tokenManager = new TokenManager();
+        tokenManager.start();
         String token1 = tokenManager.acquireToken();
         String token2 = tokenManager.acquireToken();
         Assert.assertNotNull(token1);

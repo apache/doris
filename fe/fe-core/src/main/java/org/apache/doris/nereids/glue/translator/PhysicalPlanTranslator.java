@@ -41,6 +41,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -65,11 +66,12 @@ import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -110,6 +112,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -139,6 +142,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
+import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
@@ -172,6 +176,7 @@ import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -582,6 +587,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
+    public PlanFragment visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, PlanTranslatorContext context) {
+        List<Slot> slots = odbcScan.getOutput();
+        TableIf table = odbcScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        OdbcScanNode odbcScanNode = new OdbcScanNode(odbcScan.translatePlanNodeId(), tupleDescriptor,
+                (OdbcTable) table);
+        odbcScanNode.addConjuncts(translateToLegacyConjuncts(odbcScan.getConjuncts()));
+        Utils.execWithUncheckedException(odbcScanNode::init);
+        context.addScanNode(odbcScanNode);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(odbcScan.getRelationId()).forEach(
+                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, odbcScanNode, context)
+                )
+        );
+        Utils.execWithUncheckedException(odbcScanNode::finalizeForNereids);
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), odbcScan);
+        return planFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
@@ -594,7 +622,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapScanNode olapScanNode = new OlapScanNode(olapScan.translatePlanNodeId(), tupleDescriptor, "OlapScanNode");
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
-            olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
+            // NOTICE: we should not set stats row count
+            //   because it is whole table cardinality and will break block rules.
+            // olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
             if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                 for (int i = 0; i < slots.size(); i++) {
                     Slot slot = slots.get(i);
@@ -615,7 +645,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
                     olapScan.getTableSample().get().sampleValue, olapScan.getTableSample().get().seek));
-            olapScanNode.computeSampleTabletIds();
         }
 
         // TODO:  remove this switch?
@@ -711,13 +740,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Table table = schemaScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(schemaScan.getOutput());
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        SchemaScanNode scanNode = new SchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+
+        // For the information_schema.rowsets table, the scan fragment needs to be sent to all BEs.
+        // For other information_schema tables, the scan fragment only needs to be sent to one of the BEs.
+        SchemaScanNode scanNode = null;
+        if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
+                table.getName())) {
+            scanNode = new BackendPartitionedSchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+        } else {
+            scanNode = new SchemaScanNode(schemaScan.translatePlanNodeId(), tupleDescriptor);
+        }
+        SchemaScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getRelationId())
-                        .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+                        .forEach(expr -> runtimeFilterGenerator
+                                .translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
-        scanNode.finalizeForNereids();
+        Utils.execWithUncheckedException(scanNode::finalizeForNereids);
         context.addScanNode(scanNode);
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
@@ -1102,7 +1142,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         JoinType joinType = hashJoin.getJoinType();
 
         List<Expr> execEqConjuncts = hashJoin.getHashJoinConjuncts().stream()
-                .map(EqualTo.class::cast)
+                .map(EqualPredicate.class::cast)
                 .map(e -> JoinUtils.swapEqualToForChildrenOrder(e, hashJoin.left().getOutputSet()))
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
@@ -1508,8 +1548,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        child.setOffset(physicalLimit.getOffset());
-        child.setLimit(physicalLimit.getLimit());
+        child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(), child.getLimit()));
+        child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
         updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
         return inputFragment;
     }
@@ -1523,8 +1563,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         addPlanRoot(inputFragment, partitionSortNode, partitionTopN);
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
-        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
+        if (inputFragment.getDataPartition().getType() != TPartitionType.RANDOM
+                && findOlapScanNodesByPassExchangeAndJoinNode(inputFragment.getPlanRoot())) {
             inputFragment.setHasColocatePlanNode(true);
         }
         return inputFragment;

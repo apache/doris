@@ -18,7 +18,7 @@ import org.junit.Assert
 // under the License.
 
 // This suit test the `backends` tvf
-suite("test_local_tvf_with_complex_type", "p0") {
+suite("test_local_tvf_with_complex_type","external,hive,tvf,external_docker") {
     List<List<Object>> backends =  sql """ show backends """
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
 

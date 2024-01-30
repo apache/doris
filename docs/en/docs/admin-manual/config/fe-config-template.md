@@ -38,13 +38,21 @@ After the FE process is started, it will read the configuration items in `fe.con
 
 The location of the `fe_custom.conf` file can be configured in `fe.conf` through the `custom_config_dir` configuration item.
 
+## Precautions
+
+**1.** For the purpose of simplifying the architecture, modifying the configuration through the mysql protocol will only modify the data in the local FE memory, and will not synchronize the changes to all FEs.
+For Config items that only take effect on the Master FE, the modification request will be automatically forwarded to the Master FE.
+
+**2.** Note that the option ```forward_to_master``` will affect the display results of ```admin show frontend config```, if ```forward_to_master=true```, ```admin show frontend config``` shows the Config of Master FE (Even if you are connecting to a Follower FE currently), this may cause you to be unable to see the modification of the local FE configuration; if you expect show config of the FE you're connecting, then execute the command ```set forward_to_master=false```.
+
+
 ## View configuration items
 
 There are two ways to view the configuration items of FE:
 
 1. FE web page
 
-    Open the FE web page `http://fe_host:fe_http_port/variable` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
+    Open the FE web page `http://fe_host:fe_http_port/Configure` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
 
 2. View by command
 

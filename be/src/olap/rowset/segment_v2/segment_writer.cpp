@@ -344,9 +344,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
+    DCHECK(_opts.rowset_ctx->partial_update_info);
     // find missing column cids
-    std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
-    std::vector<uint32_t> including_cids = _tablet_schema->get_update_cids();
+    const auto& missing_cids = _opts.rowset_ctx->partial_update_info->missing_cids;
+    const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
 
     // create full block and fill with input columns
     auto full_block = _tablet_schema->create_block();
@@ -400,6 +401,20 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
+            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
+            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
+            LOG(WARNING) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
+                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            return Status::InternalError<false>(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction in strict mode partial update");
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -426,24 +441,38 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
         _maybe_invalid_row_cache(key);
 
+        // mark key with delete sign as deleted.
+        bool have_delete_sign =
+                (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
+
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
         RowsetSharedPtr rowset;
         auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
                                           _mow_context->max_version, segment_caches, &rowset);
         if (st.is<KEY_NOT_FOUND>()) {
-            if (_tablet_schema->is_strict_mode()) {
+            if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
                                                   DeleteBitmap::TEMP_VERSION_COMMON},
                                                  segment_pos);
-            }
-
-            if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
-                return Status::InternalError(
-                        "the unmentioned columns should have default value or be nullable for "
-                        "newly inserted rows in non-strict mode partial update");
+            } else {
+                if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
+                    std::string error_column;
+                    for (auto cid : _opts.rowset_ctx->partial_update_info->missing_cids) {
+                        const TabletColumn& col = _tablet_schema->column(cid);
+                        if (!col.has_default_value() && !col.is_nullable()) {
+                            error_column = col.name();
+                            break;
+                        }
+                    }
+                    return Status::Error<INVALID_SCHEMA, false>(
+                            "the unmentioned column `{}` should have default value or be nullable "
+                            "for "
+                            "newly inserted rows in non-strict mode partial update",
+                            error_column);
+                }
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
@@ -457,16 +486,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // if the delete sign is marked, it means that the value columns of the row
         // will not be read. So we don't need to read the missing values from the previous rows.
         // But we still need to mark the previous row on delete bitmap
-        if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
+        if (have_delete_sign) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
-            if (!_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                  DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                 segment_pos);
-            }
         } else {
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
@@ -503,10 +525,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
 
     // convert missing columns and send to column writer
-    auto cids_missing = _tablet_schema->get_missing_cids();
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
-                                                                   cids_missing);
-    for (auto cid : cids_missing) {
+                                                                   missing_cids);
+    for (auto cid : missing_cids) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (converted_result.first != Status::OK()) {
             return converted_result.first;
@@ -556,8 +577,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
     // create old value columns
-    auto old_value_block = _tablet_schema->create_missing_columns_block();
-    std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
+    const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
+    auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
     auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
@@ -574,8 +595,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 read_index[id_and_pos.pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = _tablet->fetch_value_through_row_column(rowset, seg_it.first, rids,
-                                                                  cids_missing, old_value_block);
+                auto st = _tablet->fetch_value_through_row_column(
+                        rowset, *_tablet_schema, seg_it.first, rids, cids_missing, old_value_block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
@@ -663,7 +684,10 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
+    if (_opts.rowset_ctx->partial_update_info &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.write_type == DataWriteType::TYPE_DIRECT &&
+        !_opts.rowset_ctx->is_transient_rowset_writer) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }
@@ -676,29 +700,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         (_opts.write_type == DataWriteType::TYPE_DIRECT ||
          _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
-    }
-
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        const vectorized::ColumnWithTypeAndName& delete_sign_column =
-                block->get_by_position(_tablet_schema->delete_sign_idx());
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
-        if (delete_sign_col.size() >= row_pos + num_rows) {
-            const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-            uint32_t segment_start_pos =
-                    _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
-            for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
-                 seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                if (delete_sign_column_data[block_pos]) {
-                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                      DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                     seg_pos);
-                }
-            }
-        }
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
@@ -744,6 +745,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
+                _maybe_invalid_row_cache(key);
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
@@ -751,7 +753,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                         << "found duplicate key or key is not sorted! current key: " << key
                         << ", last key" << last_key;
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                _maybe_invalid_row_cache(key);
                 last_key = std::move(key);
             }
         } else {

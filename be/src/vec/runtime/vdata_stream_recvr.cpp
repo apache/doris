@@ -79,7 +79,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
 
 Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block, bool* eos) {
     if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
+        return Status::Cancelled(_cancel_msg);
     }
 
     if (_block_queue.empty()) {
@@ -246,14 +246,16 @@ void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::cancel() {
+void VDataStreamRecvr::SenderQueue::cancel(const std::string& msg) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
             return;
         }
         _is_cancelled = true;
-        VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << _recvr->fragment_instance_id()
+        _cancel_msg = msg; // TODO: std::string copy, maybe we can do this better.
+        VLOG_QUERY << "cancelled stream: _fragment_instance_id="
+                   << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
     }
     // Wake up all threads waiting to produce/consume batches.  They will all
@@ -407,14 +409,17 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {
+void VDataStreamRecvr::remove_sender(int sender_id, int be_number, QueryStatisticsPtr statistics) {
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->decrement_senders(be_number);
+    if (statistics != nullptr) {
+        _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
+    }
 }
 
-void VDataStreamRecvr::cancel_stream() {
+void VDataStreamRecvr::cancel_stream(const std::string& msg) {
     for (int i = 0; i < _sender_queues.size(); ++i) {
-        _sender_queues[i]->cancel();
+        _sender_queues[i]->cancel(msg);
     }
 }
 

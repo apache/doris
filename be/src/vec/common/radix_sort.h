@@ -107,7 +107,6 @@ struct RadixSortIdentityTransform {
     static constexpr bool transform_is_simple = true;
 
     static KeyBits forward(KeyBits x) { return x; }
-    static KeyBits backward(KeyBits x) { return x; }
 };
 
 template <typename TElement>
@@ -132,7 +131,6 @@ struct RadixSortSignedTransform {
     static constexpr bool transform_is_simple = true;
 
     static KeyBits forward(KeyBits x) { return x ^ (KeyBits(1) << (sizeof(KeyBits) * 8 - 1)); }
-    static KeyBits backward(KeyBits x) { return x ^ (KeyBits(1) << (sizeof(KeyBits) * 8 - 1)); }
 };
 
 template <typename TElement>
@@ -294,13 +292,15 @@ public:
         /// Transform the array and calculate the histogram.
         /// NOTE This is slightly suboptimal. Look at https://github.com/powturbo/TurboHist
         for (size_t i = 0; i < size; ++i) {
-            if (!Traits::Transform::transform_is_simple)
+            if (!Traits::Transform::transform_is_simple) {
                 Traits::extract_key(arr[i]) = bits_to_key(
                         Traits::Transform::forward(key_to_bits(Traits::extract_key(arr[i]))));
+            }
 
-            for (size_t pass = 0; pass < NUM_PASSES; ++pass)
+            for (size_t pass = 0; pass < NUM_PASSES; ++pass) {
                 ++histograms[pass * HISTOGRAM_SIZE +
                              get_part(pass, key_to_bits(Traits::extract_key(arr[i])))];
+            }
         }
 
         {
@@ -329,15 +329,20 @@ public:
                 dest = reader[i];
 
                 /// On the last pass, we do the reverse transformation.
-                if (!Traits::Transform::transform_is_simple && pass == NUM_PASSES - 1)
-                    Traits::extract_key(dest) = bits_to_key(Traits::Transform::backward(
-                            key_to_bits(Traits::extract_key(reader[i]))));
+                if constexpr (!Traits::Transform::transform_is_simple) {
+                    if (pass == NUM_PASSES - 1) {
+                        Traits::extract_key(dest) = bits_to_key(Traits::Transform::backward(
+                                key_to_bits(Traits::extract_key(reader[i]))));
+                    }
+                }
             }
         }
 
         /// If the number of passes is odd, the result array is in a temporary buffer. Copy it to the place of the original array.
         /// NOTE Sometimes it will be more optimal to provide non-destructive interface, that will not modify original array.
-        if (NUM_PASSES % 2) memcpy(arr, swap_buffer, size * sizeof(Element));
+        if (NUM_PASSES % 2) {
+            memcpy(arr, swap_buffer, size * sizeof(Element));
+        }
 
         allocator.deallocate(swap_buffer, size * sizeof(Element));
     }
@@ -374,16 +379,3 @@ public:
         radix_sort_msd_internal_helper<NUM_PASSES - 1>(arr, size, limit);
     }
 };
-
-/// Helper functions for numeric types.
-/// Use RadixSort with custom traits for complex types instead.
-
-template <typename T>
-void radix_sort_lsd(T* arr, size_t size) {
-    RadixSort<RadixSortNumTraits<T>>::execute_lsd(arr, size);
-}
-
-template <typename T>
-void radix_sort_msd(T* arr, size_t size, size_t limit) {
-    RadixSort<RadixSortNumTraits<T>>::execute_msd(arr, size, limit);
-}

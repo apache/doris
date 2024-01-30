@@ -61,7 +61,7 @@ public class LogicalHaving<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public List<Expression> getExpressions() {
-        return ImmutableList.of(getPredicate());
+        return ImmutableList.copyOf(conjuncts);
     }
 
     @Override

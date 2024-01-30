@@ -65,6 +65,44 @@ suite("test_pushdown_common_expr") {
         SELECT * FROM t_pushdown_common_expr WHERE c1 < 300 OR UPPER(c2)="F" OR c3 LIKE "%f%";
     """
 
+    // One conjunct. No push down.
+    order_qt_5 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR uuid_numeric() = 'A' OR c1 = 256
+    """
+
+    // One conjunct. No push down.
+    order_qt_6 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1
+    """
+
+    // Two conjuncts.
+    // random() > 1 is executed by scan node, c1 > 0 is pushed down and executed by segment iterator
+    order_qt_7 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 AND c1 > 0
+    """
+
+    // One conjunct. No push down.
+    order_qt_8 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR c1 > 1020
+    """
+
+    // t1: 512 & 1024
+    // t2: all
+    // join gets nothing
+    order_qt_9 """
+        SELECT *
+        FROM (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE c1 >= 512 or random() > 1
+        ) AS t1
+        JOIN (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE random() = 0
+        ) AS t2 ON t1.c1 = t2.c1
+    """
+
     sql """set enable_common_expr_pushdown=false"""
 
     order_qt_1 """
@@ -83,4 +121,91 @@ suite("test_pushdown_common_expr") {
         SELECT * FROM t_pushdown_common_expr WHERE c1 < 300 OR UPPER(c2)="K" OR c3 LIKE "%k%";
     """
 
+    order_qt_5 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR uuid_numeric() = 'A' OR c1 = 256
+    """
+
+    order_qt_6 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1
+    """
+    
+    order_qt_7 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 AND c1 > 0
+    """
+
+    order_qt_8 """
+        SELECT * FROM t_pushdown_common_expr WHERE random() > 1 OR c1 > 1020
+    """
+
+    order_qt_9 """
+        SELECT *
+        FROM (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE c1 >= 512 or random() > 1
+        ) AS t1
+        JOIN (
+            SELECT c1
+            FROM t_pushdown_common_expr
+            WHERE random() = 0
+        ) AS t2 ON t1.c1 = t2.c1
+    """
+
+    sql """ DROP TABLE IF EXISTS t_pushdown_common_expr_for_del """
+    sql """
+    CREATE TABLE `t_pushdown_common_expr_for_del` (
+        `c1` int(11) NULL,
+        `c2` varchar(100) NULL COMMENT "",
+        `c3` varchar(100) NULL COMMENT "",
+        `c4` varchar(100) NULL COMMENT "",
+        `c5` varchar(100) NULL COMMENT "",
+        `c6` varchar(100) NULL COMMENT "",
+        `c7` varchar(100) NULL COMMENT ""
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`c1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`c1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true"
+    );
+    """
+
+    sql """
+        INSERT INTO t_pushdown_common_expr_for_del VALUES
+        (1,'a','aa','aaa','aaaa','aaaaa','aaaaaa'),
+        (2,'b','bb','bbb','bbbb','bbbbb','bbbbbb'),
+        (3,'c','cc','ccc','cccc','ccccc','cccccc'),
+        (4,'d','dd','ddd','dddd','ddddd','dddddd'),
+        (5,'e','ee','eee','eeee','eeeee','eeeeee'),
+        (6,'f','ff','fff','ffff','fffff','ffffff'),
+        (7,'g','gg','ggg','gggg','ggggg','gggggg');
+     """
+
+    sql """set enable_common_expr_pushdown=true"""
+
+    // delete condition columns num > block columns num
+    order_qt_1 """
+        delete from t_pushdown_common_expr_for_del where c3 = "bb";
+    """
+
+    order_qt_2 """
+        delete from t_pushdown_common_expr_for_del where c4 = "ccc";
+    """
+
+    order_qt_3 """
+        delete from t_pushdown_common_expr_for_del where c5 = "dddd";
+    """
+
+    order_qt_4 """
+        delete from t_pushdown_common_expr_for_del where c6 = "eeeee";
+    """
+
+    order_qt_5 """
+        delete from t_pushdown_common_expr_for_del where c7 = "ffffff";
+    """
+
+    order_qt_6 """
+        select c2 from t_pushdown_common_expr_for_del where upper(c2) = "A";
+    """
 }

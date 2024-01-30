@@ -11,39 +11,40 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](tmp.time_sk = time_dim.t_time_sk)
 --------------------PhysicalDistribute
-----------------------hashJoin[INNER_JOIN](tmp.sold_item_sk = item.i_item_sk)
-------------------------PhysicalUnion
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN](tmp.sold_item_sk = item.i_item_sk)
+--------------------------PhysicalUnion
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
+----------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
+----------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = web_sales.ws_sold_date_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = catalog_sales.cs_sold_date_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
---------------------------------------PhysicalOlapScan[date_dim]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1998))
---------------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((item.i_manager_id = 1))
-------------------------------PhysicalOlapScan[item]
+------------------------------filter((item.i_manager_id = 1))
+--------------------------------PhysicalOlapScan[item]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter(t_meal_time IN ('breakfast', 'dinner'))

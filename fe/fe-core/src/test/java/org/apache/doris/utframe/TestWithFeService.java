@@ -125,6 +125,7 @@ public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
+    protected int lastFeRpcPort = 0;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
@@ -378,6 +379,7 @@ public abstract class TestWithFeService {
         MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
+        lastFeRpcPort = feRpcPort;
         return feRpcPort;
     }
 
@@ -392,7 +394,7 @@ public abstract class TestWithFeService {
             InterruptedException {
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
-        System.out.println("start create backend");
+        System.out.println("start create backend, backend num " + backendNum);
         for (int i = 0; i < backendNum; i++) {
             bes.add(createBackend("127.0.0.1", feRpcPort));
         }
@@ -434,6 +436,10 @@ public abstract class TestWithFeService {
         checkBEHeartbeat(bes);
     }
 
+    protected Backend addNewBackend() throws IOException, InterruptedException {
+        return createBackend("127.0.0.1", lastFeRpcPort);
+    }
+
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         IOException exception = null;
         for (int i = 0; i <= 3; i++) {
@@ -453,9 +459,10 @@ public abstract class TestWithFeService {
         int beHttpPort = findValidPort();
 
         // start be
+        MockedBackendFactory.BeThriftService beThriftService = new DefaultBeThriftServiceImpl();
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
                 beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                beThriftService, new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
@@ -463,9 +470,10 @@ public abstract class TestWithFeService {
         Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setPathHash(be.getId());
-        diskInfo1.setTotalCapacityB(1000000);
-        diskInfo1.setAvailableCapacityB(500000);
+        diskInfo1.setTotalCapacityB(10L << 30);
+        diskInfo1.setAvailableCapacityB(5L << 30);
         diskInfo1.setDataUsedCapacityB(480000);
+        diskInfo1.setPathHash(be.getId());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
@@ -473,6 +481,7 @@ public abstract class TestWithFeService {
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
+        beThriftService.setBackendInFe(be);
         Env.getCurrentSystemInfo().addBackend(be);
         return be;
     }
@@ -486,7 +495,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected int findValidPort() {
+    public static int findValidPort() {
         int port = 0;
         while (true) {
             try (ServerSocket socket = new ServerSocket(0)) {

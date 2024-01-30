@@ -47,7 +47,6 @@ import java.util.stream.Collectors;
  */
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
-    PredicatePropagation propagation = new PredicatePropagation();
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
 
     @Override
@@ -99,6 +98,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
     public ImmutableSet<Expression> visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Void context) {
         return cacheOrElse(aggregate, () -> {
             ImmutableSet<Expression> childPredicates = aggregate.child().accept(this, context);
+            // TODO
             Map<Expression, Slot> expressionSlotMap = aggregate.getOutputExpressions()
                     .stream()
                     .filter(this::hasAgg)
@@ -130,7 +130,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private ImmutableSet<Expression> getAvailableExpressions(Collection<Expression> predicates, Plan plan) {
         Set<Expression> expressions = Sets.newHashSet(predicates);
-        expressions.addAll(propagation.infer(expressions));
+        expressions.addAll(PredicatePropagation.infer(expressions));
         return expressions.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
                 .collect(ImmutableSet.toImmutableSet());

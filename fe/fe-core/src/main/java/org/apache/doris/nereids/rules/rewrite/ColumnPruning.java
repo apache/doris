@@ -117,9 +117,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
 
         LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
-        if (prunedOutputUnion == union) {
-            return union;
-        }
 
         // start prune children of union
         List<Slot> originOutput = union.getOutput();

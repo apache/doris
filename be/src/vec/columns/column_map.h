@@ -36,6 +36,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
@@ -110,7 +112,7 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
+    MutableColumnPtr get_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -122,10 +124,9 @@ public:
     void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not implemented";
     };
-    [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
-                                int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
-    }
+
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
+
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";

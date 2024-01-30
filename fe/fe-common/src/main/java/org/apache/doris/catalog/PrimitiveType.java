@@ -1214,8 +1214,6 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_BLOB;
             case JSONB:
                 return MysqlColType.MYSQL_TYPE_JSON;
-            case MAP:
-                return MysqlColType.MYSQL_TYPE_MAP;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

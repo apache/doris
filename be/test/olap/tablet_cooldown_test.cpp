@@ -135,7 +135,8 @@ public:
     ~RemoteFileSystemMock() override = default;
 
 protected:
-    Status create_file_impl(const Path& path, io::FileWriterPtr* writer) override {
+    Status create_file_impl(const Path& path, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts) override {
         Path fs_path = path;
         *writer = std::make_unique<FileWriterMock>(fs_path);
         return Status::OK();
@@ -238,6 +239,7 @@ public:
         storage_policy->name = "TabletCooldownTest";
         storage_policy->version = 1;
         storage_policy->resource_id = kResourceId;
+        storage_policy->cooldown_datetime = UnixSeconds() - 1;
         put_storage_policy(kStoragePolicyId, storage_policy);
 
         constexpr uint32_t MAX_PATH_LEN = 1024;
@@ -275,6 +277,7 @@ public:
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
                                                     TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 1000;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;

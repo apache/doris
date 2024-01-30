@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_transactional_hive", "p0") {
+suite("test_transactional_hive", "p0,external,hive,external_docker,external_docker_hive") {
     def q01 = {
         qt_q01 """
         select * from orc_full_acid order by id;
@@ -23,8 +23,11 @@ suite("test_transactional_hive", "p0") {
         qt_q02 """
         select value from orc_full_acid order by id;
         """
-        qt_q03 """
-        select * from orc_full_acid where value = 'CC' order by id;
+        qt_q04 """
+        select * from orc_full_acid_empty;
+        """
+        qt_q05 """
+        select count(*) from orc_full_acid_empty;
         """
     }
 
@@ -38,16 +41,24 @@ suite("test_transactional_hive", "p0") {
         qt_q03 """
         select * from orc_full_acid_par where value = 'BB' order by id;
         """
+        qt_q04 """
+        select * from orc_full_acid_par_empty;
+        """
+        qt_q05 """
+        select count(*) from orc_full_acid_par_empty;
+        """
     }
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "test_transactional_hive"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 

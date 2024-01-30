@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-DENSE_RANK",
+    "title": "WINDOW_FUNCTION_DENSE_RANK",
     "language": "en"
 }
 ---

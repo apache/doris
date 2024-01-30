@@ -390,6 +390,22 @@ enum FrontendServiceVersion {
   V1
 }
 
+struct TDetailedReportParams {
+  1: optional Types.TUniqueId fragment_instance_id
+  2: optional RuntimeProfile.TRuntimeProfileTree profile
+  3: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
+}
+
+
+struct TQueryStatistics {
+    // A thrift structure identical to the PQueryStatistics structure.
+    1: optional i64 scan_rows
+    2: optional i64 scan_bytes
+    3: optional i64 returned_rows
+    4: optional i64 cpu_ms
+    5: optional i64 max_peak_memory_bytes
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -447,6 +463,10 @@ struct TReportExecStatusParams {
   21: optional RuntimeProfile.TRuntimeProfileTree loadChannelProfile
 
   22: optional i32 finished_scan_ranges
+
+  23: optional list<TDetailedReportParams> detailed_report
+
+  24: optional TQueryStatistics query_statistics
 }
 
 struct TFeResult {
@@ -1015,6 +1035,7 @@ struct TGetBinlogResult {
     3: optional list<TBinlog> binlogs
     4: optional string fe_version
     5: optional i64 fe_meta_version
+    6: optional Types.TNetworkAddress master_address
 }
 
 struct TGetTabletReplicaInfosRequest {
@@ -1093,11 +1114,125 @@ typedef TGetBinlogRequest TGetBinlogLagRequest
 struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
     2: list<string> statsRows;
+}
+
+struct TInvalidateFollowerStatsCacheRequest {
+    1: optional string key;
+}
+
+struct TGetMetaReplica {
+    1: optional i64 id
+}
+
+struct TGetMetaTablet {
+    1: optional i64 id
+    2: optional list<TGetMetaReplica> replicas
+}
+
+struct TGetMetaIndex {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTablet> tablets
+}
+
+struct TGetMetaPartition {
+    1: optional i64 id
+    2: optional string name
+    3: optional string key
+    4: optional string range
+    5: optional bool is_temp
+    6: optional list<TGetMetaIndex> indexes
+}
+
+struct TGetMetaTable {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool in_trash
+    4: optional list<TGetMetaPartition> partitions
+}
+
+struct TGetMetaDB {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool only_table_names
+    4: optional list<TGetMetaTable> tables
+}
+
+struct TGetMetaRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string user_ip
+    5: optional string token
+    6: optional TGetMetaDB db
+    // trash
+}
+
+struct TGetMetaReplicaMeta {
+    1: optional i64 id
+    2: optional i64 backend_id
+    3: optional i64 version
+}
+
+struct TGetMetaTabletMeta {
+    1: optional i64 id
+    2: optional list<TGetMetaReplicaMeta> replicas
+}
+
+struct TGetMetaIndexMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTabletMeta> tablets
+}
+
+struct TGetMetaPartitionMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional string key
+    4: optional string range
+    5: optional i64 visible_version
+    6: optional bool is_temp
+    7: optional list<TGetMetaIndexMeta> indexes
+}
+
+struct TGetMetaTableMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional bool in_trash
+    4: optional list<TGetMetaPartitionMeta> partitions
+}
+
+struct TGetMetaDBMeta {
+    1: optional i64 id
+    2: optional string name
+    3: optional list<TGetMetaTableMeta> tables
+}
+
+struct TGetMetaResult {
+    1: required Status.TStatus status
+    2: optional TGetMetaDBMeta db_meta
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TGetBackendMetaRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string user_ip
+    5: optional string token
+    6: optional i64 backend_id
+}
+
+struct TGetBackendMetaResult {
+    1: required Status.TStatus status
+    2: optional list<Types.TBackend> backends
+    3: optional Types.TNetworkAddress master_address
 }
 
 service FrontendService {
@@ -1167,4 +1302,10 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+
+    TGetMetaResult getMeta(1: TGetMetaRequest request)
+
+    TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
+
+    Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 }

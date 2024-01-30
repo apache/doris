@@ -82,10 +82,15 @@ NewOlapScanNode::NewOlapScanNode(ObjectPool* pool, const TPlanNode& tnode,
 Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     if (!_is_pipeline_scan || _should_create_scanner) {
-        statistics->add_scan_bytes(_read_compressed_counter->value());
-        statistics->add_scan_rows(_raw_rows_counter->value());
+        statistics->add_scan_bytes(_byte_read_counter->value());
+        statistics->add_scan_rows(_rows_read_counter->value());
         statistics->add_cpu_ms(_scan_cpu_timer->value() / NANOS_PER_MILLIS);
     }
+    return Status::OK();
+}
+
+Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics, int) {
+    RETURN_IF_ERROR(collect_query_statistics(statistics));
     return Status::OK();
 }
 
@@ -120,6 +125,14 @@ Status NewOlapScanNode::_init_profile() {
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
+    _block_conditions_filtered_bf_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _block_conditions_filtered_zonemap_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
+    _block_conditions_filtered_zonemap_rp_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapRuntimePredicateTime");
+    _block_conditions_filtered_dict_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredDictTime");
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -143,7 +156,9 @@ Status NewOlapScanNode::_init_profile() {
 
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
-    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsZonemapFiltered", TUnit::UNIT);
+    _stats_rp_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsZonemapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -397,7 +412,8 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
 //  9: optional string table_name
 //}
 // every doris_scan_range is related with one tablet so that one olap scan node contains multiple tablet
-void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void NewOlapScanNode::set_scan_ranges(RuntimeState* state,
+                                      const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
@@ -418,7 +434,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     SCOPED_TIMER(_scanner_init_timer);
     auto span = opentelemetry::trace::Tracer::GetCurrentSpan();
 
-    if (!_conjuncts.empty()) {
+    if (!_conjuncts.empty() && VScanNode::_state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {

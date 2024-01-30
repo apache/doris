@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "runtime/task_group/task_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -36,9 +37,6 @@ class RuntimeState;
 namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
@@ -107,6 +105,7 @@ inline const char* get_state_name(PipelineTaskState idx) {
 }
 
 class TaskQueue;
+class PriorityTaskQueue;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
@@ -185,11 +184,11 @@ public:
 
     std::string debug_string();
 
-    taskgroup::TaskGroup* get_task_group() const;
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
 
-    static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
+    static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -341,5 +340,9 @@ private:
     int64_t _close_pipeline_time = 0;
 
     RuntimeProfile::Counter* _pip_task_total_timer;
+
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    Status _collect_query_statistics();
+    bool _collect_query_statistics_with_every_batch = false;
 };
 } // namespace doris::pipeline

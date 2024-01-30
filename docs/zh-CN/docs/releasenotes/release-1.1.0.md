@@ -89,11 +89,11 @@ Iceberg 外部表为 Apache Doris 提供了直接访问存储在 Iceberg 数据�
 
 -   在 TPC-H 测试数据集的全部 22 个 SQL 上，1.1 版本均优于 0.15 版本，整体性能约提升了 4.5 倍，部分场景性能达到了十余倍的提升；
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/edb59781b0f74ff08821467f23a63bad~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-1.1.0-SSB.png)
 
 <p align='center'>SSB 测试数据集</p>
 
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/e34377054f4448b3b367789a391f2122~tplv-k3u1fbpfcp-zoom-1.image)
+![](/images/release-note-1.1.0-TPC-H.png)
 
 <p align='center'>TPC-H 测试数据集</p>
 

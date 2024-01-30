@@ -37,6 +37,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -149,7 +150,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null, false);
+                distributionDesc, properties, extProperties, comment, null);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -164,7 +165,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops, false);
+                distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -178,8 +179,7 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList,
-            boolean isDynamicSchema) {
+            String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -196,12 +196,6 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
-        if (isDynamicSchema) {
-            if (properties == null) {
-                properties = Maps.newHashMap();
-            }
-            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
-        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;
@@ -318,8 +312,9 @@ public class CreateTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
+        InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 

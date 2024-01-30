@@ -26,6 +26,7 @@ import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -177,7 +178,8 @@ public class QueryProfileAction extends RestBaseController {
 
         // add node information
         for (List<String> query : queries) {
-            query.add(1, Env.getCurrentEnv().getSelfNode().getHost() + ":" + Config.http_port);
+            query.add(1, NetUtils.getHostPortInAccessibleFormat(Env.getCurrentEnv().getSelfNode().getHost(),
+                    Config.http_port));
         }
 
         if (!Strings.isNullOrEmpty(search)) {

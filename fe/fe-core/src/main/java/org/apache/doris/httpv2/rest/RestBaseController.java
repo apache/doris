@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -54,6 +55,7 @@ public class RestBaseController extends BaseController {
     protected static final String LABEL_KEY = "label";
     protected static final String TXN_ID_KEY = "txn_id";
     protected static final String TXN_OPERATION_KEY = "txn_operation";
+    protected static final String SINGLE_REPLICA_KEY = "single_replica";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
@@ -104,7 +106,8 @@ public class RestBaseController extends BaseController {
         if (!Strings.isNullOrEmpty(request.getQueryString())) {
             redirectUrl += request.getQueryString();
         }
-        LOG.info("redirect url: {}", redirectUrl);
+        LOG.info("Redirect url: {}", "http://" + addr.getHostname() + ":"
+                    + addr.getPort() + urlObj.getPath());
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
@@ -200,7 +203,8 @@ public class RestBaseController extends BaseController {
         String uri = request.getRequestURI();
         String query = request.getQueryString();
         query = query == null ? "" : query;
-        String newUrl = "https://" + serverName + ":" + Config.https_port + uri + "?" + query;
+        String newUrl = "https://" + NetUtils.getHostPortInAccessibleFormat(serverName, Config.https_port) + uri + "?"
+                + query;
         LOG.info("redirect to new url: {}", newUrl);
         RedirectView redirectView = new RedirectView(newUrl);
         redirectView.setStatusCode(HttpStatus.TEMPORARY_REDIRECT);

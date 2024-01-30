@@ -653,7 +653,7 @@ public class OutFileClause {
 
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
             successFileName = properties.get(PROP_SUCCESS_FILE_NAME);
-            FeNameFormat.checkCommonName("file name", successFileName);
+            FeNameFormat.checkOutfileSuccessFileName("file name", successFileName);
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 

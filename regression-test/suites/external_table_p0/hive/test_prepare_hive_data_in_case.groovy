@@ -24,10 +24,13 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
             String hms_port = context.config.otherConfigs.get("hms_port")
 
             hive_docker """show databases;"""
-            hive_docker """drop table if exists default.test_prepare_hive_data_in_case;"""
-            hive_docker """create table default.test_prepare_hive_data_in_case (k1 String, k2 String);"""
+            hive_docker """drop table if exists default.test_prepare_hive_data_in_case;  """
+            hive_docker """
+                            create table default.test_prepare_hive_data_in_case (k1 String, k2 String); 
+                        """
             hive_docker """insert into default.test_prepare_hive_data_in_case values ('aaa','bbb'),('ccc','ddd'),('eee','fff')"""
             def values = hive_docker """select count(*) from `default`.test_prepare_hive_data_in_case;"""
+            
             log.info(values.toString())
 
             sql """drop catalog if exists test_prepare_hive_data_in_case;"""
@@ -38,6 +41,10 @@ suite("test_prepare_hive_data_in_case", "p0,external,hive,external_docker,extern
             def values2 = sql """select count(*) from test_prepare_hive_data_in_case.`default`.test_prepare_hive_data_in_case;"""
             log.info(values2.toString())
             assertEquals(values[0][0],values2[0][0])
+
+            qt_hive_docker_01 """select * from default.test_prepare_hive_data_in_case order by k1 desc  ;"""
+            
+            qt_sql_02 """ select * from test_prepare_hive_data_in_case.`default`.test_prepare_hive_data_in_case order by k1 desc;"""
 
         } finally {
         }

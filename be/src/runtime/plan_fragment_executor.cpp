@@ -113,8 +113,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _query_id = params.query_id;
 
     LOG_INFO("PlanFragmentExecutor::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", params.fragment_instance_id)
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(params.fragment_instance_id))
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
@@ -149,19 +149,19 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     }
 
     // set up desc tbl
-    DescriptorTbl* desc_tbl = nullptr;
-    if (query_ctx != nullptr) {
-        desc_tbl = query_ctx->desc_tbl;
+    if (request.is_simplified_param) {
+        _desc_tbl = query_ctx->desc_tbl;
     } else {
         DCHECK(request.__isset.desc_tbl);
-        RETURN_IF_ERROR(DescriptorTbl::create(obj_pool(), request.desc_tbl, &desc_tbl));
+        RETURN_IF_ERROR(
+                DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl, &_desc_tbl));
     }
-    _runtime_state->set_desc_tbl(desc_tbl);
+    _runtime_state->set_desc_tbl(_desc_tbl);
 
     // set up plan
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ExecNode::create_tree(
-            _runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
+            _runtime_state.get(), obj_pool(), request.fragment.plan, *_desc_tbl, &_plan));
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
@@ -194,12 +194,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
             vectorized::VScanNode* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(runtime_state(), scan_ranges);
         } else {
             ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
             auto scan_ranges =
                     find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
-            scan_node->set_scan_ranges(scan_ranges);
+            scan_node->set_scan_ranges(runtime_state(), scan_ranges);
             VLOG_CRITICAL << "scan_node_Id=" << scan_node->id()
                           << " size=" << scan_ranges.get().size();
         }
@@ -212,7 +212,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *desc_tbl));
+                row_desc(), runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -239,7 +239,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
 
-    _query_statistics.reset(new QueryStatistics());
+    _query_statistics.reset(new QueryStatistics(request.query_options.query_type));
     if (_sink != nullptr) {
         _sink->set_query_statistics(_query_statistics);
     }
@@ -249,8 +249,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
     LOG_INFO("PlanFragmentExecutor::open")
-            .tag("query_id", _query_id)
-            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
     // we need to start the profile-reporting thread before calling Open(), since it
@@ -372,7 +372,25 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
 
 void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
-    Status status = _plan->collect_query_statistics(_query_statistics.get());
+    Status status;
+    /// TODO(yxc):
+    // The judgment of enable_local_exchange here is a bug, it should not need to be checked. I will fix this later.
+    bool _is_local = false;
+    if (_runtime_state->query_options().__isset.enable_local_exchange) {
+        _is_local = _runtime_state->query_options().enable_local_exchange;
+    }
+
+    if (_is_local) {
+        if (_runtime_state->num_per_fragment_instances() == 1) {
+            status = _plan->collect_query_statistics(_query_statistics.get());
+        } else {
+            status = _plan->collect_query_statistics(_query_statistics.get(),
+                                                     _runtime_state->per_fragment_instance_idx());
+        }
+    } else {
+        status = _plan->collect_query_statistics(_query_statistics.get());
+    }
+
     if (!status.ok()) {
         LOG(INFO) << "collect query statistics failed, st=" << status;
         return;
@@ -469,7 +487,8 @@ void PlanFragmentExecutor::send_report(bool done) {
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
     _report_status_cb(status, _is_report_success ? profile() : nullptr,
-                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok());
+                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok(),
+                      _dml_query_statistics());
 }
 
 void PlanFragmentExecutor::stop_report_thread() {
@@ -488,7 +507,7 @@ void PlanFragmentExecutor::stop_report_thread() {
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     LOG_INFO("PlanFragmentExecutor::cancel")
-            .tag("query_id", _query_id)
+            .tag("query_id", print_id(_query_id))
             .tag("instance_id", _runtime_state->fragment_instance_id())
             .tag("reason", reason)
             .tag("error message", msg);

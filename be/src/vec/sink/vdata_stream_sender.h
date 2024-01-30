@@ -106,6 +106,9 @@ public:
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
+    QueryStatistics* query_statistics() { return _query_statistics.get(); }
+    QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
+
 protected:
     friend class Channel;
     friend class PipChannel;
@@ -166,22 +169,22 @@ protected:
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
 
-    RuntimeProfile* _profile; // Allocated from _pool
-    RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _compress_timer;
-    RuntimeProfile::Counter* _brpc_send_timer;
-    RuntimeProfile::Counter* _brpc_wait_timer;
-    RuntimeProfile::Counter* _bytes_sent_counter;
-    RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _ignore_rows;
-    RuntimeProfile::Counter* _local_sent_rows;
-    RuntimeProfile::Counter* _local_send_timer;
-    RuntimeProfile::Counter* _split_block_hash_compute_timer;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
-    RuntimeProfile::Counter* _blocks_sent_counter;
-    RuntimeProfile::Counter* _merge_block_timer;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile* _profile {}; // Allocated from _pool
+    RuntimeProfile::Counter* _serialize_batch_timer {};
+    RuntimeProfile::Counter* _compress_timer {};
+    RuntimeProfile::Counter* _brpc_send_timer {};
+    RuntimeProfile::Counter* _brpc_wait_timer {};
+    RuntimeProfile::Counter* _bytes_sent_counter {};
+    RuntimeProfile::Counter* _uncompressed_bytes_counter {};
+    RuntimeProfile::Counter* _ignore_rows {};
+    RuntimeProfile::Counter* _local_sent_rows {};
+    RuntimeProfile::Counter* _local_send_timer {};
+    RuntimeProfile::Counter* _split_block_hash_compute_timer {};
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer {};
+    RuntimeProfile::Counter* _blocks_sent_counter {};
+    RuntimeProfile::Counter* _merge_block_timer {};
+    RuntimeProfile::Counter* _memory_usage_counter {};
+    RuntimeProfile::Counter* _peak_memory_usage_counter {};
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
@@ -251,24 +254,25 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    virtual Status send_block(PBlock* block, bool eos = false);
+    virtual Status send_remote_block(PBlock* block, bool eos = false,
+                                     const Status& st = Status::OK());
 
-    virtual Status send_block(BroadcastPBlockHolder* block, bool eos = false) {
+    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
     Status add_rows(Block* block, const std::vector<int>& row);
 
-    virtual Status send_current_block(bool eos);
+    virtual Status send_current_block(bool eos, const Status& exec_status = Status::OK());
 
-    Status send_local_block(bool eos = false);
+    Status send_local_block(bool eos = false, const Status& exec_status = Status::OK());
 
-    Status send_local_block(Block* block);
+    Status send_local_block(Block* block, const Status& exec_status = Status::OK());
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
-    Status close(RuntimeState* state);
+    Status close(RuntimeState* state, const Status& exec_status = Status::OK());
 
     // Get close wait's response, to finish channel close operation.
     Status close_wait(RuntimeState* state);
@@ -334,7 +338,7 @@ protected:
     // Serialize _batch into _thrift_batch and send via send_batch().
     // Returns send_batch() status.
     Status send_current_batch(bool eos = false);
-    Status close_internal();
+    Status close_internal(const Status& exec_status = Status::OK());
 
     VDataStreamSender* _parent;
 
@@ -440,7 +444,8 @@ public:
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
-    Status send_block(PBlock* block, bool eos = false) override {
+    Status send_remote_block(PBlock* block, bool eos = false,
+                             const Status& st = Status::OK()) override {
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         std::unique_ptr<PBlock> pblock_ptr;
         pblock_ptr.reset(block);
@@ -453,12 +458,12 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, std::move(pblock_ptr), eos, st}));
         }
         return Status::OK();
     }
 
-    Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+    Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) override {
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
         if (eos) {
             if (_eos_send) {
@@ -474,9 +479,9 @@ public:
     }
 
     // send _mutable_block
-    Status send_current_block(bool eos) override {
+    Status send_current_block(bool eos, const Status& st) override {
         if (is_local()) {
-            return send_local_block(eos);
+            return send_local_block(eos, st);
         }
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         auto block_ptr = std::make_unique<PBlock>();
@@ -486,7 +491,7 @@ public:
             block.clear_column_data();
             _mutable_block->set_muatable_columns(block.mutate_columns());
         }
-        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
+        RETURN_IF_ERROR(send_remote_block(block_ptr.release(), eos, st));
         return Status::OK();
     }
 

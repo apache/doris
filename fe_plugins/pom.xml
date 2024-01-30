@@ -68,7 +68,7 @@ under the License.
     </modules>
     <properties>
         <log4j2.version>2.18.0</log4j2.version>
-        <doris.version>1.2-SNAPSHOT</doris.version>
+        <doris.version>2.0-SNAPSHOT</doris.version>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
@@ -108,7 +108,7 @@ under the License.
                 </repository>
                 <repository>
                     <id>cloudera-public</id>
-                    <url>https://repository.cloudera.com/artifactory/public/</url>
+                    <url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
                 </repository>
             </repositories>
         </profile>

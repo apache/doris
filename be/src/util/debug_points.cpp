@@ -30,37 +30,42 @@ DebugPoints* DebugPoints::instance() {
 }
 
 bool DebugPoints::is_enable(const std::string& name) {
+    return get_debug_point(name) != nullptr;
+}
+
+std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name) {
     if (!config::enable_debug_points) {
-        return false;
+        return nullptr;
     }
     auto map_ptr = std::atomic_load_explicit(&_debug_points, std::memory_order_relaxed);
     auto it = map_ptr->find(name);
     if (it == map_ptr->end()) {
-        return false;
+        return nullptr;
     }
 
-    auto& debug_point = *(it->second);
-    if ((debug_point.expire_ms > 0 && MonotonicMillis() >= debug_point.expire_ms) ||
-        (debug_point.execute_limit > 0 &&
-         debug_point.execute_num.fetch_add(1, std::memory_order_relaxed) >=
-                 debug_point.execute_limit)) {
+    auto debug_point = it->second;
+    if ((debug_point->expire_ms > 0 && MonotonicMillis() >= debug_point->expire_ms) ||
+        (debug_point->execute_limit > 0 &&
+         debug_point->execute_num.fetch_add(1, std::memory_order_relaxed) >=
+                 debug_point->execute_limit)) {
         remove(name);
-        return false;
+        return nullptr;
     }
 
-    return true;
+    return debug_point;
 }
 
-void DebugPoints::add(const std::string& name, int64_t execute_limit, int64_t timeout_second) {
-    auto debug_point = std::make_shared<DebugPoint>();
-    debug_point->execute_limit = execute_limit;
-    if (timeout_second > 0) {
-        debug_point->expire_ms = MonotonicMillis() + timeout_second * MILLIS_PER_SEC;
-    }
+void DebugPoints::add(const std::string& name, std::shared_ptr<DebugPoint> debug_point) {
     update([&](DebugPointMap& new_points) { new_points[name] = debug_point; });
 
-    LOG(INFO) << "add debug point: name=" << name << ", execute=" << execute_limit
-              << ", timeout=" << timeout_second;
+    std::ostringstream oss;
+    oss << "{";
+    for (auto [key, value] : debug_point->params) {
+        oss << key << " : " << value << ", ";
+    }
+    oss << "}";
+
+    LOG(INFO) << "add debug point: name=" << name << ", params=" << oss.str();
 }
 
 void DebugPoints::remove(const std::string& name) {

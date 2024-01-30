@@ -66,10 +66,6 @@ public class ColocateGroupSchema implements Writable {
         return replicaAlloc;
     }
 
-    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
-        this.replicaAlloc = replicaAlloc;
-    }
-
     public List<Type> getDistributionColTypes() {
         return distributionColTypes;
     }
@@ -105,8 +101,11 @@ public class ColocateGroupSchema implements Writable {
                     continue;
                 }
                 if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
+                    String typeName = info.getDistributionColumns().get(i).getType().toString();
+                    String colName = info.getDistributionColumns().get(i).getName();
+                    String formattedString = colName + "(" + typeName + ")";
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
-                            info.getDistributionColumns().get(i).getName(), targetColType);
+                                                formattedString, targetColType);
                 }
             }
         }

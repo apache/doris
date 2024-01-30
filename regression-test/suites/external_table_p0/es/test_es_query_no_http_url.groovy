@@ -15,51 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_es_query_no_http_url", "p0") {
-
+suite("test_es_query_no_http_url", "p0,external,es,external_docker,external_docker_es") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String es_6_port = context.config.otherConfigs.get("es_6_port")
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
 
-        sql """drop catalog if exists es6;"""
-        sql """drop catalog if exists es7;"""
-        sql """drop catalog if exists es8;"""
-        sql """drop table if exists test_v1;"""
-        sql """drop table if exists test_v2;"""
+        sql """drop catalog if exists es6_no_http_url;"""
+        sql """drop catalog if exists es7_no_http_url;"""
+        sql """drop catalog if exists es8_no_http_url;"""
+        sql """drop table if exists test_v1_no_http_url;"""
+        sql """drop table if exists test_v2_no_http_url;"""
 
         // test old create-catalog syntax for compatibility
         sql """
-            create catalog es6
-            properties (
+            create catalog if not exists es6_no_http_url properties (
                 "type"="es",
-                "elasticsearch.hosts"="127.0.0.1:$es_6_port",
+                "elasticsearch.hosts"="${externalEnvIp}:$es_6_port",
                 "elasticsearch.nodes_discovery"="false",
                 "elasticsearch.keyword_sniff"="true"
             );
         """
 
         // test new create catalog syntax
-        sql """create catalog if not exists es7 properties(
-            "type"="es",
-            "hosts"="127.0.0.1:$es_7_port",
-            "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+        sql """
+            create catalog if not exists es7_no_http_url properties(
+                "type"="es",
+                "hosts"="${externalEnvIp}:$es_7_port",
+                "nodes_discovery"="false",
+                "enable_keyword_sniff"="true"
         );
         """
 
-        sql """create catalog if not exists es8 properties(
-            "type"="es",
-            "hosts"="127.0.0.1:$es_8_port",
-            "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+        sql """
+            create catalog if not exists es8_no_http_url properties(
+                "type"="es",
+                "hosts"="${externalEnvIp}:$es_8_port",
+                "nodes_discovery"="false",
+                "enable_keyword_sniff"="true"
         );
         """
 
         // test external table for datetime
         sql """
-            CREATE TABLE `test_v1` (
+            CREATE TABLE `test_v1_no_http_url` (
                 `c_datetime` array<datev2> NULL,
                 `c_long` array<bigint(20)> NULL,
                 `c_unsigned_long` array<largeint(40)> NULL,
@@ -87,17 +88,17 @@ suite("test_es_query_no_http_url", "p0") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "127.0.0.1:$es_7_port",
+                "hosts" = "${externalEnvIp}:$es_7_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql51 """select * from test_v1 where test2='text#1'"""
+        order_qt_sql51 """select * from test_v1_no_http_url where test2='text#1'"""
 
        sql """
-            CREATE TABLE `test_v2` (
+            CREATE TABLE `test_v2_no_http_url` (
                 `c_datetime` array<datev2> NULL,
                 `c_long` array<bigint(20)> NULL,
                 `c_unsigned_long` array<largeint(40)> NULL,
@@ -125,23 +126,23 @@ suite("test_es_query_no_http_url", "p0") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "127.0.0.1:$es_8_port",
+                "hosts" = "${externalEnvIp}:$es_8_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",
                 "http_ssl_enabled"="false"
             );
         """
-        order_qt_sql52 """select * from test_v2 where test2='text#1'"""
+        order_qt_sql52 """select * from test_v2_no_http_url where test2='text#1'"""
 
         // es6
-        sql """switch es6"""
+        sql """switch es6_no_http_url"""
         order_qt_sql61 """select * from test1 where test2='text#1'"""
         // es7
-        sql """switch es7"""
+        sql """switch es7_no_http_url"""
         order_qt_sql71 """select * from test1 where test2='text#1'"""
         // es8
-        sql """switch es8"""
+        sql """switch es8_no_http_url"""
         order_qt_sql81 """select * from test1 where test2='text#1'"""
     }
 }

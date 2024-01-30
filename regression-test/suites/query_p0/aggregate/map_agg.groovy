@@ -268,6 +268,10 @@ suite("map_agg") {
         ORDER BY `id`;
     """
 
+    qt_sql6 """
+        select m['LC'] from (SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_nullable GROUP BY `id`)t order by 1;
+    """
+
     qt_garbled_characters """
         select
             userid, map['语文'] 语文, map['数学'] 数学, map['英语'] 英语, map['政治'] 政治

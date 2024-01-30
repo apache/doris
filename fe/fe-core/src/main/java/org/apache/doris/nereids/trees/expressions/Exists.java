@@ -103,4 +103,9 @@ public class Exists extends SubqueryExpr implements LeafExpression {
     public Expression withTypeCoercion(DataType dataType) {
         return this;
     }
+
+    @Override
+    public Exists withSubquery(LogicalPlan subquery) {
+        return new Exists(subquery, correlateSlots, typeCoercionExpr, isNot);
+    }
 }

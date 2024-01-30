@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -77,11 +77,10 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
         Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
         Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
         join.getHashJoinConjuncts().forEach(conjunct -> {
-            Preconditions.checkArgument(conjunct instanceof EqualTo);
+            Preconditions.checkArgument(conjunct instanceof EqualPredicate);
             // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
             // doesn't swap the two sides.
-            conjunct = JoinUtils.swapEqualToForChildrenOrder(
-                    (EqualTo) conjunct, join.left().getOutputSet());
+            conjunct = JoinUtils.swapEqualToForChildrenOrder((EqualPredicate) conjunct, join.left().getOutputSet());
             generateReplaceMapAndProjectExprs(conjunct.child(0), exprReplaceMap, leftProjectExprs);
             generateReplaceMapAndProjectExprs(conjunct.child(1), exprReplaceMap, rightProjectExprs);
         });

@@ -467,7 +467,7 @@ Status SnapshotLoader::remote_http_download(
 
         for (const auto& filename : filename_list) {
             std::string remote_file_url = fmt::format(
-                    "http://{}:{}/api/_tablet/_download?token={}&file={}/{}",
+                    "http://{}:{}/api/_tablet/_download?token={}&file={}/{}&channel=ingest_binlog",
                     remote_tablet_snapshot.remote_be_addr.hostname,
                     remote_tablet_snapshot.remote_be_addr.port, remote_tablet_snapshot.remote_token,
                     remote_tablet_snapshot.remote_snapshot_path, filename);

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "如何开启Debug日志",
+    "title": "如何开启 Debug 日志",
     "language": "zh-CN"
 }
 ---

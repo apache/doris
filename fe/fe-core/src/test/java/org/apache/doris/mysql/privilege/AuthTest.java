@@ -39,6 +39,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
@@ -1470,6 +1471,38 @@ public class AuthTest {
             e.printStackTrace();
             Assert.fail();
         }
+
+        // test domain override
+        // 1. create a domain user
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = UserIdentity.ROOT;
+            }
+        };
+        UserIdentity domainUser = new UserIdentity("test_domain_user", "palo.domain1", true);
+        userDesc = new UserDesc(domainUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 2. create a normal user with same ip in domain
+        UserIdentity normalUser = new UserIdentity("test_domain_user", "10.1.1.1");
+        userDesc = new UserDesc(normalUser, "12345", true);
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        createUserStmt.analyze(analyzer);
+        auth.createUser(createUserStmt);
+        // 3. run resolve
+        resolver.runAfterCatalogReady();
+        // 4. user grant to test that normal user is not overwrite by domain resolve
+        grantStmt = new GrantStmt(normalUser, null, new TablePattern("*", "*", "*"), privileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
     }
 
     @Test
@@ -2302,5 +2335,22 @@ public class AuthTest {
         revokeStmt = new RevokeStmt(userIdentity, null, new TablePattern("viewdb", "*"),
                 Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.DROP_PRIV)));
         revoke(revokeStmt);
+    }
+
+    @Test
+    public void testSetInitialRootPassword() {
+        // Skip set root password if `initial_root_password` set to empty string
+        auth.setInitialRootPassword("");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+        auth.setInitialRootPassword("invalidRootPassword");
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", null, null));
+        // Set initial root password
+        byte[] scrambled = MysqlPassword.makeScrambledPassword("validRootPassword");
+        auth.setInitialRootPassword(new String(scrambled));
+        Assert.assertTrue(
+                auth.checkPlainPasswordForTest("root", "192.168.0.1", "validRootPassword", null));
     }
 }

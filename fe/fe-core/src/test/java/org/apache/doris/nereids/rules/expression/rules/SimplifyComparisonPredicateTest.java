@@ -23,13 +23,16 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -64,13 +67,6 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
 
-        // DateTimeV2 -> Date
-        assertRewrite(
-                new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 1, 0, 0, 0)));
-        assertRewrite(
-                new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new LessThan(new Cast(d, DateTimeType.INSTANCE), new DateTimeLiteral(1, 1, 2, 0, 0, 0)));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
@@ -125,5 +121,20 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
 
         // right should round to be 2021-01-02 00:00:00.00
         Assertions.assertEquals(new DateTimeV2Literal("2021-01-02 00:00:00"), rewrittenExpression.child(1));
+    }
+
+    @Test
+    void testDoubleLiteral() {
+        executor = new ExpressionRuleExecutor(
+                ImmutableList.of(SimplifyComparisonPredicate.INSTANCE));
+
+        Expression leftChild = new BigIntLiteral(999);
+        Expression left = new Cast(leftChild, DoubleType.INSTANCE);
+        Expression right = new DoubleLiteral(111);
+
+        Expression expression = new GreaterThanEqual(left, right);
+        Expression rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertEquals(left.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
+        Assertions.assertEquals(rewrittenExpression.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
     }
 }

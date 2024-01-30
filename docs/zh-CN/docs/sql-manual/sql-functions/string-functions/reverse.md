@@ -1,6 +1,6 @@
 ---
 {
-    "title": "reverse",
+    "title": "REVERSE",
     "language": "zh-CN"
 }
 ---

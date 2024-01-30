@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -155,6 +156,19 @@ public abstract class AlterJobV2 implements Writable {
         this.finishedTimeMs = finishedTimeMs;
     }
 
+    // /api/debug_point/add/{name}?value=100
+    private void stateWait(final String name) {
+        long waitTimeMs = DebugPointUtil.getDebugParamOrDefault(name, 0);
+        if (waitTimeMs > 0) {
+            try {
+                LOG.info("debug point {} wait {} ms", name, waitTimeMs);
+                Thread.sleep(waitTimeMs);
+            } catch (InterruptedException e) {
+                LOG.warn(name, e);
+            }
+        }
+    }
+
     /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
@@ -171,15 +185,24 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
+        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
+        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+            LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
+            return;
+        }
+
         try {
             switch (jobState) {
                 case PENDING:
+                    stateWait("FE.ALTER_JOB_V2_PENDING");
                     runPendingJob();
                     break;
                 case WAITING_TXN:
+                    stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
                     runWaitingTxnJob();
                     break;
                 case RUNNING:
+                    stateWait("FE.ALTER_JOB_V2_RUNNING");
                     runRunningJob();
                     break;
                 default:

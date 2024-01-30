@@ -17,6 +17,7 @@
 
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
@@ -29,7 +30,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -45,8 +45,8 @@ using namespace ErrorCode;
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
-        auto fs = _rowset_meta->fs();
-        if (!fs) {
+        const auto& fs = _rowset_meta->fs();
+        if (!fs || !_rowset_meta->is_local()) { // Remote fs will delete them asynchronously
             return;
         }
         for (auto& segment_writer : _segment_writers) {
@@ -57,8 +57,7 @@ VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(fs->delete_file(path),
-                          strings::Substitute("Failed to delete file=$0", path));
+            WARN_IF_ERROR(fs->delete_file(path), fmt::format("Failed to delete file={}", path));
         }
     }
 }

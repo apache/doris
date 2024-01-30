@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "scan_task_queue.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -30,6 +31,9 @@ class ExecEnv;
 namespace vectorized {
 class VScanner;
 } // namespace vectorized
+namespace taskgroup {
+class ScanTaskTaskGroupQueue;
+}
 template <typename T>
 class BlockingQueue;
 } // namespace doris
@@ -66,6 +70,11 @@ public:
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
+    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
+        return _task_group_local_scan_queue.get();
+    }
+
+    int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
 private:
     // scheduling thread function
@@ -75,7 +84,13 @@ private:
     // execution thread function
     void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
 
-private:
+    void _register_metrics();
+
+    static void _deregister_metrics();
+
+    void _task_group_scanner_scan(ScannerScheduler* scheduler,
+                                  taskgroup::ScanTaskTaskGroupQueue* scan_queue);
+
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;
@@ -95,12 +110,16 @@ private:
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
+    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
+    int _remote_thread_pool_max_size;
 };
 
 } // namespace doris::vectorized

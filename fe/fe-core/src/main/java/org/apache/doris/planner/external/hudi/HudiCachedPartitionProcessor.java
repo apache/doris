@@ -96,11 +96,11 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
         if (Long.parseLong(timestamp) == lastTimestamp) {
             return getPartitionValues(table, tableMetaClient);
         }
-        List<String> partitionNames = getPartitionNamesBeforeOrEquals(timeline, timestamp);
-        List<String> partitionColumnsList = Arrays.asList(partitionColumns.get());
+        List<String> partitionNameAndValues = getPartitionNamesBeforeOrEquals(timeline, timestamp);
+        List<String> partitionNames = Arrays.asList(partitionColumns.get());
         TablePartitionValues partitionValues = new TablePartitionValues();
-        partitionValues.addPartitions(partitionNames,
-                partitionNames.stream().map(p -> parsePartitionValues(partitionColumnsList, p))
+        partitionValues.addPartitions(partitionNameAndValues,
+                partitionNameAndValues.stream().map(p -> parsePartitionValues(partitionNames, p))
                         .collect(Collectors.toList()), table.getPartitionColumnTypes());
         return partitionValues;
     }

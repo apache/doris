@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-WINDOW-FUNNEL",
+    "title": "WINDOW_FUNCTION_WINDOW_FUNNEL",
     "language": "en"
 }
 ---

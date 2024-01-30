@@ -342,11 +342,17 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
     hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSProperties.HIVE_VERSION));
 
-    version = MetastoreConf.getBoolVar(conf, ConfVars.HIVE_IN_TEST) ? TEST_VERSION : VERSION;
+    // For hive 2.3.7, there is no ClientCapability.INSERT_ONLY_TABLES
+    if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
+      version = MetastoreConf.getBoolVar(conf, ConfVars.HIVE_IN_TEST) ? TEST_VERSION : null;
+    } else {
+      version = MetastoreConf.getBoolVar(conf, ConfVars.HIVE_IN_TEST) ? TEST_VERSION : VERSION;
+    }
+
     filterHook = loadFilterHooks();
     uriResolverHook = loadUriResolverHook();
     fileMetadataBatchSize = MetastoreConf.getIntVar(
-        conf, ConfVars.BATCH_RETRIEVE_OBJECTS_MAX);
+            conf, ConfVars.BATCH_RETRIEVE_OBJECTS_MAX);
 
     String msUri = MetastoreConf.getVar(conf, ConfVars.THRIFT_URIS);
     localMetaStore = MetastoreConf.isEmbeddedMetaStore(msUri);
