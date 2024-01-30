@@ -960,8 +960,14 @@ public class FunctionCallExpr extends Expr {
         // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
         if (fnName.getFunction().equalsIgnoreCase("avg") && arg.type.isDecimalV3()
                 && arg.type.getDecimalDigits() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
-            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), arg.type.getPrecision(),
-                    ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE);
+            int precision = arg.type.getPrecision();
+            int scale = arg.type.getDecimalDigits();
+            precision = precision - scale + ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
+            if (precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                precision = ScalarType.MAX_DECIMAL128_PRECISION;
+            }
+            Type t = ScalarType.createDecimalType(arg.type.getPrimitiveType(), precision, scale);
             Expr e = getChild(0).castTo(t);
             setChild(0, e);
         }
