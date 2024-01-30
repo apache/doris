@@ -32,7 +32,10 @@ import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HivePartition;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -454,6 +457,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return initSchema();
     }
 
+    public long getLastDdlTime() {
+        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(dbName, name);
+        Map<String, String> parameters = table.getParameters();
+        if (parameters == null || !parameters.containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000;
+    }
 
     @Override
     public List<Column> initSchema() {
@@ -810,7 +822,45 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public long getPartitionLastModifyTime(long partitionId, PartitionItem item) throws AnalysisException {
+    public String getPartitionName(long partitionId) throws AnalysisException {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                getDbName(), getName(), getPartitionColumnTypes());
+        Map<String, Long> partitionNameToIdMap = hivePartitionValues.getPartitionNameToIdMap();
+        for (Entry<String, Long> entry : partitionNameToIdMap.entrySet()) {
+            if (entry.getValue().equals(partitionId)) {
+                return entry.getKey();
+            }
+        }
+        throw new AnalysisException("can not find partition,  partitionId: " + partitionId);
+    }
+
+    @Override
+    public MTMVSnapshotIf getPartitionSnapshot(long partitionId, PartitionItem item) throws AnalysisException {
+        long partitionLastModifyTime = getPartitionLastModifyTime(item);
+        return new MTMVTimestampSnapshot(partitionLastModifyTime);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot() throws AnalysisException {
+        if (getPartitionType() == PartitionType.UNPARTITIONED) {
+            return new MTMVMaxTimestampSnapshot(-1L, getLastDdlTime());
+        }
+        long partitionId = 0L;
+        long maxVersionTime = 0L;
+        long visibleVersionTime;
+        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
+            visibleVersionTime = getPartitionLastModifyTime(entry.getValue());
+            if (visibleVersionTime > maxVersionTime) {
+                maxVersionTime = visibleVersionTime;
+                partitionId = entry.getKey();
+            }
+        }
+        return new MTMVMaxTimestampSnapshot(partitionId, maxVersionTime);
+    }
+
+    private long getPartitionLastModifyTime(PartitionItem item) throws AnalysisException {
         List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(1);
         partitionValuesList.add(
                 ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
@@ -821,21 +871,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (resPartitions.size() != 1) {
             throw new AnalysisException("partition not normal, size: " + resPartitions.size());
         }
-        return resPartitions.get(0).getLastModifiedTimeIgnoreInit();
-    }
-
-    @Override
-    public long getLastModifyTime() throws AnalysisException {
-
-        long result = 0L;
-        long visibleVersionTime;
-        for (Entry<Long, PartitionItem> entry : getPartitionItems().entrySet()) {
-            visibleVersionTime = getPartitionLastModifyTime(entry.getKey(), entry.getValue());
-            if (visibleVersionTime > result) {
-                result = visibleVersionTime;
-            }
-        }
-        return result;
+        return resPartitions.get(0).getLastModifiedTime();
     }
 }
 

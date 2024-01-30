@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -133,6 +134,7 @@ public class MTMVTask extends AbstractTask {
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
+    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
 
     public MTMVTask() {
     }
@@ -167,6 +169,7 @@ public class MTMVTask extends AbstractTask {
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitionIds.size() / refreshPartitionNum) + ((needRefreshPartitionIds.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
+            this.partitionSnapshots = Maps.newHashMap();
             for (int i = 0; i < execNum; i++) {
                 int start = i * refreshPartitionNum;
                 int end = start + refreshPartitionNum;
@@ -174,8 +177,11 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, end > needRefreshPartitionIds.size() ? needRefreshPartitionIds.size() : end));
                 // need get names before exec
                 List<String> execPartitionNames = MTMVUtil.getPartitionNamesByIds(mtmv, execPartitionIds);
+                Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVUtil
+                        .generatePartitionSnapshots(mtmv, execPartitionIds);
                 exec(ctx, execPartitionIds, tableWithPartKey);
                 completedPartitions.addAll(execPartitionNames);
+                partitionSnapshots.putAll(execPartitionSnapshots);
             }
         } catch (Throwable e) {
             LOG.warn("run task failed: ", e);
@@ -341,11 +347,13 @@ public class MTMVTask extends AbstractTask {
     private void after() {
         if (mtmv != null) {
             Env.getCurrentEnv()
-                    .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
+                    .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation,
+                            partitionSnapshots);
         }
         mtmv = null;
         relation = null;
         executor = null;
+        partitionSnapshots = null;
     }
 
     private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
